@@ -21,7 +21,7 @@ namespace Harborline.Api.Foundation.Recovery.Erasure;
 /// not permitted, so the constructor requires both an <see cref="IAuditTrail"/>
 /// and an <see cref="IOperationSigner"/>.
 /// </summary>
-public sealed class SubjectErasureService : ISubjectErasureService
+public sealed class SubjectErasureService : ISubjectErasureService, ISubjectErasureRecovery
 {
     /// <summary>The ADR 0068 §3 approval floor: at least this many DISTINCT approvers.</summary>
     public const int MinimumApprovers = 2;
@@ -35,6 +35,7 @@ public sealed class SubjectErasureService : ISubjectErasureService
     private readonly TimeSpan _minimumWindow;
     private readonly IReadOnlyList<ISubjectErasurePropagator> _propagators;
     private readonly ILegalHoldRegistry? _holds;
+    private readonly ISubjectErasureRecoveryRegistry? _recovery;
 
     /// <param name="registry">The crypto-shred register whose tombstone destroys the per-subject key.</param>
     /// <param name="tombstones">The append-only pseudonymized-tombstone store.</param>
@@ -84,6 +85,7 @@ public sealed class SubjectErasureService : ISubjectErasureService
         }
         _propagators = propagators?.ToArray() ?? Array.Empty<ISubjectErasurePropagator>();
         _holds = holds;
+        _recovery = registry as ISubjectErasureRecoveryRegistry;
     }
 
     /// <inheritdoc />
@@ -123,37 +125,100 @@ public sealed class SubjectErasureService : ISubjectErasureService
             throw new SubjectErasureRejectedException("minimum window not elapsed");
         }
 
-        var pseudonym = SubjectPseudonym.Derive(request.Tenant, request.Subject);
+        var evidence = new SubjectErasureEvidence(approvers, request.LegalBasis, now);
 
         // --- Idempotency and crash-resume (DES-0029 ck-6). ---
-        // MarkErasedAsync returns false when the subject was already shredded. A completed erasure is recognised
-        // by its SubjectErased audit, which is written LAST under a deterministic id; anything short of that is
-        // an erasure a crash interrupted, and this call finishes it. Every remaining step is idempotent.
-        var firstErasure = await _registry
-            .MarkErasedAsync(request.Tenant, request.Subject, ct)
-            .ConfigureAwait(false);
+        // MarkErasedAsync returns false when the subject was already shredded. On a durable recovery registry
+        // (T-1048) the mark records the approval evidence in the same commit, so the host's recovery pass can
+        // finish an interrupted erasure without this request, and completion is the registry's own record.
+        // Otherwise a completed erasure is recognised by its SubjectErased audit, written LAST under a
+        // deterministic id. Anything short of completion is an erasure a crash interrupted, and this call finishes it.
+        var firstErasure = _recovery is not null
+            ? await _recovery.MarkErasedAsync(request.Tenant, request.Subject, evidence, ct).ConfigureAwait(false)
+            : await _registry.MarkErasedAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
 
-        // Destroy the stored subject key even on an idempotent retry. If an earlier attempt marked the
-        // erasure but was interrupted before key deletion, the retry must finish the irreversible step.
-        await _keyDestroyer
-            .DestroySubjectKeysAsync(request.Tenant, request.Subject, ct)
-            .ConfigureAwait(false);
+        if (!firstErasure)
+        {
+            var existing = await _tombstones
+                .FindAsync(request.Tenant, SubjectPseudonym.Derive(request.Tenant, request.Subject), ct)
+                .ConfigureAwait(false);
+            if (existing is not null && await IsCompletedAsync(existing, request.Subject, ct).ConfigureAwait(false))
+            {
+                // Destroy the stored subject key even on an idempotent retry (key deletion is idempotent).
+                await _keyDestroyer.DestroySubjectKeysAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
+                return new SubjectErasureResult(SubjectErasureOutcome.AlreadyErased, existing);
+            }
 
-        var existing = await _tombstones
-            .FindAsync(request.Tenant, pseudonym, ct)
-            .ConfigureAwait(false);
-        if (!firstErasure && existing is not null && await IsAuditedAsync(existing, ct).ConfigureAwait(false))
-            return new SubjectErasureResult(SubjectErasureOutcome.AlreadyErased, existing);
+            // A retry finishes the erasure the FIRST mark approved: its recorded evidence, never this request's.
+            if (_recovery is not null
+                && await _recovery.FindEvidenceAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false) is { } recorded)
+            {
+                evidence = recorded;
+            }
+        }
+
+        var tombstone = await FinishAsync(request.Tenant, request.Subject, evidence, ct).ConfigureAwait(false);
+        return new SubjectErasureResult(SubjectErasureOutcome.Erased, tombstone);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RecoverInterruptedAsync(int limit, CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        if (_recovery is null) return 0;
+        var now = _clock.UtcNow();
+        var completed = 0;
+        foreach (var due in await _recovery.ListDueAsync(now, limit, ct).ConfigureAwait(false))
+        {
+            try
+            {
+                // The request passed the hold gate before its mark. A hold placed since defers the rest, as a
+                // retried request would be refused; the erasure stays owed and is retried with backoff.
+                if (_holds is not null
+                    && await _holds.IsSubjectHeldAsync(due.Tenant, due.Subject, ct).ConfigureAwait(false))
+                {
+                    await _recovery.DeferAsync(due.Tenant, due.Subject, now, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                await FinishAsync(due.Tenant, due.Subject, due.Evidence, ct).ConfigureAwait(false);
+                completed++;
+            }
+            // Any fault defers the row, an OperationCanceledException included unless it is this pass's own cancellation:
+            // one failing erasure must not stall or end the pass.
+            catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                // Never abandoned: the evidence stays, and the row is retried once its backoff elapses, so a row
+                // that keeps failing does not hold back newer rows.
+                await _recovery.DeferAsync(due.Tenant, due.Subject, now, ct).ConfigureAwait(false);
+            }
+        }
+
+        return completed;
+    }
+
+    /// <summary>
+    /// Finishes a marked erasure. Every step is idempotent: key destruction, the write-once tombstone, the purge,
+    /// then the SubjectErased audit, which on a recovery registry is secured in the commit that clears the evidence.
+    /// </summary>
+    private async Task<SubjectTombstone> FinishAsync(
+        TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct)
+    {
+        // Destroy the stored subject key even on a resumed erasure: an earlier attempt may have marked the
+        // erasure but been interrupted before key deletion.
+        await _keyDestroyer.DestroySubjectKeysAsync(tenant, subject, ct).ConfigureAwait(false);
 
         // --- The shred is now in effect (DeriveSubjectKeyAsync fails closed). ---
         // Write the pseudonymized tombstone in place of the subject's identifying fields (write-once: a resumed
         // erasure keeps the tombstone its first attempt wrote).
+        var pseudonym = SubjectPseudonym.Derive(tenant, subject);
+        var existing = await _tombstones.FindAsync(tenant, pseudonym, ct).ConfigureAwait(false);
         var tombstone = existing ?? new SubjectTombstone(
-            TenantId: request.Tenant,
+            TenantId: tenant,
             Pseudonym: pseudonym,
-            ErasedAt: now,
-            ApprovingActors: approvers.ToImmutableArray(),
-            LegalBasis: request.LegalBasis);
+            ErasedAt: evidence.ApprovedAt,
+            ApprovingActors: evidence.ApprovingActors.ToImmutableArray(),
+            LegalBasis: evidence.LegalBasis);
         if (existing is null)
             await _tombstones.WriteAsync(tombstone, ct).ConfigureAwait(false);
 
@@ -162,31 +227,44 @@ public sealed class SubjectErasureService : ISubjectErasureService
         // partially-invertible cleartext cache (the KG-search vec0 acceleration table) would survive the
         // crypto-shred until explicitly purged. The registry and tombstone already record the shred durably; the
         // purge runs before the audit so the audit marks the erasure COMPLETE, and a purge a crash interrupted is
-        // re-run by the retry. A fault propagates — a failed cleartext-cache purge is a compliance signal.
+        // re-run. A fault propagates — a failed cleartext-cache purge is a compliance signal.
         foreach (var propagator in _propagators)
         {
-            await propagator.PropagateErasureAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
+            await propagator.PropagateErasureAsync(tenant, subject, ct).ConfigureAwait(false);
         }
 
         // --- Audit the erasure itself (mandatory; no plaintext in the payload), exactly once. ---
-        if (!await IsAuditedAsync(tombstone, ct).ConfigureAwait(false))
-            await EmitErasedAsync(tombstone, ct).ConfigureAwait(false);
+        // The trail gets it now. On a recovery registry the same signed record is also staged durably in the commit
+        // that clears the evidence, so the evidence is never cleared on the strength of an in-memory append.
+        var audit = await FindErasedAuditAsync(tombstone, ct).ConfigureAwait(false);
+        if (audit is null)
+        {
+            audit = await SignErasedAsync(tombstone, ct).ConfigureAwait(false);
+            await _auditTrail.AppendAsync(audit, ct).ConfigureAwait(false);
+        }
+        if (_recovery is not null)
+            await _recovery.CompleteAsync(subject, audit, ct).ConfigureAwait(false);
 
-        return new SubjectErasureResult(SubjectErasureOutcome.Erased, tombstone);
+        return tombstone;
     }
+
+    private async Task<bool> IsCompletedAsync(SubjectTombstone tombstone, SubjectId subject, CancellationToken ct) =>
+        _recovery is not null
+            ? await _recovery.IsCompletedAsync(tombstone.TenantId, subject, ct).ConfigureAwait(false)
+            : await FindErasedAuditAsync(tombstone, ct).ConfigureAwait(false) is not null;
 
     /// <summary>The SubjectErased entry's id: one per erased subject, so a resumed erasure never records two.</summary>
     private static Guid ErasedAuditId(SubjectTombstone tombstone) => new(System.Security.Cryptography.SHA256.HashData(
         System.Text.Encoding.UTF8.GetBytes("subject-erased|" + tombstone.TenantId.Value + "|" + tombstone.Pseudonym))
         .AsSpan(0, 16));
 
-    private async Task<bool> IsAuditedAsync(SubjectTombstone tombstone, CancellationToken ct)
+    private async Task<AuditRecord?> FindErasedAuditAsync(SubjectTombstone tombstone, CancellationToken ct)
     {
-        await foreach (var _ in _auditTrail.QueryAsync(
+        await foreach (var record in _auditTrail.QueryAsync(
                 new AuditQuery(tombstone.TenantId, AuditEventType.SubjectErased, AuditId: ErasedAuditId(tombstone)), ct)
             .ConfigureAwait(false))
-            return true;
-        return false;
+            return record;
+        return null;
     }
 
     private async Task EmitShredBlockedAsync(TenantId tenant, SubjectId subject, CancellationToken ct)
@@ -204,7 +282,7 @@ public sealed class SubjectErasureService : ISubjectErasureService
         await _auditTrail.AppendAsync(record, ct).ConfigureAwait(false);
     }
 
-    private async Task EmitErasedAsync(SubjectTombstone tombstone, CancellationToken ct)
+    private async Task<AuditRecord> SignErasedAsync(SubjectTombstone tombstone, CancellationToken ct)
     {
         var payload = SubjectErasureAuditPayloadFactory.Erased(tombstone);
         var signed = await _signer.SignAsync(payload, tombstone.ErasedAt, Guid.NewGuid(), ct).ConfigureAwait(false);
@@ -215,6 +293,6 @@ public sealed class SubjectErasureService : ISubjectErasureService
             OccurredAt: tombstone.ErasedAt,
             Payload: signed,
             AttestingSignatures: ImmutableArray<AttestingSignature>.Empty);
-        await _auditTrail.AppendAsync(record, ct).ConfigureAwait(false);
+        return record;
     }
 }

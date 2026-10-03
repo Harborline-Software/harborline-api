@@ -8,6 +8,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Recovery.Erasure;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search;
 
@@ -161,6 +162,32 @@ public sealed class NodeAuditOutbox(
     }
 
     /// <summary>
+    /// T-1048: stages an already-signed system <paramref name="record"/> on <paramref name="write"/> under the
+    /// record's own audit id, unless an entry with that id is already staged. Nothing is saved here.
+    /// </summary>
+    /// <returns><c>true</c> when the entry was added; <c>false</c> when it was already staged.</returns>
+    public static async ValueTask<bool> StageSignedRecordAsync(DbContext write, AuditRecord record, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        ArgumentNullException.ThrowIfNull(record);
+        var id = record.AuditId.ToString("D");
+        if (await write.Set<AuditOutboxRow>().AnyAsync(row => row.AuditId == id, ct).ConfigureAwait(false))
+            return false;
+        write.Set<AuditOutboxRow>().Add(new AuditOutboxRow
+        {
+            AuditId = id,
+            TenantId = record.TenantId.Value,
+            EventType = record.EventType.Value,
+            OccurredAt = record.OccurredAt,
+            Nonce = record.Payload.Nonce.ToString("D"),
+            BodyJson = JsonSerializer.Serialize(record.Payload.Payload.Body),
+            SignedPayloadJson = NodeAuditRecordJson.WritePayload(record.Payload),
+            Actor = record.Actor?.Value,
+        });
+        return true;
+    }
+
+    /// <summary>
     /// Delivers every owed entry to the trail in stage order. An entry the trail already holds (a crash between
     /// its append and its mark) is marked without a second append. A failed entry records its error and stays owed.
     /// </summary>
@@ -278,12 +305,23 @@ public sealed class NodeAuditOutbox(
     }
 }
 
-/// <summary>Drains the audit outbox on an interval, so an entry whose first delivery failed is delivered later.</summary>
-public sealed class NodeAuditOutboxDrainDaemon(NodeAuditOutbox outbox, TimeProvider time, ILogger<NodeAuditOutboxDrainDaemon> logger)
+/// <summary>
+/// Drains the audit outbox at startup and on an interval, so an entry whose first delivery failed is delivered
+/// later. T-1048: each pass first finishes the subject erasures a crash interrupted, so their audits, staged in
+/// the outbox by the commit that clears their evidence, are delivered by the same pass.
+/// </summary>
+public sealed class NodeAuditOutboxDrainDaemon(
+    NodeAuditOutbox outbox,
+    TimeProvider time,
+    ILogger<NodeAuditOutboxDrainDaemon> logger,
+    ISubjectErasureService? erasures = null)
     : BackgroundService
 {
     /// <summary>The drain interval.</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
+
+    /// <summary>The most interrupted erasures one pass finishes; the rest wait for the next pass.</summary>
+    public const int ErasureRecoveryLimit = 32;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -291,6 +329,18 @@ public sealed class NodeAuditOutboxDrainDaemon(NodeAuditOutbox outbox, TimeProvi
         using var timer = new PeriodicTimer(Interval, time);
         do
         {
+            if (erasures is ISubjectErasureRecovery recovery)
+            {
+                try
+                {
+                    await recovery.RecoverInterruptedAsync(ErasureRecoveryLimit, stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    logger.LogError(exception, "Subject erasure recovery failed; it will retry next interval.");
+                }
+            }
+
             try
             {
                 await outbox.DrainAsync(stoppingToken).ConfigureAwait(false);
