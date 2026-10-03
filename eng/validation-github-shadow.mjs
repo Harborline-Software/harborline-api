@@ -131,7 +131,7 @@ export async function compareRuns({currentRunId, priorRunId, api, unpack}) {
     })}
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (import.meta.main) {
   const [currentRunId, priorRunId, output] = process.argv.slice(2)
   try {
     const result = await compareRuns({currentRunId, priorRunId, api: createGitHubClient(process.env.GH_TOKEN)})
