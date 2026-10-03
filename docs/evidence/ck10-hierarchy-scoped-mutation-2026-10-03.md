@@ -55,3 +55,24 @@ This rerun supersedes the first report's temporal follow-up status. The coordina
 The comparison `edgeEnd <= to.Value` at line 411 is now covered and Survived; replacing a bound by the same value when equal preserves its interval. The earlier inherited-start equality survivor at line 409 has the same equal-value property. The three remaining uncovered mutations are line 405's visited-interval continue and the two missing-decision throw mutations at line 525. Finite-end invalidation removals at lines 300 and 438 remain CompileError.
 
 The twelve Timeout IDs in this run are 5810 (line 36), 5811 (37), 5823/5825 (123), 5830/5832 (135), 5839 (148), 5865 (186), 5966 (413), 6004 (480), 6013 (524), and 6016 (527). These were Killed in the earlier raw report, but that historical status is not substituted for their current Timeout result. No deadline, gate, baseline or production behavior was changed, and no blanket clearance is claimed for the residual survivors, compile errors, uncovered mutations or timeouts.
+
+## Scheduled split correction at b3ef2327
+
+Source/test head `b3ef232711a0530dc596386bdb3c164e859601e2` fixes requested future child edges omitted by active-only split snapshots. Both Bind and atomic reread select requested unended edges. Replacement and old-edge close start at the later of the scheduled start and act instant, retaining finite ends. Unrequested future children remain untouched. The admission instant remains the act instant.
+
+Four new cases were red against the previous production implementation: open/finite scheduled reassignment and added/changed future snapshots. Restored production passed 141 focused tests with zero skipped. Independent literal oracles cover endpoints, scheduled intervals, invalidations, entity and audit state, and refusal before minting.
+
+The same whole-file native scoped command above then completed in 274 seconds, embedding 128 tests. This report supersedes the previous source's mutation evidence: **83 Killed, 11 Timeout, 71 Survived, 3 NoCoverage, 20 CompileError, 28 Ignored**, 165 tested, score 55.95. Timeouts are not assertion kills. Raw report, generated configuration and test manifest are archived at `716d0f44` on `archive/pr331-scoped-b3ef2327-20261003`, under `docs/evidence/raw/pr331-b3ef2327/`. Raw size 12,612,107 bytes; SHA-256 `7C857B7C74E8A85FB4CDBCB5258A6BEB9A26DF82FCACA79D7FE86C7ECD4DD0CE`. Manifest SHA-256 `6538948ADE791F859CE6A5CDE96EEBAEC7F94B7D352E7B3520308936C873F68D`. Tested production SHA-256 `8C50489C0CBA36B212884040F460A195FDACA202ABB9048814F5133445593193`.
+
+| Obligation | Current mutation | Status | Named killing test |
+| --- | --- | --- | --- |
+| Refuse changed future snapshot | 5840, line 149, remove refusal | Killed | `Split_ChangedFutureChildSnapshot_RefusesBeforeMinting` |
+| Preserve scheduled start | 5850, line 163, force act instant | Killed | `Split_ReassignsRequestedFutureChild_PreservesScheduledInterval` |
+| Retain finite scheduled end | 5859, line 169, remove invalidation | Killed | `Split_ReassignsRequestedFutureChild_PreservesScheduledInterval` |
+| Preserve requested-child selection | 6016, line 518, negate inclusion | Killed | `Split_ChangedFutureChildSnapshot_RefusesBeforeMinting` |
+| Preserve inherited start | 5953, line 412, force edge start | Killed | `FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward` |
+| Clip finite inherited end | 5962, line 414, reverse comparison | Killed | `FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg` |
+| Atomic cycle recheck | 5980, line 431, remove recheck | Killed | `OpposingReparents_TheSecondToCommitIsRefusedInsideItsUnit` |
+| Displaced-state refusal | 5985, line 435, remove refusal | Killed | `ChangedDisplacedEdges_RefuseCommitAndWriteNothing` |
+
+The three NoCoverage mutations remain the visited-interval continue at line 408 and missing-decision throw at line 530. Residual survivors, timeouts and compile errors are disclosed by the archived raw report; no blanket equivalence, survivor clearance, policy waiver or required-gate replacement is claimed. Earlier report IDs and outcomes remain historical evidence only.
