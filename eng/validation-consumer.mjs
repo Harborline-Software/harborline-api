@@ -7,6 +7,12 @@ import {inspectProducerBoundary} from './validation-producer-policy.mjs'
 import {compareObservations} from './validation-shadow-report.mjs'
 import {fingerprint, inputProblems} from './validation-reuse.mjs'
 
+const hostProfiles = {
+  'verify-macos': {os: 'darwin', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.macos.json'},
+  'verify-linux': {os: 'linux', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.ubuntu.json'},
+  'verify-windows-hosted': {os: 'win32', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.json'},
+}
+
 export async function inspectCandidate({api, runId, consumerContext, observe = observeRun}) {
   const prefix = '/repos/Harborline-Software/harborline-api'
   const current = await observe({runId, api})
@@ -28,12 +34,18 @@ export async function inspectCandidate({api, runId, consumerContext, observe = o
     const observedCoverage = item.observation?.inputs?.coverage?.enabled
     const expectedQuality = item.lane === 'verify-windows-hosted'
     const observedQuality = item.observation?.inputs?.selection?.quality
+    const expectedHost = hostProfiles[item.lane]
+    const manifest = item.observation?.inputs
+    const hostMatches = Boolean(expectedHost && manifest?.lane === 'host'
+      && manifest?.commitInputs?.scope === 'host-exact-clone'
+      && manifest?.platform?.os === expectedHost.os && manifest?.platform?.architecture === expectedHost.architecture
+      && manifest?.selection?.hostBaseline === expectedHost.baseline)
     const profile = item.observation ? {candidateTree: item.observation.inputs.candidateTree,
       fingerprint: item.observation.fingerprint, selection: item.observation.inputs.selection,
-      coverage: observedCoverage, expectedCoverage, expectedQuality,
+      coverage: observedCoverage, expectedCoverage, expectedQuality, expectedHost, hostMatches,
       inputManifestComplete: inputProblems(item.observation.inputs).length === 0
         && item.observation.fingerprint === fingerprint(item.observation.inputs),
-      modeMatches: observedCoverage === expectedCoverage && observedQuality === expectedQuality} : null
+      modeMatches: hostMatches && observedCoverage === expectedCoverage && observedQuality === expectedQuality} : null
     lanes.push({lane: item.lane, candidateSha: item.observation?.candidateSha ?? null,
       currentTransportVerified: item.transportVerified, priorTransportVerified: before?.transportVerified ?? false,
       currentProblems: item.problems ?? [], ...compareObservations(item.observation, before?.observation),

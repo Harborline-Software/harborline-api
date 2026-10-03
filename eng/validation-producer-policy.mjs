@@ -20,16 +20,27 @@ export function compareProducerDefinitions({trustedTree, candidateTree}) {
   return {definitionMatches: problems.length === 0, problems, reuseAuthorized: false}
 }
 
-export function validateConsumerRoot({eventName, workflowRef, workflowSha, defaultBranchSha, repository}) {
+export function validateConsumerRoot({eventName, workflowRef, workflowSha, defaultBranchSha, repository, workflowOnProtectedMain = false}) {
   return repository === 'Harborline-Software/harborline-api' && eventName === 'workflow_run'
     && workflowRef === 'Harborline-Software/harborline-api/.github/workflows/validation-consumer.yml@refs/heads/main'
-    && /^[0-9a-f]{40}$/.test(workflowSha ?? '') && workflowSha === defaultBranchSha
+    && /^[0-9a-f]{40}$/.test(workflowSha ?? '') && (workflowSha === defaultBranchSha || workflowOnProtectedMain)
 }
 
 export async function inspectProducerBoundary({api, candidateCommit, consumerContext}) {
   const prefix = '/repos/Harborline-Software/harborline-api'
   const main = await api(`${prefix}/branches/main`)
-  if (main.protected !== true || !validateConsumerRoot({...consumerContext, defaultBranchSha: main.commit.sha}))
+  let workflowOnProtectedMain = false
+  if (main.protected === true && /^[0-9a-f]{40}$/.test(consumerContext.workflowSha ?? '')
+    && consumerContext.workflowSha !== main.commit.sha) {
+    const ancestry = await api(`${prefix}/compare/${consumerContext.workflowSha}...${main.commit.sha}`)
+    if (['identical', 'ahead'].includes(ancestry.status)) {
+      const [loadedTree, currentTree] = await Promise.all([
+        api(`${prefix}/git/trees/${consumerContext.workflowSha}?recursive=1`),
+        api(`${prefix}/git/trees/${main.commit.sha}?recursive=1`)])
+      workflowOnProtectedMain = compareProducerDefinitions({trustedTree: loadedTree, candidateTree: currentTree}).definitionMatches
+    }
+  }
+  if (main.protected !== true || !validateConsumerRoot({...consumerContext, defaultBranchSha: main.commit.sha, workflowOnProtectedMain}))
     return {definitionMatches: false, consumerTrusted: false, reuseAuthorized: false,
       problems: ['consumer is not the independently resolved default-branch workflow']}
   if (!/^[0-9a-f]{40}$/.test(candidateCommit ?? '')) throw new Error('invalid candidate commit')

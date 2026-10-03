@@ -18,6 +18,7 @@ import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {randomUUID} from 'node:crypto'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
@@ -169,6 +170,8 @@ try {
   const eslintDirectory = path.join(qualityDirectory, 'eslint')
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
   buildArgs.push('-p:HarborlineValidationInputCapture=1')
+  process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION = randomUUID()
+  buildArgs.push(`-p:HarborlineValidationCaptureSession=${process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION}`)
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
     rmSync(archDirectory, {recursive: true, force: true})

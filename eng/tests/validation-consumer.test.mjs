@@ -19,6 +19,9 @@ test('candidate-specific reports deny incomplete lanes and coverage-mode mismatc
   const sha = 'c'.repeat(40)
   const records = ['verify-macos', 'verify-linux', 'verify-windows-hosted'].map(lane => {
     const manifest = inputs()
+    manifest.platform.os = lane === 'verify-macos' ? 'darwin' : lane === 'verify-linux' ? 'linux' : 'win32'
+    manifest.selection.hostBaseline = lane === 'verify-macos' ? 'eng/baselines/host-test-baseline.macos.json'
+      : lane === 'verify-linux' ? 'eng/baselines/host-test-baseline.ubuntu.json' : 'eng/baselines/host-test-baseline.json'
     if (lane === 'verify-windows-hosted') {
       manifest.selection.quality = true
       manifest.pins.quality = {applicable: true, commit: 'd'.repeat(40), tree: 'e'.repeat(40), declared: 'd'.repeat(40)}
@@ -38,6 +41,17 @@ test('candidate-specific reports deny incomplete lanes and coverage-mode mismatc
   records[2].observation.inputs.coverage.enabled = true
   records[2].observation.fingerprint = fingerprint(records[2].observation.inputs)
   assert.equal((await inspect()).requiredLaneSetComplete, true)
+  for (const [field, invalid] of [['lane', 'shared'], ['platform', {...records[0].observation.inputs.platform, os: 'win32'}],
+    ['platform', {...records[0].observation.inputs.platform, architecture: 'arm64'}],
+    ['selection', {...records[0].observation.inputs.selection, hostBaseline: 'eng/baselines/host-test-baseline.json'}],
+    ['commitInputs', {...records[0].observation.inputs.commitInputs, scope: 'shared'}]]) {
+    const original = records[0].observation.inputs[field]
+    records[0].observation.inputs[field] = invalid
+    records[0].observation.fingerprint = fingerprint(records[0].observation.inputs)
+    assert.equal((await inspect()).requiredLaneSetComplete, false, `${field} must match the independently expected host profile`)
+    records[0].observation.inputs[field] = original
+    records[0].observation.fingerprint = fingerprint(records[0].observation.inputs)
+  }
   records[1].observation.candidateSha = 'd'.repeat(40)
   assert.equal((await inspect()).requiredLaneSetComplete, false, 'all lanes must name the exact candidate')
   records[1].observation.candidateSha = sha

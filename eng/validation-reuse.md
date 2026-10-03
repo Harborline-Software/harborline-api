@@ -84,8 +84,17 @@ sources, references, analyzers and other explicit compiler file inputs, refusing
 unknown switches, unapproved paths, missing files, nested responses and
 design-time/skipped execution. This is not a hermetic build attestation: arbitrary
 MSBuild tasks, generated-input timing, ambient runtime dependencies and candidate
-execution can still influence observations. Native execution of the new hook
-must be validated under the coordinated Windows test slot before landing.
+execution can still influence observations. Native execution was exercised under
+the coordinated Windows slot in a minimal Release library: fresh capture observed
+193 files, changed source invalidated the stored snapshot, a fresh rebuild produced
+a valid capture, an unchanged incremental build emitted no compiler arguments and
+was refused, and capture-off compilation passed. The reader requires the collector's
+independent build-session identifier and matching argument/context and pre/post
+file hashes; timestamps alone prove nothing. Reference aliases and resource
+name/access metadata remain in the fingerprint. Named host lanes are bound to
+expected OS, architecture, baseline and host scope as well as coverage/quality.
+Projects with NET analyzers disabled remain unobserved rather than invoking a
+missing SDK analyzer preparation target.
 
 No signer or check-writing token was added. The consumer publishes a shadow
 artifact using the existing Actions runtime mechanism and cannot skip gates or

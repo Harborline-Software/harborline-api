@@ -15,7 +15,7 @@ const valueSwitches = new Set(['noconfig', 'nostdlib', 'nologo', 'target', 't', 
   'features', 'instrument', 'preferreduilang', 'moduleassemblyname', 'main', 'runtimemetadataversion'])
 const unquote = value => value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value
 
-export function readCompilerObservation({argsFile, roots}) {
+export function readCompilerObservation({argsFile, roots, expectedCaptureSession, capturePhase = false}) {
   const problems = []
   const contextEntries = readFileSync(argsFile.replace(/\.args$/, '.context'), 'utf8')
     .replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map(line => {
@@ -83,11 +83,18 @@ export function readCompilerObservation({argsFile, roots}) {
     const option = match[1].toLowerCase().replace(/[+-]$/, '')
     if (fileSwitches.has(option)) {
       let file = match[2] ?? ''
-      if ((option === 'reference' || option === 'r') && file.includes('=')) file = file.slice(file.indexOf('=') + 1)
-      if (option === 'resource' || option === 'linkresource') file = file.split(',')[0]
+      let prefix = '', suffix = ''
+      if ((option === 'reference' || option === 'r') && file.includes('=')) {
+        prefix = file.slice(0, file.indexOf('=') + 1)
+        file = file.slice(file.indexOf('=') + 1)
+      }
+      if (option === 'resource' || option === 'linkresource') {
+        const comma = file.indexOf(',')
+        if (comma !== -1) {suffix = file.slice(comma); file = file.slice(0, comma)}
+      }
       if (!file || file.includes(';')) {problems.push('ambiguous file argument'); return}
       capture(file, option)
-      argumentsObserved.push(`${match[1].toLowerCase()}:${identify(file).identity}`)
+      argumentsObserved.push(`${match[1].toLowerCase()}:${prefix}${identify(file).identity}${suffix}`)
     } else if (valueSwitches.has(option)) {
       // Preserve semantic switches. Outputs and pathmap can differ by checkout; until normalized
       // safely they cause conservative mismatches rather than false equivalence.
@@ -99,9 +106,20 @@ export function readCompilerObservation({argsFile, roots}) {
   for (const argument of args) observe(argument)
   capture(context.project, 'project')
   if (![...files.values()].some(item => item.role === 'source')) problems.push('no compiler sources observed')
+  const observedFiles = [...files.values()].sort((a, b) => `${a.role}:${a.identity}`.localeCompare(`${b.role}:${b.identity}`))
+  if (!capturePhase) {
+    try {
+      const snapshot = JSON.parse(readFileSync(argsFile.replace(/\.args$/, '.snapshot'), 'utf8'))
+      if (!/^[0-9a-f-]{36}$/.test(expectedCaptureSession ?? '') || snapshot.captureSession !== expectedCaptureSession
+        || snapshot.schemaVersion !== 1 || snapshot.beforeMatches !== true
+        || snapshot.argsDigest !== digest(readFileSync(argsFile))
+        || snapshot.contextDigest !== digest(readFileSync(argsFile.replace(/\.args$/, '.context')))
+        || JSON.stringify(snapshot.files) !== JSON.stringify(observedFiles)) problems.push('compiler execution snapshot mismatch')
+    } catch { problems.push('compiler execution snapshot missing or unreadable') }
+  }
   return {schemaVersion: 1, project: identify(context.project ?? argsFile).identity,
     framework: context.framework ?? null, configuration: context.configuration ?? null,
-    arguments: argumentsObserved, files: [...files.values()].sort((a, b) => `${a.role}:${a.identity}`.localeCompare(`${b.role}:${b.identity}`)),
+    arguments: argumentsObserved, files: observedFiles,
     completeCompilerObservation: problems.length === 0, problems: [...new Set(problems)].sort(),
     trustedProducer: false}
 }

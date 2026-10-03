@@ -6,6 +6,7 @@ import {platform, arch, release} from 'node:os'
 import {digest, fingerprint} from './validation-reuse.mjs'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {readCompilerObservation} from './validation-compiler-inputs.mjs'
+import {compilerRoots} from './validation-compiler-capture.mjs'
 
 const git = (root, ...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8', stdio: 'pipe'}).trim()
 const filesUnder = root => {
@@ -73,12 +74,9 @@ export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, 
     .map(file => ({file: path.relative(clone, file).replaceAll('\\', '/'), sha256: digest(readFileSync(file))}))
   if (!native.length) unknownInputs.push('native provider binaries not observed')
   const compilerInputs = []
-  const roots = [{name: 'source', directory: clone}]
-  for (const [name, variable] of [['packages', 'NUGET_PACKAGES'], ['sdk', 'DOTNET_ROOT'],
-    ['platform', 'HARBORLINE_PLATFORM_REPO'], ['quality', 'HARBORLINE_QUALITY_REPO'], ['control', 'HARBORLINE_CONTROL_REPO']])
-    if (env[variable]) roots.push({name, directory: env[variable]})
+  const roots = compilerRoots(clone, env)
   for (const argsFile of allFiles.filter(file => file.endsWith(`${path.sep}validation-compiler.args`))) {
-    try { compilerInputs.push(readCompilerObservation({argsFile, roots})) }
+    try { compilerInputs.push(readCompilerObservation({argsFile, roots, expectedCaptureSession: env.HARBORLINE_VALIDATION_CAPTURE_SESSION})) }
     catch { unknownInputs.push('compiler observation could not be read') }
   }
   if (!compilerInputs.length) unknownInputs.push('no executed compiler command-line observations')

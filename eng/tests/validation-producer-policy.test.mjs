@@ -39,3 +39,15 @@ test('same-repository successful source is not a trusted producer until protecte
     ? {protected: false, commit: {sha}} : api(endpoint), candidateCommit, consumerContext: context})
   assert.equal(unprotected.consumerTrusted, false)
 })
+
+test('main advancing preserves an ancestor consumer only while reviewed definitions still match', async () => {
+  const tip = 'c'.repeat(40)
+  const api = async endpoint => endpoint.endsWith('/branches/main') ? {protected: true, commit: {sha: tip}}
+    : endpoint.includes('/compare/') ? {status: 'ahead'} : tree()
+  const result = await inspectProducerBoundary({api, candidateCommit: sha, consumerContext: context})
+  assert.equal(result.consumerTrusted, true)
+  const changed = tree(); changed.tree.find(item => item.path === 'eng/validation-reuse.mjs').sha = tip
+  const denied = await inspectProducerBoundary({api: async endpoint => endpoint.includes(`/git/trees/${tip}`)
+    ? changed : api(endpoint), candidateCommit: sha, consumerContext: context})
+  assert.equal(denied.consumerTrusted, false)
+})
