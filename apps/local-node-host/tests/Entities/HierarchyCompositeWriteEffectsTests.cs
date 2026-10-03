@@ -687,7 +687,8 @@ public sealed class HierarchyCompositeWriteEffectsTests
         await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
         var addedBefore = h.Hierarchy.Added.Count;
         var parent = retainOldParent ? Original : target == "original" ? East : Id(target);
-        await Assert.ThrowsAsync<ArgumentException>(() => h.Coordinator.SplitAsync(Original, [Target(target)],
+        await Assert.ThrowsAsync<ArgumentException>(() => h.Coordinator.SplitAsync(Original,
+            target == "original" ? [Target(target), Target("east")] : [Target(target)],
             new Dictionary<EntityId, EntityId> { [KidA] = parent }, "invalid-target", Actor, Tenant, At));
         Assert.NotNull(await h.Entities.GetAsync(Original));
         Assert.NotNull(await h.Entities.GetAsync(East));
