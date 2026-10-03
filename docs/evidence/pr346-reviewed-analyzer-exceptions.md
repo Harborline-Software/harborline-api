@@ -1,6 +1,6 @@
 # PR346 reviewed analyzer exceptions
 
-Status: source changes and regression tests prepared; provider execution and exact-head reviews pending. This document does not certify a green gate or an executed provider trial.
+Status: committed provider/recovery trial passed 6/6 with no skips; two causal recovery controls failed as expected and restored source passed 6/6. Final Windows host gate and required exact-head PR reviews remain pending.
 
 The owner approved the policy in [coordinator comment 5973232820](https://github.com/Harborline-Software/harborline-api/pull/346#issuecomment-5973232820). Control owns the authoritative change-delivery policy. The API implementation supplies a fail-closed ingestion contract; it does not change the shared analyzer pin, thresholds, baseline, branch protection, or required checks.
 
@@ -14,6 +14,8 @@ Test and review references identify existing source/evidence anchors. Structural
 
 Roslyn's source suppression must be present for the exact diagnostic location. Ingestion assigns `accepted` only after validation. An accepted status without that evidence fails closed. Other findings remain active under the existing quality policy. The compiler report is retained byte for byte as `.sarif.raw`, including findings omitted from normalized input because they have no physical location. Raw reports are not analyzer inputs; both normalized and raw reports participate in the exact-head/run production digest. Changed artifacts invalidate production evidence. Failed normalization also retains raw evidence.
 
+CQG retains accepted findings in both its decision and baseline candidate. API candidate records carry the reviewed exception identity and exact scope digest from the validated source manifest. The added-finding comparison independently checks that proof against the current manifest, exact rule/path/line, and accepted analyzer status. An exception cannot consume another active finding's fallback baseline identity. A previously accepted exception in a future baseline cannot cover another active finding or reactivation of the old warning. No committed baseline is changed, and an unverified suppressed flag, malformed proof, or newly added unsuppressed finding still fails.
+
 ## identity-recovery-sqlite-cursor — CA1309
 
 Protected behavior: bounded recovery paging must use the same SQLite `BINARY` ordering in its cursor predicate and both first/wrapped-page ordering paths. A stalled older row must not indefinitely hide a later owed audit.
@@ -24,7 +26,7 @@ Protected risk and applicability: CA1309 protects against culture-dependent mana
 
 Alternatives:
 
-- `StringComparison.Ordinal` overload: a provider regression test is prepared to exercise the actual query translation. **Execution is pending**, so its rejection is not yet an executed trial in this evidence record.
+- `StringComparison.Ordinal` overload: executed against the actual SQLite provider in the committed trial below. Translation raises `InvalidOperationException`; the test asserts both `could not be translated` and `Ordinal` in its message. This is an observed provider rejection, not a claim that every possible compliant rewrite is impossible.
 - Materialize candidates and compare in memory: analysis-only rejection. It changes bounded SQL paging into application-side scanning or can discard eligible rows after a database limit.
 - Change the cursor identity or add a new ordering field: analysis-only rejection. It changes the durable coordinator identity/schema contract rather than fixing the analyzer's applicability to this expression.
 
@@ -42,7 +44,31 @@ Alternatives:
 - Propagate every home failure: analysis-only rejection. A poisoned old home would repeatedly prevent later owed audits from being recovered.
 - Suppress requested cancellation: rejected by the existing cancellation contract and the prepared direct regression. The earlier cancellation handler remains outside this exception scope.
 
-Remaining controls: the tied-home test asserts two Error log records containing the actual failure and stalled identity, leaves stalled homes Preparing, and proves exactly one later completion audit. `Requested_recovery_cancellation_propagates_the_original_exception_without_recording_failure` asserts original-exception identity, no error record, durable unfinished state, and a later idempotent recovery. These additions still require execution.
+Remaining controls: the tied-home test asserts two Error log records containing the actual failure and stalled identity, leaves stalled homes Preparing, and proves exactly one later completion audit. `Requested_recovery_cancellation_propagates_the_original_exception_without_recording_failure` asserts original-exception identity, no error record, durable unfinished state, and a later idempotent recovery. Both passed in the committed trial and after restoring the causal controls.
+
+## Executed provider trial ee35604e
+
+Source commit: `ee35604e7a804477994f7bf3bea24c894ca758ed`. The source tree was committed before this trial; the manifest added later does not falsely identify itself as the tested source commit.
+
+Command (evidence directory is external to the tracked repository):
+
+```text
+dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-restore -nodeReuse:false -maxcpucount:2 --filter FullyQualifiedName~WebSelectedSessionLogoutAuthorityTests --logger trx;LogFileName=committed-provider-recovery-green.trx --results-directory <evidence>/committed-provider-recovery-green -p:HARBORLINE_GATE_QUALITY=1 -p:HarborlineRoslynSarifDirectory=<evidence>/roslyn
+```
+
+Observed result: **6 passed, 0 failed, 0 skipped**. The ordinal-overload test passed by observing the provider's expected translation rejection. The actual recovery SQL uses `COLLATE "BINARY"` in bounded page ordering and the tied-time cursor predicate; the test pins this declared collation, not a general Unicode equivalence. The initial SQL oracle omitted identifier quotes and failed; the diagnostic established the provider spelling, and the corrected literal still fails when collation is removed.
+
+Retained report: `committed-provider-recovery-green.trx`; SHA-256 `190dc73c333ecb9bf10831b3ddfdd205a0579a02a0bc428af33beaaa177e83ea`.
+
+Recovery causal controls: remove explicit `BINARY` ordering and remove only the web recovery requested-cancellation handler. The paging test failed for absent `COLLATE "BINARY"`; the cancellation test failed because no original exception propagated. **2 failed, 0 passed** in `recovery-contracts-red.trx`, SHA-256 `a5ddc90b4199a0be7116a1865eec83bdd0c1c3baec2e571d99c04071f53f4109`. The two tests exercise separate controls: the paging test does not request cancellation, and the cancellation test does not assert SQL ordering. Exact source bytes were restored, rebuilt, and all **6 passed** again.
+
+The raw compiler report includes both local findings with `kind: inSource`, `suppressionType: Pragma Directive`, and no accepted status. Baseline catches remain unsuppressed. This verifies the actual representation consumed by the normalizer.
+
+Actual-report normalization retains **532 of 532 anchored findings**, accepts exactly these two manifest sites, preserves original compiler bytes, and leaves coordinator CA1031 catches at lines 550, 610, 913, and 1404 active. Raw report SHA-256: `d984a81c717f5fde255c90562251b40d3493e017c342c67917651f9702d9928e`.
+
+## Independent source review ee35604e
+
+`/root/review333` accepted both finite site rationales at `ee35604e7a804477994f7bf3bea24c894ca758ed`: the SQL initializer preserves provider paging semantics, and the single web-home handler preserves cancellation, logs failure, allows later progress, and keeps durable retry state. The reviewer confirmed the analysis-only alternatives were labelled accurately and found no concrete source/policy issue. The reviewer did not independently execute the trials. This source review does not replace required GitHub PR approval or exact-head CI.
 
 ## Existing recovery and lease boundaries
 
@@ -53,3 +79,5 @@ Their contracts differ and must not be replaced by a single generic swallowing r
 ## Control handoff
 
 Apply the evidence contract above to Control's authoritative change-delivery procedure. Keep `waivers.allowed: false`; a reviewed exact-rule/local source exception is not a blanket baseline waiver. Retain raw findings, fail new unsuppressed findings under current thresholds, reject unsupported or malformed exception evidence, distinguish executed trials from analysis, and initiate a separate rule review when justified exceptions recur. Required exact-head reviews and genuine required checks remain mandatory.
+
+The repeated intentional recovery/lease boundaries are a concrete CA1031 applicability pattern for a separate rule-scope review. Track that review independently before adding further exceptions; this PR does not authorize an analyzer-wide change or blanket suppression of those baseline sites.

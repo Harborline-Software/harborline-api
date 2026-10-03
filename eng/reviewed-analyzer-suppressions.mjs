@@ -98,3 +98,26 @@ export function applyReviewedSuppressions(result, entries) {
   result.suppressions = [{...inSource[0], status: 'accepted', justification: `${entry.id}: ${entry.justification.protectedBehavior}`}]
   result.properties = {...result.properties, 'harborline/reviewed-suppression': entry.id}
 }
+
+export function reviewedBaselineException(finding, entries) {
+  if (finding.reviewedSuppression === undefined) {
+    if (finding.suppressed === true) fail('baseline suppression lacks reviewed evidence')
+    return false
+  }
+  const entry = entries.find(item => item.id === finding.reviewedSuppression?.id
+    && item.rule === finding.ruleId && item.path === finding.path
+    && item.scopeSha256 === finding.reviewedSuppression?.scopeSha256
+    && Number.isInteger(finding.line) && finding.line >= item.startLine && finding.line <= item.endLine)
+  if (!entry || finding.suppressed !== true) fail('baseline exception does not match current reviewed source')
+  return true
+}
+
+export function annotateReviewedBaseline(finding, original, entries) {
+  if (original?.engine !== 'roslyn' || original.suppressed !== true) return finding
+  const entry = entries.find(item => item.rule === finding.ruleId && item.path === finding.path
+    && finding.line >= item.startLine && finding.line <= item.endLine)
+  if (!entry) fail('accepted baseline finding has no reviewed source scope')
+  const result = {...finding, suppressed: true, reviewedSuppression: {id: entry.id, scopeSha256: entry.scopeSha256}}
+  reviewedBaselineException(result, entries)
+  return result
+}

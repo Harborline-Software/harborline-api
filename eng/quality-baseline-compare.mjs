@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Compares quality finding sets without treating a line-only move as a new diagnostic.
 import {existsSync, readFileSync} from 'node:fs'
+import {readReviewedSuppressions, reviewedBaselineException} from './reviewed-analyzer-suppressions.mjs'
 
 const emptySnippet = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 const document = file => JSON.parse(readFileSync(file, 'utf8')).findings ?? []
@@ -44,10 +45,25 @@ const movedLine = (hunks, baseLine) => {
   return baseLine + offset
 }
 
-export const compareFindings = (head, base, diff = '') => {
+export const compareFindings = (head, base, diff = '', reviewed = []) => {
+  // Candidate evidence retains all diagnostics. Only a validated exact-rule,
+  // current source exception is outside the added-finding refusal.
+  const exceptions = new Set(head.filter(finding => reviewedBaselineException(finding, reviewed)))
   const used = new Set(), matches = [], moved = parseMovedLines(diff)
-  const remaining = predicate => base.findIndex((row, index) => !used.has(index) && predicate(row))
+  // A previously reviewed exception is evidence, never an allowance for a new
+  // active warning or for reactivating that formerly suppressed diagnostic.
+  const remaining = predicate => base.findIndex((row, index) => !used.has(index)
+    && row.suppressed !== true && row.reviewedSuppression === undefined && predicate(row))
   for (const finding of head) {
+    // An exception must not consume another active finding's fallback identity.
+    if (exceptions.has(finding)) {
+      const index = base.findIndex((row, index) => !used.has(index) && row.suppressed === true
+        && row.reviewedSuppression?.id === finding.reviewedSuppression.id
+        && row.reviewedSuppression?.scopeSha256 === finding.reviewedSuppression.scopeSha256
+        && identity(row) === identity(finding))
+      if (index >= 0) { used.add(index); matches.push({head: finding, base: base[index], method: 'reviewed-exception'}) }
+      continue
+    }
     let index = remaining(row => row.fingerprint === finding.fingerprint), method = 'fingerprint'
     if (index < 0 && anchor(finding)) { const key = `${identity(finding)}\u0000${anchor(finding)}`; index = remaining(row => `${identity(row)}\u0000${anchor(row)}` === key); method = 'anchor' }
     if (index < 0 && line(finding) !== null) {
@@ -65,7 +81,7 @@ export const compareFindings = (head, base, diff = '') => {
     if (index >= 0) { used.add(index); matches.push({head: finding, base: base[index], method}) }
   }
   const matched = new Set(matches.map(match => match.head))
-  return {newFindings: head.filter(row => !matched.has(row)), resolved: base.filter((_, index) => !used.has(index)), matches}
+  return {newFindings: head.filter(row => !matched.has(row) && !exceptions.has(row)), resolved: base.filter((_, index) => !used.has(index)), matches}
 }
 
 // Ticket 436: one source, a tracked file. The per-commit artifact this used to prefer is gone --
@@ -75,6 +91,6 @@ export const loadBaseline = committed => ({findings: document(committed), source
 if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/quality-baseline-compare.mjs')) {
   const [candidate, baseline, diff = ''] = process.argv.slice(2)
   if (!candidate || !baseline) throw new Error('usage: quality-baseline-compare.mjs <candidate> <baseline> [diff]')
-  const result = compareFindings(document(candidate), document(baseline), diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '')
+  const result = compareFindings(document(candidate), document(baseline), diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '', readReviewedSuppressions(process.cwd()))
   console.log(JSON.stringify({new: result.newFindings.length, resolved: result.resolved.length, findings: result.newFindings}))
 }

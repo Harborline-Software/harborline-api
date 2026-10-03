@@ -1,11 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
 import {normalizeSarifFile} from '../normalize-roslyn-sarif.mjs'
+import {annotateReviewedBaseline, readReviewedSuppressions} from '../reviewed-analyzer-suppressions.mjs'
+import {compareFindings} from '../quality-baseline-compare.mjs'
 
 const source = 'class Example {\n#pragma warning disable CA1309 // reviewed-suppression: cursor-comparison\nvar after = string.Compare(left, right) > 0;\n#pragma warning restore CA1309\n}\n'
 const reference = {path: 'evidence.md', anchor: 'Provider trial and reviewed contract'}
@@ -103,6 +105,56 @@ test('an accepted finding cannot end before its physical start', t => {
   assert.throws(() => normalizeSarifFile(file, root), /no reviewed source evidence/)
 })
 
+test('baseline comparison accepts only the verified local exception and retains candidate evidence', t => {
+  const {root} = fixture(t)
+  const entries = readReviewedSuppressions(root)
+  const candidate = {fingerprint: 'reviewed', ruleId: 'CA1309', path: 'Example.cs', line: 3}
+  const reviewed = annotateReviewedBaseline(candidate, {engine: 'roslyn', suppressed: true}, entries)
+  const active = {fingerprint: 'new-warning', ruleId: 'CA1031', path: 'Example.cs', line: 5}
+  const head = [reviewed, active]
+  assert.deepEqual(compareFindings(head, [], '', entries).newFindings, [active])
+  assert.equal(head.length, 2)
+  assert.equal(head[0].suppressed, true)
+  assert.throws(() => compareFindings(head, []), /current reviewed source/)
+})
+
+test('reviewed exception cannot use identity fallback to displace an active baseline finding', t => {
+  const {root} = fixture(t)
+  const entries = readReviewedSuppressions(root)
+  const reviewed = annotateReviewedBaseline({fingerprint: 'reviewed', ruleId: 'CA1309', path: 'Example.cs', line: 3}, {engine: 'roslyn', suppressed: true}, entries)
+  const existing = {fingerprint: 'existing', ruleId: 'CA1309', path: 'Example.cs', line: 5}
+  const added = {fingerprint: 'added', ruleId: 'CA1309', path: 'Example.cs', line: 6}
+  assert.deepEqual(compareFindings([reviewed, existing, added], [existing], '', entries).newFindings, [added])
+})
+
+test('a retained baseline exception cannot cover a later active warning or reactivation', t => {
+  const {root} = fixture(t)
+  const entries = readReviewedSuppressions(root)
+  const reviewed = annotateReviewedBaseline({fingerprint: 'reviewed', ruleId: 'CA1309', path: 'Example.cs', line: 3}, {engine: 'roslyn', suppressed: true}, entries)
+  const retained = compareFindings([reviewed], [reviewed], '', entries)
+  assert.deepEqual(retained.resolved, [])
+  assert.deepEqual(retained.newFindings, [])
+  const later = {fingerprint: 'new-active', ruleId: 'CA1309', path: 'Example.cs', line: 5}
+  assert.deepEqual(compareFindings([later], [reviewed], '', entries).newFindings, [later])
+  const reactivated = {fingerprint: 'reviewed', ruleId: 'CA1309', path: 'Example.cs', line: 3}
+  assert.deepEqual(compareFindings([reactivated], [reviewed]).newFindings, [reactivated])
+})
+
+for (const [name, mutate] of [
+  ['unverified accepted status', finding => delete finding.reviewedSuppression],
+  ['wrong rule', finding => finding.ruleId = 'CA1031'],
+  ['wrong path', finding => finding.path = 'Other.cs'],
+  ['outside scope', finding => finding.line = 5],
+  ['changed scope proof', finding => finding.reviewedSuppression.scopeSha256 = '0'.repeat(64)],
+  ['not accepted by analyzer', finding => finding.suppressed = false],
+]) test(`baseline candidate ${name} fails closed`, t => {
+  const {root} = fixture(t)
+  const entries = readReviewedSuppressions(root)
+  const finding = annotateReviewedBaseline({fingerprint: 'reviewed', ruleId: 'CA1309', path: 'Example.cs', line: 3}, {engine: 'roslyn', suppressed: true}, entries)
+  mutate(finding)
+  assert.throws(() => compareFindings([finding], [], '', entries))
+})
+
 test('an additional bare catch is rejected even with its updated digest', t => {
   const {root, file} = fixture(t, (manifest, root) => {
     const block = '#pragma warning disable CA1031 // reviewed-suppression: cursor-comparison\ncatch (Exception error) { Record(error); } catch { Ignore(); }\n#pragma warning restore CA1031'
@@ -177,4 +229,27 @@ test('the pinned quality tool retains the reviewed finding and still fails new u
   assert.equal(reviewed[0].introducedInPullRequest, true)
   assert.equal(decision.findings.filter(item => item.introducedInPullRequest && !item.suppressed).length, 6)
   assert.ok(decision.reasons.some(item => item.kind === 'finding-threshold' && item.severity === 'warning' && item.actual === 6 && item.allowed === 5), JSON.stringify(decision.reasons))
+  // Exercise API's actual candidate writer and landing comparison, not only CQG.
+  const artifactDirectory = path.join(root, 'artifacts/quality')
+  mkdirSync(artifactDirectory, {recursive: true})
+  mkdirSync(path.join(root, 'eng/baselines'))
+  copyFileSync(file, path.join(artifactDirectory, 'Project.sarif'))
+  copyFileSync(`${file}.raw`, path.join(artifactDirectory, 'Project.sarif.raw'))
+  copyFileSync(path.join(root, 'baseline.json'), path.join(root, 'eng/baselines/quality-baseline.json'))
+  copyFileSync(path.resolve(import.meta.dirname, '../quality-pin.json'), path.join(root, 'eng/quality-pin.json'))
+  copyFileSync(path.join(root, 'policy.yaml'), path.join(root, 'eng/quality-policy.yaml'))
+  const api = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../quality-step.mjs'), '--root', root], {
+    cwd: root, encoding: 'utf8', env: {...process.env, HARBORLINE_QUALITY_REPO: quality, HARBORLINE_CONTROL_REPO: control, HARBORLINE_VERIFY_QUALITY_RUN: ''},
+  })
+  assert.equal(api.status, 0, api.stderr || api.stdout)
+  const candidate = path.join(artifactDirectory, 'findings.json')
+  const retained = JSON.parse(readFileSync(candidate)).findings
+  assert.equal(retained.length, 7)
+  assert.equal(retained.filter(item => item.suppressed === true && item.reviewedSuppression?.id === 'cursor-comparison').length, 1)
+  const comparison = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../quality-baseline-compare.mjs'),
+    candidate, path.join(root, 'eng/baselines/quality-baseline.json'), path.join(artifactDirectory, 'base-to-head.diff')], {cwd: root, encoding: 'utf8'})
+  assert.equal(comparison.status, 0, comparison.stderr)
+  const compared = JSON.parse(comparison.stdout)
+  assert.equal(compared.new, 6)
+  assert.equal(compared.findings.length, 6)
 })

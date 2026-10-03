@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "id": "identity-recovery-sqlite-cursor",
+      "rule": "CA1309",
+      "path": "apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs",
+      "scopeKind": "statement",
+      "scopeSha256": "d242f1eb6d10efee8bd49153c6ba7d97a9c0fdf92487a5a79d77f8afc6c74a2a",
+      "justification": {
+        "protectedBehavior": "Bounded recovery paging uses SQLite BINARY consistently in the cursor predicate and both page ordering paths so old stalled homes cannot hide later owed audits.",
+        "whyComplianceChangesBehavior": "The actual SQLite provider rejects StringComparison.Ordinal translation. Materializing candidates changes bounded SQL paging into application-side scanning or can discard eligible rows after a database limit.",
+        "protectedRisk": "A culture-dependent managed string comparison can reorder cursor identities and lose or repeat rows.",
+        "applicability": "This comparison executes as SQL under declared SQLite BINARY collation; it is not a managed culture comparison or a claim of general UTF-8/UTF-16 ordering equivalence.",
+        "remainingControls": "Actual provider rejection test and tied-home recovery regression assert BINARY in emitted cursor/order SQL, later audit completion, and revisiting stalled durable homes.",
+        "repeatedExceptionReview": "Another justified exception requires separate review of rule applicability and supported SQL-provider detection, with its own evidence/tests/review; no automatic analyzer weakening."
+      },
+      "alternatives": [
+        {
+          "kind": "executed",
+          "option": "StringComparison.Ordinal comparison overload in the actual SQLite recovery cursor query",
+          "reason": "The provider throws InvalidOperationException: the query could not be translated and identifies Ordinal.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "Executed provider trial ee35604e"
+            }
+          ],
+          "execution": {
+            "command": "dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-restore -nodeReuse:false -maxcpucount:2 --filter FullyQualifiedName~WebSelectedSessionLogoutAuthorityTests --logger trx;LogFileName=committed-provider-recovery-green.trx --results-directory <evidence>/committed-provider-recovery-green -p:HARBORLINE_GATE_QUALITY=1 -p:HarborlineRoslynSarifDirectory=<evidence>/roslyn",
+            "sourceHead": "ee35604e7a804477994f7bf3bea24c894ca758ed",
+            "outcome": "expected-rejection",
+            "observedResult": "6 passed, 0 failed, 0 skipped; ordinal-overload test observes the expected provider translation rejection.",
+            "report": {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "190dc73c333ecb9bf10831b3ddfdd205a0579a02a0bc428af33beaaa177e83ea"
+            }
+          }
+        },
+        {
+          "kind": "analysis",
+          "option": "Materialize and compare in memory",
+          "reason": "Changes bounded database paging to application scanning or can drop eligible candidates after Take.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-recovery-sqlite-cursor"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Replace cursor identity or add an ordering field",
+          "reason": "Changes durable coordinator identity/schema contract instead of addressing applicability of this analyzer to translated SQL.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-recovery-sqlite-cursor"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "SQLite_rejects_the_ordinal_comparison_overload_in_a_recovery_cursor_query"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "Recovery_pages_past_stalled_tied_homes_and_revisits_them_after_delivering_a_later_audit"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "Independent source review ee35604e",
+        "status": "reviewed",
+        "reviewedBy": "/root/review333; source review, not required GitHub approval"
+      }
+    },
+    {
+      "id": "identity-web-home-recovery",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "72893a687d2fa5e48317d0c081870f8b865b365ee7b8904e1cd6c20c3bf0534a",
+      "justification": {
+        "protectedBehavior": "Record an individual web-home recovery failure, preserve unfinished durable state for retry, and continue to later owed audits while propagating requested cancellation unchanged.",
+        "whyComplianceChangesBehavior": "Propagating every home error repeatedly blocks later recovery. No registered-home owner contract specifies a complete set of recoverable exception classes, so an assumed narrower catch changes row-isolation behavior.",
+        "protectedRisk": "A broad catch can accidentally hide defects or swallow shutdown/cancellation, or falsely report failed work as completed.",
+        "applicability": "This is one intentional per-home recovery boundary after the requested-cancellation rethrow. It logs the actual exception and correlation identity, advances the cursor, and never marks that failed home completed.",
+        "remainingControls": "The tied-home regression asserts Error records and unfinished Preparing states, later audit exactly once, and revisiting homes. Cancellation regression asserts original exception identity, no error/audit, and later idempotent completion.",
+        "repeatedExceptionReview": "Existing resume/abort/lease/daemon/outbox boundaries show a recurring recovery pattern. Record separate rule applicability/scope review before adding further exceptions; review each contract individually and do not weaken CA1031 automatically."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Catch an assumed finite set of exception types",
+          "reason": "Registered implementations and SQLite/audit dependencies have no complete recoverable exception-list contract.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-web-home-recovery"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Propagate every per-home failure",
+          "reason": "A poisoned earlier home can repeatedly stop recovery of later owed audits.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-web-home-recovery"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Swallow requested cancellation",
+          "reason": "Violates the existing cancellation contract; the requested-token handler stays outside the reviewed broad-catch scope.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-web-home-recovery"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "Recovery_pages_past_stalled_tied_homes_and_revisits_them_after_delivering_a_later_audit"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "Requested_recovery_cancellation_propagates_the_original_exception_without_recording_failure"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "Independent source review ee35604e",
+        "status": "reviewed",
+        "reviewedBy": "/root/review333; source review, not required GitHub approval"
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {requireQualityProduction} from './quality-production.mjs'
-import {applyReviewedSuppressions, readReviewedSuppressions} from './reviewed-analyzer-suppressions.mjs'
+import {annotateReviewedBaseline, applyReviewedSuppressions, readReviewedSuppressions} from './reviewed-analyzer-suppressions.mjs'
 
 const cliArguments = process.argv.slice(2)
 const optionValue = option => {
@@ -161,7 +161,8 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
       baseline.findings = baseline.findings.map(finding => {
         const original = source.get(finding.fingerprint)
         const location = original?.primaryLocation
-        return Number.isInteger(location?.startLine) ? {...finding, line: location.startLine, project: findingProject(original) ?? finding.project ?? ''} : finding
+        const located = Number.isInteger(location?.startLine) ? {...finding, line: location.startLine, project: findingProject(original) ?? finding.project ?? ''} : finding
+        return annotateReviewedBaseline(located, original, reviewed)
       })
       baseline.engines = engines
       const serialized = JSON.stringify(baseline) + '\n'
