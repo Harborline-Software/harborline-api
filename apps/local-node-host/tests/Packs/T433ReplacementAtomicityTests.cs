@@ -27,7 +27,7 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Mixed_kind_late_failure_preserves_every_published_snapshot(string failure)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.4", failure == "refusal");
+        var replacement = MixedReplacement("1.1.7", failure == "refusal");
         var context = ReplacementContext();
         Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var before = await PublishedSnapshotAsync();
@@ -77,7 +77,7 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Concurrent_catalogue_reader_sees_only_old_or_complete_new_replacement(bool refuse)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.4", refuse);
+        var replacement = MixedReplacement("1.1.7", refuse);
         var context = ReplacementContext();
         Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
@@ -216,7 +216,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None));
         var source = WithVersionAndCurrentViewKinds(
             AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url()),
-            "1.1.4-atomicity-probe.0");
+            "1.1.7-atomicity-probe.0");
         var holder = source.Contents.Single(item => item.Key == "access.holders");
         var early = holder.Content.DeepClone();
         early["key"] = "m6.early-view";

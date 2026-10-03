@@ -16,6 +16,8 @@ public sealed class T433AccessReplacementProducerTests
     private static readonly string Root = FindRoot();
     private static readonly string InitialPath = Path.Combine(Root, "_shared", "packs", "access-administration", "access-administration-pack.export.json");
     private static readonly string ReplacementDirectory = Path.Combine(Root, "_shared", "conformance", "packs", "access-replacement");
+    // T-1017 moved the shipped pack to 1.1.6; the released 1.1.3 bytes the fixtures derive from live on as a conformance copy.
+    private static readonly string Released113Path = Path.Combine(ReplacementDirectory, "access-administration-pack-1.1.3.export.json");
 
     [Fact]
     public void Initial_pack_declares_exact_journey_definitions_and_actions()
@@ -23,7 +25,7 @@ public sealed class T433AccessReplacementProducerTests
         using var document = JsonDocument.Parse(File.ReadAllBytes(InitialPath));
         var root = document.RootElement;
         Assert.Equal("harborline.access-administration", root.GetProperty("key").GetString());
-        Assert.Equal("1.1.3", root.GetProperty("version").GetString());
+        Assert.Equal("1.1.6", root.GetProperty("version").GetString());
         Assert.Equal(["access.holders"], root.GetProperty("exposes").EnumerateArray().Select(value => value.GetString()));
         Assert.Equal(1, root.GetProperty("interfaceVersion").GetInt32());
 
@@ -32,14 +34,14 @@ public sealed class T433AccessReplacementProducerTests
         {
             "RoleDefinition/access.admitted-user@1.0.0",
             "RoleDefinition/access.form-submitter@1.0.0",
-            "FormDefinition/access.grant-a-role@1.0.1",
-            "WorkflowDefinition/access.privileged-grant-review@1.0.1",
-            "ViewDefinition/access.holders@1.0.2",
+            "FormDefinition/access.grant-a-role@1.0.3",
+            "WorkflowDefinition/access.privileged-grant-review@1.0.3",
+            "ViewDefinition/access.holders@1.0.5",
             "NavWorkspaceConfig/access.navigation@1.1.0",
         }, contents.Select(Tuple));
 
         var holders = contents.Single(item => item.GetProperty("key").GetString() == "access.holders").GetProperty("content");
-        Assert.Equal("views.entity-list/grid", holders.GetProperty("viewKind").GetString());
+        Assert.Equal("layout.table", holders.GetProperty("viewKind").GetString());
         Assert.Equal(TeamRolePermissions.MembersManage, holders.GetProperty("authorizationCapability").GetString());
         Assert.Equal(new[]
         {
@@ -48,6 +50,29 @@ public sealed class T433AccessReplacementProducerTests
         }, holders.GetProperty("parameters").GetProperty("actions").EnumerateArray()
             .Select(action => action.GetProperty("operation").GetString()));
         AssertInputBoundGrantActions(holders);
+    }
+
+    [Fact(DisplayName = "T-1017: the shipped grant form makes effectiveFrom optional and every reference follows its new version")]
+    public void T1017_shipped_grant_form_makes_effectiveFrom_optional_under_a_new_form_version()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllBytes(InitialPath));
+        var contents = document.RootElement.GetProperty("contents").EnumerateArray().ToArray();
+        JsonElement Content(string key) => contents.Single(item => item.GetProperty("key").GetString() == key).GetProperty("content");
+
+        var fields = Content("access.grant-a-role").GetProperty("fieldsMeta");
+        Assert.False(fields.GetProperty("effectiveFrom").GetProperty("required").GetBoolean());
+        Assert.False(fields.GetProperty("effectiveTo").GetProperty("required").GetBoolean());
+        foreach (var name in new[] { "person", "role", "scope", "residency", "reason" })
+            Assert.True(fields.GetProperty(name).GetProperty("required").GetBoolean());
+
+        var workflow = Content("access.privileged-grant-review");
+        Assert.Equal("1.0.3", workflow.GetProperty("version").GetString());
+        Assert.Equal("1.0.3", workflow.GetProperty("subjectFormRef").GetProperty("version").GetString());
+        var holders = Content("access.holders");
+        Assert.Equal("1.0.5", holders.GetProperty("version").GetString());
+        var grant = holders.GetProperty("parameters").GetProperty("actions").EnumerateArray()
+            .Single(action => action.GetProperty("operation").GetString() == "access.grant.submit");
+        Assert.Equal("1.0.3", grant.GetProperty("inputForm").GetProperty("version").GetString());
     }
 
     [Fact]
@@ -92,7 +117,7 @@ public sealed class T433AccessReplacementProducerTests
         Assert.Equal("99a3edfa484314c7a0523f4d12b9d7f87725f7b65fc95bbc34dc7ca79e7fdcb2",
             Hash("access-administration-pack-1.1.1.export.json"));
         Assert.Equal("b6f84fef3ffb4323167d5c9d1831098784a88b59bfd903198743ab9add4bb486",
-            Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(InitialPath))));
+            Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Released113Path))));
         Assert.Equal("1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852",
             Hash("access-administration-pack-1.1.4.export.json"));
     }
@@ -133,7 +158,7 @@ public sealed class T433AccessReplacementProducerTests
         using var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ReplacementDirectory, "replacement.manifest.json")));
         var root = manifest.RootElement;
         Assert.Equal("1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852", root.GetProperty("sha256").GetString());
-        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(InitialPath))),
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Released113Path))),
             root.GetProperty("source").GetProperty("sha256").GetString());
         Assert.Equal(new[]
         {

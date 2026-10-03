@@ -19,6 +19,118 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 
 public sealed partial class FormsRouteTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Dated_submission_replay_keeps_its_original_admission_after_the_end(bool selected, bool explicitFutureStart)
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var firstAt = _submissionClock.GetUtcNow();
+        var candidate = new Dictionary<string, string>
+        {
+            ["station"] = "Marina", ["result"] = "PASS", ["effectiveTo"] = firstAt.AddMinutes(2).ToString("O"),
+        };
+        if (explicitFutureStart) candidate["inspector"] = firstAt.AddMinutes(1).ToString("O");
+        HttpRequestMessage Submit(string key = "dated-replay")
+        {
+            var request = SelectedSubmit();
+            if (!selected)
+            {
+                request.RequestUri = new Uri($"{Base}/{FormId}/submit", UriKind.Relative);
+                request.Headers.Add("X-Test-Desktop", "1");
+            }
+            request.Headers.Remove("Idempotency-Key");
+            request.Headers.Add("Idempotency-Key", key);
+            request.Content = JsonContent.Create(candidate);
+            return request;
+        }
+        using var initialRequest = Submit();
+        using var initial = await _client.SendAsync(initialRequest);
+        Assert.True(initial.StatusCode == HttpStatusCode.Created, await initial.Content.ReadAsStringAsync());
+        var original = (await initial.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("instanceId").GetString();
+        var count = await CountTenantEntitiesAsync();
+        _submissionClock.Offset = TimeSpan.FromMinutes(5);
+
+        using var retryRequest = Submit();
+        using var retry = await _client.SendAsync(retryRequest);
+        Assert.True(retry.StatusCode == HttpStatusCode.Created, await retry.Content.ReadAsStringAsync());
+        Assert.Equal(original, (await retry.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("instanceId").GetString());
+        Assert.Equal(count, await CountTenantEntitiesAsync());
+
+        // The same candidate with a fresh key is a new admission and must still fail before minting.
+        using var freshRequest = Submit("dated-new-key");
+        using var fresh = await _client.SendAsync(freshRequest);
+        Assert.Equal(explicitFutureStart ? HttpStatusCode.Forbidden : HttpStatusCode.BadRequest, fresh.StatusCode);
+        Assert.Equal(explicitFutureStart ? "kernel.backdate-capability-required" : "access.grant.invalid-validity-interval",
+            (await fresh.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(count, await CountTenantEntitiesAsync());
+
+        candidate["station"] = "Changed";
+        using var changedRequest = Submit();
+        using var changed = await _client.SendAsync(changedRequest);
+        Assert.Equal(HttpStatusCode.Conflict, changed.StatusCode);
+        Assert.Equal("forms.replay_context_mismatch", (await changed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(count, await CountTenantEntitiesAsync());
+        if (selected)
+        {
+            candidate["station"] = "Marina";
+            using var correlationRequest = Submit();
+            correlationRequest.Headers.Remove("X-Correlation-ID");
+            correlationRequest.Headers.Add("X-Correlation-ID", "43300000-0000-4000-8000-000000000011");
+            using var correlation = await _client.SendAsync(correlationRequest);
+            Assert.Equal(HttpStatusCode.Conflict, correlation.StatusCode);
+            Assert.Equal("forms.replay_context_mismatch", (await correlation.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+
+            _selected = new SelectedSessionRequestPrincipal("other-account", TenantA,
+                new PrincipalUserId("other-holder"), new CanonicalPartyReference("other-party"),
+                "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+            using var actorRequest = Submit();
+            using var actor = await _client.SendAsync(actorRequest);
+            Assert.Equal(HttpStatusCode.Conflict, actor.StatusCode);
+            Assert.Equal("forms.replay_context_mismatch", (await actor.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+            Assert.Equal(count, await CountTenantEntitiesAsync());
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "not-a-date")]
+    [InlineData(false, "   ")]
+    [InlineData(true, "not-a-date")]
+    [InlineData(true, "   ")]
+    public async Task Dated_submit_refuses_a_malformed_nonempty_end_before_minting(bool selected, string endText)
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var before = await CountTenantEntitiesAsync();
+        var projectionsBefore = _replayProjections.Calls;
+        using var request = SelectedSubmit();
+        if (!selected)
+        {
+            request.RequestUri = new Uri($"{Base}/{FormId}/submit", UriKind.Relative);
+            request.Headers.Add("X-Test-Desktop", "1");
+        }
+        request.Content = JsonContent.Create(new Dictionary<string, string>
+        {
+            ["station"] = "Marina", ["result"] = "PASS", ["effectiveTo"] = endText,
+        });
+        using var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await CountTenantEntitiesAsync());
+        Assert.Equal(projectionsBefore, _replayProjections.Calls);
+        var minted = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) minted.Add(row);
+        Assert.Empty(minted);
+    }
+
     private SelectedSessionRequestPrincipal? _selected;
     private AuthorizationDeniedException? _selectedSubmissionDenial;
 
@@ -174,6 +286,32 @@ public sealed partial class FormsRouteTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Selected_submit_refuses_an_end_not_after_its_start_before_minting(int endOffsetMinutes)
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+        using var request = SelectedSubmit();
+        request.Content = JsonContent.Create(new Dictionary<string, string>
+        {
+            ["station"] = "Marina", ["result"] = "PASS",
+            ["inspector"] = start.ToString("O"),
+            ["effectiveTo"] = start.AddMinutes(endOffsetMinutes).ToString("O"),
+        });
+        using var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        var minted = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) minted.Add(row);
+        Assert.Empty(minted);
+    }
+
+    [Theory]
     [InlineData(false, true, HttpStatusCode.Forbidden)]
     [InlineData(true, false, HttpStatusCode.Forbidden)]
     public async Task Selected_submit_requires_principal_and_antiforgery(bool principal, bool csrf, HttpStatusCode expected)
@@ -194,6 +332,7 @@ public sealed partial class FormsRouteTests
             form.Value == FormId || form.Value == OpenFormId ? "members:manage" : null;
         // K3: the test form's optional text field stands in for a dated form's effective-from.
         public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "inspector" : null;
+        public string? EffectiveToField(FormDefinitionId form) => form.Value == FormId ? "effectiveTo" : null;
         public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) => OperatorRoles;
     }
 

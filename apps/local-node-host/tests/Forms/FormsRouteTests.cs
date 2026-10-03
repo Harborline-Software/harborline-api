@@ -67,6 +67,13 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
     private MutableActiveTeamAccessor _activeTeam = null!;
     private CancellationTokenSource? _graphTimeout;
     private readonly CancellingGraphClock _graphClock = new();
+    private readonly SubmissionClock _submissionClock = new();
+
+    private sealed class SubmissionClock : TimeProvider
+    {
+        internal TimeSpan Offset { get; set; }
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + Offset;
+    }
 
     public async Task InitializeAsync()
     {
@@ -111,7 +118,8 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
               "properties": {
                 "station": { "type": "string" },
                 "result": { "type": "string", "enum": ["PASS", "FAIL"] },
-                "inspector": { "type": "string" }
+                "inspector": { "type": "string" },
+                "effectiveTo": { "type": "string" }
               },
               "required": ["station", "result"],
               "additionalProperties": false
@@ -130,6 +138,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
                 {
                     ["station"] = new(InternationalizedText.FromInvariant("Station"), ControlHint: "text"),
                     ["result"] = new(InternationalizedText.FromInvariant("Result"), ControlHint: "text"),
+                    ["effectiveTo"] = new(InternationalizedText.FromInvariant("Effective to"), ControlHint: "text"),
                     // PII-tagged: never rendered, encrypted on save (INV-S3).
                     ["inspector"] = new(InternationalizedText.FromInvariant("Inspector"),
                         PiiSensitivity: PiiSensitivity.Sensitive),
@@ -139,7 +148,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
                     new FormSection(
                         Id: "main",
                         Title: InternationalizedText.FromInvariant("Inspection"),
-                        Fields: new[] { "station", "result", "inspector" },
+                        Fields: new[] { "station", "result", "inspector", "effectiveTo" },
                         Access: new SectionAccess(
                             ReadRoles: new[] { FormsRoutes.NodeOperatorRole },
                             WriteRoles: new[] { FormsRoutes.NodeOperatorRole })),
@@ -173,13 +182,13 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
             _activeTeam,
             OperatorRoles,
-            TimeProvider.System);
+            _submissionClock, new SelectedTestSubmissionGate());
 
         SelectedFormSubmitRoutes.Map(_app.MapSelectedSessionProductGroup(),
             new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(), _replayProjections),
             new SelectedDenialIssuer(_app.Services.GetRequiredService<IFormCapabilityIssuer>(), () => _selectedSubmissionDenial),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
-            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System,
+            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), _submissionClock,
             _app.Services.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());
 
         await _app.StartAsync();
@@ -225,7 +234,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         Assert.Equal("main", section.GetProperty("id").GetString());
 
         var fields = section.GetProperty("fields");
-        Assert.Equal(3, fields.GetArrayLength());
+        Assert.Equal(4, fields.GetArrayLength());
 
         // The PII field is present in the structure but never readable in a view.
         var inspector = FieldByName(fields, "inspector");

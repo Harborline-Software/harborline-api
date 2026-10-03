@@ -30,6 +30,7 @@ internal sealed class AccessGrantFormSubmissionProjection(
 
     /// <summary>The grant's requested start, <c>effectiveFrom</c>, is the field K3 refuses in the past without a backdate capability.</summary>
     public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "effectiveFrom" : null;
+    public string? EffectiveToField(FormDefinitionId form) => form.Value == FormId ? "effectiveTo" : null;
 
     public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) =>
         form.Value == FormId ? [SubmitterRole] : [];
@@ -57,8 +58,12 @@ internal sealed class AccessGrantFormSubmissionProjection(
     {
         if (context.Form.Value != FormId) return [];
         var request = ReadRequest(context);
+        var existing = await workflowStore.LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(context.InstanceId.ToString()), cancellationToken).ConfigureAwait(false);
+        var workflowVersion = existing?.DefinitionVersion
+            ?? await ResolveSubmittedWorkflowVersionAsync(context, cancellationToken).ConfigureAwait(false);
         var instanceId = await instances.StartAccessGrantIssuanceAsync(
-            context.Tenant, context.InstanceId.ToString(), request, context.SubmittedAt, cancellationToken)
+            context.Tenant, context.InstanceId.ToString(), request, workflowVersion, context.SubmittedAt, cancellationToken)
             .ConfigureAwait(false);
 
         await dispatcher.DispatchAsync(
@@ -66,6 +71,16 @@ internal sealed class AccessGrantFormSubmissionProjection(
                 context.SubmittedAt, "{\"decision\":\"approve\"}"),
             cancellationToken).ConfigureAwait(false);
         return [];
+    }
+
+    private static Task<string> ResolveSubmittedWorkflowVersionAsync(FormSubmitContext context, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (context.ProjectionDefinition is not { } coordinate
+            || coordinate.Address.Tenant != context.Tenant
+            || coordinate.Address.Identity.Value != GrantIssuanceSteps.DefinitionKey)
+            throw new InvalidOperationException("Access recovery requires the submission's persisted workflow coordinate; legacy unpinned submissions cannot guess a current revision.");
+        return Task.FromResult(coordinate.Version.ToString());
     }
 
     private static GrantIssuanceRequest ReadRequest(FormSubmitContext context)
@@ -78,9 +93,13 @@ internal sealed class AccessGrantFormSubmissionProjection(
             "online-only" => GrantResidency.OnlineOnly,
             var value => Enum.Parse<GrantResidency>(value, ignoreCase: true),
         };
-        var validFrom = DateTimeOffset.Parse(Required(values, "effectiveFrom"), System.Globalization.CultureInfo.InvariantCulture);
+        // L940 (T-1017): an omitted effectiveFrom starts the grant at the admitted instant on the server clock.
+        var validFrom = Optional(values, "effectiveFrom") is { } from
+            ? DateTimeOffset.Parse(from, System.Globalization.CultureInfo.InvariantCulture) : context.SubmittedAt;
         DateTimeOffset? validUntil = values.TryGetProperty("effectiveTo", out var until) && until.GetString() is { Length: > 0 } text
             ? DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : null;
+        // Validate before creating a durable process, including replay outside the HTTP guard.
+        _ = new GrantValidity(validFrom, validUntil);
         var roleName = Required(values, "role");
         var role = roleName == RoleReference.Administrator.Name
             ? RoleReference.Administrator : new RoleReference(RoleVocabularies.Domain, roleName);
@@ -93,8 +112,12 @@ internal sealed class AccessGrantFormSubmissionProjection(
     }
 
     private static string Required(JsonElement values, string name) =>
+        Optional(values, name) ?? throw new InvalidOperationException($"Access grant form requires '{name}'.");
+
+    /// <summary>The field's string value, or null when it is absent, JSON null or blank.</summary>
+    private static string? Optional(JsonElement values, string name) =>
         values.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
-            ? value.GetString()! : throw new InvalidOperationException($"Access grant form requires '{name}'.");
+            ? value.GetString() : null;
 }
 
 /// <summary>Builds an idempotent durable grant write for the typed handler's completed step.</summary>

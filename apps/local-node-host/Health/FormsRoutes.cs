@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -235,16 +235,18 @@ public static class FormsRoutes
                     }
                 }
 
-                if (await BackdateRefusalAsync(submissionGate, definition, candidate, token.Subject, at, timeProvider, ct)
-                    .ConfigureAwait(false) is { } backdate)
-                    return backdate;
-
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
                     token.Tenant,
                     at);
                 var receipt = await engine
-                    .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef)
+                    .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef,
+                        async admissionCt =>
+                        {
+                            var refusal = await BackdateRefusalAsync(submissionGate, definition, candidate,
+                                token.Subject, at, timeProvider, admissionCt).ConfigureAwait(false);
+                            if (refusal is not null) throw new SubmissionAdmissionRefused(refusal);
+                        })
                     .ConfigureAwait(false);
 
                 var location =
@@ -287,6 +289,7 @@ public static class FormsRoutes
             {
                 return Results.NotFound(new { code = "form_definition.not_published", detail = new { formId } });
             }
+            catch (SubmissionAdmissionRefused refusal) { return refusal.Result; }
             catch (FormValidationException ex)
             {
                 return Results.UnprocessableEntity(ValidationResultDto.From(ex.Result));
@@ -427,27 +430,40 @@ public static class FormsRoutes
         return JsonDocument.Parse(values.ToJsonString());
     }
 
+    internal sealed class SubmissionAdmissionRefused(IResult result) : Exception
+    {
+        internal IResult Result { get; } = result;
+    }
+
     /// <summary>
-    /// K3 (DES-0029 ck-9, owner ruling 2026-09-28 Q1): when <paramref name="gate"/> names the form's effective-from
-    /// field and the candidate requests an instant before <paramref name="admittedAt"/>, the kernel clock refuses it
-    /// by name, because no host backdate capability is composed. Returns that 403 refusal, or <see langword="null"/>
-    /// when the request is omitted, unparseable (left to the form's own validation), or not in the past.
+    /// K3 first refuses a start before the admitted instant because no host backdate capability is composed.
+    /// Then checks a declared interval end against that start, defaulting an omitted start to
+    /// <paramref name="admittedAt"/>, before saving. Unparseable start values remain for form validation; nonempty malformed end values are refused.
+    /// Returns a named 400 interval or 403 backdate refusal, or <see langword="null"/> when admitted.
     /// </summary>
     internal static async Task<IResult?> BackdateRefusalAsync(
         IFormSubmissionGate? gate, Harborline.Api.Foundation.Forms.Models.FormDefinitionId form, JsonDocument candidate, ActorId actor,
         DateTimeOffset admittedAt, TimeProvider time, CancellationToken ct)
     {
-        if (gate?.EffectiveFromField(form) is not { } field
-            || !candidate.RootElement.TryGetProperty(field, out var value)
-            || value.ValueKind != JsonValueKind.String
-            || !DateTimeOffset.TryParse(value.GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.None, out var requested))
-            return null;
+        if (gate?.EffectiveFromField(form) is not { } field) return null;
+        var requested = admittedAt;
+        if (candidate.RootElement.TryGetProperty(field, out var value)
+            && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
+            && !DateTimeOffset.TryParse(value.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out requested)) return null;
         try
         {
             await new Harborline.Kernel.Core.KernelClock(time)
                 .ResolveEffectiveFromAsync(actor.Value, admittedAt, requested, backdateCapability: null, ct)
                 .ConfigureAwait(false);
+            if (gate.EffectiveToField(form) is { } endField
+                && candidate.RootElement.TryGetProperty(endField, out var endValue)
+                && endValue.ValueKind == JsonValueKind.String
+                && endValue.GetString() is { Length: > 0 } endText
+                && (!DateTimeOffset.TryParse(endText, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var end) || end <= requested))
+                return Results.Json(new { code = "access.grant.invalid-validity-interval", detail = new { field = endField } },
+                    statusCode: StatusCodes.Status400BadRequest);
             return null;
         }
         catch (Harborline.Kernel.Core.KernelClockRefusalException refused)
@@ -492,6 +508,9 @@ public interface IFormSubmissionGate
     /// by name, before anything is saved (DES-0029 K3).
     /// </summary>
     string? EffectiveFromField(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form) => null;
+
+    /// <summary>The optional interval end field, validated against the admitted/defaulted start before saving.</summary>
+    string? EffectiveToField(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form) => null;
 }
 
 // ── Wire shapes (mirror @harborline-software/api-contracts forms.ts) ───────────────────────────

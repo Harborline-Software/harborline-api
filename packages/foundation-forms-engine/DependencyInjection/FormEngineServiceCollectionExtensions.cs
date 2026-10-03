@@ -97,7 +97,8 @@ public static class FormEngineServiceCollectionExtensions
             // (a warning naming the responsible definition); NullLogger fallback when unregistered.
             sp.GetService<Microsoft.Extensions.Logging.ILogger<FormEngine>>(),
             // T-540 (ck-7): the root-minted act clock (Ticket 216). Absent, a submit fails closed.
-            sp.GetService<Func<DateTimeOffset, TimeProvider>>()));
+            sp.GetService<Func<DateTimeOffset, TimeProvider>>(),
+            sp.GetService<IFormSubmissionBindingResolver>()));
         return services;
     }
 

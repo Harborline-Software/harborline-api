@@ -202,6 +202,109 @@ public sealed class KernelClockIntegrationTests
         Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
     }
 
+    [Theory(DisplayName = "T-1017 L940: an omitted effective-from starts the grant at the admitted instant on the server clock")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    [InlineData("absent")]
+    [InlineData("blank")]
+    public async Task Access_grant_form_defaults_an_omitted_effective_from_to_the_admitted_instant(string omission)
+    {
+        // The host clock is frozen far from the wall clock and the client's captured_at is skewed 30 days,
+        // so a default read from either one lands on a different instant than the admitted FrozenAt.
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(
+            effectiveFrom: null, capturedAt: FrozenAt.AddDays(-30), omittedAs: omission);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        // Oracle: the shipped Access 1.1.6 pack publishes access.privileged-grant-review@1.0.3.
+        var workflow = await fixture.Services.GetRequiredService<IWorkflowStore>().LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(body.GetProperty("instanceId").GetString()!));
+        Assert.Equal("1.0.3", Assert.IsType<WorkflowInstanceRecord>(workflow).DefinitionVersion);
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+    }
+
+    [Theory]
+    [InlineData("absent", 0)]
+    [InlineData("absent", -1)]
+    [InlineData("blank", 0)]
+    [InlineData("blank", -1)]
+    public async Task Access_grant_form_refuses_an_end_not_after_its_defaulted_start_before_saving(string omission, int endOffsetMinutes)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, FrozenAt.AddDays(-30), omission,
+            effectiveTo: FrozenAt.AddMinutes(endOffsetMinutes));
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Theory]
+    [InlineData("not-a-date")]
+    [InlineData("   ")]
+    public async Task Access_grant_form_refuses_a_malformed_nonempty_end_before_saving(string endText)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, effectiveToText: endText);
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Access_grant_form_admits_an_empty_or_omitted_end(bool omitted)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, omitEffectiveTo: omitted);
+        Assert.True(status == HttpStatusCode.Created, body.ToString());
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+        Assert.Null(grant.Validity.ValidTo);
+    }
+
+    [Fact]
+    public async Task Access_grant_form_retains_backdate_refusal_precedence_for_an_invalid_interval()
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(FrozenAt.AddMinutes(-1), null,
+            effectiveTo: FrozenAt.AddMinutes(-2));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+    }
+
+    [Fact(DisplayName = "T-1017: a future effective-from is still admitted as the client supplied it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Access_grant_form_admits_a_future_effective_from_as_supplied()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: FrozenAt.AddDays(7), capturedAt: null);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(new DateTimeOffset(2026, 7, 30, 2, 0, 0, TimeSpan.Zero), grant.Validity.ValidFrom);
+    }
+
     private const string AccessGrantRecipient = "principal-k3-recipient";
 
     [Fact]
@@ -634,19 +737,24 @@ public sealed class KernelClockIntegrationTests
         }
 
         // K3: the preloaded Access pack's grant form, the one live route that takes a client effective-from.
+        // A null effectiveFrom is sent as omittedAs says: "absent" (no member), "null" (JSON null) or "blank".
+        // The form schema refuses a JSON null text value before any projection, so only absent and blank reach the default.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset effectiveFrom, DateTimeOffset? capturedAt)
+            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent", DateTimeOffset? effectiveTo = null,
+            string? effectiveToText = null, bool omitEffectiveTo = false)
         {
-            var candidate = new Dictionary<string, string>
+            var candidate = new Dictionary<string, string?>
             {
                 ["person"] = AccessGrantRecipient,
                 ["role"] = "administrator",
                 ["scope"] = "/",
                 ["residency"] = "cache",
-                ["effectiveFrom"] = effectiveFrom.ToString("O"),
-                ["effectiveTo"] = "",
+                ["effectiveTo"] = effectiveToText ?? effectiveTo?.ToString("O") ?? "",
                 ["reason"] = "manual",
             };
+            if (omitEffectiveTo) candidate.Remove("effectiveTo");
+            if (effectiveFrom is { } from) candidate["effectiveFrom"] = from.ToString("O");
+            else if (omittedAs != "absent") candidate["effectiveFrom"] = omittedAs == "null" ? null : "   ";
             if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");
             using var client = Client();
             using var response = await client.PostAsJsonAsync(
@@ -660,6 +768,17 @@ public sealed class KernelClockIntegrationTests
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var grants = await Services.GetRequiredService<IGrantStore>().SnapshotAsync(tenant);
             return grants.Where(grant => grant.Subject.Value == subject).ToList();
+        }
+
+        internal async Task<(int Entities, int Workflows, int Outbox)> AccessSubmissionCountsAsync()
+        {
+            var entities = 0;
+            await foreach (var entity in Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>()
+                .QueryAsync(new Harborline.Api.Foundation.Assets.Entities.EntityQuery(
+                    Tenant: Harborline.Api.Foundation.MultiTenancy.TenantSelection.All))) entities++;
+            await using var db = await _nodeFactory.CreateDbContextAsync();
+            return (entities, await db.Set<WorkflowInstanceRecord>().CountAsync(),
+                await db.Set<Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow>().CountAsync());
         }
 
         internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()
