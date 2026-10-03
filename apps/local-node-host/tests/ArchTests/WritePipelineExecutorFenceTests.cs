@@ -753,6 +753,80 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(HasMatchingSourceDocument(reader, method, file));
     }
 
+    [Theory]
+    [InlineData("SHA256")]
+    [InlineData("Encoding property")]
+    [InlineData("Encoding field")]
+    [InlineData("ArgumentException")]
+    [InlineData("StringComparison field")]
+    [InlineData("LINQ extension")]
+    public void CalculationBindingsRejectSameNamespaceFrameworkShadows(string shadow)
+    {
+        var root = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))).GetRoot();
+        var calculation = root.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "DeriveEntityId");
+        var encoder = root.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(type => type.Identifier.ValueText == "Base32Lower");
+        var source = "using System; using System.Security.Cryptography; using System.Text; using Harborline.Api.Foundation.Assets.Common; using Harborline.Api.Foundation.Definitions; namespace Harborline.Api.Foundation.Assets.Entities { public sealed class InMemoryEntityStore { "
+            + calculation.ToFullString() + " } " + encoder.ToFullString() + " }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var shadowSource = shadow switch
+        {
+            "SHA256" => "public static class SHA256 { public static int HashData(ReadOnlySpan<byte> source, Span<byte> destination) { Queue(); return System.Security.Cryptography.SHA256.HashData(source, destination); } private static void Queue() { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); } }",
+            "Encoding property" => "public static class Encoding { public static System.Text.Encoding UTF8 { get { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); return System.Text.Encoding.UTF8; } } }",
+            "Encoding field" => "public static class Encoding { public static readonly System.Text.Encoding UTF8 = Queue(); private static System.Text.Encoding Queue() { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); return System.Text.Encoding.UTF8; } }",
+            "ArgumentException" => "public sealed class ArgumentException : System.ArgumentException { public ArgumentException(string message, string parameter) : base(message, parameter) { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); } }",
+            "StringComparison field" => "public static class StringComparison { public static readonly System.StringComparison Ordinal = Queue(); private static System.StringComparison Queue() { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); return System.StringComparison.Ordinal; } }",
+            "LINQ extension" => "public static class ShadowExtensions { public static bool All(this string value, Func<char, bool> predicate) { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); return System.Linq.Enumerable.All(value, predicate); } }",
+            _ => throw new ArgumentOutOfRangeException(nameof(shadow)),
+        };
+        var compilation = BoundaryModel(tree).Compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
+            "using System; namespace Harborline.Api.Foundation.Assets.Entities; " + shadowSource));
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var assembly = Assembly.Load(image.ToArray());
+        var owner = assembly.GetType(typeof(InMemoryEntityStore).FullName!)!;
+        var encoded = assembly.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!;
+        Assert.True(HasReviewedCalculationSource(tree));
+        Assert.Null(owner.TypeInitializer);
+        Assert.Null(encoded.TypeInitializer);
+        Assert.False(HasReviewedCalculationBindings(owner.GetMethod("DeriveEntityId")!, encoded.GetMethod("Encode")!),
+            string.Join("\n", RawMutationPortSymbolInventoryTests.CalledMethods(typeof(InMemoryEntityStore).GetMethod("DeriveEntityId")!)
+                .Concat(RawMutationPortSymbolInventoryTests.CalledMethods(typeof(InMemoryEntityStore).Assembly.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!.GetMethod("Encode")!))
+                .Select(call => call.Target.DeclaringType + ": " + call.Target)));
+    }
+
+    [Fact]
+    public void CompileInputBindingRejectsForgedPdbDocumentClaimsForAnExcludedDecoy()
+    {
+        const string expectedFile = "packages/foundation/Assets/Entities/InMemoryEntityStore.cs";
+        var expectedPath = Path.Combine(RepositoryRoot(), expectedFile);
+        var expectedHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(expectedPath)));
+        var source = $"#pragma checksum \"{expectedPath.Replace('\\', '/')}\" \"{{8829d00f-11b8-4213-878b-770e8597ac16}}\" \"{expectedHash}\"\n#line 1 \"{expectedPath.Replace('\\', '/')}\"\n"
+            + "public static class LinkedReplacement { public static int Value() { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); return 42; } }";
+        var linkedPath = Path.Combine(RepositoryRoot(), "external/LinkedReplacement.cs");
+        var tree = CSharpSyntaxTree.ParseText(Microsoft.CodeAnalysis.Text.SourceText.From(source,
+            System.Text.Encoding.UTF8, Microsoft.CodeAnalysis.Text.SourceHashAlgorithm.Sha256), path: linkedPath);
+        var compilation = BoundaryModel(tree).Compilation;
+        using var image = new MemoryStream();
+        using var symbols = new MemoryStream();
+        var emitted = compilation.Emit(image, symbols, options: new Microsoft.CodeAnalysis.Emit.EmitOptions(
+            debugInformationFormat: Microsoft.CodeAnalysis.Emit.DebugInformationFormat.PortablePdb));
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var assemblyHash = Convert.ToHexString(SHA256.HashData(image.ToArray()));
+        image.Position = 0;
+        symbols.Position = 0;
+        using var pe = new PEReader(image);
+        var metadata = pe.GetMetadataReader();
+        var method = metadata.MethodDefinitions.Single(handle => metadata.GetString(metadata.GetMethodDefinition(handle).Name) == "Value");
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(symbols);
+        // Compiler-supported document directives fool the former PDB-only source association.
+        Assert.True(HasMatchingSourceDocument(provider.GetMetadataReader(), method, expectedFile));
+        string[] recordedInputs = [$"assembly|{assemblyHash}",
+            $"source|{linkedPath}|{Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(source)))}"];
+        Assert.False(HasRecordedCompileInput(recordedInputs, assemblyHash, expectedFile));
+    }
+
     private static SemanticModel BoundaryModel(SyntaxTree tree, MetadataReference? kernelReference = null)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -971,11 +1045,97 @@ public sealed class WritePipelineExecutorFenceTests
         return position == il.Length - 1 && il[position] == 0x2a;
     }
 
+    private static bool HasReviewedCalculationBindings(MethodInfo calculation, MethodInfo encoder)
+    {
+        // This finite contract binds the reviewed template's calls, not arbitrary System.* helpers.
+        var allowed = new Dictionary<Type, string[]>
+        {
+            [typeof(CreateOptions)] = ["get_ExplicitLocalPart", "get_Scheme", "get_Authority", "get_Nonce", "get_Issuer"],
+            [typeof(Harborline.Api.Foundation.Assets.Common.SchemaId)] = ["get_Value"],
+            [typeof(Harborline.Api.Foundation.Assets.Common.ActorId)] = ["get_Value"],
+            [typeof(Harborline.Api.Foundation.Assets.Common.EntityId)] = [".ctor"],
+            [typeof(string)] = ["get_Length", "get_Chars", "Contains", ".ctor"],
+            [typeof(ArgumentException)] = [".ctor"],
+            [typeof(System.Text.Encoding)] = ["get_UTF8", "GetBytes"],
+            [typeof(System.Security.Cryptography.SHA256)] = ["HashData"],
+            [typeof(Enumerable)] = ["All"],
+            [typeof(Func<char, bool>)] = [".ctor"],
+            [typeof(DefaultInterpolatedStringHandler)] = [".ctor", "AppendLiteral", "AppendFormatted", "ToStringAndClear"],
+            [typeof(Span<byte>)] = [".ctor", "Slice", "op_Implicit"],
+            [typeof(ReadOnlySpan<byte>)] = ["get_IsEmpty", "get_Length", "get_Item", "GetEnumerator", "op_Implicit"],
+            [typeof(ReadOnlySpan<byte>.Enumerator)] = ["get_Current", "MoveNext"],
+        };
+        var calls = RawMutationPortSymbolInventoryTests.CalledMethods(calculation).Select(call => call.Target).ToArray();
+        var hash = typeof(System.Security.Cryptography.SHA256).GetMethod("HashData", [typeof(ReadOnlySpan<byte>), typeof(Span<byte>)])!;
+        var utf8 = typeof(System.Text.Encoding).GetProperty("UTF8")!.GetMethod!;
+        if (!calls.Contains(hash) || !calls.Contains(utf8) || !calls.Contains(encoder)) return false;
+        bool ReviewedCall(MethodBase method) => method.Equals(encoder)
+            || method.DeclaringType is { } type && allowed.TryGetValue(type, out var names) && names.Contains(method.Name, StringComparer.Ordinal)
+            || method is MethodInfo { ReturnType: { } result, IsStatic: false } lambda
+                && result == typeof(bool) && lambda.GetParameters().Select(parameter => parameter.ParameterType).SequenceEqual([typeof(char)])
+                && lambda.Name.StartsWith("<DeriveEntityId>b__", StringComparison.Ordinal)
+                && lambda.DeclaringType is { } closure && closure.DeclaringType == calculation.DeclaringType
+                && closure.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false)
+                && !RawMutationPortSymbolInventoryTests.CalledMethods(lambda).Any();
+        if (!calls.All(ReviewedCall) || !RawMutationPortSymbolInventoryTests.CalledMethods(encoder).All(call => ReviewedCall(call.Target))) return false;
+        return ReferencedCalculationFields(calculation).Concat(ReferencedCalculationFields(encoder)).All(field =>
+            field.Equals(typeof(string).GetField(nameof(string.Empty)))
+            || field.DeclaringType is { } closure && closure.DeclaringType == calculation.DeclaringType
+                && closure.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false)
+                && field.Name.StartsWith("<>9", StringComparison.Ordinal)
+                && (field.FieldType == typeof(Func<char, bool>) || field.FieldType == field.DeclaringType));
+    }
+
+    private static IEnumerable<FieldInfo> ReferencedCalculationFields(MethodBase method)
+    {
+        var il = method.GetMethodBody()?.GetILAsByteArray();
+        if (il is null) yield break;
+        var opcodes = typeof(System.Reflection.Emit.OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(System.Reflection.Emit.OpCode))
+            .Select(field => (System.Reflection.Emit.OpCode)field.GetValue(null)!)
+            .GroupBy(opcode => opcode.Value).ToDictionary(group => group.Key, group => group.First());
+        var position = 0;
+        while (position < il.Length)
+        {
+            var first = il[position++];
+            var code = opcodes[first == 0xfe ? unchecked((short)(0xfe00 | il[position++])) : (short)first];
+            if (code.OperandType == System.Reflection.Emit.OperandType.InlineField)
+                yield return method.Module.ResolveField(BitConverter.ToInt32(il, position), method.DeclaringType?.GetGenericArguments(),
+                    method is MethodInfo info ? info.GetGenericArguments() : null)!;
+            position += code.OperandType switch
+            {
+                System.Reflection.Emit.OperandType.InlineNone => 0,
+                System.Reflection.Emit.OperandType.ShortInlineBrTarget or System.Reflection.Emit.OperandType.ShortInlineI or System.Reflection.Emit.OperandType.ShortInlineVar => 1,
+                System.Reflection.Emit.OperandType.InlineVar => 2,
+                System.Reflection.Emit.OperandType.InlineI or System.Reflection.Emit.OperandType.InlineBrTarget or System.Reflection.Emit.OperandType.InlineField
+                    or System.Reflection.Emit.OperandType.InlineMethod or System.Reflection.Emit.OperandType.InlineSig or System.Reflection.Emit.OperandType.InlineString
+                    or System.Reflection.Emit.OperandType.InlineTok or System.Reflection.Emit.OperandType.InlineType or System.Reflection.Emit.OperandType.ShortInlineR => 4,
+                System.Reflection.Emit.OperandType.InlineI8 or System.Reflection.Emit.OperandType.InlineR => 8,
+                System.Reflection.Emit.OperandType.InlineSwitch => 4 + BitConverter.ToInt32(il, position) * 4,
+                _ => throw new InvalidOperationException($"Unsupported construction operand {code.OperandType}."),
+            };
+        }
+    }
+
+    private static bool HasRecordedCompileInput(IReadOnlyList<string> lines, string assemblyHash, string expectedFile)
+    {
+        // The trusted MSBuild target records evaluated Compile paths/hashes and the emitted binary hash.
+        // Unlike PDB documents, these records cannot be manufactured with source-level #line/checksum directives.
+        if (lines.Count == 0 || lines[0] != $"assembly|{assemblyHash}") return false;
+        var expectedHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(RepositoryRoot(), expectedFile))));
+        var matches = lines.Skip(1).Select(line => line.Split('|'))
+            .Where(parts => parts.Length == 3 && parts[0] == "source"
+                && Path.GetRelativePath(RepositoryRoot(), Path.GetFullPath(parts[1])).Replace('\\', '/') == expectedFile).ToArray();
+        return matches.Length == 1 && matches[0][2] == expectedHash;
+    }
+
     private static bool HasBoundCompiledSource(MethodBase method, string expectedFile)
     {
         var assemblyPath = method.Module.Assembly.Location;
         var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
-        if (!File.Exists(assemblyPath) || !File.Exists(pdbPath)) return false;
+        var inputsPath = Path.ChangeExtension(assemblyPath, ".compile-inputs.txt");
+        if (!File.Exists(assemblyPath) || !File.Exists(pdbPath) || !File.Exists(inputsPath)
+            || !HasRecordedCompileInput(File.ReadAllLines(inputsPath), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath))), expectedFile)) return false;
         using var assemblyStream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(assemblyStream);
         var metadata = pe.GetMetadataReader();
@@ -1114,7 +1274,8 @@ public sealed class WritePipelineExecutorFenceTests
             || !HasReviewedCompiledBase(typeof(KernelWrite<,,,>))
             || !HasBoundCompiledSource(typeof(WritePipeline).GetMethod(nameof(WritePipeline.NameOf))!, baseFile)
             || !HasBoundCompiledSource(actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!, calculationFile)
-            || !HasBoundCompiledSource(actualEncoder.GetMethod("Encode")!, calculationFile)) return false;
+            || !HasBoundCompiledSource(actualEncoder.GetMethod("Encode")!, calculationFile)
+            || !HasReviewedCalculationBindings(actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!, actualEncoder.GetMethod("Encode")!)) return false;
         return HasReviewedKernelBaseConstruction([CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, baseFile)))])
             && HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, calculationFile))));
     }

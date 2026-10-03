@@ -1,0 +1,25 @@
+<Project>
+  <!-- Trusted build evidence for the bounded construction fence. PDB document directives are not input provenance. -->
+  <PropertyGroup>
+    <_ConstructionInputsManifest>$(MSBuildProjectDirectory)/obj/construction-proof/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/$(AssemblyName).compile-inputs.txt</_ConstructionInputsManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(_ConstructionInputsManifest)" TargetPath="$(AssemblyName).compile-inputs.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Pack="false" Visible="false" />
+  </ItemGroup>
+  <Target Name="HarborlineRecordConstructionCompileInputs" AfterTargets="CoreCompile">
+    <GetFileHash Files="@(Compile)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_ConstructionSourceHashes" />
+    </GetFileHash>
+    <GetFileHash Files="@(IntermediateAssembly)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_ConstructionAssemblyHash" />
+    </GetFileHash>
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(_ConstructionInputsManifest)'))" />
+    <WriteLinesToFile File="$(_ConstructionInputsManifest)"
+                      Lines="assembly|$(_ConstructionAssemblyHash);@(_ConstructionSourceHashes->'source|%(FullPath)|%(FileHash)')"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <ItemGroup>
+      <FileWrites Include="$(_ConstructionInputsManifest)" />
+    </ItemGroup>
+  </Target>
+</Project>
