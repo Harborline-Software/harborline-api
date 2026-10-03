@@ -10,6 +10,21 @@ import {verifyConsumedFeed} from './platform-feed-consumption.mjs'
 import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {buildEnvironment} from './platform-feed-environment.mjs'
 
+export function safeFailure(error) {
+  const result = {kind: Number.isInteger(error?.status) ? 'command-exit' : 'validation-or-spawn'}
+  if (Number.isInteger(error?.status) && error.status >= 0 && error.status <= 255) result.exitCode = error.status
+  if (['ENOENT', 'EACCES', 'EPERM', 'ETIMEDOUT', 'ENOBUFS', 'ENOMEM', 'EIO', 'E2BIG', 'EBADF',
+    'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'].includes(error?.code)) result.osCode = error.code
+  if (['SIGABRT', 'SIGTERM', 'SIGKILL', 'SIGSEGV'].includes(error?.signal)) result.signal = error.signal
+  // Recognize fixed failure codes, never retain raw messages, URLs, arguments or paths.
+  const text = [error?.stdout, error?.stderr].map(value => typeof value === 'string' || Buffer.isBuffer(value) ? String(value).slice(-16384) : '').join('\n')
+  const codes = [...new Set(text.match(/\b(?:NU\d{4}|MSB\d{4}|NETSDK\d{4})\b/g) ?? [])].slice(0, 8)
+  if (codes.length) result.diagnosticCodes = codes
+  for (const library of ['libatomic.so.1', 'libstdc++.so.6', 'libgcc_s.so.1', 'libc.so.6', 'libm.so.6', 'libdl.so.2', 'libpthread.so.0'])
+    if (text.includes(`error while loading shared libraries: ${library}:`)) result.missingSharedLibrary = library
+  return result
+}
+
 export function qualify(platform) {
   if (process.platform !== 'linux' || Number(process.versions.node.split('.')[0]) !== 24)
     throw new Error('qualification requires Linux Node24')
@@ -17,9 +32,6 @@ export function qualify(platform) {
   const profile = JSON.parse(readFileSync(path.join(root, 'eng/platform-feed-profile.json')))
   const execute = (command, args) => execFileSync(command, args, {encoding: 'utf8',
     env: buildEnvironment(), stdio: 'pipe', maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60 * 1000})
-  const runtime = JSON.parse(execute('docker', ['version', '--format', '{{json .}}']))
-  if (!runtime.Server?.Components?.some(component => component.Name === 'Engine')
-    || !runtime.Client?.Platform?.Name?.startsWith('Docker Engine')) throw new Error('real Docker Engine required')
   const directory = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? tmpdir(), 'api-feed-qualification-'))
   const clone = path.join(directory, 'clone'), packages = path.join(directory, 'nuget-packages')
   const evidencePath = path.join(root, '.claude/platform-feed-qualification/evidence.json')
@@ -31,19 +43,28 @@ export function qualify(platform) {
     evidence.stages.push({stage, ...details}); writeFileSync(evidencePath, JSON.stringify(evidence, null, 2))
     console.log(JSON.stringify({stage, ...details}))
   }
+  let currentStage = 'started'
+  const stage = (name, details = {}) => {currentStage = name; record('operation-started', {operation: name, ...details})}
   let prepared
   try {
     record('started')
+    stage('docker-engine-profile')
+    const runtime = JSON.parse(execute('docker', ['version', '--format', '{{json .}}']))
+    if (!runtime.Server?.Components?.some(component => component.Name === 'Engine')
+      || !runtime.Client?.Platform?.Name?.startsWith('Docker Engine')) throw new Error('real Docker Engine required')
+    stage('isolated-api-clone')
     execute('git', ['clone', '--quiet', '--no-hardlinks', root, clone])
     let started = Date.now()
-    prepared = prepareContainer({apiRoot: root, platform, pin})
+    prepared = prepareContainer({apiRoot: root, platform, pin, observe: stage})
     record('independent-platform-restore', {durationMs: Date.now() - started})
     started = Date.now()
     const files = prepared.pack(), raw = createBundle(files, prepared.input, pin)
     record('production-builder-pack', {durationMs: Date.now() - started, files: files.length})
     const bundlePath = path.join(directory, 'feed-bundle.json')
+    stage('bundle-materialization')
     writeFileSync(bundlePath, raw); materializeFeed(files, path.join(clone, '.feed')); mkdirSync(packages)
     started = Date.now()
+    stage('full-api-restore')
     execute('docker', ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
       '--security-opt=no-new-privileges', '--pids-limit=256', '--cpus=4', '--user', `${process.getuid()}:${process.getgid()}`,
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=1073741824', '--network', 'bridge',
@@ -53,9 +74,11 @@ export function qualify(platform) {
       '--configfile', path.join(clone, 'nuget.config'), '-nodeReuse:false', '-maxcpucount:4'])
     record('full-api-restore', {durationMs: Date.now() - started})
     const options = {clone, packages, bundlePath, bundleDigest: sha256(raw), pin}
+    stage('consumption-proof')
     const positive = verifyConsumedFeed(options)
     record('consumed-bytes', {proof: positive})
     const refuse = (name, call) => {
+      stage('negative-control', {control: name})
       let rejected = false; try {call()} catch {rejected = true}
       if (!rejected) throw new Error('negative qualification control accepted')
       record(name, {rejected})
@@ -76,16 +99,18 @@ export function qualify(platform) {
     finally {writeFileSync(dll, dllBytes)}
     const env = {...buildEnvironment(), HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: path.join(directory, 'absent-transfer.json'),
       HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: 'a'.repeat(64)}
+    stage('missing-handoff-route')
     const miss = restoreSameJobFeed(platform, env)
     if (miss.restored !== false || handoffRestored({passed: true,
       fullOutput: `platform-feed-handoff-result:${JSON.stringify(miss)}\n`}, env) !== false)
       throw new Error('missing handoff selected reuse')
     record('missing-handoff-selects-fresh-route', {restored: false, reason: miss.reason})
+    stage('final-consumption-proof')
     verifyConsumedFeed(options)
     record('complete', {productionBuilderQualified: true, trustedCrossRunHit: false})
     return evidence
-  } catch {
-    record('failed', {qualificationPassed: false})
+  } catch (error) {
+    record('failed', {qualificationPassed: false, operation: currentStage, failure: safeFailure(error)})
     throw new Error('platform feed qualification failed; see bounded stage evidence')
   } finally {
     rmSync(directory, {recursive: true, force: true})

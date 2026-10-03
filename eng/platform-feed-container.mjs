@@ -42,28 +42,38 @@ export function platformIdentity(platform, pin) {
 }
 
 export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = execFileSync,
+  observe = () => {},
   host = {os: process.platform, architecture: process.arch, uid: process.getuid?.(), gid: process.getgid?.(), kernel: release()}}) {
+  // Only fixed stage identifiers/counts leave this boundary; observation never decides a result.
+  const stage = (name, details = {}) => {try {observe(name, details)} catch { /* Non-gating diagnostics. */ }}
+  stage('host-profile')
   if (host.os !== 'linux' || host.architecture !== 'x64' || !Number.isInteger(host.uid) || !Number.isInteger(host.gid))
     throw new Error('unsupported feed host')
   const profile = JSON.parse(readFileSync(path.join(apiRoot, 'eng/platform-feed-profile.json')))
   if (profile.profile !== 'linux-x64-container-feed' || profile.architecture !== 'x64'
     || !/^mcr\.microsoft\.com\/dotnet\/sdk@sha256:[0-9a-f]{64}$/.test(profile.image)) throw new Error('unapproved image profile')
+  stage('checkout-policy')
   const config = git(sourcePlatform, 'config', '--local', '--list')
   if (/extraheader|credential|sshcommand|fsmonitor|hookspath|pager|alias\.|include\./i.test(config)
     || /remote\.[^=]+\.url=https?:\/\/[^/\s]+@/i.test(config))
     throw new Error('platform checkout retains authentication or executable Git configuration')
+  stage('source-identity')
   const platformBefore = platformIdentity(sourcePlatform, pin)
   const directory = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? tmpdir(), 'api-feed-container-'))
   // Ignored obj/bin state in the caller checkout must never satisfy trusted pack.
   // Clone only committed bytes/history; preserve the caller's local outputs.
   const platform = path.join(directory, 'platform')
+  stage('isolated-platform-clone')
   execFileSync('git', ['-c', `safe.directory=${sourcePlatform}`, 'clone', '--quiet', '--no-local', '--no-hardlinks', sourcePlatform, platform],
     {encoding: 'utf8', timeout: 30000, stdio: 'pipe', env: buildEnvironment()})
+  stage('isolated-platform-checkout')
   git(platform, 'checkout', '--quiet', '--detach', pin.commit)
+  stage('isolated-platform-identity')
   if (canonical(platformIdentity(platform, pin)) !== canonical(platformBefore)) throw new Error('isolated platform clone differs')
   const tools = path.join(directory, 'tools'), packages = path.join(directory, 'packages'), output = path.join(directory, 'output')
   const feed = path.join(output, '.feed')
   for (const folder of [tools, packages, output]) mkdirSync(folder)
+  stage('reviewed-tool-copy')
   for (const name of producerPaths) {
     const destination = path.join(tools, name)
     mkdirSync(path.dirname(destination), {recursive: true})
@@ -73,8 +83,11 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   copyFileSync(node, path.join(tools, 'node'))
   const producer = producerPaths.map(name => ({name, sha256: hash(readFileSync(path.join(tools, name)))}))
   const docker = args => run('docker', args, {encoding: 'utf8', timeout: 20 * 60000, maxBuffer: 64 * 1024 * 1024, stdio: 'pipe', env: buildEnvironment()})
+  stage('container-runtime-version')
   const containerRuntime = JSON.parse(docker(['version', '--format', '{{json .Server}}']))
+  stage('container-image-pull')
   docker(['pull', '--platform=linux/amd64', profile.image])
+  stage('container-image-platform')
   if (docker(['image', 'inspect', profile.image, '--format', '{{.Os}}/{{.Architecture}}']).trim() !== 'linux/amd64')
     throw new Error('container platform differs from policy')
   const common = ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
@@ -89,11 +102,15 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
     '--mount', `type=bind,source=${packages},target=/packages`,
     '--mount', `type=bind,source=${output},target=/output`]
   const invoke = (args, network = 'none', cwd = '/platform') => docker([...common, '--network', network, '--workdir', cwd, profile.image, ...args])
+  stage('container-sdk-version')
   const sdk = invoke(['dotnet', '--version']).trim()
   if (sdk !== profile.sdk) throw new Error('container SDK differs from policy')
+  stage('container-builder-plan')
   const plan = JSON.parse(invoke(['/tool/node', '/tool/eng/build-local-feed.mjs', '--dry-run']))
+  stage('container-builder-plan-validation')
   if (!Array.isArray(plan.commands) || plan.commands.length !== Object.keys(pin.producers).length) throw new Error('incomplete pack plan')
-  for (const command of plan.commands) {
+  for (const [index, command] of plan.commands.entries()) {
+    stage('container-project-restore', {projectIndex: index, projectCount: plan.commands.length})
     const project = command[1]
     if (typeof project !== 'string' || !project.startsWith('/platform/') || project.split('/').includes('..')
       || !project.endsWith('.csproj') || !Array.isArray(command)) throw new Error('unsafe pack project')
@@ -103,6 +120,7 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   }
   // Bind every file visible after independent restore, including arbitrary
   // SDK/package targets' outputs. Later pack outputs are not restore inputs.
+  stage('restored-input-closure')
   const restoredPlatformNames = fileClosure(platform, 'platform', new Set(['.git'])).map(file => file.name)
   const capture = () => {
     const assets = []
@@ -144,7 +162,9 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   }
   const input = capture()
   return {directory, feed, input, pack: () => {
+    stage('container-builder-pack')
     invoke(['/tool/node', '/tool/eng/build-local-feed.mjs'])
+    stage('post-pack-input-closure')
     if (canonical(capture()) !== canonical(input)) throw new Error('pack changed input closure')
     return readdirSync(feed).map(name => {
       const absolute = path.join(feed, name)

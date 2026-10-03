@@ -367,10 +367,19 @@ test('real container planner isolates mounts, independently restores every proje
     if (changeDuringPack === 'generated') writeFileSync(path.join(mount('/platform'), 'obj/restore-generated-extra.txt'), 'changed after restore')
     return ''
   }
+  const stages = []
   const prepared = prepareContainer({apiRoot: source.directory, platform, pin: selectedPin, run: mockDocker,
+    observe: (stage, details) => {stages.push({stage, ...details}); if (stage === 'container-builder-plan') throw Error('private-observer-error')},
     host: {os: 'linux', architecture: 'x64', uid: 1001, gid: 1001, kernel: '6.8.0-fixture'}})
   t.after(() => rmSync(prepared.directory, {recursive: true, force: true}))
   assert.deepEqual(prepared.pack().sort((a, b) => a.name.localeCompare(b.name)), files().sort((a, b) => a.name.localeCompare(b.name)))
+  assert.deepEqual(stages.slice(0, 14).map(item => item.stage), ['host-profile', 'checkout-policy', 'source-identity',
+    'isolated-platform-clone', 'isolated-platform-checkout', 'isolated-platform-identity', 'reviewed-tool-copy',
+    'container-runtime-version', 'container-image-pull', 'container-image-platform', 'container-sdk-version',
+    'container-builder-plan', 'container-builder-plan-validation', 'container-project-restore'])
+  assert.deepEqual(stages.find(item => item.stage === 'container-project-restore'), {stage: 'container-project-restore', projectIndex: 0, projectCount: 1})
+  assert.deepEqual(stages.slice(-2).map(item => item.stage), ['container-builder-pack', 'post-pack-input-closure'])
+  assert.doesNotMatch(JSON.stringify(stages), /private-|\/platform|GH_TOKEN|https:/)
   assert.equal(readFileSync(path.join(platform, 'bin/old.dll'), 'utf8'), 'ambient old build', 'caller output preserved')
   assert.equal(prepared.input.restore.find(file => file.name === 'packages/provider.dll').sha256,
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
