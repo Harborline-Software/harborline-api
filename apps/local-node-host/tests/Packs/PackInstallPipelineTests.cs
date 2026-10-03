@@ -79,7 +79,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Equal([Authorize], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
         Assert.Null(_store.GetWatermark(Tenant, PackKey));
-        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == PackInstallCodes.RefusedAuthorizationDenied);
+        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == "pack.install.refused.authorization_denied");
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.False(refused.Installed);
         Assert.Equal(PackInstallVerdict.RequiresBreakGlass, refused.Preview.Verdict);
         Assert.False(refused.BrokeGlass);
-        Assert.Contains(PackInstallCodes.RefusedDowngrade, refused.RefusalCodes);
+        Assert.Contains("pack.install.refused.downgrade", refused.RefusalCodes);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.BreakGlassOverride);
@@ -290,7 +290,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Null(_store.GetWatermark(Tenant, PackKey));
         var refusal = Assert.Single(_audit.Query(Tenant), entry => entry.PackKey == PackKey);
         Assert.True(refusal.PreDecision);
-        Assert.Equal(PackInstallCodes.RefusedNoPrincipal, refusal.Detail);
+        Assert.Equal("pack.install.refused.no_principal", refusal.Detail);
     }
 
     [Fact]
