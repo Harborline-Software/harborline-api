@@ -17,15 +17,44 @@ using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Xunit;
+using NSubstitute;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed partial class AccessAdministrationPreloadTests
 {
     [Theory]
-    [InlineData(false, "1.0.3")]
-    [InlineData(true, "1.0.1")]
-    public async Task T433_predeclared_key_drives_real_engine_instance_and_workflow_grant_with_idempotent_replay(
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Access_projection_refuses_an_invalid_defaulted_interval_before_creating_a_workflow(int endOffsetMinutes)
+    {
+        var at = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+        var store = Substitute.For<IWorkflowStore>();
+        var dispatcher = Substitute.For<IWorkflowTriggerDispatcher>();
+        var projection = new AccessGrantFormSubmissionProjection(
+            new NodeWorkflowInstantiationService(store, Substitute.For<IDbContextFactory<LocalNodeDbContext>>()), dispatcher, store);
+        using var values = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            person = "recipient", role = "member", scope = "/records", residency = "cache", reason = "manual",
+            effectiveTo = at.AddMinutes(endOffsetMinutes).ToString("O"),
+        }));
+        var context = new FormSubmitContext(new FormDefinitionId("access.grant-a-role"),
+            EntityId.Parse("forminst:forms/d4e5853b33c3fa3c1f5fef18c00f0c62"), Tenant, new ActorId("operator"), at, values);
+        var refusal = await Assert.ThrowsAsync<ArgumentException>(() => projection.ProjectAsync(context));
+        Assert.Equal("validTo", refusal.ParamName);
+        await store.DidNotReceiveWithAnyArgs().CreateInstanceAsync(default!, default, default);
+        await dispatcher.DidNotReceiveWithAnyArgs().DispatchAsync(default!, default(CancellationToken));
+    }
+
+    [Fact]
+    public Task T433_predeclared_key_drives_real_engine_instance_and_workflow_grant_with_idempotent_replay() =>
+        AssertPredeclaredSubmissionAsync(false, "1.0.3");
+
+    [Fact]
+    public Task T433_predeclared_key_on_the_released_predecessor_pins_its_admitted_workflow_revision() =>
+        AssertPredeclaredSubmissionAsync(true, "1.0.1");
+
+    private async Task AssertPredeclaredSubmissionAsync(
         bool releasedPredecessor, string expectedWorkflowVersion)
     {
         var tenant = new TenantId("43300000-0000-4000-8000-000000000000");

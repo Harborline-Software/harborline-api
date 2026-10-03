@@ -174,6 +174,32 @@ public sealed partial class FormsRouteTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Selected_submit_refuses_an_end_not_after_its_start_before_minting(int endOffsetMinutes)
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+        using var request = SelectedSubmit();
+        request.Content = JsonContent.Create(new Dictionary<string, string>
+        {
+            ["station"] = "Marina", ["result"] = "PASS",
+            ["inspector"] = start.ToString("O"),
+            ["effectiveTo"] = start.AddMinutes(endOffsetMinutes).ToString("O"),
+        });
+        using var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        var minted = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) minted.Add(row);
+        Assert.Empty(minted);
+    }
+
+    [Theory]
     [InlineData(false, true, HttpStatusCode.Forbidden)]
     [InlineData(true, false, HttpStatusCode.Forbidden)]
     public async Task Selected_submit_requires_principal_and_antiforgery(bool principal, bool csrf, HttpStatusCode expected)
@@ -194,6 +220,7 @@ public sealed partial class FormsRouteTests
             form.Value == FormId || form.Value == OpenFormId ? "members:manage" : null;
         // K3: the test form's optional text field stands in for a dated form's effective-from.
         public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "inspector" : null;
+        public string? EffectiveToField(FormDefinitionId form) => form.Value == FormId ? "effectiveTo" : null;
         public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) => OperatorRoles;
     }
 

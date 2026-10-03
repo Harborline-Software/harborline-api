@@ -597,6 +597,15 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
         Assert.Equal(FormDefinitionStatus.Withdrawn, supersededForm!.Status);
         Assert.Equal("select", supersededForm.Overlay.Fields["reason"].ControlHint);
+
+        await _preload.PreloadAsync(Tenant, CancellationToken.None);
+        var currentForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.1.6", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.3", currentForm!.Version.ToString());
+        Assert.Null(currentForm.Overlay.Fields["reason"].ControlHint);
+        Assert.Null(currentForm.Overlay.Fields["residency"].ControlHint);
+        Assert.False(EffectiveFromRequired(_store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!));
     }
 
     [Fact(DisplayName = "T-1017: the shipped 1.1.6 preload upgrades a node on the released 1.1.3 without a pinned-tuple conflict")]
