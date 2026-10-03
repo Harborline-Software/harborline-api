@@ -144,9 +144,11 @@ public sealed class WritePipelineExecutorFenceTests
     // Oracle: the exemption requires execution in the atomic callback, not merely in the same method.
     [InlineData("return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", true)]
     [InlineData("return unit.ExecuteAtomicAsync(async ct => { return await WritePipeline.RunAsync(write, observer, ct); });", true)]
-    [InlineData("return unit.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct));", true)]
-    [InlineData("return unit.ExecuteAtomicAsync(ct => { return WritePipeline.RunAsync(write, observer, ct); });", true)]
-    [InlineData("return unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct).ConfigureAwait(false); return Done(); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct).AsTask());", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => { return WritePipeline.RunAsync(write, observer, ct).AsTask(); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct).ConfigureAwait(false); return await Done(); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => await RealPipeline.RunAsync(write, observer, ct));", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => await Harborline.Api.Kernel.Runtime.WritePipeline.RunAsync(write, observer, ct));", true)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => { _ = WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
     [InlineData("return unit.ExecuteAtomicAsync(async ct => { WritePipeline.RunAsync(write, observer, ct); return await Done(); });", false)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => { var pending = WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
@@ -157,7 +159,7 @@ public sealed class WritePipelineExecutorFenceTests
     [InlineData("return unit.ExecuteAtomicAsync(ct => { Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
     [InlineData("await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", false)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => Done());", false)]
-    [InlineData("await unit.ExecuteAtomicAsync(ct => Done()); return unrelated.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct));", false)]
+    [InlineData("await unit.ExecuteAtomicAsync(ct => Done()); return unrelated.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct).AsTask());", false)]
     public void ExemptionRejectsExecutorOutsideAtomicCallback(string body, bool expected)
     {
         // The unit parameter binds to the shipping interface; the unrelated receiver deliberately has the
@@ -167,21 +169,53 @@ public sealed class WritePipelineExecutorFenceTests
             using System.Threading;
             using System.Threading.Tasks;
             using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            using RealPipeline = Harborline.Api.Kernel.Runtime.WritePipeline;
             class UnrelatedAtomic {
                 public Task<int> ExecuteAtomicAsync(Func<CancellationToken, Task<int>> action) => action(default);
-            }
-            static class WritePipeline {
-                public static Task<int> RunAsync(object write, object observer, CancellationToken ct) => Task.FromResult(1);
             }
             class Fixture {
                 Task<int> Done() => Task.FromResult(0);
                 async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit, UnrelatedAtomic unrelated,
-                    object write, object observer, CancellationToken ct) {
-            """ + body + " } }";
+                    KernelWrite<object, int, int, int> write, IWritePipelineObserver observer, CancellationToken ct) {
+            """ + body.Replace("return unit.ExecuteAtomicAsync", "return await unit.ExecuteAtomicAsync",
+                StringComparison.Ordinal) + " } }";
         var tree = CSharpSyntaxTree.ParseText(source);
         var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
             .Single(node => node.Identifier.ValueText == "MergeAsync");
-        Assert.Equal(expected, RunsExecutorInsideAtomicCallback(declaration, BoundaryModel(tree)));
+        var model = BoundaryModel(tree);
+        if (expected)
+            Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.Equal(expected, RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Fact]
+    public void ExemptionRejectsAFakePipelineAliasEvenWhenTheRealExecutorIsPresentElsewhere()
+    {
+        var tree = CSharpSyntaxTree.ParseText("""
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            using WritePipeline = FakePipeline;
+            static class FakePipeline {
+                public static Task<int> RunAsync(object write, object observer, CancellationToken ct) => Task.FromResult(1);
+            }
+            class Fixture {
+                Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit,
+                    KernelWrite<object, int, int, int> write, IWritePipelineObserver observer, CancellationToken ct) {
+                    async Task Deferred() {
+                        await Harborline.Api.Kernel.Runtime.WritePipeline.RunAsync(write, observer, ct);
+                    }
+                    return unit.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct));
+                }
+            }
+            """);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
     private static SemanticModel BoundaryModel(SyntaxTree tree)
@@ -203,15 +237,26 @@ public sealed class WritePipelineExecutorFenceTests
         && symbol.ContainingType.ToDisplayString() == typeof(IHierarchyCompositeUnitOfWork).FullName
         && symbol.ContainingAssembly.Identity.ToString() == typeof(IHierarchyCompositeUnitOfWork).Assembly.FullName;
 
+    private static bool IsExecutorCall(InvocationExpressionSyntax call, SemanticModel model) =>
+        model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
+        && symbol.Name == nameof(WritePipeline.RunAsync)
+        && symbol.ContainingType.ToDisplayString() == typeof(WritePipeline).FullName
+        && symbol.ContainingAssembly.Identity.ToString() == typeof(WritePipeline).Assembly.FullName;
+
+    private static bool IsTaskWrapperCall(InvocationExpressionSyntax call, SemanticModel model) =>
+        model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
+        && symbol.Name is "ConfigureAwait" or "AsTask"
+        && symbol.ContainingType.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks"
+        && symbol.ContainingType.MetadataName is "Task`1" or "ValueTask`1"
+        && symbol.ContainingAssembly.Identity.ToString() == typeof(Task).Assembly.FullName;
+
     private static string RepositoryRoot([CallerFilePath] string thisFile = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "../../../.."));
 
     private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method, SemanticModel model)
     {
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
-            .Where(call => call.Expression is MemberAccessExpressionSyntax member
-                && member.Expression is IdentifierNameSyntax { Identifier.ValueText: "WritePipeline" }
-                && member.Name.Identifier.ValueText == "RunAsync")
+            .Where(call => IsExecutorCall(call, model))
             .ToArray();
         return calls.Length > 0 && calls.All(call =>
         {
@@ -222,12 +267,12 @@ public sealed class WritePipelineExecutorFenceTests
                 && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
                 && IsReviewedAtomicCall(atomic, model)
                 && atomic.ArgumentList.Arguments[0] == argument
-                && CompletesExecutorBeforeCallbackReturns(call, function);
+                && CompletesExecutorBeforeCallbackReturns(call, function, model);
         });
     }
 
     private static bool CompletesExecutorBeforeCallbackReturns(
-        InvocationExpressionSyntax call, SyntaxNode callback)
+        InvocationExpressionSyntax call, SyntaxNode callback, SemanticModel model)
     {
         // A task merely created inside the callback can outlive the atomic scope. Require direct await or
         // task return; accepting arbitrary assignments would need data-flow proof of their eventual await.
@@ -236,10 +281,11 @@ public sealed class WritePipelineExecutorFenceTests
         {
             if (task.Parent is ParenthesizedExpressionSyntax parentheses)
                 task = parentheses;
-            else if (task.Parent is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ConfigureAwait" } member
+            else if (task.Parent is MemberAccessExpressionSyntax member
                 && member.Expression == task
-                && member.Parent is InvocationExpressionSyntax configureAwait)
-                task = configureAwait;
+                && member.Parent is InvocationExpressionSyntax wrapper
+                && IsTaskWrapperCall(wrapper, model))
+                task = wrapper;
             else break;
         }
         if (task.Parent is AwaitExpressionSyntax) return true;
