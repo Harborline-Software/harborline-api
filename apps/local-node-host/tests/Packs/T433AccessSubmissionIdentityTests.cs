@@ -13,6 +13,8 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
+using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
@@ -32,7 +34,8 @@ public sealed partial class AccessAdministrationPreloadTests
         var store = Substitute.For<IWorkflowStore>();
         var dispatcher = Substitute.For<IWorkflowTriggerDispatcher>();
         var projection = new AccessGrantFormSubmissionProjection(
-            new NodeWorkflowInstantiationService(store, Substitute.For<IDbContextFactory<LocalNodeDbContext>>()), dispatcher, store);
+            new NodeWorkflowInstantiationService(store, Substitute.For<IDbContextFactory<LocalNodeDbContext>>()), dispatcher, store,
+            Substitute.For<IEntityStore>(), Substitute.For<IWorkflowDefinitionStore>());
         using var values = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             person = "recipient", role = "member", scope = "/records", residency = "cache", reason = "manual",
@@ -54,8 +57,12 @@ public sealed partial class AccessAdministrationPreloadTests
     public Task T433_predeclared_key_on_the_released_predecessor_pins_its_admitted_workflow_revision() =>
         AssertPredeclaredSubmissionAsync(true, "1.0.1");
 
+    [Fact]
+    public Task T433_recovery_after_pack_upgrade_does_not_rebind_the_submitted_predecessor_form() =>
+        AssertPredeclaredSubmissionAsync(true, "1.0.1", deferUntilUpgrade: true);
+
     private async Task AssertPredeclaredSubmissionAsync(
-        bool releasedPredecessor, string expectedWorkflowVersion)
+        bool releasedPredecessor, string expectedWorkflowVersion, bool deferUntilUpgrade = false)
     {
         var tenant = new TenantId("43300000-0000-4000-8000-000000000000");
         var actor = new ActorId("m6-t433-admin");
@@ -81,6 +88,7 @@ public sealed partial class AccessAdministrationPreloadTests
         await connection.OpenAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, FormSubmitOutboxEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(options => options.UseSqlite(connection));
         await using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -91,7 +99,8 @@ public sealed partial class AccessAdministrationPreloadTests
                 new DefinitionJoinedAuthorizationReader(grants, configuration))]);
         var projection = new AccessGrantFormSubmissionProjection(
             new NodeWorkflowInstantiationService(workflowStore, factory,
-                _app.Services.GetRequiredService<IWorkflowDefinitionExecutionStore>()), dispatcher, workflowStore);
+                _app.Services.GetRequiredService<IWorkflowDefinitionExecutionStore>()), dispatcher, workflowStore,
+            _app.Services.GetRequiredService<IEntityStore>(), _workflows);
         var engine = new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(),
             new FormSubmitProjectionRunner([projection]));
         var form = new FormDefinitionId("access.grant-a-role");
@@ -104,8 +113,38 @@ public sealed partial class AccessAdministrationPreloadTests
             effectiveFrom = at.AddMinutes(-1).ToString("O"), effectiveTo = "", reason = "manual",
         }));
         var authority = new AuthorizationWriteContext(actor, tenant, at);
+        if (deferUntilUpgrade)
+        {
+            // Commit the real submission and its immutable binding before its workflow projection runs.
+            var committed = await _app.Services.GetRequiredService<IFormEngine>().SaveWithReceiptAsync(
+                form, candidate, token, authority, idempotencyKey: "m6-t433-grant-submit-v1");
+            var entity = await _app.Services.GetRequiredService<IEntityStore>().GetAsync(committed.InstanceId);
+            Assert.Equal("1.0.1", entity!.Binding!.DefinitionVersion);
+            var outbox = new NodeEfFormSubmitOutbox(factory);
+            await outbox.EnqueueAsync(new FormSubmitContext(form, committed.InstanceId, tenant, actor,
+                committed.SubmittedAt, candidate));
+            await _preload.PreloadAsync(tenant, CancellationToken.None);
+            Assert.Equal("1.0.3", (await _workflows.GetCurrentPublishedAsync(
+                new Harborline.Api.Foundation.Definitions.DefinitionAddress(tenant, GrantIssuanceSteps.DefinitionKey)))!.Version);
+            var stored = Assert.Single(await new NodeEfFormSubmitOutbox(factory).ListUnresolvedAsync());
+            var recovered = stored.RebuildContext();
+            using (recovered.SubmittedValues)
+            {
+                // Upgrade withdraws 1.0.1. Existing execution admission must refuse it rather than
+                // silently create the current 1.0.3 workflow for a submitted 1.0.1 form.
+                var refusal = await Assert.ThrowsAsync<WorkflowDefinitionNotFoundException>(
+                    () => projection.ProjectAsync(recovered));
+                Assert.Equal("1.0.1", refusal.Version);
+                Assert.Equal(tenant.Value, refusal.Tenant);
+            }
+            Assert.Null(await workflowStore.LoadAsync("access-grant-form:" + expectedInstance));
+            Assert.Empty(await grants.FindByPrincipalAsync(tenant, new ActorId("m6-t433-holder")));
+            return;
+        }
         var first = await engine.SaveWithReceiptAsync(form, candidate, token, authority,
             idempotencyKey: "m6-t433-grant-submit-v1");
+        // An already created predecessor instance keeps its pin after the pack upgrades.
+        if (releasedPredecessor) await _preload.PreloadAsync(tenant, CancellationToken.None);
         var replay = await engine.SaveWithReceiptAsync(form, candidate, token, authority,
             idempotencyKey: "m6-t433-grant-submit-v1");
         Assert.Equal(expectedInstance, first.InstanceId.ToString());

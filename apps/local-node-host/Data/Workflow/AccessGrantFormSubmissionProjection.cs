@@ -5,6 +5,7 @@ using System.Text.Json;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -17,7 +18,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 internal sealed class AccessGrantFormSubmissionProjection(
     NodeWorkflowInstantiationService instances,
     IWorkflowTriggerDispatcher dispatcher,
-    IWorkflowStore workflowStore) : IFormSubmitProjection, IFormSubmissionGate, IFormSubmissionResultReader
+    IWorkflowStore workflowStore,
+    IEntityStore entities,
+    IWorkflowDefinitionStore workflowCatalog) : IFormSubmitProjection, IFormSubmissionGate, IFormSubmissionResultReader
 {
     private const string FormId = "access.grant-a-role";
     // A section's role tokens are the QUALIFIED reference (DeclarativeGateReference.ParseRole refuses a
@@ -58,8 +61,12 @@ internal sealed class AccessGrantFormSubmissionProjection(
     {
         if (context.Form.Value != FormId) return [];
         var request = ReadRequest(context);
+        var existing = await workflowStore.LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(context.InstanceId.ToString()), cancellationToken).ConfigureAwait(false);
+        var workflowVersion = existing?.DefinitionVersion
+            ?? await ResolveSubmittedWorkflowVersionAsync(context, cancellationToken).ConfigureAwait(false);
         var instanceId = await instances.StartAccessGrantIssuanceAsync(
-            context.Tenant, context.InstanceId.ToString(), request, context.SubmittedAt, cancellationToken)
+            context.Tenant, context.InstanceId.ToString(), request, workflowVersion, context.SubmittedAt, cancellationToken)
             .ConfigureAwait(false);
 
         await dispatcher.DispatchAsync(
@@ -67,6 +74,34 @@ internal sealed class AccessGrantFormSubmissionProjection(
                 context.SubmittedAt, "{\"decision\":\"approve\"}"),
             cancellationToken).ConfigureAwait(false);
         return [];
+    }
+
+    private async Task<string> ResolveSubmittedWorkflowVersionAsync(FormSubmitContext context, CancellationToken ct)
+    {
+        var submission = await entities.GetAsync(context.InstanceId, default, ct).ConfigureAwait(false);
+        if (submission is null || submission.Tenant != context.Tenant || submission.DeletedAt is not null
+            || submission.Binding is not { DefinitionId: "access.grant-a-role" } binding
+            || binding.SubmittedAt != context.SubmittedAt)
+            throw new InvalidOperationException("Access grant issuance requires its persisted tenant-scoped submission binding.");
+
+        // The immutable submitted form revision, not recovery's current pointer, chooses the pairing.
+        // The catalog identifies metadata only; execution still traverses the exact re-admitting read.
+        WorkflowDefinitionRecord? paired = null;
+        await foreach (var candidate in workflowCatalog.ListByTenantAsync(context.Tenant, ct).ConfigureAwait(false))
+        {
+            if (candidate.Key != GrantIssuanceSteps.DefinitionKey
+                || !candidate.Authored.TryGetProperty("subjectFormRef", out var subject)
+                || subject.ValueKind != JsonValueKind.Object
+                || !subject.TryGetProperty("formId", out var formId) || formId.GetString() != binding.DefinitionId
+                || !subject.TryGetProperty("version", out var formVersion) || formVersion.GetString() != binding.DefinitionVersion)
+                continue;
+            if (paired is not null)
+                throw new InvalidOperationException("The submitted Access form revision has ambiguous workflow pairing metadata.");
+            paired = candidate;
+        }
+        if (paired is null)
+            throw new InvalidOperationException("No workflow is paired with the submitted Access form revision.");
+        return paired.Version;
     }
 
     private static GrantIssuanceRequest ReadRequest(FormSubmitContext context)
