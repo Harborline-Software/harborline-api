@@ -72,6 +72,9 @@ public sealed record PackTenantOverride(string ContentKey, JsonNode OverlayPatch
     /// </summary>
     public PackCommitAudit? Audit { get; init; }
 
+    /// <summary>The frozen admission premises that must still hold when this narrowing commits.</summary>
+    public PackNarrowingReadset? ExpectedReadset { get; init; }
+
     /// <summary>Deep-copies the overlay patch (JsonNode is mutable; never share a live tree across records).</summary>
     public PackTenantOverride DeepCopy() => new(ContentKey, OverlayPatch.DeepClone());
 }

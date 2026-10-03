@@ -216,6 +216,16 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         lock (_gate)
         {
             using var ctx = CreateContext();
+            using var transaction = ctx.Database.CurrentTransaction is null ? ctx.Database.BeginTransaction() : null;
+            if (tenantOverride.ExpectedReadset is { } readset)
+            {
+                var observedActive = ctx.InstalledVersions.AsNoTracking()
+                    .FirstOrDefault(row => row.Tenant == t && row.PackKey == packKey && row.Lifecycle == LifecycleActive);
+                var observedOverrides = ctx.Overrides.AsNoTracking()
+                    .Where(row => row.Tenant == t && row.PackKey == packKey).ToList()
+                    .Select(row => new PackTenantOverride(row.ContentKey, ParseOverlay(row.ContentKey, row.OverlayJson))).ToArray();
+                readset.RequireCurrent(observedActive is null ? null : Materialize(observedActive), observedOverrides);
+            }
             var row = ctx.Overrides.Find(t, packKey, tenantOverride.ContentKey);
             if (row is null)
             {
@@ -235,6 +245,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
             StageAudit(ctx, tenantOverride.Audit);
             ctx.SaveChanges();
+            transaction?.Commit();
         }
     }
 

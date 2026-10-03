@@ -868,6 +868,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 throw new Refused(installer.AuditNarrowingRefusal(
                     tenant, packKey, contentKey, now, principal, PackInstallCodes.NarrowNotActive, null, decision));
             }
+            var readset = new PackNarrowingReadset(current, installer._store.GetOverrides(tenant, packKey));
+            current = readset.CopyActive();
             active = current;
 
             var item = current.SeedItems.FirstOrDefault(seed => string.Equals(seed.Key, contentKey, StringComparison.Ordinal));
@@ -879,9 +881,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             }
 
             var overrides = item.Kind == PackContentKind.CascadeDefaults
-                ? installer._store.GetOverrides(tenant, packKey)
+                ? readset.CopyOverrides()
                 : null;
-            return ValueTask.FromResult<NarrowingBound?>(new NarrowingBound(current, item, overrides));
+            return ValueTask.FromResult<NarrowingBound?>(new NarrowingBound(current, item, overrides, readset));
         }
 
         protected override ValueTask<NarrowingMutation> MutateAsync(NarrowingBound bound, CancellationToken ct)
@@ -921,7 +923,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                         admitted.Refusals[0].Code, admitted.Refusals[0].Pointer, decision));
                 }
             }
-            return ValueTask.FromResult(mutation.Row);
+            return ValueTask.FromResult(mutation.Row with { ExpectedReadset = bound.Readset });
         }
 
         protected override async ValueTask CommitAsync(PackTenantOverride validated, CancellationToken ct)
@@ -932,8 +934,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 $"pack.install.narrowed:{contentKey}",
                 ActingPrincipal: principal);
             await installer._audit.PrepareAuthorizedAsync(narrowed, decision, ct).ConfigureAwait(false);
-            installer._mutations.SaveOverride(
-                tenant, packKey, validated with { Audit = new PackCommitAudit([narrowed], decision) });
+            try
+            {
+                installer._mutations.SaveOverride(
+                    tenant, packKey, validated with { Audit = new PackCommitAudit([narrowed], decision) });
+            }
+            catch (PackInstallStateChangedException)
+            {
+                throw new Refused(installer.AuditNarrowingRefusal(
+                    tenant, packKey, contentKey, now, principal,
+                    PackInstallCodes.RefusedInstalledStateChanged, null, decision));
+            }
         }
 
         protected override async ValueTask<PackNarrowingOutcome> ReactAsync(PackTenantOverride validated, CancellationToken ct)
@@ -943,7 +954,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
     }
 
-    private sealed record NarrowingBound(InstalledPack Active, PackSeedItem Item, IReadOnlyList<PackTenantOverride>? Overrides);
+    private sealed record NarrowingBound(InstalledPack Active, PackSeedItem Item, IReadOnlyList<PackTenantOverride>? Overrides, PackNarrowingReadset Readset);
 
     private sealed record NarrowingMutation(PackTenantOverride Row, PackComposedItem[]? Composed);
 
