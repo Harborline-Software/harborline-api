@@ -168,7 +168,7 @@ public sealed class DefinitionEnvelopeRoundTripTests
             new WorkflowRefusingPackContentAdmission(),
             new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
-        var install = installer.Install(
+        var install = await installer.InstallAsync(
             packBytes,
             new PackInstallContext(
                 tenant,

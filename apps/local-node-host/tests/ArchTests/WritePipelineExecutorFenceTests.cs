@@ -42,12 +42,6 @@ public sealed class WritePipelineExecutorFenceTests
             "S3 form submit record"),
         ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 form definition lifecycle"),
-        ("packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.Harborline.Api.Foundation.Packs.Install.IPackProjectionReconciler.ReconcilePending",
-            "S5 pack projection reconcile"),
-        ("packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.Install",
-            "S5 pack install"),
-        ("packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.ProjectAndRetire``1[!!0]",
-            "S5 pack projection"),
         ("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs|Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync",
             "S3 definition lifecycle"),
     ];

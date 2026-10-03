@@ -202,7 +202,7 @@ internal static class PackInstallRoutes
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge, breakGlass,
                 Principal: authority.Principal.Value);
-            var outcome = installer.Install(bytes, context);
+            var outcome = await installer.InstallAsync(bytes, context, CancellationToken.None).ConfigureAwait(false);
 
             logger.LogInformation(
                 "Pack INSTALL (tenant {Tenant}, pack {Key} v{Version}) → installed={Installed} action={Action} "

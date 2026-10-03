@@ -103,6 +103,11 @@ public static class PackInstallCodes
     /// <summary>An upgrade installed a newer seed layer (Draft).</summary>
     public const string Upgraded = "pack.install.upgraded";
 
+    /// <summary>A concurrent commit invalidated the watermark snapshot; retry binds fresh state.</summary>
+    public const string RefusedWatermarkChanged = "pack.install.refused.watermark_changed";
+    /// <summary>A concurrent commit invalidated tenant-wide installed premises; retry binds fresh state.</summary>
+    public const string RefusedInstalledStateChanged = "pack.install.refused.installed_state_changed";
+
     /// <summary>Activation refused: the version is not installed (Draft/Inactive → Active on a missing
     /// version).</summary>
     public const string ActivateNotInstalled = "pack.install.activate.not_installed";
@@ -431,7 +436,7 @@ public sealed record PackUnmetContentReference(
     Graph.PackFeatureEdgeRelation Relation);
 
 /// <summary>
-/// The outcome of an <see cref="IPackInstaller.Install"/> — whether a seed layer was committed, the
+/// The outcome of an <see cref="IPackInstaller.InstallAsync"/> — whether a seed layer was committed, the
 /// action taken, the version, the refusal codes (on refusal), and the <see cref="Preview"/> plan (the
 /// conflict report + watermark hits) that produced it.
 /// </summary>
@@ -540,7 +545,7 @@ public static class PackScopePolicy
 /// <param name="BreakGlass">The break-glass ceremony token, or null (the common case).</param>
 /// <param name="Principal">The ACTING principal — server-derived from the authenticated identity at the
 /// trust boundary, never a client-asserted value (ticket 151). REQUIRED by
-/// <see cref="IPackInstaller.Install"/> (an install with no principal is refused
+/// <see cref="IPackInstaller.InstallAsync"/> (an install with no principal is refused
 /// <see cref="PackInstallCodes.RefusedNoPrincipal"/>); optional for <see cref="IPackInstaller.Preview"/>,
 /// which never mutates.</param>
 /// <param name="OwnershipResolutions">Optional content-key ownership choices applied only after authorization.</param>

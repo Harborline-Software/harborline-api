@@ -236,7 +236,7 @@ public sealed class TerminologyRuntimeTests
             Installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), Packs,
                 new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), terminology: Projection), new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
             var trust = new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, signing.PrincipalId, 1, TrustRootStatus.Current)]);
-            var result = Installer.Install(export.FileBytes!, new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
+            var result = await Installer.InstallAsync(export.FileBytes!, new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
                 TestAuthorization.At, TimeSpan.FromDays(30), Principal: "operator"));
             Assert.True(result.Installed == expectInstalled, string.Join("; ", result.RefusalCodes));
             return result;

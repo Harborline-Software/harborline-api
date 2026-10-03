@@ -81,7 +81,7 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
                 logger.LogError("Platform pack export was refused: {Codes}.", string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
                 return;
             }
-            var installed = installer.Install(exported.FileBytes, context);
+            var installed = await installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
             if (!installed.Installed)
             {
                 logger.LogError("Platform pack install was refused: {Codes}.", string.Join(",", installed.RefusalCodes));

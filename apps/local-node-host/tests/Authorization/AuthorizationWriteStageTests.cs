@@ -912,12 +912,12 @@ public sealed class AuthorizationWriteStageTests
         // Activate/Deactivate decide in their cores; Narrow validates its caller's carried decision.
         // A new unreviewed local decision fails here.
         Assert.Equal(2, Count(source, "AuthorizeOrAudit(tenant"));
-        Assert.Contains("var decision = AuthorizeOrAudit(", source, StringComparison.Ordinal);
+        Assert.Contains("installer.AuthorizeOrAudit(context.Tenant", source, StringComparison.Ordinal);
         var narrow = source[source.IndexOf("private sealed class Narrowing(", StringComparison.Ordinal)..];
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_store.GetActive(");
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_mutations.SaveOverride(");
-        var install = source[source.IndexOf("public PackInstallOutcome Install", StringComparison.Ordinal)..];
-        AssertBefore(install, "var decision = AuthorizeOrAudit(", "_admission.Admit(");
+        var install = source[source.IndexOf("private sealed class Installation(", StringComparison.Ordinal)..];
+        AssertBefore(install, "installer.AuthorizeOrAudit(context.Tenant", "_admission.Admit(");
         AssertBefore(source, "AuthorizeOrAudit(tenant", "_store.GetVersion");
 
         var packBytes = await CreateValidSignedPackAsync();
@@ -936,7 +936,7 @@ public sealed class AuthorizationWriteStageTests
             TimeSpan.FromHours(1),
             Principal: "pack-operator");
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(packBytes, context)));
+            installer.InstallAsync(packBytes, context)));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
             installer.Activate(context, "pack", "1.0.0")));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
@@ -988,7 +988,7 @@ public sealed class AuthorizationWriteStageTests
             Principal: "pack-operator");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(JsonSerializer.SerializeToUtf8Bytes(tampered), context)));
+            installer.InstallAsync(JsonSerializer.SerializeToUtf8Bytes(tampered), context)));
 
         Assert.NotNull(captured);
         Assert.Equal("pack", captured.Target.RecordId);
@@ -1043,7 +1043,7 @@ public sealed class AuthorizationWriteStageTests
             Principal: "pack-operator");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(duplicated, context)));
+            installer.InstallAsync(duplicated, context)));
 
         Assert.NotNull(captured);
         if (expectedTarget is not null)

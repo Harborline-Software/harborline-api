@@ -100,7 +100,7 @@ public sealed class CascadeDefaultsTests
             new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
         var exported = await exporter.ExportAsync(request, new Ed25519Signer(keys));
         Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
-        var installed = installer.Install(exported.FileBytes!, context);
+        var installed = await installer.InstallAsync(exported.FileBytes!, context);
         Assert.True(installed.Installed, string.Join(";", installed.RefusalCodes));
         Assert.Equal(canonical.ContentAddress, Assert.Single(store.GetVersion(Tenant, request.Key, request.Version)!.SeedItems,
             item => item.Kind == PackContentKind.CascadeDefaults).ContentAddress);
@@ -226,10 +226,10 @@ public sealed class CascadeDefaultsTests
             Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
             return exported.FileBytes!;
         }
-        Assert.True(installer.Install(await Export("1.0.0", Body), context).Installed);
+        Assert.True((await installer.InstallAsync(await Export("1.0.0", Body), context)).Installed);
         var prior = Assert.Single(store.ListInstalled(Tenant));
         var watermark = store.GetWatermark(Tenant, Package);
-        var refused = installer.Install(await Export("1.1.0", Body.Replace(before, after, StringComparison.Ordinal)), context);
+        var refused = await installer.InstallAsync(await Export("1.1.0", Body.Replace(before, after, StringComparison.Ordinal)), context);
         Assert.False(refused.Installed);
         Assert.Equal(code, Assert.Single(refused.Preview.AdmissionRefusals).Code);
         Assert.StartsWith("/contents/0", Assert.Single(refused.Preview.Refusals).Pointer);

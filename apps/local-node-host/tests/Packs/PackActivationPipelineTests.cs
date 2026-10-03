@@ -248,7 +248,8 @@ public sealed class PackActivationPipelineTests
         Assert.True(request.IsCancellationRequested);
         Assert.True(outcome.Deactivated, outcome.Error);
         Assert.True(outcome.Projected);
-        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        // S5c: the deactivation's react runs the retirement projection as its own six-stage write.
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React, Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, ReportPackKey));
         Assert.Null(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
         Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated && entry.PackKey == ReportPackKey);
@@ -283,7 +284,7 @@ public sealed class PackActivationPipelineTests
         Assert.Contains(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions(),
             admission => admission.PackId == ReportPackKey);
 
-        reconciler.ReconcilePending();
+        await reconciler.ReconcilePendingAsync();
 
         Assert.Null(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
         Assert.Empty(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions());
@@ -699,11 +700,11 @@ public sealed class PackActivationPipelineTests
                 TrustScope.OwnRoster, [new PackDependencyRef(PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version)]),
             new PackInstallWatermark(packKey, version, new Dictionary<string, int>()), []));
 
-    private const string ReportPackKey = "test.s5b-report";
-    private const string ReportKey = "s5b.report";
-    private const string ItemVersion = "1.0.0";
+    internal const string ReportPackKey = "test.s5b-report";
+    internal const string ReportKey = "s5b.report";
+    internal const string ItemVersion = "1.0.0";
 
-    private static PackInstaller Installer(
+    internal static PackInstaller Installer(
         IPackInstallStore store, IPackInstallAudit audit, IWritePipelineObserver observer, IPackContentAdmission? admission = null) =>
         new(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
             admission ?? new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.AllowGate(), pipelineObserver: observer);
@@ -772,21 +773,23 @@ public sealed class PackActivationPipelineTests
         public IReadOnlyList<PackInstallAuditEntry> Query(TenantId tenant) => inner.Query(tenant);
     }
 
-    private static InMemoryReportDefinitionRegistry Reports() => new(new AcceptAllReports());
+    internal static InMemoryReportDefinitionRegistry Reports() => new(new AcceptAllReports());
 
-    private static PackSeedProjector Projector(IPackInstallStore store, InMemoryReportDefinitionRegistry reports) =>
+    internal static PackSeedProjector Projector(IPackInstallStore store, InMemoryReportDefinitionRegistry reports) =>
         new(store,
             new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider()
                 .GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance, reportDefinitions: reports, time: TimeProvider.System);
 
-    private static void CommitReportPack(IPackInstallMutationStore store)
+    internal static void CommitReportPack(IPackInstallMutationStore store) => CommitReportPack(store, Tenant);
+
+    internal static void CommitReportPack(IPackInstallMutationStore store, TenantId tenant)
     {
         var json = JsonSerializer.Serialize(new ReportDefinition
         {
             Key = ReportKey,
             Version = ItemVersion,
-            Tenant = Tenant.Value,
+            Tenant = tenant.Value,
             SchemaVersion = 1,
             ReportKind = "reports.table/basic",
             Title = "S5b report",
@@ -798,7 +801,7 @@ public sealed class PackActivationPipelineTests
         });
         var item = new PackSeedItem(ReportKey, PackContentKind.ReportDefinition, ItemVersion, json,
             Harborline.Api.Foundation.Blobs.Cid.FromBytes(System.Text.Encoding.UTF8.GetBytes(json)));
-        store.Commit(new PackInstallTransaction(Tenant,
+        store.Commit(new PackInstallTransaction(tenant,
             new InstalledPack(ReportPackKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [item],
                 new Dictionary<string, int>(), Now, PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]), 1,
                 TrustScope.OwnRoster, [new PackDependencyRef(PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version)]),

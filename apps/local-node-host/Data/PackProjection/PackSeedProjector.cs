@@ -1214,7 +1214,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // an exception, so a removal-first pass whose replacement is then refused would be recorded as a
         // COMPLETE admission with the replaced package's definitions already gone and nothing to repair
         // them. Admit first and skip removal on any refusal, and the replaced version stays exactly as it
-        // was; the installer records that admission as refused, so the next boot's ReconcilePending re-runs
+        // was; the installer records that admission as refused, so the next boot's ReconcilePendingAsync re-runs
         // the whole pass. A re-declared tuple is left alone, which is what makes replacement by an
         // identical pack a no-op that keeps the same definition ids instead of a withdraw-and-republish.
         // Skipping every ACTIVE pack's tuples (not only the authority's) keeps a cross-pack co-declared

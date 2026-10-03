@@ -29,7 +29,7 @@ public sealed partial class AccessAdministrationPreloadTests
         await PreloadPlatformThenAccessAsync();
         var replacement = MixedReplacement("1.1.4", failure == "refusal");
         var context = ReplacementContext();
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var before = await PublishedSnapshotAsync();
         _beforeViewAdmission = (definition, _) =>
         {
@@ -79,7 +79,7 @@ public sealed partial class AccessAdministrationPreloadTests
         await PreloadPlatformThenAccessAsync();
         var replacement = MixedReplacement("1.1.4", refuse);
         var context = ReplacementContext();
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
         var before = JsonSerializer.Serialize(await catalogue.ListAsync(Tenant));
         var reachedLate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -199,7 +199,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
         Assert.Equal(PackSeedProjector.AccessProjectionRefusedCode, activation.Refusal!.Code);
@@ -234,7 +234,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        Assert.True(_installer.Install(bytes, context).Installed);
+        Assert.True((await _installer.InstallAsync(bytes, context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
         Assert.False(activation.Projected);

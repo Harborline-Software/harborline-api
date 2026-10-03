@@ -54,8 +54,8 @@ public sealed class PackReplacementRemovalTests
         var world = new World(platform);
         await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
         await world.ProjectAsync();
-        world.Install("1.1.0", withView: true, withReport: false);
-        world.Install("1.2.0", withView: false, withReport: true);
+        await world.InstallAsync("1.1.0", withView: true, withReport: false);
+        await world.InstallAsync("1.2.0", withView: false, withReport: true);
         world.AttachProjector();
         platform.Enabled = true;
         var outcomes = await Task.WhenAll(
@@ -95,7 +95,7 @@ public sealed class PackReplacementRemovalTests
         await world.ProjectAsync();
         var beforeView = await world.ReadViewAsync();
         var beforeReport = await world.ReadReportAsync();
-        world.Install("1.1.0", withView: false, withReport: true);
+        await world.InstallAsync("1.1.0", withView: false, withReport: true);
         world.AttachProjector();
         world.Views.ThrowAfterRemove = true;
         var failed = world.Installer.Activate(world.Context, PackKey, "1.1.0");
@@ -197,7 +197,7 @@ public sealed class PackReplacementRemovalTests
         // The replacement drops the report and ships the view. Cancellation while admitting the view
         // must discard the whole replacement, including its admission and any staged retirements.
         world.Views.TearDownOnRegister = true;
-        world.Install("1.1.0", withView: true, withReport: false);
+        await world.InstallAsync("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         Assert.ThrowsAny<OperationCanceledException>(
             () => world.Installer.Activate(world.Context, PackKey, "1.1.0"));
@@ -209,7 +209,7 @@ public sealed class PackReplacementRemovalTests
         // Restart reconciliation must not activate the canceled draft. Only an explicit retry may
         // replace the old projection after the cancellation source is removed.
         world.Views.TearDownOnRegister = false;
-        world.Reconciler.ReconcilePending();
+        await world.Reconciler.ReconcilePendingAsync();
         Assert.Null(await world.ReadViewAsync());
         Assert.NotNull(await world.ReadReportAsync());
         Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
@@ -232,7 +232,7 @@ public sealed class PackReplacementRemovalTests
         // is a VALUE, not an exception: removal-first would have destroyed the report and still recorded a
         // COMPLETE admission, leaving nothing live and nothing to repair it.
         world.Views.RefuseOnRegister = true;
-        world.Install("1.1.0", withView: true, withReport: false);
+        await world.InstallAsync("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
         Assert.False(activation.Activated);
@@ -248,7 +248,7 @@ public sealed class PackReplacementRemovalTests
         // The refusal is what holds the admission open: once the registry admits, the next boot's
         // reconciliation completes the same pass — the view lands and only then does the report go.
         world.Views.RefuseOnRegister = false;
-        world.Reconciler.ReconcilePending();
+        await world.Reconciler.ReconcilePendingAsync();
         Assert.Null(await world.ReadViewAsync());
         Assert.Same(reportBefore, await world.ReadReportAsync());
         Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
@@ -268,7 +268,7 @@ public sealed class PackReplacementRemovalTests
         Assert.NotNull(reportBefore);
 
         world.Views.RefuseOnRegister = true;
-        world.Install("1.1.0", withView: true, withReport: false);
+        await world.InstallAsync("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
         Assert.False(activation.Activated);
@@ -358,13 +358,13 @@ public sealed class PackReplacementRemovalTests
 
         public async Task InstallAndActivateAsync(string packVersion, bool withView, bool withReport)
         {
-            Install(packVersion, withView, withReport);
+            await InstallAsync(packVersion, withView, withReport);
             var activation = Installer.Activate(Tenant, PackKey, packVersion, Now, "test-operator");
             Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
             await Task.CompletedTask;
         }
 
-        public void Install(string packVersion, bool withView, bool withReport)
+        public async Task InstallAsync(string packVersion, bool withView, bool withReport)
         {
             var contents = new List<PackContentSource>();
             if (withView)
@@ -427,7 +427,7 @@ public sealed class PackReplacementRemovalTests
             Assert.True(export.Succeeded, string.Join(
                 "; ", export.Validation.Errors.Select(error => $"{error.Code}: {error.Message}")));
 
-            var install = Installer.Install(export.FileBytes!, Context);
+            var install = await Installer.InstallAsync(export.FileBytes!, Context);
             Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));
         }
 

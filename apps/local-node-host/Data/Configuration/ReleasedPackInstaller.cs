@@ -248,7 +248,7 @@ public sealed class ReleasedPackInstaller
                 [.. exported.Validation.Errors.Select(error =>
                     new ReleasedPackRefusal(error.Code, error.Target ?? "releasedPackage", error.Message))]);
 
-        var installed = _installer.Install(exported.FileBytes, context);
+        var installed = await _installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
         if (!installed.Installed)
             return new(false, releasedDigest, request.Key, request.Version,
                 [.. installed.RefusalCodes.Select(code =>
