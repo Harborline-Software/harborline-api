@@ -4,6 +4,10 @@ import {digest, fingerprint} from '../validation-reuse.mjs'
 import {transportProblems, createGitHubClient, observeRun, compareRuns, readArchive} from '../validation-github-shadow.mjs'
 import {execFileSync, spawnSync} from 'node:child_process'
 import path from 'node:path'
+import {mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {compareDirectories} from '../validation-shadow-report.mjs'
+import {inputs as fixtureInputs} from './validation-fixtures.mjs'
 
 const archive = Buffer.from('archive fixture')
 const run = {run_started_at: '2026-10-03T10:00:00Z', id: 123, run_attempt: 1, repository: {full_name: 'Harborline-Software/harborline-api'},
@@ -69,6 +73,18 @@ test('real orchestration verifies transport but never promotes unsigned branch d
   assert.equal(result.lanes[0].trusted, false)
   assert.equal(result.reuseAuthorized, false)
   assert.equal(result.requiredWorkSkipped, false)
+  assert.equal((await observeRun({runId: 123, api: mockApi, unpack}))[0].event, 'pull_request')
+})
+
+test('merge-group event comes from authenticated run metadata for coverage profile selection', async () => {
+  const observed = await observeRun({runId: 123, unpack, api: async endpoint => {
+    if (endpoint.endsWith('/123')) return {...run, event: 'merge_group', head_sha: 'c'.repeat(40)}
+    if (endpoint.includes('/artifacts?')) return {total_count: 1, artifacts: [{...artifact,
+      workflow_run: {...artifact.workflow_run, head_sha: 'c'.repeat(40)}}]}
+    return mockApi(endpoint)
+  }})
+  assert.equal(observed[0].transportVerified, true)
+  assert.equal(observed[0].event, 'merge_group')
 })
 test('orchestration rejects forged candidate binding, duplicate artifacts and pagination gaps', async () => {
   const forged = await observeRun({runId: 123, api: mockApi, unpack: () => ({...unpack(), receipt: {lane: 'all'}})})
@@ -98,4 +114,64 @@ test('CLI never echoes credentials from malformed Authorization headers', () => 
   assert.equal(result.status, 1)
   assert.equal(result.stderr.trim(), 'validation shadow unavailable: request, artifact or evidence validation failed')
   assert.equal(`${result.stdout}${result.stderr}`.includes(synthetic), false, 'diagnostics must not contain credential text')
+})
+
+test('normal gh download artifact folders compare by canonical host lane across different run IDs', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'shadow-directory-comparison-'))
+  t.after(() => rmSync(root, {recursive: true, force: true}))
+  const current = path.join(root, 'current'), prior = path.join(root, 'prior')
+  for (const lane of ['verify-macos', 'verify-linux', 'verify-windows-hosted']) {
+    const manifest = fixtureInputs()
+    manifest.unknownInputs = ['trusted producer closure not established']
+    const observation = {candidateSha: 'a'.repeat(40), inputs: manifest, fingerprint: fingerprint(manifest)}
+    for (const [directory, runId] of [[current, '123'], [prior, '122']]) {
+      const folder = path.join(directory, `${lane}-evidence-${runId}`, '.claude/gate-evidence')
+      mkdirSync(folder, {recursive: true})
+      writeFileSync(path.join(folder, 'validation-inputs-shadow.json'), JSON.stringify(observation))
+    }
+  }
+  const result = compareDirectories(current, prior)
+  assert.deepEqual(result.lanes.map(lane => lane.lane), ['verify-macos', 'verify-linux', 'verify-windows-hosted'])
+  assert.equal(result.evidenceState, 'present')
+  assert.equal(result.lanes.every(lane => lane.sameInputs), true)
+  assert.equal(result.lanes.every(lane => lane.completeInputs), false)
+  assert.equal(result.reuseAuthorized, false)
+  assert.equal(result.requiredWorkSkipped, false)
+  // The real documented CLI must compare the same two downloaded directory shapes.
+  const output = path.join(root, 'report.json')
+  const cli = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../validation-shadow-report.mjs'),
+    current, prior, output], {encoding: 'utf8'})
+  assert.equal(cli.status, 0, cli.stderr)
+  assert.equal(JSON.parse(readFileSync(output, 'utf8')).lanes.every(lane => lane.sameInputs), true)
+  rmSync(path.join(current, 'verify-linux-evidence-123'), {recursive: true})
+  const missingCurrent = compareDirectories(current, prior)
+  assert.equal(missingCurrent.evidenceState, 'unknown')
+  assert.equal(missingCurrent.lanes.length, 3)
+  assert.match(missingCurrent.lanes[1].problems.join(), /current observation missing/)
+  rmSync(path.join(prior, 'verify-windows-hosted-evidence-122'), {recursive: true})
+  assert.match(compareDirectories(current, prior).lanes[2].problems.join(), /prior observation missing/)
+})
+
+test('empty, malformed, unrecognized and duplicate directory evidence never becomes an empty successful lane set', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'shadow-directory-refusal-'))
+  t.after(() => rmSync(root, {recursive: true, force: true}))
+  const current = path.join(root, 'current'), prior = path.join(root, 'prior')
+  mkdirSync(current); mkdirSync(prior)
+  const empty = compareDirectories(current, prior)
+  assert.equal(empty.evidenceState, 'unknown')
+  assert.equal(empty.lanes.length, 3)
+  for (const lane of empty.lanes) {
+    assert.deepEqual(lane.problems, ['current observation missing or corrupt', 'prior observation missing or corrupt'])
+    assert.equal(lane.completeInputs, false); assert.equal(lane.wouldReuse, false)
+  }
+  const folder = path.join(current, 'verify-macos-evidence-123')
+  mkdirSync(folder)
+  writeFileSync(path.join(folder, 'validation-inputs-shadow.json'), 'malformed JSON')
+  assert.match(compareDirectories(current, prior).currentProblems.join(), /unreadable or malformed/)
+  const unknown = path.join(current, 'unrecognized-evidence-123'); mkdirSync(unknown)
+  writeFileSync(path.join(unknown, 'validation-inputs-shadow.json'), '{}')
+  assert.match(compareDirectories(current, prior).currentProblems.join(), /unrecognized/)
+  const duplicate = path.join(current, 'verify-macos-evidence-124'); mkdirSync(duplicate)
+  writeFileSync(path.join(duplicate, 'validation-inputs-shadow.json'), '{}')
+  assert.throws(() => compareDirectories(current, prior), /duplicate lane observations/)
 })

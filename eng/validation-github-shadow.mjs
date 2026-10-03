@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {digest} from './validation-reuse.mjs'
 import {compareObservations} from './validation-shadow-report.mjs'
+import {hostLanes} from './validation-lanes.mjs'
 
 const repository = 'Harborline-Software/harborline-api'
 const lanes = {
@@ -109,7 +110,7 @@ export async function observeRun({runId, api, unpack = readArchive}) {
       if (!belongs || commit.commit.tree.sha !== contents.observation.inputs?.candidateTree
         || contents.receipt.baseHead !== sha || contents.receipt.testedTree !== commit.commit.tree.sha
         || contents.receipt.lane !== 'host') throw new Error('candidate tree or host receipt binding mismatch')
-      result.push({lane, transportVerified: true, runId: String(run.id), runAttempt: run.run_attempt,
+      result.push({lane, event: run.event, transportVerified: true, runId: String(run.id), runAttempt: run.run_attempt,
         jobId: job.id, artifactId: artifact.id, artifactDigest: artifact.digest, observation: contents.observation,
         producerTrustedForReuse: false})
     } catch { result.push({lane, transportVerified: true, producerTrustedForReuse: false,
@@ -122,12 +123,13 @@ export async function compareRuns({currentRunId, priorRunId, api, unpack}) {
   const [current, prior] = await Promise.all([
     observeRun({runId: currentRunId, api, unpack}), observeRun({runId: priorRunId, api, unpack})])
   return {schemaVersion: 1, mode: 'shadow', currentRunId: String(currentRunId), priorRunId: String(priorRunId),
-    reuseAuthorized: false, requiredWorkSkipped: false, lanes: current.map(item => {
-      const before = prior.find(entry => entry.lane === item.lane)
-      return {lane: item.lane, currentTransportVerified: item.transportVerified,
+    reuseAuthorized: false, requiredWorkSkipped: false, lanes: hostLanes.map(lane => {
+      const item = current.find(entry => entry.lane === lane)
+      const before = prior.find(entry => entry.lane === lane)
+      return {lane, currentTransportVerified: item?.transportVerified ?? false,
         priorTransportVerified: before?.transportVerified ?? false,
-        currentProblems: item.problems ?? [], priorProblems: before?.problems ?? [],
-        ...compareObservations(item.observation, before?.observation)}
+        currentProblems: item?.problems ?? ['current host lane missing'], priorProblems: before?.problems ?? ['prior host lane missing'],
+        ...compareObservations(item?.observation, before?.observation)}
     })}
 }
 

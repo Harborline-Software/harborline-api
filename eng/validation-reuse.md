@@ -51,6 +51,20 @@ Python is used only to read bounded ZIP entries. Never run the broker from a
 downloaded candidate/artifact checkout. Existing pre-implementation artifacts
 lack observations and report missing evidence rather than a matching verdict.
 
+For previously downloaded `gh run download` directories:
+
+```sh
+node eng/validation-shadow-report.mjs CURRENT_DIRECTORY PRIOR_DIRECTORY OUTPUT_JSON
+```
+
+Artifact folders such as `verify-macos-evidence-123` and
+`verify-macos-evidence-122` compare as the same host lane. Both reports always
+enumerate the three expected host lanes. Missing evidence on either side,
+empty directories and corrupt observations remain explicit unknown evidence;
+duplicate lane observations are refused. Presence does not establish complete
+inputs or authorize reuse. Coverage profile selection uses the authenticated
+GitHub run event, including `merge_group`.
+
 ## What prevents actual reuse
 
 GitHub artifact metadata authenticates the **transported bytes**, not the truth
