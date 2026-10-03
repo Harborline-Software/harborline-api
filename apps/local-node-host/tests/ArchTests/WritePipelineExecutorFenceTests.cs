@@ -8,6 +8,7 @@ using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Hierarchy;
 using Harborline.Api.Kernel.Runtime;
+using Harborline.Api.LocalNodeHost.Data.Entities;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
@@ -166,7 +167,7 @@ public sealed class WritePipelineExecutorFenceTests
     [InlineData("return unit.ExecuteAtomicAsync(async ct => { return await WritePipeline.RunAsync(write, observer, ct); });", true)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct).AsTask());", true)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => { return WritePipeline.RunAsync(write, observer, ct).AsTask(); });", true)]
-    [InlineData("return unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct).ConfigureAwait(false); return await Done(); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct).ConfigureAwait(false); return await Done(); });", false)]
     [InlineData("return unit.ExecuteAtomicAsync(async ct => await RealPipeline.RunAsync(write, observer, ct));", true)]
     [InlineData("return unit.ExecuteAtomicAsync(async ct => await Harborline.Api.Kernel.Runtime.WritePipeline.RunAsync(write, observer, ct));", true)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => { _ = WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
@@ -438,6 +439,63 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    // A callback that completes one executor must not start another through an opaque operation.
+    [InlineData("Fire(write, observer, ct); return await WritePipeline.RunAsync(write, observer, ct);")]
+    [InlineData("return await WritePipeline.RunAsync(FireAndReturn(write, observer, ct), observer, ct);")]
+    [InlineData("return await WritePipeline.RunAsync(Leaked, observer, ct);")]
+    [InlineData("return await WritePipeline.RunAsync(new OpaqueWriter(write, observer).Write, observer, ct);")]
+    [InlineData("using var scope = new OpaqueWriter(write, observer); return await WritePipeline.RunAsync(write, observer, ct);")]
+    [InlineData("return await WritePipeline.RunAsync<object, int, int, int>(new ConvertedWriter(write, observer), observer, ct);")]
+    public void ExemptionRejectsOpaqueEffectsInsideAtomicCallback(string body)
+    {
+        var source = """
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            class Fixture {
+                KernelWrite<object, int, int, int> saved;
+                IWritePipelineObserver observed;
+                void Fire(KernelWrite<object, int, int, int> write, IWritePipelineObserver observer, CancellationToken ct) {
+                    _ = WritePipeline.RunAsync(write, observer, ct);
+                }
+                KernelWrite<object, int, int, int> FireAndReturn(KernelWrite<object, int, int, int> write,
+                    IWritePipelineObserver observer, CancellationToken ct) {
+                    Fire(write, observer, ct); return write;
+                }
+                KernelWrite<object, int, int, int> Leaked { get { Fire(saved, observed, default); return saved; } }
+                sealed class OpaqueWriter : IDisposable {
+                    public KernelWrite<object, int, int, int> Write;
+                    IWritePipelineObserver observer;
+                    public OpaqueWriter(KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
+                        Write = write; this.observer = observer; _ = WritePipeline.RunAsync(write, observer, default);
+                    }
+                    public void Dispose() { _ = WritePipeline.RunAsync(Write, observer, default); }
+                }
+                sealed class ConvertedWriter {
+                    KernelWrite<object, int, int, int> write;
+                    IWritePipelineObserver observer;
+                    public ConvertedWriter(KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
+                        this.write = write; this.observer = observer;
+                    }
+                    public static implicit operator KernelWrite<object, int, int, int>(ConvertedWriter value) {
+                        _ = WritePipeline.RunAsync(value.write, value.observer, default); return value.write;
+                    }
+                }
+                async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit,
+                    KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
+                    return await unit.ExecuteAtomicAsync(async ct => {
+            """ + body + " }); } }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
     private static string BoundaryFixture(string body) => """
         using System;
         using System.Threading;
@@ -463,7 +521,8 @@ public sealed class WritePipelineExecutorFenceTests
             .Select(location => MetadataReference.CreateFromFile(location));
         // The host relies on implicit global usings; include those when binding its standalone source file.
         var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
-            + "global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+            + "global using System.Linq; global using System.Threading; global using System.Threading.Tasks; "
+            + "global using TenantId = Harborline.Foundation.Assets.Common.TenantId;");
         return CSharpCompilation.Create("HierarchyAtomicBoundaryProbe", [tree, globals], references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).GetSemanticModel(tree);
     }
@@ -521,7 +580,8 @@ public sealed class WritePipelineExecutorFenceTests
         // This exemption supports the shipping method's closed outer shape, not arbitrary C# purity.
         // Every statement and expression outside the atomic callback must match an allowed case;
         // unknown syntax, dynamic/unresolved binding and implicit effects fail closed.
-        if (!HasReviewedOuterBody(method, atomicCall, callback, model)) return false;
+        if (!HasReviewedOuterBody(method, atomicCall, callback, model)
+            || !HasReviewedCallbackBody(callback, atomicCall, model)) return false;
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsExecutorCall(call, model))
             .ToArray();
@@ -542,6 +602,43 @@ public sealed class WritePipelineExecutorFenceTests
         });
     }
 
+    private static bool HasReviewedCallbackBody(AnonymousFunctionExpressionSyntax callback,
+        InvocationExpressionSyntax atomic, SemanticModel model)
+    {
+        // This is a closed template for the reviewed shipping callback, not interprocedural purity.
+        // The callback may only return/await the executor expression, including its reviewed writer
+        // construction and framework completion wrappers. No opaque setup or trailing work is admitted.
+        var body = callback switch
+        {
+            LambdaExpressionSyntax lambda => lambda.Body,
+            AnonymousMethodExpressionSyntax anonymous => anonymous.Block,
+            _ => null,
+        };
+        var expression = body switch
+        {
+            ExpressionSyntax value => value,
+            BlockSyntax { Statements.Count: 1 } block
+                when block.Statements[0] is ReturnStatementSyntax { Expression: { } value } => value,
+            _ => null,
+        };
+        return expression is not null && IsReviewedBoundaryExpression(expression, atomic, callback, model, true);
+    }
+
+    private static bool IsReviewedMergeConstruction(ObjectCreationExpressionSyntax creation,
+        AnonymousFunctionExpressionSyntax callback, SemanticModel model)
+    {
+        var outer = callback.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+        var owner = outer is null ? null : model.GetDeclaredSymbol(outer)?.ContainingType;
+        return creation.Initializer is null
+            && model.GetSymbolInfo(creation).Symbol is IMethodSymbol { MethodKind: MethodKind.Constructor } constructor
+            && constructor.ContainingType.Name == "Merge"
+            && owner?.ToDisplayString() == typeof(NodeHierarchyCompositeCoordinator).FullName
+            && SymbolEqualityComparer.Default.Equals(constructor.ContainingType.ContainingType, owner)
+            && constructor.Parameters.Select(parameter => parameter.Name).SequenceEqual(
+                new[] { "coordinator", "oldEntities", "newSchema", "newBody", "newOptions", "justification", "actor", "tenant", "at" },
+                StringComparer.Ordinal);
+    }
+
     private static bool HasReviewedOuterBody(MethodDeclarationSyntax method, InvocationExpressionSyntax atomic,
         AnonymousFunctionExpressionSyntax callback, SemanticModel model)
     {
@@ -554,7 +651,7 @@ public sealed class WritePipelineExecutorFenceTests
                 case ExpressionStatementSyntax { Expression: InvocationExpressionSyntax call }
                     when IsReviewedPreludeCall(call, model)
                         && model.GetSymbolInfo(call).Symbol is IMethodSymbol { Name: nameof(ArgumentNullException.ThrowIfNull) }:
-                    if (!IsReviewedOuterExpression(call, atomic, callback, model)) return false;
+                    if (!IsReviewedBoundaryExpression(call, atomic, callback, model)) return false;
                     break;
                 case LocalDeclarationStatementSyntax local when local.UsingKeyword.RawKind == 0
                     && local.AwaitKeyword.RawKind == 0 && local.Modifiers.Count == 0
@@ -562,31 +659,31 @@ public sealed class WritePipelineExecutorFenceTests
                     && local.Declaration.Variables[0].Initializer?.Value is InvocationExpressionSyntax call
                     && IsReviewedPreludeCall(call, model)
                     && model.GetSymbolInfo(call).Symbol is IMethodSymbol { Name: nameof(TimeProvider.GetUtcNow) }:
-                    if (!IsReviewedOuterExpression(call, atomic, callback, model)) return false;
+                    if (!IsReviewedBoundaryExpression(call, atomic, callback, model)) return false;
                     break;
                 default:
                     return false;
             }
         }
-        return IsReviewedOuterExpression(result, atomic, callback, model);
+        return IsReviewedBoundaryExpression(result, atomic, callback, model);
     }
 
-    private static bool IsReviewedOuterExpression(ExpressionSyntax expression, InvocationExpressionSyntax atomic,
-        AnonymousFunctionExpressionSyntax callback, SemanticModel model)
+    private static bool IsReviewedBoundaryExpression(ExpressionSyntax expression, InvocationExpressionSyntax atomic,
+        AnonymousFunctionExpressionSyntax callback, SemanticModel model, bool isCallbackBody = false)
     {
-        if (expression == callback) return true; // Its execution/completion is proved separately below.
+        if (expression == callback && !isCallbackBody) return true; // Its execution/completion is proved separately below.
         var type = model.GetTypeInfo(expression).Type;
         if (type is { TypeKind: TypeKind.Dynamic or TypeKind.Error }
             || model.GetConversion(expression).MethodSymbol is not null) return false;
         switch (expression)
         {
             case ParenthesizedExpressionSyntax parentheses:
-                return IsReviewedOuterExpression(parentheses.Expression, atomic, callback, model);
+                return IsReviewedBoundaryExpression(parentheses.Expression, atomic, callback, model, isCallbackBody);
             case PostfixUnaryExpressionSyntax postfix when postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression):
-                return IsReviewedOuterExpression(postfix.Operand, atomic, callback, model);
+                return IsReviewedBoundaryExpression(postfix.Operand, atomic, callback, model, isCallbackBody);
             case AwaitExpressionSyntax awaited:
                 // Only the reviewed atomic task and framework completion wrappers may be awaited here.
-                return IsReviewedOuterExpression(awaited.Expression, atomic, callback, model)
+                return IsReviewedBoundaryExpression(awaited.Expression, atomic, callback, model, isCallbackBody)
                     && model.GetTypeInfo(awaited.Expression).Type is INamedTypeSymbol task
                     && ((task.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks"
                         && task.MetadataName is "Task\u00601" or "ValueTask\u00601")
@@ -594,7 +691,9 @@ public sealed class WritePipelineExecutorFenceTests
                             && task.MetadataName is "ConfiguredTaskAwaitable\u00601" or "ConfiguredValueTaskAwaitable\u00601"))
                     && task.ContainingAssembly.Identity.ToString() == typeof(Task).Assembly.FullName;
             case InvocationExpressionSyntax call:
-                if (call != atomic && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model)) return false;
+                if (isCallbackBody
+                    ? !IsExecutorCall(call, model) && !IsTaskWrapperCall(call, model)
+                    : call != atomic && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model)) return false;
                 if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) return false;
                 if (call.Expression is not MemberAccessExpressionSyntax member) return false;
                 if (method.IsStatic)
@@ -602,9 +701,14 @@ public sealed class WritePipelineExecutorFenceTests
                     if (!SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(member.Expression).Symbol,
                         method.ContainingType)) return false;
                 }
-                else if (!IsReviewedOuterExpression(member.Expression, atomic, callback, model)) return false;
+                else if (!IsReviewedBoundaryExpression(member.Expression, atomic, callback, model, isCallbackBody)) return false;
                 return call.ArgumentList.Arguments.All(argument => argument.RefKindKeyword.RawKind == 0
-                    && IsReviewedOuterExpression(argument.Expression, atomic, callback, model));
+                    && IsReviewedBoundaryExpression(argument.Expression, atomic, callback, model, isCallbackBody));
+            case ObjectCreationExpressionSyntax creation when isCallbackBody:
+                return IsReviewedMergeConstruction(creation, callback, model)
+                    && creation.ArgumentList is { } arguments
+                    && arguments.Arguments.All(argument => argument.RefKindKeyword.RawKind == 0
+                        && IsReviewedBoundaryExpression(argument.Expression, atomic, callback, model, true));
             case IdentifierNameSyntax:
                 return model.GetSymbolInfo(expression).Symbol is IParameterSymbol or ILocalSymbol
                     or IFieldSymbol { IsStatic: false };
