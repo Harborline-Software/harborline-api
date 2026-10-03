@@ -90,7 +90,9 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   stage('container-image-platform')
   if (docker(['image', 'inspect', profile.image, '--format', '{{.Os}}/{{.Architecture}}']).trim() !== 'linux/amd64')
     throw new Error('container platform differs from policy')
-  const common = ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
+  // An init parent owns PID1 signal forwarding and orphan reaping. Keep dotnet
+  // outside PID1; all SDK, workload and security/resource settings stay pinned.
+  const common = ['run', '--rm', '--init', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
     '--security-opt=no-new-privileges', '--pids-limit=256', '--cpus=4', '--user', `${host.uid}:${host.gid}`,
     '--tmpfs', '/tmp:rw,nosuid,nodev,size=1073741824', '-e', 'HOME=/tmp', '-e', 'DOTNET_CLI_HOME=/tmp',
     '-e', 'DOTNET_CLI_TELEMETRY_OPTOUT=1', '-e', 'DOTNET_NOLOGO=1', '-e', 'NUGET_PACKAGES=/packages',

@@ -11,7 +11,7 @@ export function probePidOneRestore({args, image, commit, run = execFileSync, obs
   // Accept only an already observed production restore and the independently pinned image.
   const imageIndex = args.indexOf(image)
   if (!/^mcr\.microsoft\.com\/dotnet\/sdk@sha256:[0-9a-f]{64}$/.test(image) || !/^[0-9a-f]{40}$/.test(commit)
-    || args[0] !== 'run' || args[1] !== '--rm' || args.includes('--init') || imageIndex < 2
+    || args[0] !== 'run' || args[1] !== '--rm' || args.filter(value => value === '--init').length > 1 || imageIndex < 2
     || args[imageIndex + 1] !== 'dotnet' || args[imageIndex + 2] !== 'restore'
     || typeof args[imageIndex + 3] !== 'string' || !args[imageIndex + 3].startsWith('/platform/')
     || args[imageIndex + 3].split('/').includes('..') || !args[imageIndex + 3].endsWith('.csproj')
@@ -55,9 +55,11 @@ export function probePidOneRestore({args, image, commit, run = execFileSync, obs
         const identity = run('git', ['-c', `safe.directory=${clone}`, '-C', clone, 'rev-parse', 'HEAD'], commandOptions(30000)).trim()
         if (identity !== commit) throw new Error('diagnostic clone identity mismatch')
         mkdirSync(cache)
-        const probeArgs = [...args]
+        let probeArgs = [...args]
         probeArgs[platform.index] = `type=bind,source=${clone},target=/platform`
         probeArgs[packages.index] = `type=bind,source=${cache},target=/packages`
+        // Always retain a direct-PID1 baseline even when production uses init.
+        probeArgs = probeArgs.filter(value => value !== '--init')
         if (init) probeArgs.splice(2, 0, '--init')
         const invoke = diagnosticContainerRun({run, observe: state => record('pid1-probe-container-state', {caseIndex, pair, variant, state})})
         phase = 'container-restore'

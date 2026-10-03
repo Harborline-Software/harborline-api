@@ -80,7 +80,7 @@ export function qualify(platform) {
     writeFileSync(bundlePath, raw); materializeFeed(files, path.join(clone, '.feed')); mkdirSync(packages)
     started = Date.now()
     stage('full-api-restore')
-    containerRun('docker', ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
+    containerRun('docker', ['run', '--rm', '--init', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
       '--security-opt=no-new-privileges', '--pids-limit=256', '--cpus=4', '--user', `${process.getuid()}:${process.getgid()}`,
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=1073741824', '--network', 'bridge',
       '-e', 'HOME=/tmp', '-e', 'DOTNET_CLI_HOME=/tmp', '-e', 'DOTNET_CLI_TELEMETRY_OPTOUT=1',

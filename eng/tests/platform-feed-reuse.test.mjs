@@ -386,7 +386,7 @@ test('real container planner isolates mounts, independently restores every proje
   assert.equal(prepared.input.restore.find(file => file.name === 'platform/obj/restore-generated-extra.txt').sha256,
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
   for (const args of calls.filter(args => args[0] === 'run')) {
-    assert.ok(args.includes('--read-only')); assert.ok(args.includes('--cap-drop=ALL'))
+    assert.equal(args.filter(value => value === '--init').length, 1); assert.ok(args.includes('--read-only')); assert.ok(args.includes('--cap-drop=ALL'))
     assert.ok(args.includes('HARBORLINE_FEED_OUTPUT_ROOT=/output/.feed'))
     assert.equal(args.some(value => value.endsWith(',target=/tool/.feed')), false, 'owned feed child is not a mount root')
     assert.equal(args.some(value => value.includes('GH_TOKEN') || value.includes('GITHUB_TOKEN')), false)

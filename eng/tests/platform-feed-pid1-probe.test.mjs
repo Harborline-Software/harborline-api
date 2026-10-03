@@ -77,7 +77,7 @@ test('probe observer failure and clone failure cannot publish raw errors or skip
 
 test('unsupported restore context refuses before running any command', () => {
   for (const options of [{image: 'unapproved'}, {commit: 'wrong'}, {args: ['run', '--rm', image, 'sh', '-c', 'secret']},
-    {args: [...args, '--init']}, {args: args.map(value => value === '/platform/project.csproj' ? '/platform/../secret.csproj' : value)}]) {
+    {args: [...args, '--init', '--init']}, {args: args.map(value => value === '/platform/project.csproj' ? '/platform/../secret.csproj' : value)}]) {
     assert.throws(() => probePidOneRestore({args, image, commit, classifyFailure: safeFailure,
       run: () => assert.fail('unsafe command'), ...options}))
   }
@@ -109,4 +109,23 @@ test('expired or missing job budget performs no diagnostic commands', () => {
   }
   for (const budgetMs of [-1, Infinity, NaN, 300001])
     assert.throws(() => probePidOneRestore({args, image, commit, budgetMs, classifyFailure: safeFailure}))
+})
+
+test('production init context still retains the direct PID1 causal baseline', () => {
+  const variants = []
+  const run = (command, actual) => {
+    if (command === 'git') {
+      if (actual.includes('clone')) {mkdirSync(actual.at(-1)); return ''}
+      return commit + '\n'
+    }
+    if (actual[0] === 'run') {
+      variants.push(actual.filter(value => value === '--init').length)
+      return ''
+    }
+    assert.fail('no CID means no container inspection or removal')
+  }
+  const results = probePidOneRestore({args: ['run', '--rm', '--init', ...args.slice(2)], image, commit,
+    run, classifyFailure: safeFailure})
+  assert.deepEqual(variants, [0, 1, 1, 0, 0, 1])
+  assert.equal(results.length, 6)
 })
