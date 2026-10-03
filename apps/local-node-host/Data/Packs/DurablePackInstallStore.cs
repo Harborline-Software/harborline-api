@@ -9,6 +9,7 @@ using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
+using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Data.Packs;
 
@@ -58,6 +59,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
     private readonly object _gate = new();
     private readonly IDbContextFactory<NodeLocalPacksDbContext> _factory;
+    private readonly KernelAuditPackInstallAudit? _audit;
 
     private PackProjectionSqliteUnit? projectionUnit;
 
@@ -82,9 +84,24 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
     /// <summary>Construct over the SQLCipher-keyed packs DbContext factory (registered by
     /// <c>AddSqlCipherLocalNodeDbContext</c>).</summary>
-    public DurablePackInstallStore(IDbContextFactory<NodeLocalPacksDbContext> factory)
+    /// <param name="factory">The packs context factory.</param>
+    /// <param name="audit">
+    /// T-1048 (DES-0029 ck-6): when present, an install, activation or deactivation stages its carried
+    /// <see cref="PackCommitAudit"/> through this adapter in the same transaction as the change, as an audit outbox
+    /// entry. Null stages nothing, and the installer's post-commit append records the audit.
+    /// </param>
+    public DurablePackInstallStore(IDbContextFactory<NodeLocalPacksDbContext> factory, KernelAuditPackInstallAudit? audit = null)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _audit = audit;
+    }
+
+    private void StageAudit(NodeLocalPacksDbContext ctx, PackCommitAudit? audit)
+    {
+        if (audit is null || _audit is null) return;
+        Guid? predecessor = null;
+        foreach (var entry in audit.Entries)
+            predecessor = _audit.Stage(ctx, entry, audit.Decision, predecessor);
     }
 
     /// <inheritdoc />
@@ -306,6 +323,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
                 });
             }
 
+            StageAudit(ctx, transaction.Audit);
             ctx.SaveChanges();
             tx.Commit();
         }
@@ -343,6 +361,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
             {
                 StageActivation(ctx, t, packKey, version);
                 AddProjectionAdmission(ctx, admission);
+                StageAudit(ctx, admission.Audit);
                 await ctx.SaveChangesAsync().ConfigureAwait(false);
             }).GetAwaiter().GetResult();
         }
@@ -380,6 +399,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
             {
                 StageDeactivation(ctx, t, packKey, version);
                 AddProjectionAdmission(ctx, admission);
+                StageAudit(ctx, admission.Audit);
                 await ctx.SaveChangesAsync().ConfigureAwait(false);
             }).GetAwaiter().GetResult();
         }

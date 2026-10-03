@@ -61,7 +61,7 @@ apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs	6	post-commit-
 apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs	6	post-commit-audit	tenant heads then Completed envelope (:790-859), resumable; WebTenantSwitchAuthorityTests.cs:25
 apps/local-node-host/Data/OrgBranding/NodeEfOrgBrandingStore.cs	1	unaudited	in-place upsert; blob put then row upsert are two stores (OrgBrandingRoutes.cs:196/:213)
 apps/local-node-host/Data/Packs/DurableChannelSequenceStore.cs	1	n/a	monotonic channel sequence high-water
-apps/local-node-host/Data/Packs/DurablePackInstallStore.cs	9	post-commit-audit	install/activate/deactivate audit after commit (PackInstaller.cs:227->250/259, :600->636, :743->764); DurablePackInstallStoreRestartTests.cs:230
+apps/local-node-host/Data/Packs/DurablePackInstallStore.cs	9	outbox-audit	T-1048: install/activate/deactivate stage their signed audit as a search_audit_outbox row in the change's own transaction (StageAudit :326/:364/:402, carried by PackCommitAudit from PackInstaller.cs:224/:620/:768), delivered by NodeAuditOutbox after the commit and by its drain daemon; tests PackAuditOutboxCrashTests.cs:177/:306/:320 (crash after commit) and :337/:352/:365/:379 (refused at commit); preparation/cancellation/signature reuse :76/:111. Narrowing (SaveOverride) still audits after commit
 apps/local-node-host/Data/Payroll/NodeEfEmployeeRepository.cs	1	record-is-audit	durable-layer pattern (:27-28)
 apps/local-node-host/Data/Payroll/NodeEfFilingObligationRepository.cs	1	unaudited	no production writer (registered only)
 apps/local-node-host/Data/Payroll/NodeEfPayRunRepository.cs	1	unaudited	separate payroll context; post/reverse commit JE then run: retry now converges on the persisted JE (PayrollRouteTests ck-6 replay facts)

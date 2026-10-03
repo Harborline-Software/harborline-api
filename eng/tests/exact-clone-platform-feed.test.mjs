@@ -106,12 +106,12 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
   for (const qualityEnabled of [false, true]) for (const exitCode of [0, 1]) {
     const steps = []
     const calls = []
-    new Function('steps', 'resolveCommand', 'spawnSync', 'stripAnsi', 'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled',
+    new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled',
       runBlock + '\n' + route)(steps, (executable, args) => ({executable, args}),
-      (executable, args, options) => {
+      (_id, executable, args, options) => {
         calls.push({executable, args, cwd: options.cwd})
         return {status: args[0] === 'eng/exact-clone-platform-feed.mjs' ? exitCode : 0, stdout: 'selection evidence'}
-      }, text => text, text => text, process, '/clone', '/source', '/scratch', [], path,
+      }, '/progress-fixture.jsonl', text => text, text => text, process, '/clone', '/source', '/scratch', [], path,
       () => {}, () => {}, qualityEnabled)
     assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore'])
     assert.equal(steps[1].passed, exitCode === 0)
