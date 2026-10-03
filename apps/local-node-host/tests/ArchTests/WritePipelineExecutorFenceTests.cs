@@ -312,6 +312,78 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    [InlineData("if (Opaque(unit)) return await Done(); return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => { if (Opaque(unit)) return await Done(); return await WritePipeline.RunAsync(write, observer, ct); });")]
+    [InlineData("Func<KernelWrite<object, int, int, int>, IWritePipelineObserver, CancellationToken, ValueTask<int>> escaped = WritePipeline.RunAsync<object, int, int, int>; await unit.ExecuteAtomicAsync(async ct => { if (Opaque(unit)) return await Done(); return await WritePipeline.RunAsync(write, observer, ct); }); return await escaped.Invoke(write, observer, default);")]
+    [InlineData("Func<KernelWrite<object, int, int, int>, IWritePipelineObserver, CancellationToken, ValueTask<int>> escaped = WritePipeline.RunAsync<object, int, int, int>; await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await escaped(write, observer, default);")]
+    [InlineData("Task<int> Escape() => Done(); await Escape(); return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    public void ExemptionRejectsEarlyExitAndIndirectExecution(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText(BoundaryFixture(body));
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Fact]
+    public void ExemptionRejectsOrdinaryHelperEscapingTheAtomicCallback()
+    {
+        var tree = CSharpSyntaxTree.ParseText(BoundaryFixture("""
+            await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));
+            return await Escape.Run(write, observer);
+            """) + """
+            class Escape {
+                public static async Task<int> Run(
+                    Harborline.Api.Kernel.Runtime.KernelWrite<object, int, int, int> write,
+                    Harborline.Api.Kernel.Runtime.IWritePipelineObserver observer) =>
+                    await Harborline.Api.Kernel.Runtime.WritePipeline.RunAsync(write, observer, default);
+            }
+            """);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExemptionRejectsConditionalShippingAndDecoyBranches(bool productionSymbols)
+    {
+        var source = BoundaryFixture("""
+            #if NET11_0
+            await unit.ExecuteAtomicAsync(ct => Done());
+            return await WritePipeline.RunAsync(write, observer, default);
+            #else
+            return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));
+            #endif
+            """);
+        var options = productionSymbols ? new CSharpParseOptions(preprocessorSymbols: ["NET11_0"]) : CSharpParseOptions.Default;
+        var tree = CSharpSyntaxTree.ParseText(source, options);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    private static string BoundaryFixture(string body) => """
+        using System;
+        using System.Threading;
+        using System.Threading.Tasks;
+        using Harborline.Api.Foundation.Assets.Hierarchy;
+        using Harborline.Api.Kernel.Runtime;
+        class Fixture {
+            Task<int> Done() => Task.FromResult(0);
+            bool Opaque(object value) => value.GetHashCode() == 0;
+            async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit,
+                KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
+        """ + "\n" + body + "\n} }";
+
     private static SemanticModel BoundaryModel(SyntaxTree tree)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -337,6 +409,15 @@ public sealed class WritePipelineExecutorFenceTests
         && symbol.ContainingType.ToDisplayString() == typeof(WritePipeline).FullName
         && symbol.ContainingAssembly.Identity.ToString() == typeof(WritePipeline).Assembly.FullName;
 
+    private static bool IsReviewedPreludeCall(InvocationExpressionSyntax call, SemanticModel model) =>
+        model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
+        && (symbol.Name == nameof(ArgumentNullException.ThrowIfNull)
+            && symbol.ContainingType.ToDisplayString() == typeof(ArgumentNullException).FullName
+            && symbol.ContainingAssembly.Identity.ToString() == typeof(ArgumentNullException).Assembly.FullName
+            || symbol.Name == nameof(TimeProvider.GetUtcNow)
+            && symbol.ContainingType.ToDisplayString() == typeof(TimeProvider).FullName
+            && symbol.ContainingAssembly.Identity.ToString() == typeof(TimeProvider).Assembly.FullName);
+
     private static bool IsTaskWrapperCall(InvocationExpressionSyntax call, SemanticModel model) =>
         model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
         && symbol.Name is "ConfigureAwait" or "AsTask"
@@ -349,9 +430,29 @@ public sealed class WritePipelineExecutorFenceTests
 
     private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method, SemanticModel model)
     {
+        // The standalone probe does not reconstruct MSBuild's preprocessor symbols. Refuse conditional
+        // source rather than proving a different branch from the one compiled into the shipping assembly.
+        if (method.SyntaxTree.GetRoot().DescendantTrivia(descendIntoTrivia: true).Any(trivia =>
+            trivia.GetStructure() is IfDirectiveTriviaSyntax or ElifDirectiveTriviaSyntax
+                or ElseDirectiveTriviaSyntax or EndIfDirectiveTriviaSyntax)) return false;
+        // Indirect calls require interprocedural proof, which this narrow exemption does not provide.
+        // A method-group alias to RunAsync is a delegate Invoke, not an executor invocation in the scan.
+        if (method.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(call =>
+            model.GetSymbolInfo(call).Symbol is not IMethodSymbol
+            || model.GetSymbolInfo(call).Symbol is IMethodSymbol
+                { MethodKind: MethodKind.DelegateInvoke or MethodKind.LocalFunction })) return false;
         var mutationCalls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsMutationCall(call, model)).ToArray();
         if (mutationCalls.Length != 1 || !IsReviewedAtomicCall(mutationCalls[0], model)) return false;
+        var atomicCall = mutationCalls[0];
+        if (atomicCall.ArgumentList.Arguments.FirstOrDefault()?.Expression is not AnonymousFunctionExpressionSyntax callback)
+            return false;
+        // Outside the callback, only the reviewed shipping prelude and task completion wrappers are
+        // supported. An ordinary helper can hide another executor just as a delegate alias can;
+        // approving such helpers would require an interprocedural proof this fence does not perform.
+        if (method.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(call =>
+            !call.Ancestors().Contains(callback) && call != atomicCall
+                && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model))) return false;
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsExecutorCall(call, model))
             .ToArray();
@@ -430,6 +531,15 @@ public sealed class WritePipelineExecutorFenceTests
         var statement = task.Parent as StatementSyntax;
         if (statement?.Parent != body || body is null
             || statement is not ReturnStatementSyntax && !(awaited && statement is ExpressionStatementSyntax)) return false;
+        // Reachability alone permits an opaque early return followed by a reachable decoy. Require
+        // the reviewed statement on every normal path through this straight-line supported prefix.
+        // Other branch/loop/exception control flow needs a separate proof before an exemption is granted.
+        var prefix = body.Statements.TakeWhile(candidate => candidate != statement);
+        if (prefix.SelectMany(candidate => candidate.DescendantNodesAndSelf()).Any(node =>
+            node is ReturnStatementSyntax or GotoStatementSyntax or YieldStatementSyntax
+                or IfStatementSyntax or SwitchStatementSyntax or ForStatementSyntax
+                or ForEachStatementSyntax or ForEachVariableStatementSyntax or WhileStatementSyntax
+                or DoStatementSyntax or TryStatementSyntax)) return false;
         var flow = model.AnalyzeControlFlow(statement);
         return flow is { Succeeded: true, StartPointIsReachable: true };
     }
