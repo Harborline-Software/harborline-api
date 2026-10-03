@@ -1350,16 +1350,17 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
         IQueryable<InstallationIdentityCoordinatorRecord> eligible, RecoveryCursor? after, int limit, CancellationToken ct)
     {
         // EF translates the two-argument comparison into SQL; no managed culture comparison runs.
-        // Pin SQLite's ordinal BINARY collation to match the ordering of the correlation-id cursor.
-#pragma warning disable CA1309 // The provider cannot translate the StringComparison.Ordinal overload.
+        // Both SQL ordering and the cursor predicate use SQLite BINARY. This is a
+        // provider contract, not a claim that every Unicode ordering equals .NET ordinal.
+#pragma warning disable CA1309 // reviewed-suppression: identity-recovery-sqlite-cursor
         var remaining = after is null ? eligible : eligible.Where(item => item.CreatedAtUtc > after.At
             || (item.CreatedAtUtc == after.At
                 && string.Compare(EF.Functions.Collate(item.CorrelationId, "BINARY"), after.CorrelationId) > 0));
 #pragma warning restore CA1309
-        var page = await remaining.OrderBy(item => item.CreatedAtUtc).ThenBy(item => item.CorrelationId)
+        var page = await remaining.OrderBy(item => item.CreatedAtUtc).ThenBy(item => EF.Functions.Collate(item.CorrelationId, "BINARY"))
             .Take(limit).ToArrayAsync(ct).ConfigureAwait(false);
         if (page.Length == 0 && after is not null)
-            page = await eligible.OrderBy(item => item.CreatedAtUtc).ThenBy(item => item.CorrelationId)
+            page = await eligible.OrderBy(item => item.CreatedAtUtc).ThenBy(item => EF.Functions.Collate(item.CorrelationId, "BINARY"))
                 .Take(limit).ToArrayAsync(ct).ConfigureAwait(false);
         return page;
     }
@@ -1447,6 +1448,7 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
             {
                 throw;
             }
+#pragma warning disable CA1031 // reviewed-suppression: identity-web-home-recovery
             catch (Exception exception)
             {
                 _logger?.LogError(
@@ -1454,6 +1456,7 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
                     "Identity web home recovery row {CorrelationId} failed; continuing the drain.",
                     home.CorrelationId);
             }
+#pragma warning restore CA1031
         }
     }
 }

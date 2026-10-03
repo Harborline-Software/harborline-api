@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {requireQualityProduction} from './quality-production.mjs'
+import {applyReviewedSuppressions, readReviewedSuppressions} from './reviewed-analyzer-suppressions.mjs'
 
 const cliArguments = process.argv.slice(2)
 const optionValue = option => {
@@ -85,6 +86,7 @@ export function qualityArtifacts(apiRoot = root) {
   const files = walk(path.join(apiRoot, 'artifacts', 'quality')).sort()
   return {
     sarif: files.filter(file => /\.sarif(?:\.json)?$/i.test(file)),
+    rawSarif: files.filter(file => /\.sarif(?:\.json)?\.raw$/i.test(file)),
     // Only the merged reports eng/coverage.mjs writes at the top level; the raw per-run coverlet files under
     // coverage/ are the same data unmerged (30 MB each on the Windows landing, over cqg's 16 MB input cap).
     cobertura: files.filter(file => /cobertura.*\.xml$/i.test(path.basename(file)) && path.dirname(file) === path.join(apiRoot, 'artifacts', 'quality')),
@@ -103,9 +105,24 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const control = resolveControlPolicy({apiRoot, env})
   if (!control.policyDefaults) refuse('HARBORLINE_CONTROL_REPO', control.reason)
   const artifacts = qualityArtifacts(apiRoot)
+  const reviewed = readReviewedSuppressions(apiRoot)
+  for (const file of artifacts.sarif) {
+    const report = JSON.parse(readFileSync(file, 'utf8'))
+    for (const run of report.runs ?? []) {
+      if (run.tool?.driver?.name !== 'roslyn') continue
+      // Retained raw evidence is required and attested below. Source acceptance is
+      // revalidated here; production normalization supplies the raw-to-input mapping.
+      if (!existsSync(`${file}.raw`)) throw new Error('quality: Roslyn report has no retained raw compiler evidence')
+      for (const result of run.results ?? []) {
+        const original = JSON.stringify(result)
+        applyReviewedSuppressions(result, reviewed)
+        if (JSON.stringify(result) !== original) throw new Error('quality: Roslyn exceptions were not normalized with current reviewed evidence')
+      }
+    }
+  }
   if (env.HARBORLINE_VERIFY_QUALITY_RUN) {
     const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
-    requireQualityProduction(apiRoot, {head, run: env.HARBORLINE_VERIFY_QUALITY_RUN, files: artifacts.sarif})
+    requireQualityProduction(apiRoot, {head, run: env.HARBORLINE_VERIFY_QUALITY_RUN, files: [...artifacts.sarif, ...artifacts.rawSarif]})
   }
   const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-quality-'))
   const receipt = receiptDirectory(apiRoot)

@@ -49,7 +49,8 @@ const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
 if (qualityEnabled) {
   // qualityArtifacts also finds SARIF outside the engine directories. Never attest an old
   // top-level or nested report merely because this run rebuilt the three normal directories.
-  beginQualityProduction(apiRoot, qualityArtifacts(apiRoot).sarif)
+  const oldQuality = qualityArtifacts(apiRoot)
+  beginQualityProduction(apiRoot, [...oldQuality.sarif, ...oldQuality.rawSarif])
 }
 
 const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
@@ -556,8 +557,9 @@ try {
 // itself scanned, and naming the pattern literally fails the very check it describes.
 const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, ...rest}) => rest)}
 if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
+  const producedQuality = qualityArtifacts(apiRoot)
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
-    files: qualityArtifacts(apiRoot).sarif})
+    files: [...producedQuality.sarif, ...producedQuality.rawSarif]})
 }
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
