@@ -94,9 +94,10 @@ test('unavailable local checkout and public clone report platform-checkout-unava
 test('exact-clone records platform-feed between artifact check and dotnet-restore', () => {
   const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
   const artifacts = source.indexOf("steps.push({id: 'clone-carries-no-artifacts'")
+  const contracts = source.indexOf("run('validation-reuse-contracts'")
   const feed = source.indexOf("run('platform-feed'")
   const restore = source.indexOf("run('dotnet-restore'")
-  assert.ok(artifacts >= 0 && artifacts < feed && feed < restore)
+  assert.ok(artifacts >= 0 && artifacts < contracts && contracts < feed && feed < restore)
   assert.match(source, /steps\.push\(step\)/)
   assert.match(source, /steps: steps\.map\(/)
   assert.match(source, /exact-clone-platform-feed\.mjs/)
@@ -113,11 +114,15 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
         return {status: args[0] === 'eng/exact-clone-platform-feed.mjs' ? exitCode : 0, stdout: 'selection evidence'}
       }, text => text, text => text, process, '/clone', '/source', '/scratch', [], path,
       () => {}, () => {}, qualityEnabled)
-    assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore'])
-    assert.equal(steps[1].passed, exitCode === 0)
-    assert.equal(steps[1].exitCode, exitCode)
-    assert.match(steps[1].tail, /selection evidence/)
+    assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'validation-reuse-contracts', 'platform-feed', 'dotnet-restore'])
+    assert.equal(steps[1].passed, true)
+    assert.equal(steps[2].passed, exitCode === 0)
+    assert.equal(steps[2].exitCode, exitCode)
+    assert.match(steps[2].tail, /selection evidence/)
     assert.deepEqual(calls[0], {executable: process.execPath,
+      args: ['--test', 'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
+        'eng/tests/validation-github-shadow.test.mjs'], cwd: '/clone'})
+    assert.deepEqual(calls[1], {executable: process.execPath,
       args: ['eng/exact-clone-platform-feed.mjs', '/source', '/scratch'], cwd: '/clone'})
   }
 })
