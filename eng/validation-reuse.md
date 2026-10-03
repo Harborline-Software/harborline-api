@@ -26,6 +26,13 @@ It is unsigned diagnostic data and is never accepted as authority to skip work.
   producer/key policy, exact invocation completeness and artifact/consumption
   binding. There are **no default trusted keys**, signing commands or credentials.
   This alternative is tested infrastructure, not a requirement to create keys.
+  The consumer supplies authenticated commit metadata: `observation.candidateTree`
+  must be the actual tree of its observed producer `headSha`. The signed input
+  tree must match it. `shadowVerdict` separately requires `currentObservation`
+  with the actual current candidate SHA/tree. Receipt fields never provide these
+  independent observations. Package/mutation candidate commits and mutation base
+  commits also bind to their independently observed commits. Unsupported or
+  missing commit/tree metadata refuses trust even with a valid signature.
 - Every verdict is candidate-specific and shadow-only: `reuseAuthorized:false`
   and `requiredWorkSkipped:false`, including a cryptographically valid match.
 
