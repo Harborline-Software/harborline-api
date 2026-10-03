@@ -33,3 +33,25 @@ Oracles are literal entity IDs and admission instants, expected edge endpoints a
 Limits: finite-end invalidation removals at lines 300 and 438 are CompileError, not Killed. The clipping comparisons at line 411 have NoCoverage mutations; the visited-interval continue at line 405 is also NoCoverage. The other two uncovered mutations are the missing admitted-decision throw at line 525. Survived mutations include cancellation/ConfigureAwait booleans, exception text, authorization Require statements, and the ancestor throw at line 396 (temporal traversal still supplies refusal). No blanket equivalence or harmlessness claim is made for all 70 survivors. The equality changes from `>` to `>=` in maximum-start selection preserve the selected value when both instants are equal. These disclosures remain review evidence, not waivers or changes to owner policy.
 
 The previously completed focused suite at the tested head passed 147 tests, zero skipped. The raw scoped report above is the current mutation evidence; earlier hosted mutation timeouts produced no substitute report.
+
+## Temporal traversal follow-up at 9a5fbc32
+
+Independent review of the first report found two material test gaps despite correct production logic: forcing an edge's earlier start instead of preserving the inherited maximum (5949), and failing to clip a finite inherited end to an earlier edge end (5958). The production file is unchanged. Two new independent regressions at source/test head `9a5fbc32aac426747510df76a5a9ec819cf83071` pin these intervals:
+
+- `FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward` supplies path legs `[day2,day4)`, `[day1,day3)`, `[day1,day1.5)`, whose common interval is empty. Forcing the second leg's day1 start falsely refuses the move.
+- `FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg` supplies candidate interval `[day0,day3)` and path legs `[day1,day2)`, `[day2,infinity)`. The first leg must clip the candidate's finite end before examining the touching second leg.
+
+Each targeted fault produced one red test with a false-cycle ArgumentException. Restoring the unchanged production file produced 124 focused green tests, zero skipped, using the same filter as the command above. The new tests assert exact literal replacement and path intervals, the original path endpoints, and one audit row with the input justification; their expected state is not constructed from production output.
+
+The same native whole-file command then completed in 286 seconds. The report embeds exactly 124 tests. Raw report, generated config and extracted manifest are archived at commit `3eafbe2d94fbd98c899b7cffc0bf76b5a1f37878` on `archive/pr331-scoped-9a5fbc32-20261003`, under `docs/evidence/raw/pr331-9a5fbc32/`. Report size is 12,591,256 bytes; SHA-256 is `87757248FE9D2E669CFC3AA628B2B2E6537EFD78B4F7D8C68B38EE352F58F889`. Manifest SHA-256 is `AACB48CFDB5DF490C13FB311090B72EA05BF14CBD69D25E0DA5A2AB9FC3C83CF`.
+
+This rerun supersedes the first report's temporal follow-up status. The coordinator has **76 Killed, 12 Timeout, 70 Survived, 3 NoCoverage, 20 CompileError, 28 Ignored**: 158 tested mutations, reported score 54.66. Timeout is reported separately and is not claimed as an assertion kill. All nine cited semantic mutations in the earlier table remain Killed in this rerun, with named killing tests in its JSON.
+
+| Follow-up | Exact location and replacement | Status | Recorded killing test |
+| --- | --- | --- | --- |
+| Preserve inherited start | 5949, line 409, `(true?edge.Validity.ValidFrom :interval.From)` | Killed | `FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward` |
+| Clip finite inherited end | 5958, line 411, `edgeEnd > to.Value` | Killed | `FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg` |
+
+The comparison `edgeEnd <= to.Value` at line 411 is now covered and Survived; replacing a bound by the same value when equal preserves its interval. The earlier inherited-start equality survivor at line 409 has the same equal-value property. The three remaining uncovered mutations are line 405's visited-interval continue and the two missing-decision throw mutations at line 525. Finite-end invalidation removals at lines 300 and 438 remain CompileError.
+
+The twelve Timeout IDs in this run are 5810 (line 36), 5811 (37), 5823/5825 (123), 5830/5832 (135), 5839 (148), 5865 (186), 5966 (413), 6004 (480), 6013 (524), and 6016 (527). These were Killed in the earlier raw report, but that historical status is not substituted for their current Timeout result. No deadline, gate, baseline or production behavior was changed, and no blanket clearance is claimed for the residual survivors, compile errors, uncovered mutations or timeouts.
