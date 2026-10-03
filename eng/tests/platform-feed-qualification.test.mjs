@@ -13,3 +13,11 @@ test('qualification failure evidence retains fixed causal codes without raw cred
     {kind: 'validation-or-spawn'})
   assert.deepEqual(safeFailure(new Error('https://user:private-password@example.invalid/private-token')), {kind: 'validation-or-spawn'})
 })
+
+test('qualification records bounded crash signatures but does not infer OOM from exit 139', () => {
+  assert.deepEqual(safeFailure({status: 139, stderr: 'private-token /private/path https://private.invalid'}),
+    {kind: 'command-exit', exitCode: 139})
+  assert.deepEqual(safeFailure({status: 139, stderr: 'Segmentation fault (core dumped)\nSystem.OutOfMemoryException: private-token'}),
+    {kind: 'command-exit', exitCode: 139, observedSignatures: ['segmentation-fault', 'managed-out-of-memory']})
+  assert.deepEqual(safeFailure({status: 137}), {kind: 'command-exit', exitCode: 137})
+})

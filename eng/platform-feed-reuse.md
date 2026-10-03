@@ -98,6 +98,19 @@ authenticated or published by this harness, and it reports cross-run reuse and
 hosted end-to-end speedup as unmeasured. A prelanding verify-linux pass can still
 be a fresh fallback because protected main does not yet contain the definitions.
 
+Qualification records only fixed observed crash signatures and Docker's numeric
+exit/resource-limit fields, Boolean OOMKilled/running state, and cleanup outcome.
+It retains each qualification container only until bounded inspection, then
+removes its privately recorded container ID. Restore arguments, SDK image and
+security settings are unchanged; the production producer keeps its ordinary
+`--rm` lifecycle. Inspection failures never replace the workload verdict. Raw
+output, container IDs, paths, environment and Docker error messages are omitted.
+OOMKilled is reported separately from output signatures: neither exit 137 nor
+139 establishes OOM. Peak memory and prior PID usage are not observed; a
+configured limit alone cannot prove resource exhaustion. Current Docker/Node24
+qualification failed at LayoutRuntime restore (index 7/36) with exit 139, whose
+cause is unproven pending this additional evidence.
+
 After reviewed definitions land, the protected-main producer must create a
 successful artifact. A coordinator-authorized consumer run must authenticate
 that artifact, prove matching independent inputs and consumed bytes, and finish

@@ -9,6 +9,7 @@ import {createBundle, materializeFeed, restoreSameJobFeed, sha256} from './same-
 import {verifyConsumedFeed} from './platform-feed-consumption.mjs'
 import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {buildEnvironment} from './platform-feed-environment.mjs'
+import {crashSignatures, diagnosticContainerRun} from './platform-feed-crash-diagnostics.mjs'
 
 export function safeFailure(error) {
   const result = {kind: Number.isInteger(error?.status) ? 'command-exit' : 'validation-or-spawn'}
@@ -20,6 +21,8 @@ export function safeFailure(error) {
   const text = [error?.stdout, error?.stderr].map(value => typeof value === 'string' || Buffer.isBuffer(value) ? String(value).slice(-16384) : '').join('\n')
   const codes = [...new Set(text.match(/\b(?:NU\d{4}|MSB\d{4}|NETSDK\d{4})\b/g) ?? [])].slice(0, 8)
   if (codes.length) result.diagnosticCodes = codes
+  const signatures = crashSignatures(text)
+  if (signatures.length) result.observedSignatures = signatures
   for (const library of ['libatomic.so.1', 'libstdc++.so.6', 'libgcc_s.so.1', 'libc.so.6', 'libm.so.6', 'libdl.so.2', 'libpthread.so.0'])
     if (text.includes(`error while loading shared libraries: ${library}:`)) result.missingSharedLibrary = library
   return result
@@ -44,7 +47,9 @@ export function qualify(platform) {
     console.log(JSON.stringify({stage, ...details}))
   }
   let currentStage = 'started'
-  const stage = (name, details = {}) => {currentStage = name; record('operation-started', {operation: name, ...details})}
+  let currentDetails = {}
+  const stage = (name, details = {}) => {currentStage = name; currentDetails = details; record('operation-started', {operation: name, ...details})}
+  const containerRun = diagnosticContainerRun({observe: state => record('container-resource-state', {operation: currentStage, ...currentDetails, state})})
   let prepared
   try {
     record('started')
@@ -55,7 +60,7 @@ export function qualify(platform) {
     stage('isolated-api-clone')
     execute('git', ['clone', '--quiet', '--no-hardlinks', root, clone])
     let started = Date.now()
-    prepared = prepareContainer({apiRoot: root, platform, pin, observe: stage})
+    prepared = prepareContainer({apiRoot: root, platform, pin, observe: stage, run: containerRun})
     record('independent-platform-restore', {durationMs: Date.now() - started})
     started = Date.now()
     const files = prepared.pack(), raw = createBundle(files, prepared.input, pin)
@@ -65,13 +70,14 @@ export function qualify(platform) {
     writeFileSync(bundlePath, raw); materializeFeed(files, path.join(clone, '.feed')); mkdirSync(packages)
     started = Date.now()
     stage('full-api-restore')
-    execute('docker', ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
+    containerRun('docker', ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
       '--security-opt=no-new-privileges', '--pids-limit=256', '--cpus=4', '--user', `${process.getuid()}:${process.getgid()}`,
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=1073741824', '--network', 'bridge',
       '-e', 'HOME=/tmp', '-e', 'DOTNET_CLI_HOME=/tmp', '-e', 'DOTNET_CLI_TELEMETRY_OPTOUT=1',
       '-e', `NUGET_PACKAGES=${packages}`, '--mount', `type=bind,source=${directory},target=${directory}`,
       '--workdir', clone, profile.image, 'dotnet', 'restore', 'Harborline.Api.slnx', '--packages', packages,
-      '--configfile', path.join(clone, 'nuget.config'), '-nodeReuse:false', '-maxcpucount:4'])
+      '--configfile', path.join(clone, 'nuget.config'), '-nodeReuse:false', '-maxcpucount:4'],
+    {encoding: 'utf8', env: buildEnvironment(), stdio: 'pipe', maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60 * 1000})
     record('full-api-restore', {durationMs: Date.now() - started})
     const options = {clone, packages, bundlePath, bundleDigest: sha256(raw), pin}
     stage('consumption-proof')
