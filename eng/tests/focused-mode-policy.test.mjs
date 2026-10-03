@@ -238,6 +238,24 @@ test('the real executor hook rebuilds isolated OFF/ON outputs before validating 
     assert.match(readFileSync(path.join(output, 'coverage-off.runsettings'), 'utf8'), /enabled="false"/)
   } finally { fixture.cleanup() }
 })
+test('processed ON evidence has a portable source root and retains population/hash binding across checkout paths', () => {
+  const fixtures = [executorFixture(), executorFixture()]
+  try {
+    const processed = fixtures.map(fixture => {
+      assert.equal(executeFocusedModes(fixture.options).status, 'passed')
+      const output = fixture.calls[1].args[fixture.calls[1].args.indexOf('--results-directory') + 1]
+      const bytes = readFileSync(path.join(output, 'focused.cobertura.xml'))
+      assert.match(bytes.toString(), /<source>\.<\/source>/)
+      assert.equal(bytes.toString().includes(fixture.root.replaceAll('\\', '/')), false)
+      const receipt = JSON.parse(readFileSync(path.join(path.dirname(output), 'receipts.json'), 'utf8')).receipts[1]
+      assert.deepEqual(receipt.coverage, {coveredLines: 0, validLines: 1, paths: ['source.cs']})
+      assert.equal(receipt.coverageDigest, `sha256:${createHash('sha256').update(bytes).digest('hex')}`)
+      return bytes
+    })
+    assert.notEqual(fixtures[0].root, fixtures[1].root)
+    assert.deepEqual(processed[0], processed[1])
+  } finally { for (const fixture of fixtures) fixture.cleanup() }
+})
 test('the executor collects both modes and fails after execution when OFF fails', () => {
   const fixture = executorFixture({childFailure: true})
   try {

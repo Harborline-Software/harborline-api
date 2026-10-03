@@ -208,7 +208,8 @@ export function executeFocusedModes({apiRoot = process.cwd(), env = process.env,
     if (mode === 'coverage-on') {
       try {
         const target = path.join(resultsDirectory, 'focused.cobertura.xml')
-        copyCoberturaReport({resultsDirectory, target, label: 'focused-mode-parity', sourceRoot: apiRoot})
+        // Archived source mapping is relative to the repository, never the runner checkout.
+        copyCoberturaReport({resultsDirectory, target, label: 'focused-mode-parity', sourceRoot: '.'})
         coverage = coverageSummaryFromFile(target)
         coverageDigest = `sha256:${createHash('sha256').update(readFileSync(target)).digest('hex')}`
       } catch { /* Missing collector output is rejected after both modes execute. */ }
