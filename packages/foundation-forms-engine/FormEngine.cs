@@ -396,7 +396,8 @@ public sealed class FormEngine : IFormEngine
         AuthorizationWriteContext authority,
         CancellationToken ct = default,
         string? idempotencyKey = null,
-        string? caseRef = null)
+        string? caseRef = null,
+        Func<CancellationToken, Task>? newSubmissionPreflight = null)
     {
         var authorizationDecision = await _authorizationGate.DecideAsync(
             authority.Request(AuthorizationOperation.Parse(Permission.FormsAuthor), "forms", form.Value), ct)
@@ -498,6 +499,10 @@ public sealed class FormEngine : IFormEngine
                 return new FormSubmitReceipt(instanceId, prior.CreatedAt);
             }
         }
+
+        // Live authorization and authenticated replay precede time-dependent admission checks. A replay
+        // retains its original submission instant; only a new instance must satisfy today's admission.
+        if (newSubmissionPreflight is not null) await newSubmissionPreflight(ct).ConfigureAwait(false);
 
         var (storedBody, encryptedFields) =
             await ProtectFieldsAsync(formDef, candidateForStore, token, instanceId, authority.At, ct).ConfigureAwait(false);

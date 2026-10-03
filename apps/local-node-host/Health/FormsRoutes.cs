@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -235,16 +235,18 @@ public static class FormsRoutes
                     }
                 }
 
-                if (await BackdateRefusalAsync(submissionGate, definition, candidate, token.Subject, at, timeProvider, ct)
-                    .ConfigureAwait(false) is { } backdate)
-                    return backdate;
-
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
                     token.Tenant,
                     at);
                 var receipt = await engine
-                    .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef)
+                    .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef,
+                        async admissionCt =>
+                        {
+                            var refusal = await BackdateRefusalAsync(submissionGate, definition, candidate,
+                                token.Subject, at, timeProvider, admissionCt).ConfigureAwait(false);
+                            if (refusal is not null) throw new SubmissionAdmissionRefused(refusal);
+                        })
                     .ConfigureAwait(false);
 
                 var location =
@@ -287,6 +289,7 @@ public static class FormsRoutes
             {
                 return Results.NotFound(new { code = "form_definition.not_published", detail = new { formId } });
             }
+            catch (SubmissionAdmissionRefused refusal) { return refusal.Result; }
             catch (FormValidationException ex)
             {
                 return Results.UnprocessableEntity(ValidationResultDto.From(ex.Result));
@@ -425,6 +428,11 @@ public static class FormsRoutes
         var values = System.Text.Json.Nodes.JsonNode.Parse(body.GetRawText())!.AsObject();
         values.Remove(CapturedAtMember);
         return JsonDocument.Parse(values.ToJsonString());
+    }
+
+    internal sealed class SubmissionAdmissionRefused(IResult result) : Exception
+    {
+        internal IResult Result { get; } = result;
     }
 
     /// <summary>
