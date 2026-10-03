@@ -135,10 +135,11 @@ public sealed class WritePipelineExecutorFenceTests
                     && (symbol.Contains($".{method}(", StringComparison.Ordinal) || symbol.Contains($"<{method}>", StringComparison.Ordinal))),
                 $"Exempt site {caller} does not run WritePipeline.RunAsync inside its unit; move it onto the executor or remove the exemption.");
             var source = File.ReadAllText(Path.Combine(repositoryRoot, row.Key[..row.Key.IndexOf('|')]));
-            var declaration = CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes()
+            var tree = CSharpSyntaxTree.ParseText(source);
+            var declaration = tree.GetRoot().DescendantNodes()
                 .OfType<MethodDeclarationSyntax>()
                 .Single(node => node.Identifier.ValueText == method);
-            Assert.True(RunsExecutorInsideAtomicCallback(declaration),
+            Assert.True(RunsExecutorInsideAtomicCallback(declaration, BoundaryModel(tree)),
                 $"Exempt site {caller} must run the executor in the callback passed to ExecuteAtomicAsync.");
         });
     }
@@ -160,17 +161,56 @@ public sealed class WritePipelineExecutorFenceTests
     [InlineData("return unit.ExecuteAtomicAsync(ct => { Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
     [InlineData("await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", false)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => Done());", false)]
+    [InlineData("await unit.ExecuteAtomicAsync(ct => Done()); return unrelated.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct));", false)]
     public void ExemptionRejectsExecutorOutsideAtomicCallback(string body, bool expected)
     {
-        var declaration = CSharpSyntaxTree.ParseText("class Fixture { void MergeAsync() { " + body + " } }")
-            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single();
-        Assert.Equal(expected, RunsExecutorInsideAtomicCallback(declaration));
+        // The unit parameter binds to the shipping interface; the unrelated receiver deliberately has the
+        // same method name and callback shape, but opens no reviewed hierarchy transaction.
+        var source = """
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            class UnrelatedAtomic {
+                public Task<int> ExecuteAtomicAsync(Func<CancellationToken, Task<int>> action) => action(default);
+            }
+            static class WritePipeline {
+                public static Task<int> RunAsync(object write, object observer, CancellationToken ct) => Task.FromResult(1);
+            }
+            class Fixture {
+                Task<int> Done() => Task.FromResult(0);
+                async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit, UnrelatedAtomic unrelated,
+                    object write, object observer, CancellationToken ct) {
+            """ + body + " } }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        Assert.Equal(expected, RunsExecutorInsideAtomicCallback(declaration, BoundaryModel(tree)));
     }
+
+    private static SemanticModel BoundaryModel(SyntaxTree tree)
+    {
+        var references = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
+            .Select(assembly => assembly.Location).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(location => MetadataReference.CreateFromFile(location));
+        // The host relies on implicit global usings; include those when binding its standalone source file.
+        var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
+            + "global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+        return CSharpCompilation.Create("HierarchyAtomicBoundaryProbe", [tree, globals], references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).GetSemanticModel(tree);
+    }
+
+    private static bool IsReviewedAtomicCall(InvocationExpressionSyntax call, SemanticModel model) =>
+        model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
+        && symbol.Name == nameof(IHierarchyCompositeUnitOfWork.ExecuteAtomicAsync)
+        && symbol.ContainingType.ToDisplayString() == typeof(IHierarchyCompositeUnitOfWork).FullName
+        && symbol.ContainingAssembly.Identity.ToString() == typeof(IHierarchyCompositeUnitOfWork).Assembly.FullName;
 
     private static string RepositoryRoot([CallerFilePath] string thisFile = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "../../../.."));
 
-    private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method)
+    private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method, SemanticModel model)
     {
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => call.Expression is MemberAccessExpressionSyntax member
@@ -184,7 +224,7 @@ public sealed class WritePipelineExecutorFenceTests
                 node is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax or MethodDeclarationSyntax);
             return function is AnonymousFunctionExpressionSyntax { Parent: ArgumentSyntax argument }
                 && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
-                && atomic.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ExecuteAtomicAsync" }
+                && IsReviewedAtomicCall(atomic, model)
                 && atomic.ArgumentList.Arguments[0] == argument
                 && CompletesExecutorBeforeCallbackReturns(call, function);
         });
