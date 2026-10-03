@@ -13,6 +13,8 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
+using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
@@ -47,6 +49,23 @@ public sealed partial class AccessAdministrationPreloadTests
     }
 
     [Fact]
+    public async Task Access_projection_refuses_a_legacy_unpinned_submission_before_creating_a_workflow()
+    {
+        var store = Substitute.For<IWorkflowStore>();
+        var dispatcher = Substitute.For<IWorkflowTriggerDispatcher>();
+        var projection = new AccessGrantFormSubmissionProjection(
+            new NodeWorkflowInstantiationService(store, Substitute.For<IDbContextFactory<LocalNodeDbContext>>()), dispatcher, store);
+        using var values = JsonDocument.Parse("""{"person":"recipient","role":"member","scope":"/records","residency":"cache","reason":"manual"}""");
+        var context = new FormSubmitContext(new FormDefinitionId("access.grant-a-role"),
+            EntityId.Parse("forminst:forms/d4e5853b33c3fa3c1f5fef18c00f0c62"), Tenant, new ActorId("operator"),
+            new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero), values);
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => projection.ProjectAsync(context));
+        Assert.Equal("Access recovery requires the submission's persisted workflow coordinate; legacy unpinned submissions cannot guess a current revision.", refusal.Message);
+        await store.DidNotReceiveWithAnyArgs().CreateInstanceAsync(default!, default, default);
+        await dispatcher.DidNotReceiveWithAnyArgs().DispatchAsync(default!, default(CancellationToken));
+    }
+
+    [Fact]
     public Task T433_predeclared_key_drives_real_engine_instance_and_workflow_grant_with_idempotent_replay() =>
         AssertPredeclaredSubmissionAsync(false, "1.0.3");
 
@@ -54,8 +73,16 @@ public sealed partial class AccessAdministrationPreloadTests
     public Task T433_predeclared_key_on_the_released_predecessor_pins_its_admitted_workflow_revision() =>
         AssertPredeclaredSubmissionAsync(true, "1.0.1");
 
+    [Fact]
+    public Task T433_recovery_after_pack_upgrade_does_not_rebind_the_submitted_predecessor_form() =>
+        AssertPredeclaredSubmissionAsync(true, "1.0.1", deferUntilUpgrade: true);
+
+    [Fact]
+    public Task T433_two_retained_workflow_revisions_for_one_form_use_the_active_pack_pair() =>
+        AssertPredeclaredSubmissionAsync(false, "1.0.3", duplicatePairedRevision: true);
+
     private async Task AssertPredeclaredSubmissionAsync(
-        bool releasedPredecessor, string expectedWorkflowVersion)
+        bool releasedPredecessor, string expectedWorkflowVersion, bool deferUntilUpgrade = false, bool duplicatePairedRevision = false)
     {
         var tenant = new TenantId("43300000-0000-4000-8000-000000000000");
         var actor = new ActorId("m6-t433-admin");
@@ -65,6 +92,27 @@ public sealed partial class AccessAdministrationPreloadTests
         await _platformPreload.PreloadAsync(tenant, CancellationToken.None);
         if (releasedPredecessor) await InstallReleased113Async(tenant);
         else await _preload.PreloadAsync(tenant, CancellationToken.None);
+
+        if (duplicatePairedRevision)
+        {
+            var original = await _workflows.GetCurrentPublishedAsync(
+                new Harborline.Api.Foundation.Definitions.DefinitionAddress(tenant, GrantIssuanceSteps.DefinitionKey));
+            var authored = System.Text.Json.Nodes.JsonNode.Parse(original!.Authored.GetRawText())!.AsObject();
+            authored["version"] = "9.0.0";
+            using var retained = JsonDocument.Parse(authored.ToJsonString());
+            var scope = ScopeExpression.Parse("/records/harborline.access-administration");
+            var principal = new ActorId("test-pack-operator");
+            var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
+                new PermissionAtom(AuthorizationOperation.Parse("packages:operate"), scope), principal, tenant,
+                new AuthorizationTarget("pack", "harborline.access-administration", scope), at));
+            var projectionAuthority = new Harborline.Api.Foundation.Packs.Install.PackProjectionAuthority(
+                decision, "harborline.access-administration", "1.1.6", tenant, principal, at);
+            var lifecycle = TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(),
+                new RoleGateAdmission(_roles, _forms, _workflows));
+            var second = await lifecycle.RegisterAsync(retained.RootElement, projectionAuthority);
+            Assert.Equal("9.0.0", second.Version);
+            Assert.Equal("1.0.3", second.Authored.GetProperty("subjectFormRef").GetProperty("version").GetString());
+        }
 
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
         var definitions = new AuthorizationDefinitionWriter(configuration, configuration,
@@ -81,6 +129,7 @@ public sealed partial class AccessAdministrationPreloadTests
         await connection.OpenAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, FormSubmitOutboxEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(options => options.UseSqlite(connection));
         await using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -104,12 +153,50 @@ public sealed partial class AccessAdministrationPreloadTests
             effectiveFrom = at.AddMinutes(-1).ToString("O"), effectiveTo = "", reason = "manual",
         }));
         var authority = new AuthorizationWriteContext(actor, tenant, at);
+        if (deferUntilUpgrade)
+        {
+            // Commit the real submission and its immutable binding before its workflow projection runs.
+            var committed = await _app.Services.GetRequiredService<IFormEngine>().SaveWithReceiptAsync(
+                form, candidate, token, authority, idempotencyKey: "m6-t433-grant-submit-v1");
+            var entity = await _app.Services.GetRequiredService<IEntityStore>().GetAsync(committed.InstanceId);
+            Assert.Equal("1.0.1", entity!.Binding!.DefinitionVersion);
+            Assert.Equal("1.0.1", entity.Binding.ProjectionDefinition!.Value.Version.ToString());
+            Assert.Equal(entity.Binding.ProjectionDefinition, committed.ProjectionDefinition);
+            var outbox = new NodeEfFormSubmitOutbox(factory);
+            await outbox.EnqueueAsync(new FormSubmitContext(form, committed.InstanceId, tenant, actor,
+                committed.SubmittedAt, candidate, ProjectionDefinition: committed.ProjectionDefinition));
+            await _preload.PreloadAsync(tenant, CancellationToken.None);
+            Assert.Equal("1.0.3", (await _workflows.GetCurrentPublishedAsync(
+                new Harborline.Api.Foundation.Definitions.DefinitionAddress(tenant, GrantIssuanceSteps.DefinitionKey)))!.Version);
+            var stored = Assert.Single(await new NodeEfFormSubmitOutbox(factory).ListUnresolvedAsync());
+            Assert.Equal(tenant, stored.ProjectionDefinition!.Value.Address.Tenant);
+            Assert.Equal("access.privileged-grant-review", stored.ProjectionDefinition.Value.Address.Identity.Value);
+            Assert.Equal("1.0.1", stored.ProjectionDefinition.Value.Version.ToString());
+            var recovered = stored.RebuildContext();
+            using (recovered.SubmittedValues)
+            {
+                // Upgrade withdraws 1.0.1. Existing execution admission must refuse it rather than
+                // silently create the current 1.0.3 workflow for a submitted 1.0.1 form.
+                var refusal = await Assert.ThrowsAsync<WorkflowDefinitionNotFoundException>(
+                    () => projection.ProjectAsync(recovered));
+                Assert.Equal("1.0.1", refusal.Version);
+                Assert.Equal(tenant.Value, refusal.Tenant);
+            }
+            Assert.Null(await workflowStore.LoadAsync("access-grant-form:" + expectedInstance));
+            Assert.Empty(await grants.FindByPrincipalAsync(tenant, new ActorId("m6-t433-holder")));
+            return;
+        }
         var first = await engine.SaveWithReceiptAsync(form, candidate, token, authority,
             idempotencyKey: "m6-t433-grant-submit-v1");
+        // An already created predecessor instance keeps its pin after the pack upgrades.
+        if (releasedPredecessor) await _preload.PreloadAsync(tenant, CancellationToken.None);
         var replay = await engine.SaveWithReceiptAsync(form, candidate, token, authority,
             idempotencyKey: "m6-t433-grant-submit-v1");
         Assert.Equal(expectedInstance, first.InstanceId.ToString());
         Assert.Equal(first, replay);
+        Assert.Equal(expectedWorkflowVersion, first.ProjectionDefinition!.Value.Version.ToString());
+        var bound = await _app.Services.GetRequiredService<IEntityStore>().GetAsync(first.InstanceId);
+        Assert.Equal(first.ProjectionDefinition, bound!.Binding!.ProjectionDefinition);
         var grant = Assert.Single(await grants.FindByPrincipalAsync(tenant, new ActorId("m6-t433-holder")));
         Assert.Equal(expectedGrant, grant.GrantId);
         Assert.Equal(new RoleReference(RoleVocabularies.Domain, "member"), grant.Role);

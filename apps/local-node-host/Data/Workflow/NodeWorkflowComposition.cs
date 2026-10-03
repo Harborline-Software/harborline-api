@@ -40,6 +40,8 @@ public static class NodeWorkflowComposition
     /// <summary>Wires the pack-declared Access grant submission projection to its typed workflow handler.</summary>
     public static IServiceCollection AddAccessGrantFormSubmission(this IServiceCollection services)
     {
+        services.AddSingleton<AccessGrantSubmissionBindingResolver>();
+        services.AddSingleton<IFormSubmissionBindingResolver>(sp => sp.GetRequiredService<AccessGrantSubmissionBindingResolver>());
         services.AddSingleton<AccessGrantFormSubmissionProjection>();
         services.AddSingleton<IFormSubmitProjection>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
         services.AddSingleton<Health.IFormSubmissionGate>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());

@@ -27,6 +27,9 @@ public sealed class FormSubmitOutboxRow
     /// <summary>The deterministic engine submit instant.</summary>
     public required DateTimeOffset SubmittedAt { get; init; }
 
+    /// <summary>The exact projection definition selected before the submission committed, or null for legacy rows.</summary>
+    public string? ProjectionDefinitionJson { get; init; }
+
     /// <summary>The submitted values required to replay the projection.</summary>
     public required string SubmittedValuesJson { get; init; }
 

@@ -47,6 +47,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20260925011629_AddLayoutDenialOutbox",
         "20261002162649_SpatialFramesMapAuditOutbox",
         "20261002221104_AddBankAccountCreateKeys",
+        "20261003000000_AddFormSubmitProjectionDefinition",
     ];
 
     [Fact]

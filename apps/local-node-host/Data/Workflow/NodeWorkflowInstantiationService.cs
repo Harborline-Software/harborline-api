@@ -73,6 +73,7 @@ public sealed class NodeWorkflowInstantiationService
         TenantId tenantId,
         string submissionInstanceId,
         GrantIssuanceRequest request,
+        string workflowVersion,
         DateTimeOffset at,
         CancellationToken ct = default)
     {
@@ -86,9 +87,8 @@ public sealed class NodeWorkflowInstantiationService
         }
 
         var definitions = _definitions ?? throw new InvalidOperationException("Access grant issuance requires the admitted workflow definition store.");
-        var definition = await definitions.GetAdmittedCurrentPublishedAsync(
-            new DefinitionAddress(tenantId, GrantIssuanceSteps.DefinitionKey), ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("No published Access grant issuance workflow is available.");
+        var definition = await definitions.GetAdmittedAsync(
+            new DefinitionCoordinates(tenantId, GrantIssuanceSteps.DefinitionKey, workflowVersion), ct).ConfigureAwait(false);
 
         await _store.CreateInstanceAsync(new WorkflowInstanceRecord
         {
