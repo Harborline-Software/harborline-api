@@ -275,6 +275,7 @@ test('real container planner isolates mounts, independently restores every proje
   writeFileSync(path.join(platform, '.gitignore'), 'obj/\nbin/\n')
   writeFileSync(path.join(platform, 'A.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />')
   git('add', '.'); git('commit', '-qm', 'literal fixture')
+  mkdirSync(path.join(platform, 'bin')); writeFileSync(path.join(platform, 'bin/old.dll'), 'ambient old build')
   const selectedPin = {...pin, commit: git('rev-parse', 'HEAD')}
   const profile = {profile: 'linux-x64-container-feed', architecture: 'x64', image: identity().toolchain.image, sdk: '11.0.100-rc.1.26425.128'}
   writeFileSync(path.join(source.directory, 'eng/platform-feed-profile.json'), JSON.stringify(profile))
@@ -291,9 +292,11 @@ test('real container planner isolates mounts, independently restores every proje
     if (command.includes('--dry-run')) return JSON.stringify({packedVersion: version,
       commands: [['pack', '/platform/A.csproj', '-p:HarborlinePackedVersion=' + version]]})
     if (command[0] === 'dotnet' && command[1] === 'restore') {
+      assert.notEqual(mount('/platform'), platform, 'pack owns a fresh clone rather than caller ignored outputs')
+      assert.equal(readdirSync(mount('/platform')).includes('bin'), false, 'ambient ignored build directory was not copied')
       assert.equal(args[args.indexOf('--network') + 1], 'bridge')
-      mkdirSync(path.join(platform, 'obj'), {recursive: true})
-      writeFileSync(path.join(platform, 'obj/project.assets.json'), JSON.stringify({project: {restore: {projectPath: '/platform/A.csproj', packagesPath: '/packages'}}}))
+      mkdirSync(path.join(mount('/platform'), 'obj'), {recursive: true})
+      writeFileSync(path.join(mount('/platform'), 'obj/project.assets.json'), JSON.stringify({project: {restore: {projectPath: '/platform/A.csproj', packagesPath: '/packages'}}}))
       writeFileSync(path.join(mount('/packages'), 'provider.dll'), 'abc')
       return ''
     }
@@ -308,6 +311,7 @@ test('real container planner isolates mounts, independently restores every proje
     host: {os: 'linux', architecture: 'x64', uid: 1001, gid: 1001, kernel: '6.8.0-fixture'}})
   t.after(() => rmSync(prepared.directory, {recursive: true, force: true}))
   assert.deepEqual(prepared.pack().sort((a, b) => a.name.localeCompare(b.name)), files().sort((a, b) => a.name.localeCompare(b.name)))
+  assert.equal(readFileSync(path.join(platform, 'bin/old.dll'), 'utf8'), 'ambient old build', 'caller output preserved')
   assert.equal(prepared.input.restore.find(file => file.name === 'packages/provider.dll').sha256,
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
   for (const args of calls.filter(args => args[0] === 'run')) {

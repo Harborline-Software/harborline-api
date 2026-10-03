@@ -9,7 +9,9 @@ required check still runs. This does not reuse a passing API verdict.
 `platform-feed-producer.yml` runs only from API protected main, on its own
 workflow commit. It resolves the reviewed platform pin and verifies that pin is
 on platform protected-main ancestry. The pack container receives only that
-clean platform checkout and the reviewed feed tools/configuration. It receives
+fresh committed-byte clone of that clean platform checkout and the reviewed feed
+tools/configuration. Caller ignored obj/bin outputs stay outside the container.
+It receives
 no API candidate checkout, GitHub token or persistent checkout credential.
 
 The Linux x64 profile pins the .NET SDK container by SHA-256 and checks the

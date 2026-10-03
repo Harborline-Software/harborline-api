@@ -39,19 +39,26 @@ export function platformIdentity(platform, pin) {
     producers: pin.producers}
 }
 
-export function prepareContainer({apiRoot, platform, pin, run = execFileSync,
+export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = execFileSync,
   host = {os: process.platform, architecture: process.arch, uid: process.getuid?.(), gid: process.getgid?.(), kernel: release()}}) {
   if (host.os !== 'linux' || host.architecture !== 'x64' || !Number.isInteger(host.uid) || !Number.isInteger(host.gid))
     throw new Error('unsupported feed host')
   const profile = JSON.parse(readFileSync(path.join(apiRoot, 'eng/platform-feed-profile.json')))
   if (profile.profile !== 'linux-x64-container-feed' || profile.architecture !== 'x64'
     || !/^mcr\.microsoft\.com\/dotnet\/sdk@sha256:[0-9a-f]{64}$/.test(profile.image)) throw new Error('unapproved image profile')
-  const config = git(platform, 'config', '--local', '--list')
+  const config = git(sourcePlatform, 'config', '--local', '--list')
   if (/extraheader|credential|sshcommand|fsmonitor|hookspath|pager|alias\.|include\./i.test(config)
     || /remote\.[^=]+\.url=https?:\/\/[^/\s]+@/i.test(config))
     throw new Error('platform checkout retains authentication or executable Git configuration')
-  const platformBefore = platformIdentity(platform, pin)
+  const platformBefore = platformIdentity(sourcePlatform, pin)
   const directory = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? tmpdir(), 'api-feed-container-'))
+  // Ignored obj/bin state in the caller checkout must never satisfy trusted pack.
+  // Clone only committed bytes/history; preserve the caller's local outputs.
+  const platform = path.join(directory, 'platform')
+  execFileSync('git', ['-c', `safe.directory=${sourcePlatform}`, 'clone', '--quiet', '--no-local', '--no-hardlinks', sourcePlatform, platform],
+    {encoding: 'utf8', timeout: 30000, stdio: 'pipe'})
+  git(platform, 'checkout', '--quiet', '--detach', pin.commit)
+  if (canonical(platformIdentity(platform, pin)) !== canonical(platformBefore)) throw new Error('isolated platform clone differs')
   const tools = path.join(directory, 'tools'), packages = path.join(directory, 'packages'), feed = path.join(directory, '.feed')
   for (const folder of [tools, packages, feed]) mkdirSync(folder)
   mkdirSync(path.join(tools, '.feed'))
