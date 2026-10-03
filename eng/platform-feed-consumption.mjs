@@ -28,7 +28,7 @@ function entries(raw) {
       throw new Error('unsupported consumed package archive')
     const bytes = method === 8 ? inflateRawSync(raw.subarray(start, end), {maxOutputLength: 64 * 1024 * 1024}) : raw.subarray(start, end)
     if (bytes.length !== length) throw new Error('consumed package entry length differs')
-    result.set(name.toLowerCase(), bytes); offset = end
+    result.set(name.toLowerCase(), {name, bytes}); offset = end
   }
   return result
 }
@@ -78,8 +78,8 @@ export function verifyConsumedFeed({clone, packages, bundlePath, bundleDigest, p
       const archiveName = `${item.metadata.id}.${item.metadata.version}.nupkg`.toLowerCase()
       const archive = approvedFile(packages, `${library.path}/${archiveName}`)
       if (!archive.equals(item.bytes)) throw new Error('NuGet consumed a different package archive')
-      for (const [name, bytes] of item.entries) {
-        if (/^(lib|ref|analyzers|build|buildmultitargeting|buildtransitive|runtimes|content|contentfiles)\//.test(name)
+      for (const {name, bytes} of item.entries.values()) {
+        if (/^(lib|ref|analyzers|build|buildmultitargeting|buildtransitive|runtimes|content|contentfiles)\//i.test(name)
           && !approvedFile(packages, `${library.path}/${name}`).equals(bytes))
           throw new Error('extracted dependency bytes differ from verified archive')
       }
@@ -91,7 +91,7 @@ export function verifyConsumedFeed({clone, packages, bundlePath, bundleDigest, p
           for (const name of Object.keys(resolved[role] ?? {})) {
             if (name.endsWith('/_._')) continue
             const trusted = item.entries.get(name.toLowerCase())
-            if (!trusted || !approvedFile(packages, `${library.path}/${name}`).equals(trusted))
+            if (!trusted || !approvedFile(packages, `${library.path}/${name}`).equals(trusted.bytes))
               throw new Error('compiler-selected package bytes differ from verified archive')
             selected++
           }
@@ -110,6 +110,8 @@ if (import.meta.main) {
       bundleDigest: process.env.HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256, pin: readPin()})
     mkdirSync(path.join(clone, '.claude/gate-evidence'), {recursive: true})
     writeFileSync(path.join(clone, '.claude/gate-evidence/platform-feed-consumption.json'), JSON.stringify(result, null, 2))
+    // The exact-clone recorder persists stdout before deleting scratch.
+    console.log(JSON.stringify(result))
     console.log(`platform-feed: verified consumed bytes for ${result.packages.length} first-party packages; fresh API validation`)
   } catch {console.error('platform-feed consumption proof failed'); process.exitCode = 1}
 }
