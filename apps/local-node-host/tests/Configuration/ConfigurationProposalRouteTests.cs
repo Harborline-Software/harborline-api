@@ -52,6 +52,8 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     private static readonly DateTimeOffset Frozen = new(2026, 9, 20, 9, 0, 0, TimeSpan.Zero);
 
     private readonly ConcurrentQueue<string> _exampleRequests = new();
+    private readonly string _exampleShellCacheRoot = Path.Combine(Path.GetTempPath(),
+        "harborline-configuration-example-" + Guid.NewGuid().ToString("N"));
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private PacksTestStore _db = null!;
@@ -108,6 +110,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             await _app.DisposeAsync();
         }
         if (_db is not null) await _db.DisposeAsync();
+        if (Directory.Exists(_exampleShellCacheRoot)) Directory.Delete(_exampleShellCacheRoot, recursive: true);
     }
 
     // Acceptance 1: a Proposed change records its baseline generation and never changes effective
@@ -419,6 +422,17 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         processInfo.Environment["T463_EXAMPLE_URI"] = _client.BaseAddress!.AbsoluteUri;
         processInfo.Environment["T463_EXAMPLE_CANDIDATE"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "asset.candidate.json");
         processInfo.Environment["T463_EXAMPLE_DIAGNOSTICS"] = "1";
+        var parentCacheHome = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+        string? childCacheHome = null;
+        if (!OperatingSystem.IsWindows())
+        {
+            // PowerShell's startup profile cache uses XDG_CACHE_HOME on Unix. A unique
+            // child cache prevents concurrent shells sharing StartupProfileData-NonInteractive
+            // (PowerShell issue 26528), without changing the parent environment or concurrency.
+            childCacheHome = Path.Combine(_exampleShellCacheRoot, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(childCacheHome);
+            processInfo.Environment["XDG_CACHE_HOME"] = childCacheHome;
+        }
         _exampleRequests.Clear();
         using var process = Process.Start(processInfo)!;
         var output = process.StandardOutput.ReadToEndAsync();
@@ -434,6 +448,14 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         }
         var diagnostics = await errors;
         Assert.True(process.ExitCode == 0, diagnostics);
+        if (childCacheHome is not null)
+        {
+            // Actual child filesystem evidence: removing the environment override must fail
+            // this assertion even when an inherited/shared cache happens to be uncorrupted.
+            Assert.True(File.Exists(Path.Combine(childCacheHome, "powershell", "StartupProfileData-NonInteractive")),
+                "PowerShell must write its startup profile cache under the child-owned directory.");
+            Assert.Equal(parentCacheHome, Environment.GetEnvironmentVariable("XDG_CACHE_HOME"));
+        }
         Assert.Contains("configuration-example: shell-started", diagnostics, StringComparison.Ordinal);
         Assert.Contains("configuration-example: script-started", diagnostics, StringComparison.Ordinal);
         Assert.Contains("configuration-example: inputs-validated", diagnostics, StringComparison.Ordinal);
