@@ -139,6 +139,32 @@ public sealed class InstallationIdentityCoordinatorServiceTests
         Assert.StartsWith("identity.tenant_candidate_receipt_invalid:", exception.Message);
     }
 
+    /// <summary>
+    /// T-1009: a completed receipt naming a tenant id that is not a GUID fails the enumeration closed,
+    /// rather than being read as some other tenant.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Tenant_Candidate_Locator_Fails_Closed_On_A_Receipt_Naming_A_Non_Guid_Tenant()
+    {
+        await using var fixture = await CoordinatorFixture.CreateAsync(1);
+        await fixture.Coordinator.ExecuteAsync(fixture.Command(fixture.Tenants));
+        await using (var context = fixture.HomeFactory.CreateDbContext())
+        {
+            var completed = await context.Coordinators.SingleAsync();
+            completed.TenantIdsJson = "[\"tenant-without-guid-form\"]";
+            await context.SaveChangesAsync();
+        }
+        var locator = new InstallationTenantCandidateLocator(fixture.HomeFactory, fixture.Coordinator);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            locator.ListForAccountAsync(new PrincipalUserId(fixture.AccountId)));
+
+        Assert.Equal(
+            "identity.tenant_candidate_receipt_invalid: completed receipt contains an invalid tenant id.",
+            exception.Message);
+    }
+
     [Fact]
     public async Task Tenant_Candidate_Locator_Filters_Completed_But_Revoked_Membership()
     {
