@@ -141,7 +141,7 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
     private static async Task<List<AuditRecord>> DurableErasedAuditsAsync(SearchTestStore store)
     {
         var records = new List<AuditRecord>();
-        await foreach (var record in new NodeAuditTrailStore(store.Factory).QueryAsync(new AuditQuery(Tenant, AuditEventType.SubjectErased)))
+        await foreach (var record in new NodeAuditTrailStore(store.Factory).QueryAsync(new AuditQuery(Tenant, new AuditEventType("SubjectErased"))))
             records.Add(record);
         return records;
     }
@@ -158,7 +158,7 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
     private async Task<List<AuditRecord>> ErasedAuditsAsync()
     {
         var records = new List<AuditRecord>();
-        await foreach (var record in _trail.QueryAsync(new AuditQuery(Tenant, AuditEventType.SubjectErased)))
+        await foreach (var record in _trail.QueryAsync(new AuditQuery(Tenant, new AuditEventType("SubjectErased"))))
             records.Add(record);
         return records;
     }
