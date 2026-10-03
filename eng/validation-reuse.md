@@ -16,6 +16,9 @@ It is unsigned diagnostic data and is never accepted as authority to skip work.
   coverage mismatches. Collection failures cannot erase the existing gate result.
 - A read-only GitHub broker checks successful run attempt and host job/step,
   source repository, artifact identity/expiry and GitHub's archive SHA-256. It
+  also requires artifact creation inside the current job attempt's time window;
+  a previous attempt's same-run/same-head artifact is not current evidence. CLI
+  failures use a fixed diagnostic rather than credential-bearing exception text.
   reads only two bounded ZIP entries without extraction or execution and checks
   the candidate tree/receipt against GitHub commit metadata. Synthetic PR merge
   checkouts must contain the run's source commit as a parent.
@@ -25,6 +28,11 @@ It is unsigned diagnostic data and is never accepted as authority to skip work.
   This alternative is tested infrastructure, not a requirement to create keys.
 - Every verdict is candidate-specific and shadow-only: `reuseAuthorized:false`
   and `requiredWorkSkipped:false`, including a cryptographically valid match.
+
+Completeness requires typed dependency closures and native/lock digests, unique
+producer file digests, observed tools/Node/SDK policy, OS/architecture/release,
+resolved pins, explicit selections/coverage and commit-dependent boundaries.
+Nonempty placeholder objects are incomplete evidence.
 
 Run the lightweight contract suite:
 

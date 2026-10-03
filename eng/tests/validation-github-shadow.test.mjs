@@ -2,15 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {digest, fingerprint} from '../validation-reuse.mjs'
 import {transportProblems, createGitHubClient, observeRun, compareRuns, readArchive} from '../validation-github-shadow.mjs'
-import {execFileSync} from 'node:child_process'
+import {execFileSync, spawnSync} from 'node:child_process'
+import path from 'node:path'
 
 const archive = Buffer.from('archive fixture')
-const run = {id: 123, run_attempt: 1, repository: {full_name: 'Harborline-Software/harborline-api'},
+const run = {run_started_at: '2026-10-03T10:00:00Z', id: 123, run_attempt: 1, repository: {full_name: 'Harborline-Software/harborline-api'},
   head_repository: {full_name: 'Harborline-Software/harborline-api'}, head_sha: 'a'.repeat(40),
   path: '.github/workflows/verify.yml', event: 'pull_request', status: 'completed', conclusion: 'success'}
-const job = {id: 456, name: 'verify-macos', run_id: 123, run_attempt: 1, status: 'completed', conclusion: 'success',
+const job = {started_at: '2026-10-03T10:01:00Z', completed_at: '2026-10-03T10:10:00Z', id: 456, name: 'verify-macos', run_id: 123, run_attempt: 1, status: 'completed', conclusion: 'success',
   steps: [{name: "Host lane (exact-clone against this host's baseline)", status: 'completed', conclusion: 'success'}]}
-const artifact = {id: 789, name: 'verify-macos-evidence-123', workflow_run: {id: 123, head_sha: 'a'.repeat(40)},
+const artifact = {created_at: '2026-10-03T10:09:00Z', id: 789, name: 'verify-macos-evidence-123', workflow_run: {id: 123, head_sha: 'a'.repeat(40)},
   expired: false, digest: `sha256:${digest(archive)}`}
 const problems = (changes = {}) => transportProblems({run, job, artifact, archive, lane: 'verify-macos', ...changes})
 test('GitHub digest and identity bind exact completed run attempt, job and artifact', () => {
@@ -27,6 +28,10 @@ test('GitHub digest and identity bind exact completed run attempt, job and artif
   assert.ok(problems({archive: Buffer.from('tampered')}).length)
   assert.ok(problems({run: {...run, head_repository: {full_name: 'attacker/fork'}}}).length)
   assert.ok(problems({artifact: {...artifact, workflow_run: {...artifact.workflow_run, id: 124}}}).length)
+  assert.ok(problems({run: {...run, run_attempt: 2, run_started_at: '2026-10-04T10:00:00Z'},
+    job: {...job, run_attempt: 2, started_at: '2026-10-04T10:01:00Z', completed_at: '2026-10-04T10:10:00Z'}})
+    .includes('artifact is not bound to this job attempt time window'), 'day-old same-run artifact is not attempt-two evidence')
+  assert.ok(problems({artifact: {...artifact, created_at: undefined}}).length)
 })
 test('download redirect never receives API credentials and non-HTTPS redirects are refused', async () => {
   const calls = []
@@ -83,4 +88,14 @@ test('archive reader reads bounded data without extracting traversal entries and
   assert.deepEqual(readArchive(zip(false)), {observation: {marker: 'observation'}, receipt: {marker: 'receipt'}})
   assert.throws(() => readArchive(zip(true)))
   assert.throws(() => readArchive(Buffer.from('not a zip')))
+})
+
+test('CLI never echoes credentials from malformed Authorization headers', () => {
+  const synthetic = ['synthetic', 'credential', 'marker'].join('-')
+  const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../validation-github-shadow.mjs'),
+    '123', '124', 'unused-output.json'], {encoding: 'utf8', timeout: 10000,
+      env: {...process.env, GH_TOKEN: `${synthetic}\ninvalid-header`}})
+  assert.equal(result.status, 1)
+  assert.equal(result.stderr.trim(), 'validation shadow unavailable: request, artifact or evidence validation failed')
+  assert.equal(`${result.stdout}${result.stderr}`.includes(synthetic), false, 'diagnostics must not contain credential text')
 })

@@ -29,6 +29,11 @@ export function transportProblems({run, job, artifact, archive, lane}) {
   if (artifact?.name !== `${lanes[lane]}-${run?.id}` || artifact?.workflow_run?.id !== run?.id
     || artifact?.workflow_run?.head_sha !== run?.head_sha || artifact?.expired !== false)
     problems.push('artifact identity mismatch or expired')
+  const started = Date.parse(job?.started_at ?? ''), completed = Date.parse(job?.completed_at ?? '')
+  const created = Date.parse(artifact?.created_at ?? ''), attemptStarted = Date.parse(run?.run_started_at ?? '')
+  if (![started, completed, created, attemptStarted].every(Number.isFinite)
+    || started < attemptStarted || completed < started || created < started || created > completed)
+    problems.push('artifact is not bound to this job attempt time window')
   if (!/^sha256:[0-9a-f]{64}$/.test(artifact?.digest ?? '') || artifact.digest !== `sha256:${digest(archive)}`)
     problems.push('GitHub archive digest missing or mismatched')
   return problems
@@ -133,7 +138,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     writeFileSync(output, JSON.stringify(result, null, 2) + '\n')
     console.log('GitHub validation shadow report written; required work was not skipped')
   } catch (error) {
-    console.error(`validation shadow unavailable: ${error instanceof Error ? error.message : 'unknown error'}`)
+    // Fetch/Headers errors can echo Authorization values. Never log upstream messages,
+    // stacks, URLs or the error object; the fixed diagnostic is deliberately credential-free.
+    console.error('validation shadow unavailable: request, artifact or evidence validation failed')
     process.exitCode = 1
   }
 }

@@ -1,14 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {generateKeyPairSync, sign} from 'node:crypto'
-import {canonical, digest, fingerprint, compareInputs, verifyReceipt, shadowVerdict} from '../validation-reuse.mjs'
+import {canonical, digest, fingerprint, compareInputs, verifyReceipt, shadowVerdict, inputProblems} from '../validation-reuse.mjs'
 import {compareObservations} from '../validation-shadow-report.mjs'
 
-const inputs = () => ({schemaVersion: 1, repository: 'Harborline-Software/harborline-api', candidateTree: 'a'.repeat(40),
-  lane: 'host', dependencies: {evaluated: ['NuGet/library/1.2.3'], native: ['sqlcipher/hash']},
-  producer: {workflow: 'workflow-hash', scripts: 'scripts-hash'}, toolchain: {sdk: '11.0.100'},
-  platform: {os: 'win32', architecture: 'x64'}, pins: {platform: 'b'.repeat(40), quality: 'c'.repeat(40), control: 'd'.repeat(40)},
-  selection: {host: 'Lane!=perf'}, coverage: {enabled: false}, commitInputs: {scope: 'host'}, unknownInputs: []})
+import {inputs} from './validation-fixtures.mjs'
 const {privateKey, publicKey} = generateKeyPairSync('ed25519')
 const bytes = Buffer.from('immutable test artifact')
 const observation = {repository: 'Harborline-Software/harborline-api', runId: '123', runAttempt: '1', jobId: '456',
@@ -48,6 +44,26 @@ test('coverage mismatch is precise; missing and unknown inputs fail closed', () 
   const unknown = inputs(); unknown.unknownInputs.push('native version')
   assert.equal(compareInputs(unknown, unknown).completeInputs, false)
 })
+
+test('nonempty placeholder dimensions and absent typed fields are incomplete evidence', () => {
+  assert.deepEqual(inputProblems(inputs()), [])
+  for (const field of ['dependencies', 'producer', 'toolchain', 'platform', 'pins', 'selection', 'coverage', 'commitInputs']) {
+    const item = inputs(); item[field] = {placeholder: true}
+    assert.equal(compareInputs(item, item).completeInputs, false, field)
+  }
+  const missingArchitecture = inputs(); delete missingArchitecture.platform.architecture
+  assert.ok(inputProblems(missingArchitecture).includes('platform architecture is unobserved or unsupported'))
+  const missingSdk = inputs(); delete missingSdk.toolchain.tools.dotnet
+  assert.ok(inputProblems(missingSdk).includes('toolchain.tools.dotnet is unobserved'))
+  const missingNative = inputs(); missingNative.dependencies.native = []
+  assert.equal(compareInputs(missingNative, missingNative).completeInputs, false)
+  const forgedFile = inputs(); forgedFile.producer.files[0].sha256 = 'placeholder'
+  assert.equal(compareInputs(forgedFile, forgedFile).completeInputs, false)
+  const missingSelection = inputs(); delete missingSelection.selection.hostBaseline
+  assert.equal(compareInputs(missingSelection, missingSelection).completeInputs, false)
+  const mutation = inputs(); mutation.lane = 'mutation'
+  assert.ok(inputProblems(mutation).includes('mutation lane requires comparison base commit identity'))
+})
 test('only authenticated successful observed producer evidence is trusted', () => {
   assert.equal(verify().trusted, true)
   assert.equal(verify(envelope(), {policy: undefined}).trusted, false)
@@ -74,10 +90,10 @@ test('all observed producer identity fields must match signed provenance', () =>
     assert.equal(verify(envelope(), {observation: {...observation, [field]: 'different'}}).trusted, false, field)
 })
 test('package consumption stays bound to the transferred artifact', () => {
-  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'})).trusted, false)
-  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.packageProof = {
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.inputs.commitInputs.candidateCommit = 'f'.repeat(40)})).trusted, false)
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.inputs.commitInputs.candidateCommit = 'f'.repeat(40); payload.packageProof = {
     artifactDigest: digest(bytes), consumedDigest: digest(bytes)}})).trusted, true)
-  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.packageProof = {
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.inputs.commitInputs.candidateCommit = 'f'.repeat(40); payload.packageProof = {
     artifactDigest: digest(bytes), consumedDigest: 'different'}})).trusted, false)
 })
 test('even a trusted same-input result issues only a new candidate-specific shadow verdict', () => {

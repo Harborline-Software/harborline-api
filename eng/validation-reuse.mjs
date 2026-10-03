@@ -11,6 +11,13 @@ export function canonical(value) {
   throw new Error('validation inputs must be finite JSON values')
 }
 export const fingerprint = manifest => digest(canonical(manifest))
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+const text = value => typeof value === 'string' && value.length > 0
+const sha1 = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+const sha256 = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+const relativeFile = value => text(value) && !value.startsWith('/') && !value.includes('\\')
+  && !value.includes(':') && !value.split('/').some(part => ['', '.', '..'].includes(part))
+const nonemptyObject = value => object(value) && Object.keys(value).length > 0
 const dimensions = ['repository', 'candidateTree', 'lane', 'dependencies', 'producer', 'toolchain',
   'platform', 'pins', 'selection', 'coverage', 'commitInputs', 'unknownInputs']
 export function inputProblems(manifest) {
@@ -26,6 +33,51 @@ export function inputProblems(manifest) {
       || Object.keys(manifest[key]).length === 0) problems.push(`empty or invalid ${key}`)
   }
   if (typeof manifest.coverage?.enabled !== 'boolean') problems.push('coverage mode must be explicit')
+  const dependencies = manifest.dependencies
+  if (!Array.isArray(dependencies?.evaluated) || !dependencies.evaluated.length
+    || dependencies.evaluated.some(project => !relativeFile(project?.project) || !nonemptyObject(project.targets)
+      || !nonemptyObject(project.libraries) || !nonemptyObject(project.frameworks)))
+    problems.push('evaluated dependency closure must contain typed project targets, libraries and frameworks')
+  for (const field of ['native', 'restoredLocks']) {
+    if (!Array.isArray(dependencies?.[field]) || !dependencies[field].length
+      || dependencies[field].some(file => !relativeFile(file?.file) || !sha256(file.sha256)))
+      problems.push(`dependencies.${field} must contain file identities and SHA-256 digests`)
+  }
+  const files = manifest.producer?.files
+  const requiredFiles = ['.github/workflows/verify.yml', '.github/actions/platform-feed/action.yml',
+    'eng/run-exact-clone.mjs', 'eng/validation-inputs.mjs', 'eng/validation-reuse.mjs', 'global.json']
+  if (!Array.isArray(files) || files.some(file => !relativeFile(file?.file) || !sha256(file.sha256))
+    || new Set(files?.map(file => file.file)).size !== files?.length
+    || requiredFiles.some(file => !files?.some(item => item.file === file)))
+    problems.push('producer requires unique workflow, action, verifier, collector, runner and SDK policy file digests')
+  for (const tool of ['dotnet', 'npm', 'pnpm'])
+    if (!text(manifest.toolchain?.tools?.[tool])) problems.push(`toolchain.tools.${tool} is unobserved`)
+  for (const version of ['node', 'v8', 'modules'])
+    if (!text(manifest.toolchain?.node?.[version])) problems.push(`toolchain.node.${version} is unobserved`)
+  if (!text(manifest.toolchain?.sdkPolicy?.sdk?.version)) problems.push('SDK policy version is unobserved')
+  if (!['win32', 'linux', 'darwin'].includes(manifest.platform?.os)) problems.push('unsupported platform OS')
+  if (!['x64', 'arm64'].includes(manifest.platform?.architecture)) problems.push('platform architecture is unobserved or unsupported')
+  if (!text(manifest.platform?.release)) problems.push('platform release is unobserved')
+  const selection = manifest.selection
+  if (selection?.host !== 'Lane!=perf' || selection?.contracts !== 'all' || selection?.capability !== 'all'
+    || typeof selection?.quality !== 'boolean'
+    || !['eng/baselines/host-test-baseline.json', 'eng/baselines/host-test-baseline.macos.json',
+      'eng/baselines/host-test-baseline.ubuntu.json'].includes(selection?.hostBaseline))
+    problems.push('test selection or host baseline is incomplete or unsupported')
+  for (const name of ['platform', 'quality', 'control']) {
+    const pin = manifest.pins?.[name]
+    const required = name === 'platform' || selection?.quality === true
+    if (!object(pin) || typeof pin.applicable !== 'boolean' || (required && pin.applicable !== true)
+      || (pin.applicable && (!sha1(pin.commit) || !sha1(pin.tree)
+        || (name !== 'control' && (!sha1(pin.declared) || pin.declared !== pin.commit)))))
+      problems.push(`resolved ${name} checkout identity is incomplete or differs from its pin`)
+  }
+  if (!text(manifest.commitInputs?.scope) || !text(manifest.commitInputs?.packaging) || !text(manifest.commitInputs?.mutation))
+    problems.push('commit-dependent lane boundaries must be explicit')
+  if (['packages', 'mutation'].includes(manifest.lane) && !sha1(manifest.commitInputs?.candidateCommit))
+    problems.push('commit-dependent lane requires candidate commit identity')
+  if (manifest.lane === 'mutation' && !sha1(manifest.commitInputs?.baseCommit))
+    problems.push('mutation lane requires comparison base commit identity')
   if (!Array.isArray(manifest.unknownInputs)) problems.push('unknownInputs must be an array')
   else problems.push(...manifest.unknownInputs.map(reason => `unobserved input: ${reason}`))
   try { canonical(manifest) } catch { problems.push('invalid JSON inputs') }
