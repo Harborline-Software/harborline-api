@@ -39,12 +39,13 @@ internal sealed partial class AdminTeamAccessAuthority
             return new(replay.AuditId, AuditCorrelation(replay)!.Value, replay.OccurredAt);
         var existing = await _grantStore.FindAsync(tenant, target, cancellationToken).ConfigureAwait(false);
         if (existing is null || existing.Status == GrantStatus.Revoked) return null;
-        var reviewed = await _grantRevocations.RecordReviewAsync(tenant, target, authority.At, authority.Principal,
-            context.Decision, cancellationToken).ConfigureAwait(false);
-        if (reviewed is null) return null;
         var correlation = authority.CorrelationId ?? Guid.NewGuid();
-        var audit = await AppendGrantAuditAsync(tenant, target, context.Decision, GrantReviewRecorded,
+        var record = await PrepareGrantAuditAsync(tenant, target, context.Decision, GrantReviewRecorded,
             "grant-reviewed", correlation, null, cancellationToken).ConfigureAwait(false);
+        var reviewed = await _grantRevocations.RecordReviewAsync(tenant, target, authority.At, authority.Principal,
+            context.Decision, [record], cancellationToken).ConfigureAwait(false);
+        if (reviewed is null) return null;
+        var audit = await DeliverGrantAuditAsync(record, context.Decision, cancellationToken).ConfigureAwait(false);
         return new(audit, correlation, reviewed.LastReviewedAt);
     }
 }

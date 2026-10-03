@@ -161,6 +161,37 @@ public sealed class NodeAuditOutbox(
     }
 
     /// <summary>
+    /// T-1048: stages <paramref name="record"/>, already signed, on <paramref name="write"/>, with the authority of
+    /// <paramref name="decision"/> captured now. A caller that appends the same record after the commit leaves the
+    /// drain only a mark to make; a crash before that append leaves the entry owed, and the drain delivers it.
+    /// </summary>
+    public static void StageRecord(DbContext write, AuditRecord record, AuthorizationDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(decision);
+        if (record.Actor is not { } actor || record.Target is not { } target || record.Act is not { } act)
+            throw new ArgumentException("An authorized audit record names its actor, target and act.", nameof(record));
+        var snapshot = CapturedAuditAuthority.Capture(record.TenantId, actor, record.OccurredAt, target, act, decision);
+        write.Set<AuditOutboxRow>().Add(new AuditOutboxRow
+        {
+            AuditId = record.AuditId.ToString("D"),
+            TenantId = record.TenantId.Value,
+            EventType = record.EventType.Value,
+            OccurredAt = record.OccurredAt,
+            Nonce = record.Payload.Nonce.ToString("D"),
+            BodyJson = JsonSerializer.Serialize(record.Payload.Payload.Body),
+            SignedPayloadJson = NodeAuditRecordJson.WritePayload(record.Payload),
+            Actor = actor.Value,
+            TargetKind = target.RecordKind,
+            TargetId = target.RecordId,
+            TargetScope = target.Scope.Value,
+            Act = act.ToString(),
+            AuthoritySnapshotJson = JsonSerializer.Serialize(snapshot),
+        });
+    }
+
+    /// <summary>
     /// Delivers owed entries by occurrence time, honoring persisted ceremony predecessors. An entry the trail already holds (a crash between
     /// its append and its mark) is marked without a second append. A failed entry records its error and stays owed.
     /// </summary>

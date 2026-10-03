@@ -14,7 +14,7 @@
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync, spawnSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
-import {evidenceTarget} from './exact-clone-evidence.mjs'
+import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -111,12 +111,21 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
   const resolved = resolveCommand(command, args)
   const result = spawnSync(resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  const output = stripAnsi(rawOutput)
+  // Error messages, executable paths and spawn arguments can contain credentials.
+  // Retain only bounded OS codes and numeric errno, plus the termination signal.
+  const safeCode = value => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : 'UNKNOWN'
+  const spawnError = result.error ? {code: safeCode(result.error.code),
+    ...(Number.isSafeInteger(result.error.errno) ? {errno: result.error.errno} : {})} : undefined
+  const signal = result.signal ? safeCode(result.signal) : undefined
+  const diagnostics = [spawnError && `spawn error: ${JSON.stringify(spawnError)}`, signal && `termination signal: ${signal}`].filter(Boolean)
+  const output = stripAnsi(rawOutput) + (diagnostics.length ? `\n${diagnostics.join('\n')}\n` : '')
   const step = {
     id,
     passed: expectNonZero ? true : result.status === 0,
     verdictFrom: expectNonZero ? 'baseline comparison, not exit code' : 'exit code',
     exitCode: result.status,
+    ...(spawnError ? {spawnError} : {}),
+    ...(signal ? {signal} : {}),
     durationMs: Date.now() - started,
     tail: redactEvidence(output).trimEnd().split('\n').slice(-14).join('\n'),
   }
@@ -130,6 +139,7 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
 }
 
 let report
+let persisted
 try {
   if (collectCoverage) {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
@@ -500,6 +510,7 @@ try {
   steps.push({
     id: 'host-baseline-match',
     ...hostComparison,
+    fullOutput: hostComparison.passed === false ? hostTests.fullOutput : undefined,
     baseline: BASELINES.host,
     expected: hostBaseline.totals, observed: hostCounts,
     newFailures,
@@ -522,6 +533,7 @@ try {
   steps.push({
     id: 'capability-baseline-match',
     ...capabilityComparison,
+    fullOutput: capabilityComparison.passed === false ? capabilityTests.fullOutput : undefined,
     baseline: BASELINES.capability,
     expected: capabilityBaseline.totals, observed: capabilityTrx.counts,
     newFailures: capabilityNewFailures,
@@ -536,7 +548,17 @@ try {
     recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     steps,
   }
+} catch (error) {
+  steps.push({id: 'report-assembly', passed: false,
+    tail: redactEvidence(error instanceof Error ? error.stack ?? error.message : String(error))})
+  report = {
+    schemaVersion: 1, repository: 'harborline-api', gate: 'destination-exact-clone',
+    baselineProvenance, status: 'FAIL', apiCommit: head,
+    recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), steps,
+  }
 } finally {
+  // Preserve captured command output before removing scratch, including an aborted report.
+  persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
 }
 
@@ -544,17 +566,9 @@ try {
 // a full re-run to learn why it failed — the same evidence-destruction pattern as piping a test
 // run through `tail`. The report carries its own status; consumers check that, not the file's
 // existence. This matches run-platform-exact-clone.mjs, which records its failures too.
-// `persisted` drops each step's fullOutput, which is a working value for the baseline comparisons
-// above and not evidence. Writing `report` here instead was a defect: it persisted every runner's
-// full console output, and on a Windows host that output carries the scratch clone path, which
-// sits under the per-user temp directory and so trips
-// committed-control-plane-has-no-personal-path. It never fired on macOS, whose mkdtemp returns a
-// path under /var/folders instead. Each step still keeps its 14-line `tail`, so a failure remains
-// readable without a re-run.
-//
-// Note for the next editor: do not spell that home-directory prefix out here. This comment is
-// itself scanned, and naming the pattern literally fails the very check it describes.
-const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, ...rest}) => rest)}
+// Keep complete failed-step output in the existing ignored evidence directory, using the
+// same path and ANSI redaction as the report tail. Raw output stays out of recorded JSON;
+// the report references a relative artifact path, and passing reports stay compact.
 if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
     files: qualityArtifacts(apiRoot).sarif})
@@ -574,6 +588,7 @@ process.stdout.write(`${JSON.stringify({status: report.status, apiCommit: head.s
 if (report.status === 'FAIL') {
   for (const step of persisted.steps.filter(step => step.passed === false)) {
     process.stdout.write(`${step.id}:\n`)
+    if (step.outputFile) process.stdout.write(`  full output: ${step.outputFile}\n`)
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
