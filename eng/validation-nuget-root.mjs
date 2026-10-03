@@ -16,3 +16,16 @@ export function establishNuGetRoot({cwd, env = process.env, run = execFileSync})
   env.NUGET_PACKAGES = root
   return root
 }
+
+// Parent-owned state is passed directly to collection, never inferred from env.
+export function observeNuGetRoot(options) {
+  try {return {status: 'resolved', root: establishNuGetRoot(options)}}
+  catch {return {status: 'unavailable'}}
+}
+
+export function nuGetRootApproved(resolution, env) {
+  return resolution?.status === 'resolved' && typeof resolution.root === 'string'
+    && path.isAbsolute(resolution.root) && typeof env.NUGET_PACKAGES === 'string'
+    && path.isAbsolute(env.NUGET_PACKAGES)
+    && path.relative(resolution.root, env.NUGET_PACKAGES) === ''
+}

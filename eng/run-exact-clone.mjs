@@ -25,7 +25,7 @@ import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './cove
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
-import {establishNuGetRoot} from './validation-nuget-root.mjs'
+import {observeNuGetRoot} from './validation-nuget-root.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -143,17 +143,17 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
 
 let report
 let persisted
+let packageRootResolution = {status: 'unavailable'}
 try {
   if (collectCoverage) {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
     for (const report of Object.values(coveragePaths)) rmSync(report, {force: true})
   }
   execFileSync('git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], {stdio: 'ignore'})
-  try {
-    // Resolve once before restore/build. The child snapshot and later collector
-    // inherit this independently observed root, including NuGet.config overrides.
-    establishNuGetRoot({cwd: clone})
-  } catch {
+  // Resolve once before restore/build. Keep approval as parent-owned state even
+  // when a failed query leaves an inherited override available to the build.
+  packageRootResolution = observeNuGetRoot({cwd: clone})
+  if (packageRootResolution.status !== 'resolved') {
     console.error('compiler package root unavailable; input observation remains incomplete')
   }
 
@@ -577,7 +577,7 @@ try {
   // Observe the dependency/native closure while scratch still exists. Shadow data never
   // authorizes skipping work and a collection failure cannot change the gate verdict.
   persistInputShadow({apiRoot, clone, hostBaseline: BASELINES.host,
-    coverage: collectCoverage, quality: qualityEnabled})
+    coverage: collectCoverage, quality: qualityEnabled, packageRootResolution})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})

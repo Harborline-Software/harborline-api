@@ -133,6 +133,11 @@ unobserved. Bounded native proofs exercised both an initially unset override
 roots matched independent native queries and both fresh captures contained 193
 files. Package-file root/hash mismatches also have independent Node fixtures.
 The standard `macos-15` profile is ARM64, with its macOS host baseline.
+Resolution approval remains parent-owned state passed directly to collection.
+An inherited override remains available to the build after a failed query, but
+cannot approve capture: every compiler observation is explicitly incomplete and
+the manifest records an unresolved-root blocker. Missing approval, changed
+environment values or mismatched roots have the same result.
 
 No signer or check-writing token was added. The consumer publishes a shadow
 artifact using the existing Actions runtime mechanism and cannot skip gates or

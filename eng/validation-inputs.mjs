@@ -7,6 +7,7 @@ import {digest, fingerprint} from './validation-reuse.mjs'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {readCompilerObservation} from './validation-compiler-inputs.mjs'
 import {compilerRoots} from './validation-compiler-capture.mjs'
+import {nuGetRootApproved} from './validation-nuget-root.mjs'
 
 const git = (root, ...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8', stdio: 'pipe'}).trim()
 const filesUnder = root => {
@@ -22,7 +23,7 @@ const filesUnder = root => {
   if (existsSync(root)) visit(root)
   return files.sort()
 }
-export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, env = process.env,
+export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, packageRootResolution, env = process.env,
   commandVersion = command => {
     const resolved = resolveCommand(command, ['--version'])
     return execFileSync(resolved.executable, resolved.args, {encoding: 'utf8', timeout: 10000}).trim()
@@ -74,9 +75,18 @@ export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, 
     .map(file => ({file: path.relative(clone, file).replaceAll('\\', '/'), sha256: digest(readFileSync(file))}))
   if (!native.length) unknownInputs.push('native provider binaries not observed')
   const compilerInputs = []
-  const roots = compilerRoots(clone, env)
+  const packageRootApproved = nuGetRootApproved(packageRootResolution, env)
+  if (!packageRootApproved) unknownInputs.push('NuGet package root not independently resolved or differs from parent observation')
+  const roots = compilerRoots(clone, env).filter(root => root.name !== 'packages' || packageRootApproved)
   for (const argsFile of allFiles.filter(file => file.endsWith(`${path.sep}validation-compiler.args`))) {
-    try { compilerInputs.push(readCompilerObservation({argsFile, roots, expectedCaptureSession: env.HARBORLINE_VALIDATION_CAPTURE_SESSION})) }
+    try {
+      const observed = readCompilerObservation({argsFile, roots, expectedCaptureSession: env.HARBORLINE_VALIDATION_CAPTURE_SESSION})
+      if (!packageRootApproved) {
+        observed.completeCompilerObservation = false
+        observed.problems.push('NuGet package root not independently resolved or differs from parent observation')
+      }
+      compilerInputs.push(observed)
+    }
     catch { unknownInputs.push('compiler observation could not be read') }
   }
   if (!compilerInputs.length) unknownInputs.push('no executed compiler command-line observations')
