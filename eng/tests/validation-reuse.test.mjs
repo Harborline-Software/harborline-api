@@ -9,7 +9,7 @@ const {privateKey, publicKey} = generateKeyPairSync('ed25519')
 const bytes = Buffer.from('immutable test artifact')
 const observation = {repository: 'Harborline-Software/harborline-api', runId: '123', runAttempt: '1', jobId: '456',
   workflowPath: '.github/workflows/trusted-validation.yml', workflowCommit: 'e'.repeat(40), headSha: 'f'.repeat(40),
-  artifactId: '789', status: 'completed', conclusion: 'success', expired: false, artifactDigest: digest(bytes)}
+  candidateTree: 'a'.repeat(40), artifactId: '789', status: 'completed', conclusion: 'success', expired: false, artifactDigest: digest(bytes)}
 const policy = {mode: 'shadow', keys: {test: publicKey}, producers: [{repository: observation.repository,
   workflowPath: observation.workflowPath, workflowCommit: observation.workflowCommit}], requiredInvocations: ['host-tests', 'baseline-match']}
 const envelope = (change = () => {}) => {
@@ -76,6 +76,42 @@ test('only authenticated successful observed producer evidence is trusted', () =
   const forged = envelope(); forged.payload.inputs.coverage.enabled = true
   assert.equal(verify(forged).trusted, false)
 })
+test('signed source identities bind to independently observed prior and current commit trees', () => {
+  assert.equal(verify().trusted, true)
+  for (const candidateTree of [undefined, null, 'b'.repeat(40), ['a'.repeat(40)], {}, 123]) {
+    assert.equal(verify(envelope(), {observation: {...observation, candidateTree}}).trusted, false)
+  }
+  // Re-signing the forged claim with an allowed fixture key does not change GitHub's tree.
+  assert.equal(verify(envelope(payload => {payload.inputs.candidateTree = 'b'.repeat(40)})).trusted, false)
+  for (const field of ['headSha', 'workflowCommit']) for (const value of [undefined, ['f'.repeat(40)], {}, 123]) {
+    const independent = {...observation, [field]: value}
+    const signed = envelope(payload => {payload.provenance[field] = value ?? null})
+    assert.equal(verify(signed, {observation: independent}).trusted, false, field)
+  }
+  const current = {candidateSha: '1'.repeat(40), candidateTree: 'a'.repeat(40)}
+  const verdict = currentObservation => shadowVerdict({candidateSha: '1'.repeat(40), currentInputs: inputs(),
+    currentObservation, priorReceipt: envelope(), artifactBytes: bytes, observation, policy})
+  assert.equal(verdict(current).wouldReuse, true)
+  for (const invalid of [undefined, {}, {...current, candidateSha: '2'.repeat(40)},
+    {...current, candidateSha: [current.candidateSha]}, {...current, candidateTree: 'b'.repeat(40)},
+    {...current, candidateTree: [current.candidateTree]}, {...current, candidateTree: 123}]) {
+    const result = verdict(invalid)
+    assert.equal(result.trusted, false)
+    assert.equal(result.wouldReuse, false)
+    assert.equal(result.reuseAuthorized, false)
+    assert.equal(result.requiredWorkSkipped, false)
+  }
+  const packages = envelope(payload => {payload.inputs.lane = 'packages';
+    payload.inputs.commitInputs.candidateCommit = 'b'.repeat(40)
+    payload.packageProof = {artifactDigest: digest(bytes), consumedDigest: digest(bytes)}})
+  assert.equal(verify(packages).trusted, false)
+  const mutation = envelope(payload => {payload.inputs.lane = 'mutation';
+    payload.inputs.commitInputs.candidateCommit = observation.headSha; payload.inputs.commitInputs.baseCommit = 'b'.repeat(40)})
+  assert.equal(verify(mutation).trusted, false)
+  assert.equal(verify(mutation, {observation: {...observation, baseSha: 'c'.repeat(40)}}).trusted, false)
+  assert.equal(verify(mutation, {observation: {...observation, baseSha: 'b'.repeat(40)}}).trusted, true)
+})
+
 test('failure, cancellation, skip, missing or duplicate invocation cannot be reused', () => {
   for (const status of ['failure', 'cancelled', 'skipped', null])
     assert.equal(verify(envelope(), {observation: {...observation, conclusion: status}}).trusted, false)
@@ -97,7 +133,9 @@ test('package consumption stays bound to the transferred artifact', () => {
     artifactDigest: digest(bytes), consumedDigest: 'different'}})).trusted, false)
 })
 test('even a trusted same-input result issues only a new candidate-specific shadow verdict', () => {
-  const result = shadowVerdict({candidateSha: '1'.repeat(40), currentInputs: inputs(), priorReceipt: envelope(), artifactBytes: bytes, observation, policy})
+  const result = shadowVerdict({candidateSha: '1'.repeat(40), currentInputs: inputs(),
+    currentObservation: {candidateSha: '1'.repeat(40), candidateTree: 'a'.repeat(40)},
+    priorReceipt: envelope(), artifactBytes: bytes, observation, policy})
   assert.equal(result.candidateSha, '1'.repeat(40))
   assert.equal(result.wouldReuse, true)
   assert.equal(result.reuseAuthorized, false)

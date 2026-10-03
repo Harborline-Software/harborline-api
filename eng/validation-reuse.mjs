@@ -122,6 +122,17 @@ export function verifyReceipt({envelope, artifactBytes, observation, policy}) {
   if (problems.length) return refuse(problems.join('; '))
   if (!observation || observation.status !== 'completed' || observation.conclusion !== 'success')
     return refuse('producer did not complete successfully')
+  // The caller obtains this tree from authenticated commit metadata for headSha.
+  // A signed claim or its fingerprint cannot supply its own independent oracle.
+  if (!sha1(observation.headSha) || !sha1(observation.workflowCommit)
+    || !sha1(observation.candidateTree) || payload.inputs.candidateTree !== observation.candidateTree)
+    return refuse('producer commit/tree identity missing, invalid or mismatched')
+  if (['packages', 'mutation'].includes(payload.inputs.lane)
+    && payload.inputs.commitInputs.candidateCommit !== observation.headSha)
+    return refuse('commit-dependent candidate differs from observed producer commit')
+  if (payload.inputs.lane === 'mutation' && (!sha1(observation.baseSha)
+    || payload.inputs.commitInputs.baseCommit !== observation.baseSha))
+    return refuse('mutation base differs from independently observed comparison commit')
   const producerKeys = ['repository', 'runId', 'runAttempt', 'jobId', 'workflowPath', 'workflowCommit', 'headSha', 'artifactId']
   for (const field of producerKeys) {
     if (!observation[field] || payload.provenance?.[field] !== observation[field])
@@ -149,8 +160,15 @@ export function verifyReceipt({envelope, artifactBytes, observation, policy}) {
   return {trusted: true, reason: 'authenticated completed producer evidence'}
 }
 
-export function shadowVerdict({candidateSha, currentInputs, priorReceipt, artifactBytes, observation, policy}) {
-  const trust = verifyReceipt({envelope: priorReceipt, artifactBytes, observation, policy})
+export function shadowVerdict({candidateSha, currentInputs, currentObservation, priorReceipt, artifactBytes, observation, policy}) {
+  const currentBound = sha1(candidateSha) && sha1(currentObservation?.candidateSha)
+    && candidateSha === currentObservation.candidateSha && sha1(currentObservation.candidateTree)
+    && currentInputs?.candidateTree === currentObservation.candidateTree
+    && (!['packages', 'mutation'].includes(currentInputs?.lane) || currentInputs.commitInputs?.candidateCommit === candidateSha)
+    && (currentInputs?.lane !== 'mutation' || (sha1(currentObservation.baseSha)
+      && currentInputs.commitInputs?.baseCommit === currentObservation.baseSha))
+  const trust = currentBound ? verifyReceipt({envelope: priorReceipt, artifactBytes, observation, policy})
+    : {trusted: false, reason: 'current candidate commit/tree differs from independent observation'}
   const comparison = priorReceipt?.payload?.inputs ? compareInputs(currentInputs, priorReceipt.payload.inputs)
     : {sameInputs: false, completeInputs: false, differences: ['prior receipt absent'], problems: []}
   return {schemaVersion: 1, candidateSha, currentFingerprint: fingerprint(currentInputs), mode: 'shadow',
