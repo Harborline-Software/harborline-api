@@ -2,9 +2,16 @@
   <!-- Trusted build evidence for the bounded construction fence. PDB document directives are not input provenance. -->
   <PropertyGroup>
     <_ConstructionInputsManifest>$(MSBuildProjectDirectory)/obj/construction-proof/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/$(AssemblyName).compile-inputs.txt</_ConstructionInputsManifest>
+    <_ConstructionInputsImage>$([System.IO.Path]::ChangeExtension('$(_ConstructionInputsManifest)', '.compile-image'))</_ConstructionInputsImage>
+    <_ConstructionInputsSymbols>$([System.IO.Path]::ChangeExtension('$(_ConstructionInputsManifest)', '.compile-symbols'))</_ConstructionInputsSymbols>
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(_ConstructionInputsManifest)" TargetPath="$(AssemblyName).compile-inputs.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Pack="false" Visible="false" />
+    <!-- Non-DLL extensions keep the approved coverage collector from rewriting proof images. -->
+    <None Include="$(_ConstructionInputsImage)" TargetPath="$(AssemblyName).compile-image"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Pack="false" Visible="false" />
+    <None Include="$(_ConstructionInputsSymbols)" TargetPath="$(AssemblyName).compile-symbols"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Pack="false" Visible="false" />
   </ItemGroup>
   <Target Name="HarborlineRecordConstructionCompileInputs" AfterTargets="CoreCompile">
@@ -15,11 +22,13 @@
       <Output TaskParameter="Hash" PropertyName="_ConstructionAssemblyHash" />
     </GetFileHash>
     <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(_ConstructionInputsManifest)'))" />
+    <Copy SourceFiles="@(IntermediateAssembly)" DestinationFiles="$(_ConstructionInputsImage)" />
+    <Copy SourceFiles="@(IntermediateAssembly->'%(RootDir)%(Directory)%(Filename).pdb')" DestinationFiles="$(_ConstructionInputsSymbols)" />
     <WriteLinesToFile File="$(_ConstructionInputsManifest)"
                       Lines="assembly|$(_ConstructionAssemblyHash);@(_ConstructionSourceHashes->'source|%(FullPath)|%(FileHash)')"
                       Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
     <ItemGroup>
-      <FileWrites Include="$(_ConstructionInputsManifest)" />
+      <FileWrites Include="$(_ConstructionInputsManifest);$(_ConstructionInputsImage);$(_ConstructionInputsSymbols)" />
     </ItemGroup>
   </Target>
 </Project>

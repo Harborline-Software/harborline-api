@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
+using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -1045,15 +1046,16 @@ public sealed class WritePipelineExecutorFenceTests
         return position == il.Length - 1 && il[position] == 0x2a;
     }
 
-    private static bool HasReviewedCalculationBindings(MethodInfo calculation, MethodInfo encoder)
+    private static bool HasReviewedCalculationBindings(MethodInfo calculation, MethodInfo encoder, Assembly? domainAssembly = null)
     {
         // This finite contract binds the reviewed template's calls, not arbitrary System.* helpers.
+        Type Domain(Type type) => domainAssembly?.GetType(type.FullName!, throwOnError: true)! ?? type;
         var allowed = new Dictionary<Type, string[]>
         {
-            [typeof(CreateOptions)] = ["get_ExplicitLocalPart", "get_Scheme", "get_Authority", "get_Nonce", "get_Issuer"],
-            [typeof(Harborline.Api.Foundation.Assets.Common.SchemaId)] = ["get_Value"],
-            [typeof(Harborline.Api.Foundation.Assets.Common.ActorId)] = ["get_Value"],
-            [typeof(Harborline.Api.Foundation.Assets.Common.EntityId)] = [".ctor"],
+            [Domain(typeof(CreateOptions))] = ["get_ExplicitLocalPart", "get_Scheme", "get_Authority", "get_Nonce", "get_Issuer"],
+            [Domain(typeof(Harborline.Api.Foundation.Assets.Common.SchemaId))] = ["get_Value"],
+            [Domain(typeof(Harborline.Api.Foundation.Assets.Common.ActorId))] = ["get_Value"],
+            [Domain(typeof(Harborline.Api.Foundation.Assets.Common.EntityId))] = [".ctor"],
             [typeof(string)] = ["get_Length", "get_Chars", "Contains", ".ctor"],
             [typeof(ArgumentException)] = [".ctor"],
             [typeof(System.Text.Encoding)] = ["get_UTF8", "GetBytes"],
@@ -1129,10 +1131,10 @@ public sealed class WritePipelineExecutorFenceTests
         return matches.Length == 1 && matches[0][2] == expectedHash;
     }
 
-    private static bool HasBoundCompiledSource(MethodBase method, string expectedFile)
+    private static bool HasBoundCompiledSource(MethodBase method, string expectedFile, string? imagePath = null)
     {
-        var assemblyPath = method.Module.Assembly.Location;
-        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        var assemblyPath = imagePath ?? method.Module.Assembly.Location;
+        var pdbPath = Path.ChangeExtension(assemblyPath, imagePath is null ? ".pdb" : ".compile-symbols");
         var inputsPath = Path.ChangeExtension(assemblyPath, ".compile-inputs.txt");
         if (!File.Exists(assemblyPath) || !File.Exists(pdbPath) || !File.Exists(inputsPath)
             || !HasRecordedCompileInput(File.ReadAllLines(inputsPath), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath))), expectedFile)) return false;
@@ -1265,19 +1267,173 @@ public sealed class WritePipelineExecutorFenceTests
             || writer.BaseType is not { } basis
             || !SymbolEqualityComparer.Default.Equals(basis.OriginalDefinition,
                 model.Compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!))) return false;
-        var root = RepositoryRoot();
+        return HasReviewedConstructionArtifacts();
+    }
+
+    // Authenticate compiler output rather than coverage-rewritten IL. The approved
+    // build target/SDK and coverage collector are trusted tools; this does not
+    // attest arbitrary malicious post-build rewrites of the live coverage binary.
+    [Fact]
+    public void CompilerProofImagesAuthenticateUnderTheActiveTestCollector()
+    {
+        var directory = Path.GetDirectoryName(typeof(InMemoryEntityStore).Assembly.Location)!;
+        var foundationPath = Path.Combine(directory, "Harborline.Api.Foundation.compile-image");
+        var kernelPath = Path.Combine(directory, "Harborline.Api.Kernel.Runtime.compile-image");
+        foreach (var (assembly, image) in new[] { (typeof(InMemoryEntityStore).Assembly, foundationPath), (typeof(WritePipeline).Assembly, kernelPath) })
+        {
+            Assert.True(File.Exists(image), image);
+            using var stream = File.OpenRead(image);
+            using var pe = new PEReader(stream);
+            Assert.Equal(assembly.ManifestModule.ModuleVersionId, pe.GetMetadataReader().GetGuid(pe.GetMetadataReader().GetModuleDefinition().Mvid));
+            Assert.Equal(assembly.FullName, AssemblyName.GetAssemblyName(image).FullName);
+            Assert.True(HasMatchingCompilerImage(assembly, image), image);
+        }
+        using var context = new ConstructionProofContext(foundationPath, kernelPath);
+        var owner = context.Foundation.GetType(typeof(InMemoryEntityStore).FullName!)!;
+        var encoder = context.Foundation.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!;
+        var calculation = owner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!;
+        var encode = encoder.GetMethod("Encode")!;
+        var pipeline = context.Kernel.GetType(typeof(WritePipeline).FullName!)!;
+        Assert.Null(owner.TypeInitializer);
+        Assert.Null(encoder.TypeInitializer);
+        Assert.True(HasReviewedCompiledBase(context.Kernel.GetType(typeof(KernelWrite<,,,>).FullName!)!), "compiled base");
+        Assert.True(HasSameMethodIdentity(calculation, typeof(InMemoryEntityStore).GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!), "calculation method identity");
+        Assert.True(HasSameMethodIdentity(encode, typeof(InMemoryEntityStore).Assembly.GetType(encoder.FullName!)!.GetMethod("Encode")!), "encoder method identity");
+        Assert.True(HasSameMethodIdentity(pipeline.GetMethod(nameof(WritePipeline.NameOf))!, typeof(WritePipeline).GetMethod(nameof(WritePipeline.NameOf))!), "pipeline method identity");
+        Assert.True(HasBoundCompiledSource(pipeline.GetMethod(nameof(WritePipeline.NameOf))!, "packages/kernel-runtime/WritePipelineStage.cs", kernelPath), "kernel source binding");
+        Assert.True(HasBoundCompiledSource(calculation, "packages/foundation/Assets/Entities/InMemoryEntityStore.cs", foundationPath), "calculation source binding");
+        Assert.True(HasBoundCompiledSource(encode, "packages/foundation/Assets/Entities/InMemoryEntityStore.cs", foundationPath), "encoder source binding");
+        Assert.True(HasReviewedCalculationBindings(calculation, encode, context.Foundation), "calculation bindings");
+    }
+
+    private static bool HasReviewedConstructionArtifacts(string? proofDirectory = null)
+    {
         const string baseFile = "packages/kernel-runtime/WritePipelineStage.cs";
         const string calculationFile = "packages/foundation/Assets/Entities/InMemoryEntityStore.cs";
         var actualOwner = typeof(InMemoryEntityStore);
-        var actualEncoder = actualOwner.Assembly.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!;
-        if (actualOwner.TypeInitializer is not null || actualEncoder.TypeInitializer is not null
-            || !HasReviewedCompiledBase(typeof(KernelWrite<,,,>))
-            || !HasBoundCompiledSource(typeof(WritePipeline).GetMethod(nameof(WritePipeline.NameOf))!, baseFile)
-            || !HasBoundCompiledSource(actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!, calculationFile)
-            || !HasBoundCompiledSource(actualEncoder.GetMethod("Encode")!, calculationFile)
-            || !HasReviewedCalculationBindings(actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!, actualEncoder.GetMethod("Encode")!)) return false;
+        var actualKernel = typeof(KernelWrite<,,,>);
+        proofDirectory ??= Path.GetDirectoryName(actualOwner.Assembly.Location)!;
+        var foundationPath = Path.Combine(proofDirectory, actualOwner.Assembly.GetName().Name + ".compile-image");
+        var kernelPath = Path.Combine(proofDirectory, actualKernel.Assembly.GetName().Name + ".compile-image");
+        if (!HasMatchingCompilerImage(actualOwner.Assembly, foundationPath)
+            || !HasMatchingCompilerImage(actualKernel.Assembly, kernelPath)) return false;
+        using var context = new ConstructionProofContext(foundationPath, kernelPath);
+        var owner = context.Foundation.GetType(actualOwner.FullName!, throwOnError: true)!;
+        var encoder = context.Foundation.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower", throwOnError: true)!;
+        var kernel = context.Kernel.GetType(actualKernel.FullName!, throwOnError: true)!;
+        var pipeline = context.Kernel.GetType(typeof(WritePipeline).FullName!, throwOnError: true)!;
+        var calculation = owner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!;
+        var encode = encoder.GetMethod("Encode")!;
+        var nameOf = pipeline.GetMethod(nameof(WritePipeline.NameOf))!;
+        if (owner.TypeInitializer is not null || encoder.TypeInitializer is not null
+            || !HasSameMethodIdentity(calculation, actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!)
+            || !HasSameMethodIdentity(encode, actualOwner.Assembly.GetType(encoder.FullName!)!.GetMethod("Encode")!)
+            || !HasSameMethodIdentity(nameOf, typeof(WritePipeline).GetMethod(nameof(WritePipeline.NameOf))!)
+            || !HasReviewedCompiledBase(kernel)
+            || !HasBoundCompiledSource(nameOf, baseFile, kernelPath)
+            || !HasBoundCompiledSource(calculation, calculationFile, foundationPath)
+            || !HasBoundCompiledSource(encode, calculationFile, foundationPath)
+            || !HasReviewedCalculationBindings(calculation, encode, context.Foundation)) return false;
+        var root = RepositoryRoot();
         return HasReviewedKernelBaseConstruction([CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, baseFile)))])
             && HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, calculationFile))));
+    }
+
+    [Theory]
+    [InlineData("missing-image")]
+    [InlineData("modified-image")]
+    [InlineData("stale-module")]
+    [InlineData("missing-symbols")]
+    [InlineData("replaced-symbols")]
+    [InlineData("wrong-manifest")]
+    public void CompilerConstructionProofRejectsMissingTamperedOrStaleEvidence(string change)
+    {
+        var output = Path.GetDirectoryName(typeof(InMemoryEntityStore).Assembly.Location)!;
+        var directory = Path.Combine(Path.GetTempPath(), "construction-proof-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            foreach (var name in new[] { "Harborline.Api.Foundation", "Harborline.Api.Kernel.Runtime" })
+                foreach (var extension in new[] { ".compile-image", ".compile-symbols", ".compile-inputs.txt" })
+                    File.Copy(Path.Combine(output, name + extension), Path.Combine(directory, name + extension));
+            Assert.True(HasReviewedConstructionArtifacts(directory));
+            var imagePath = Path.Combine(directory, "Harborline.Api.Foundation.compile-image");
+            var symbolsPath = Path.ChangeExtension(imagePath, ".compile-symbols");
+            var manifestPath = Path.ChangeExtension(imagePath, ".compile-inputs.txt");
+            switch (change)
+            {
+                case "missing-image": File.Delete(imagePath); break;
+                case "modified-image":
+                    using (var stream = new FileStream(imagePath, FileMode.Append)) stream.WriteByte(0x42);
+                    break;
+                case "stale-module":
+                    var bytes = File.ReadAllBytes(imagePath);
+                    var id = typeof(InMemoryEntityStore).Module.ModuleVersionId.ToByteArray();
+                    var index = bytes.AsSpan().IndexOf(id);
+                    Assert.True(index >= 0);
+                    bytes[index] ^= 0x01;
+                    File.WriteAllBytes(imagePath, bytes);
+                    var lines = File.ReadAllLines(manifestPath);
+                    lines[0] = "assembly|" + Convert.ToHexString(SHA256.HashData(bytes));
+                    File.WriteAllLines(manifestPath, lines);
+                    break;
+                case "missing-symbols": File.Delete(symbolsPath); break;
+                case "replaced-symbols":
+                    File.Copy(Path.Combine(directory, "Harborline.Api.Kernel.Runtime.compile-symbols"), symbolsPath, overwrite: true);
+                    break;
+                case "wrong-manifest":
+                    File.WriteAllText(manifestPath, "assembly|WRONG\n");
+                    break;
+                default: throw new ArgumentOutOfRangeException(nameof(change));
+            }
+            Assert.False(HasReviewedConstructionArtifacts(directory));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private static bool HasSameMethodIdentity(MethodInfo compiled, MethodInfo runtime) =>
+        compiled.DeclaringType?.AssemblyQualifiedName == runtime.DeclaringType?.AssemblyQualifiedName
+        && compiled.Module.Assembly.FullName == runtime.Module.Assembly.FullName
+        && compiled.Name == runtime.Name && compiled.IsStatic == runtime.IsStatic
+        && compiled.GetGenericArguments().Length == runtime.GetGenericArguments().Length
+        && compiled.ReturnType.AssemblyQualifiedName == runtime.ReturnType.AssemblyQualifiedName
+        && compiled.GetParameters().Select(parameter => parameter.ParameterType.AssemblyQualifiedName)
+            .SequenceEqual(runtime.GetParameters().Select(parameter => parameter.ParameterType.AssemblyQualifiedName));
+
+    private static bool HasMatchingCompilerImage(Assembly runtimeAssembly, string imagePath)
+    {
+        var inputsPath = Path.ChangeExtension(imagePath, ".compile-inputs.txt");
+        if (!File.Exists(imagePath) || !File.Exists(inputsPath)) return false;
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(imagePath)));
+        if (File.ReadLines(inputsPath).FirstOrDefault() != $"assembly|{hash}") return false;
+        using var stream = File.OpenRead(imagePath);
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        return metadata.GetGuid(metadata.GetModuleDefinition().Mvid) == runtimeAssembly.ManifestModule.ModuleVersionId
+            && AssemblyName.GetAssemblyName(imagePath).FullName == runtimeAssembly.FullName;
+    }
+
+    private sealed class ConstructionProofContext : AssemblyLoadContext, IDisposable
+    {
+        internal Assembly Foundation { get; }
+        internal Assembly Kernel { get; }
+
+        internal ConstructionProofContext(string foundationPath, string kernelPath) : base(isCollectible: true)
+        {
+            Foundation = LoadImage(foundationPath);
+            Kernel = LoadImage(kernelPath);
+        }
+
+        private Assembly LoadImage(string imagePath)
+        {
+            using var stream = File.OpenRead(imagePath);
+            return LoadFromStream(stream);
+        }
+
+        // The two authenticated domain images share this context. Framework APIs
+        // resolve through the default context, retaining exact genuine Type identity.
+        protected override Assembly? Load(AssemblyName name) => null;
+        public void Dispose() => Unload();
     }
 
     private static bool HasSameReviewedTokens(SyntaxNode actual, SyntaxNode expected) =>
