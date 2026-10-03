@@ -610,6 +610,64 @@ public sealed class WritePipelineExecutorFenceTests
                 KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
         """ + "\n" + body + "\n} }";
 
+    [Theory]
+    [InlineData("conditional constructor")]
+    [InlineData("second partial declaration")]
+    public void ReviewedKernelConstructionRejectsConditionalOrPartialBase(string effect)
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "packages/kernel-runtime/WritePipelineStage.cs"));
+        var parsed = CSharpSyntaxTree.ParseText(source);
+        var declaration = parsed.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Single(type => type.Identifier.ValueText == "KernelWrite");
+        const string constructor = "protected KernelWrite() { _ = Task.Run(async () => { await Task.Delay(1); await WritePipeline.RunAsync(this, null, default); }); }";
+        var options = new CSharpParseOptions(preprocessorSymbols: ["NET11_0"]);
+        SyntaxTree[] trees;
+        if (effect == "conditional constructor")
+        {
+            source = source.Insert(declaration.OpenBraceToken.Span.End, "\n#if NET11_0\n" + constructor + "\n#endif\n");
+            trees = [CSharpSyntaxTree.ParseText(source, options, path: "WritePipelineStage.cs")];
+        }
+        else
+        {
+            source = source.Replace("public abstract class KernelWrite<", "public abstract partial class KernelWrite<", StringComparison.Ordinal);
+            trees = [CSharpSyntaxTree.ParseText(source, options, path: "WritePipelineStage.cs"),
+                CSharpSyntaxTree.ParseText("namespace Harborline.Api.Kernel.Runtime; public abstract partial class KernelWrite<TBound, TMutation, TSealed, TResult> where TBound : class { "
+                    + constructor + " }", options, path: "HiddenConstruction.cs")];
+        }
+        var references = BoundaryModel(trees[0]).Compilation.References
+            .Where(reference => reference.Display != typeof(WritePipeline).Assembly.Location);
+        var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+        var identity = typeof(WritePipeline).Assembly.GetName();
+        var version = CSharpSyntaxTree.ParseText($"[assembly: System.Reflection.AssemblyVersion(\"{identity.Version}\")]");
+        var compilation = CSharpCompilation.Create(identity.Name!, trees.Concat([globals, version]), references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        Assert.False(HasReviewedKernelBaseConstruction(trees));
+    }
+
+    [Fact]
+    public void ReviewedCalculationRejectsConditionalConstructionDependencyCode()
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"));
+        var root = CSharpSyntaxTree.ParseText(source).GetRoot();
+        var calculation = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(method => method.Identifier.ValueText == "DeriveEntityId");
+        var method = calculation.ToFullString();
+        method = method.Insert(method.IndexOf('{') + 1, "\n#if NET11_0\n_ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1));\n#endif\n");
+        source = "using System; using System.Security.Cryptography; using System.Text; using Harborline.Api.Foundation.Assets.Common; using Harborline.Api.Foundation.Assets.Entities; using Harborline.Api.Foundation.Definitions; "
+            + "namespace Harborline.Api.Foundation.Assets.Entities { public sealed class InMemoryEntityStore { " + method + " } "
+            + root.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(type => type.Identifier.ValueText == "Base32Lower").ToFullString() + " }";
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(preprocessorSymbols: ["NET11_0"]));
+        var compilation = BoundaryModel(tree).Compilation;
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        // The old default-symbol reparse hides the conditional side effect and accepts the literal body.
+        Assert.False(HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(source)));
+    }
+
     private static SemanticModel BoundaryModel(SyntaxTree tree, MetadataReference? kernelReference = null)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -775,6 +833,61 @@ public sealed class WritePipelineExecutorFenceTests
             && HasReviewedWriterConstructionSource(constructor.ContainingType, model);
     }
 
+    private static bool HasReviewedKernelBaseConstruction(IReadOnlyList<SyntaxTree> trees)
+    {
+        // The closed exemption must not prove a different preprocessor branch from the shipping build.
+        if (trees.Any(tree => tree.GetRoot().ContainsDirectives)) return false;
+        var baseTrees = trees.Where(tree => tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Any(type => type.Identifier.ValueText == "KernelWrite")).ToArray();
+        if (baseTrees.Length != 1) return false;
+        var references = BoundaryModel(baseTrees[0]).Compilation.References
+            .Where(reference => reference.Display != typeof(WritePipeline).Assembly.Location);
+        var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+        var identity = typeof(WritePipeline).Assembly.GetName();
+        var compilation = CSharpCompilation.Create(identity.Name!, baseTrees.Concat([globals]), references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var basis = compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!);
+        if (basis is null || basis.DeclaringSyntaxReferences.Length != 1
+            || basis.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax baseDeclaration
+            || baseDeclaration.Modifiers.Any(SyntaxKind.PartialKeyword)
+            || compilation.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)) return false;
+        // No base primary constructor, explicit/static constructor, or instance/static initializers.
+        if (baseDeclaration.ParameterList is not null || baseDeclaration.BaseList is not null
+            || baseDeclaration.AttributeLists.Count != 0
+            || baseDeclaration.Members.Count != 6
+            || baseDeclaration.Members.Any(member => member is not MethodDeclarationSyntax
+                { Body: null, ExpressionBody: null } method
+                || !method.Modifiers.Any(SyntaxKind.AbstractKeyword)
+                || method.Modifiers.Any(SyntaxKind.StaticKeyword))) return false;
+        return true;
+    }
+
+    private static bool HasReviewedCalculationSource(SyntaxTree tree)
+    {
+        if (tree.GetRoot().ContainsDirectives) return false;
+        var actualCalculation = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(method => method.Identifier.ValueText == "DeriveEntityId");
+        var reviewedCalculation = SyntaxFactory.ParseMemberDeclaration("""
+            public static EntityId DeriveEntityId(SchemaId schema, CreateOptions options)
+            {
+                if (options.ExplicitLocalPart is { Length: > 0 } explicitLocal)
+                {
+                    if (explicitLocal.Length == 26 &&
+                        explicitLocal.All(c => c is >= 'a' and <= 'z' or >= '2' and <= '7') &&
+                        "aeimquy4".Contains(explicitLocal[25], StringComparison.Ordinal))
+                        throw new ArgumentException("Explicit local part is reserved for schema-derived IDs.", nameof(options));
+                    return new EntityId(options.Scheme, options.Authority, explicitLocal);
+                }
+                var input = Encoding.UTF8.GetBytes($"{schema.Value}|{options.Authority}|{options.Nonce}|{options.Issuer.Value}");
+                Span<byte> digest = stackalloc byte[32];
+                SHA256.HashData(input, digest);
+                var local = Base32Lower.Encode(digest[..16]);
+                return new EntityId(options.Scheme, options.Authority, local);
+            }
+            """);
+        return reviewedCalculation is not null && HasSameReviewedTokens(actualCalculation, reviewedCalculation);
+    }
+
     private static bool HasReviewedWriterConstructionSource(INamedTypeSymbol writer, SemanticModel model)
     {
         // Closed construction template: primary-parameter capture, four reviewed field initializers,
@@ -782,6 +895,7 @@ public sealed class WritePipelineExecutorFenceTests
         // of arbitrary constructors or helper purity. Any constructor/initializer change needs review.
         if (writer.DeclaringSyntaxReferences.Length != 1
             || writer.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax declaration
+            || declaration.SyntaxTree.GetRoot().ContainsDirectives
             || declaration.Members.Any(member => member is not FieldDeclarationSyntax and not MethodDeclarationSyntax)) return false;
         var expected = CSharpSyntaxTree.ParseText("""
             private sealed class Merge(NodeHierarchyCompositeCoordinator coordinator, IReadOnlyList<EntityId> oldEntities,
@@ -808,39 +922,14 @@ public sealed class WritePipelineExecutorFenceTests
             || !SymbolEqualityComparer.Default.Equals(basis.OriginalDefinition,
                 model.Compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!))) return false;
         var root = RepositoryRoot();
-        var baseDeclaration = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
-                "packages/kernel-runtime/WritePipelineStage.cs"))).GetRoot().DescendantNodes()
-            .OfType<ClassDeclarationSyntax>().Single(type => type.Identifier.ValueText == "KernelWrite");
-        // No base primary constructor, explicit/static constructor, or instance/static initializers.
-        if (baseDeclaration.ParameterList is not null || baseDeclaration.BaseList is not null
-            || baseDeclaration.AttributeLists.Count != 0
-            || baseDeclaration.Members.Count != 6
-            || baseDeclaration.Members.Any(member => member is not MethodDeclarationSyntax
-                { Body: null, ExpressionBody: null } method
-                || !method.Modifiers.Any(SyntaxKind.AbstractKeyword)
-                || method.Modifiers.Any(SyntaxKind.StaticKeyword))) return false;
-        var actualCalculation = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
-                "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))).GetRoot().DescendantNodes()
-            .OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "DeriveEntityId");
-        var reviewedCalculation = SyntaxFactory.ParseMemberDeclaration("""
-            public static EntityId DeriveEntityId(SchemaId schema, CreateOptions options)
-            {
-                if (options.ExplicitLocalPart is { Length: > 0 } explicitLocal)
-                {
-                    if (explicitLocal.Length == 26 &&
-                        explicitLocal.All(c => c is >= 'a' and <= 'z' or >= '2' and <= '7') &&
-                        "aeimquy4".Contains(explicitLocal[25], StringComparison.Ordinal))
-                        throw new ArgumentException("Explicit local part is reserved for schema-derived IDs.", nameof(options));
-                    return new EntityId(options.Scheme, options.Authority, explicitLocal);
-                }
-                var input = Encoding.UTF8.GetBytes($"{schema.Value}|{options.Authority}|{options.Nonce}|{options.Issuer.Value}");
-                Span<byte> digest = stackalloc byte[32];
-                SHA256.HashData(input, digest);
-                var local = Base32Lower.Encode(digest[..16]);
-                return new EntityId(options.Scheme, options.Authority, local);
-            }
-            """);
-        return reviewedCalculation is not null && HasSameReviewedTokens(actualCalculation, reviewedCalculation);
+        var kernelDirectory = Path.Combine(root, "packages/kernel-runtime");
+        var kernelTrees = Directory.EnumerateFiles(kernelDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !Path.GetRelativePath(kernelDirectory, path).Split(Path.DirectorySeparatorChar)
+                .Any(segment => segment is "obj" or "bin" or "tests"))
+            .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path)).ToArray();
+        if (!HasReviewedKernelBaseConstruction(kernelTrees)) return false;
+        return HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
+            "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))));
     }
 
     private static bool HasSameReviewedTokens(SyntaxNode actual, SyntaxNode expected) =>
