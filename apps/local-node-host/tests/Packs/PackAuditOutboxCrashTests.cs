@@ -71,6 +71,109 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         _keys.Dispose();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Install_awaits_audit_preparation_before_commit_and_can_cancel_it(bool cancel)
+    {
+        var adapter = new KernelAuditPackInstallAudit(_harness.Trail, _nodeSigner,
+            NullLogger<KernelAuditPackInstallAudit>.Instance, _harness.Outbox);
+        var delayed = new DelayedAudit(adapter);
+        var store = new DurablePackInstallStore(_harness.Store.PacksFactory, adapter);
+        var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
+            new WorkflowRefusingPackContentAdmission(), delayed, TestAuthorization.AllowGate());
+        using var cancellation = new CancellationTokenSource();
+        var operation = installer.InstallAsync(await PackAsync(), Context(), cancellation.Token);
+        try
+        {
+            Assert.False(operation.IsCompleted);
+            Assert.Equal(1, delayed.Preparations);
+            Assert.Null(store.GetVersion(Tenant, PackKey, "1.0.0"));
+            Assert.Empty(await OutboxActionsAsync(_harness));
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+                Assert.Null(store.GetVersion(Tenant, PackKey, "1.0.0"));
+                Assert.Empty(await OutboxActionsAsync(_harness));
+                Assert.Empty(await TrailActionsAsync(_harness));
+            }
+            else
+            {
+                delayed.Release.TrySetResult();
+                Assert.True((await operation).Installed);
+                Assert.Equal(["Installed"], await TrailActionsAsync(_harness));
+            }
+        }
+        finally { delayed.Release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task Audit_preparation_awaits_an_async_signer_and_stage_reuses_the_signed_record()
+    {
+        var suspended = new SuspendedSigner(_nodeSigner.Signer);
+        var adapter = new KernelAuditPackInstallAudit(_harness.Trail, suspended,
+            NullLogger<KernelAuditPackInstallAudit>.Instance, _harness.Outbox);
+        var entry = new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Installed, PackKey, "1.0.0", Now,
+            null, null, "installed", ActingPrincipal: Operator);
+        var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, Operator, Now);
+        var preparing = adapter.PrepareAuthorizedAsync(entry, decision);
+        Assert.False(preparing.IsCompleted);
+        suspended.Release.TrySetResult();
+        await preparing;
+        await using (var db = _harness.Store.CreateContext())
+        {
+            var alternateDecision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, Operator, Now);
+            Assert.Throws<InvalidOperationException>(() => adapter.Stage(db, entry, alternateDecision));
+            Assert.Empty(db.AuditOutbox.Local);
+            adapter.Stage(db, entry, decision);
+            Assert.Equal(1, suspended.Calls);
+            var row = Assert.Single(db.AuditOutbox.Local);
+            Assert.Equal("Installed", Action(row.BodyJson));
+            Assert.Equal(Operator, row.Actor);
+            Assert.NotNull(row.AuthoritySnapshotJson);
+            Assert.NotNull(row.SignedPayloadJson);
+            await db.SaveChangesAsync();
+        }
+        await adapter.AppendAuthorizedAsync(entry, decision);
+        Assert.Equal(["Installed"], await TrailActionsAsync(_harness));
+        Assert.Equal(1, suspended.Calls);
+    }
+
+    private sealed class SuspendedSigner(IOperationSigner inner) : IOperationSigner
+    {
+        public PrincipalId IssuerId => inner.IssuerId;
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Calls { get; private set; }
+        public async ValueTask<SignedOperation<T>> SignAsync<T>(T payload, DateTimeOffset issuedAt, Guid nonce,
+            CancellationToken ct = default)
+        {
+            Calls++;
+            await Release.Task.WaitAsync(ct);
+            return await inner.SignAsync(payload, issuedAt, nonce, ct);
+        }
+    }
+
+    private sealed class DelayedAudit(IPackInstallAudit inner) : IPackInstallAudit
+    {
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Preparations { get; private set; }
+        public async ValueTask PrepareAuthorizedAsync(PackInstallAuditEntry entry,
+            Harborline.Api.Foundation.Authorization.AuthorizationDecision decision, CancellationToken ct = default)
+        {
+            Preparations++;
+            await Release.Task.WaitAsync(ct);
+            await inner.PrepareAuthorizedAsync(entry, decision, ct);
+        }
+        public void Append(PackInstallAuditEntry entry) => inner.Append(entry);
+        public void AppendAuthorized(PackInstallAuditEntry entry,
+            Harborline.Api.Foundation.Authorization.AuthorizationDecision decision) => inner.AppendAuthorized(entry, decision);
+        public ValueTask AppendAuthorizedAsync(PackInstallAuditEntry entry,
+            Harborline.Api.Foundation.Authorization.AuthorizationDecision decision, CancellationToken ct = default)
+            => inner.AppendAuthorizedAsync(entry, decision, ct);
+        public IReadOnlyList<PackInstallAuditEntry> Query(TenantId tenant) => inner.Query(tenant);
+    }
+
     [Fact(DisplayName = "T-1048: a crash after the install commit leaves its audit owed, and a restarted host delivers it once")]
     public async Task A_crash_after_the_install_commit_is_delivered_once_after_restart()
     {
@@ -118,7 +221,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, Operator, Now);
         var audit = new KernelAuditPackInstallAudit(_harness.Trail, _nodeSigner, NullLogger<KernelAuditPackInstallAudit>.Instance);
         var store = new DurablePackInstallStore(_harness.Store.PacksFactory, audit);
-        store.Commit(new PackInstallTransaction(Tenant,
+        var transaction = new PackInstallTransaction(Tenant,
             new InstalledPack(PackKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [],
                 new Dictionary<string, int>(), Now, _keys.PrincipalId, 1, TrustScope.OwnRoster, []),
             new PackInstallWatermark(PackKey, "1.0.0", new Dictionary<string, int>()), [])
@@ -129,7 +232,10 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
                 new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Installed, PackKey, "1.0.0", Now,
                     null, null, "installed", ActingPrincipal: Operator),
             ], decision),
-        });
+        };
+        foreach (var entry in transaction.Audit.Entries)
+            await audit.PrepareAuthorizedAsync(entry, decision);
+        store.Commit(transaction);
 
         // Put the dependent first in both identifier and physical insertion order. Neither is the ceremony order.
         await using (var db = _harness.Store.CreateContext())
@@ -150,9 +256,11 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         if (failCeremony)
         {
             await using var db = _harness.Store.CreateContext();
-            audit.Stage(db, new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Activated, "independent-pack", "1.0.0",
-                Now, null, null, "activated", ActingPrincipal: Operator),
-                TestAuthorization.AllowedDecision(Tenant, "independent-pack", "pack", Permission.PackagesOperate, Operator, Now));
+            var independent = new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Activated, "independent-pack", "1.0.0",
+                Now, null, null, "activated", ActingPrincipal: Operator);
+            var independentDecision = TestAuthorization.AllowedDecision(Tenant, "independent-pack", "pack", Permission.PackagesOperate, Operator, Now);
+            await audit.PrepareAuthorizedAsync(independent, independentDecision);
+            audit.Stage(db, independent, independentDecision);
             await db.SaveChangesAsync();
             await _harness.ExecuteAsync("CREATE TRIGGER t1048_ceremony_fault BEFORE INSERT ON search_audit_trail WHEN NEW.record_json LIKE '%BreakGlassOverride%' BEGIN SELECT RAISE(ABORT, 'ceremony unavailable'); END;");
         }
