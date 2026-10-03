@@ -355,7 +355,7 @@ internal static class PackInstallRoutes
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
                 Principal: authority.Principal.Value);
-            var outcome = installer.Deactivate(context, request.PackKey, request.Version);
+            var outcome = await installer.DeactivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
             logger.LogInformation(
                 "Pack DEACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → deactivated={Deactivated} [{Error}].",
                 tenant, request.PackKey, request.Version, outcome.Deactivated, outcome.Error);

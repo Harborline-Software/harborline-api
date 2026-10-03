@@ -123,7 +123,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
         Assert.NotNull(seedForm.Overlay.Description);
 
         // The administrator narrows it AFTER it published — the case slice 4 could not complete.
-        Assert.True(_world.Narrow(FormKey, FormNarrowing).Recorded);
+        Assert.True((await _world.NarrowAsync(FormKey, FormNarrowing)).Recorded);
         var pass = await _world.ProjectAsync();
         Assert.Empty(pass.Refusals);
 
@@ -181,7 +181,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
         //     treats it as no override at all): the UNNARROWED body returns at its own seed version and
         //     the derived tuple retires.
         var upgradedDerived = upgraded.Version.ToString();
-        Assert.True(_world.Narrow(FormKey, "{}").Recorded);
+        Assert.True((await _world.NarrowAsync(FormKey, "{}")).Recorded);
         Assert.Empty((await _world.ProjectAsync()).Refusals);
         var restored = await _world.CurrentFormAsync();
         Assert.Equal(upgradedItemVersion, restored!.Version.ToString());
@@ -211,7 +211,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
         Assert.Equal("1.0.0", seedWorkflow!.Version);
         Assert.Equal(3, StateCount(seedWorkflow));
 
-        Assert.True(_world.Narrow(WorkflowKey, WorkflowNarrowing).Recorded);
+        Assert.True((await _world.NarrowAsync(WorkflowKey, WorkflowNarrowing)).Recorded);
         var pass = await _world.ProjectAsync();
         Assert.Empty(pass.Refusals);
 
@@ -255,7 +255,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
             WorkflowDefinitionStatus.Withdrawn, (await _world.WorkflowAtAsync("1.0.0")).Status);
 
         var upgradedDerived = upgraded.Version;
-        Assert.True(_world.Narrow(WorkflowKey, "{}").Recorded);
+        Assert.True((await _world.NarrowAsync(WorkflowKey, "{}")).Recorded);
         Assert.Empty((await _world.ProjectAsync()).Refusals);
         var restored = await _world.CurrentWorkflowAsync();
         Assert.Equal(upgradedItemVersion, restored!.Version);
@@ -397,8 +397,8 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
         public JsonNode Override(string contentKey) =>
             _store.GetOverrides(Tenant, PackKey).Single(o => o.ContentKey == contentKey).OverlayPatch;
 
-        public PackNarrowingOutcome Narrow(string contentKey, string patch) =>
-            Installer.Narrow(Context, PackKey, contentKey, JsonNode.Parse(patch)!,
+        public Task<PackNarrowingOutcome> NarrowAsync(string contentKey, string patch) =>
+            Installer.NarrowAsync(Context, PackKey, contentKey, JsonNode.Parse(patch)!,
                 TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
 
         /// <summary>The catalogue read the S6 surfaces use: the highest PUBLISHED revision at an address.

@@ -85,7 +85,7 @@ public sealed class PackNarrowingSurvivesReplayTests
 
         // The administrator narrows the pack's offer to NOBODY — the same reduction the projector's own
         // retraction arm performs, now authored by a tenant through the ordinary overlay row.
-        var narrowing = world.Installer.Narrow(
+        var narrowing = await world.Installer.NarrowAsync(
             world.Context, PackKey, BindingKey, JsonNode.Parse("""{"offeredRoles":[]}""")!,
             TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
         Assert.True(narrowing.Recorded, narrowing.RefusalCode);
@@ -116,9 +116,9 @@ public sealed class PackNarrowingSurvivesReplayTests
             BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()));
         await world.InstallAndActivateAsync("1.0.0");
         await world.ProjectAsync();
-        Assert.True(world.Installer.Narrow(
+        Assert.True((await world.Installer.NarrowAsync(
             world.Context, PackKey, BindingKey, JsonNode.Parse("""{"offeredRoles":[]}""")!,
-            TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now)).Recorded);
+            TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now))).Recorded);
         Assert.Single(world.Overrides());
 
         // 1.1.0 drops the definition entirely. The overlay has nothing to re-attach ONTO, so the S-10
@@ -160,7 +160,7 @@ public sealed class PackNarrowingSurvivesReplayTests
         world.Add("access.widened", kind, JsonNode.Parse(seedJson)!);
         await world.InstallAndActivateAsync("1.0.0");
 
-        var outcome = world.Installer.Narrow(
+        var outcome = await world.Installer.NarrowAsync(
             world.Context, PackKey, "access.widened", JsonNode.Parse(wideningJson)!,
             TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
 

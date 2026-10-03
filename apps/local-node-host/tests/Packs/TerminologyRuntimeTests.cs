@@ -129,7 +129,7 @@ public sealed class TerminologyRuntimeTests
         Assert.Null(await fixture.Catalogue.GetAsync(Tenant, PackContentKind.TerminologyOverride, row.Id, "9.0.0"));
         Assert.Null(fixture.Projection.Resolve(OtherTenant, row.Id, "fr"));
         Assert.Empty((await fixture.Catalogue.ListAsync(OtherTenant, PackContentKind.TerminologyOverride)).Entries);
-        Assert.True(fixture.Installer!.Deactivate(Tenant, "terminology.test", "1.0.0", TestAuthorization.At, "operator").Deactivated);
+        Assert.True((await fixture.Installer!.DeactivateAsync(Tenant, "terminology.test", "1.0.0", TestAuthorization.At, "operator")).Deactivated);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Empty(fixture.Projection.List(Tenant));
         Assert.Null(fixture.Projection.Resolve(Tenant, row.Id, "fr"));

@@ -270,7 +270,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Deactivated_Platform_Seed_Does_Not_Expose_Sealed_Catalogue_Types()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var deactivated = _installer.Deactivate(
+        var deactivated = await _installer.DeactivateAsync(
             PackContext(),
             PlatformPackPreloadHostedService.PackKey,
             PlatformPackPreloadHostedService.PackVersion);

@@ -97,7 +97,7 @@ public sealed class CatalogueFieldSourceInstallTests
         Assert.Equal("sentinel-do-not-read", replayed.Values["title"].GetProperty("values").GetProperty("en").GetString());
         Assert.Equal(storedReads, observed.Reads);
         var getter = restarted.CatalogueSources.Resolve(Tenant, coordinate)!.Bind(coordinate, handle.Identity.Binding);
-        Assert.True(installer.Deactivate(Tenant, PackKey, "1.0.0", context.Now, "test-operator").Deactivated);
+        Assert.True((await installer.DeactivateAsync(Tenant, PackKey, "1.0.0", context.Now, "test-operator")).Deactivated);
         await Projector(restarted).ProjectActivePacksAsync(Tenant);
         Assert.Null(restarted.CatalogueSources.Resolve(Tenant, coordinate));
         Assert.Equal(CatalogueFieldSourceCodes.SourceChangedAfterAuthorization, Assert.Throws<CatalogueFieldSourceException>(() => getter()).Code);
