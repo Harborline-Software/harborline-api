@@ -73,9 +73,13 @@ const walk = directory => readdirSync(directory, {withFileTypes: true}).flatMap(
   return entry.isDirectory() ? walk(file) : entry.isFile() ? [file] : []
 })
 
+// Keep collector discovery consistent for both copying ON evidence and detecting
+// forbidden OFF output. Collector names are case-insensitive on every host.
+export const isCollectorCoberturaReport = file => /^(coverage\.cobertura|cobertura-coverage)\.xml$/i.test(path.basename(file))
+
 export function copyCoberturaReport({resultsDirectory, target, label, sourceRoot}) {
   const reports = walk(resultsDirectory)
-    .filter(file => /^(coverage\.cobertura|cobertura-coverage)\.xml$/i.test(path.basename(file)))
+    .filter(isCollectorCoberturaReport)
     .filter(file => !path.relative(resultsDirectory, file).split(path.sep).some(part => part.toLowerCase() === 'in'))
     .sort((left, right) => left.localeCompare(right))
   const direct = reports.filter(file => path.relative(resultsDirectory, file).split(path.sep).length === 2)
