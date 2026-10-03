@@ -111,10 +111,10 @@ const redactEvidence = text => {
 // by design because each carries permitted, name-pinned failures; gating on the exit code would
 // make this gate unpassable while the baselines are honest. For those steps the baseline
 // comparison below is the authority, and the exit code is recorded for the record only.
-const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
+const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
-  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile})
+  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile, diagnosticDirectory})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
   // Error messages, executable paths and spawn arguments can contain credentials.
   // Retain only bounded OS codes and numeric errno, plus the termination signal.
@@ -278,7 +278,10 @@ try {
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--filter', 'Lane!=perf',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
-      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
+      // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
+      '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
