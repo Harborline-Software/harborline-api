@@ -30,6 +30,7 @@ internal sealed class AccessGrantFormSubmissionProjection(
 
     /// <summary>The grant's requested start, <c>effectiveFrom</c>, is the field K3 refuses in the past without a backdate capability.</summary>
     public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "effectiveFrom" : null;
+    public string? EffectiveToField(FormDefinitionId form) => form.Value == FormId ? "effectiveTo" : null;
 
     public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) =>
         form.Value == FormId ? [SubmitterRole] : [];
@@ -83,6 +84,8 @@ internal sealed class AccessGrantFormSubmissionProjection(
             ? DateTimeOffset.Parse(from, System.Globalization.CultureInfo.InvariantCulture) : context.SubmittedAt;
         DateTimeOffset? validUntil = values.TryGetProperty("effectiveTo", out var until) && until.GetString() is { Length: > 0 } text
             ? DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : null;
+        // Validate before creating a durable process, including replay outside the HTTP guard.
+        _ = new GrantValidity(validFrom, validUntil);
         var roleName = Required(values, "role");
         var role = roleName == RoleReference.Administrator.Name
             ? RoleReference.Administrator : new RoleReference(RoleVocabularies.Domain, roleName);

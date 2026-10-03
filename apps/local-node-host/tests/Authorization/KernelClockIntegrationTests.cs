@@ -227,6 +227,38 @@ public sealed class KernelClockIntegrationTests
         Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
     }
 
+    [Theory]
+    [InlineData("absent", 0)]
+    [InlineData("absent", -1)]
+    [InlineData("blank", 0)]
+    [InlineData("blank", -1)]
+    public async Task Access_grant_form_refuses_an_end_not_after_its_defaulted_start_before_saving(string omission, int endOffsetMinutes)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, FrozenAt.AddDays(-30), omission,
+            effectiveTo: FrozenAt.AddMinutes(endOffsetMinutes));
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Fact]
+    public async Task Access_grant_form_retains_backdate_refusal_precedence_for_an_invalid_interval()
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(FrozenAt.AddMinutes(-1), null,
+            effectiveTo: FrozenAt.AddMinutes(-2));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+    }
+
     [Fact(DisplayName = "T-1017: a future effective-from is still admitted as the client supplied it")]
     [Trait("Holds", "kernel-core-ck-9")]
     public async Task Access_grant_form_admits_a_future_effective_from_as_supplied()
@@ -676,7 +708,7 @@ public sealed class KernelClockIntegrationTests
         // A null effectiveFrom is sent as omittedAs says: "absent" (no member), "null" (JSON null) or "blank".
         // The form schema refuses a JSON null text value before any projection, so only absent and blank reach the default.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent")
+            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent", DateTimeOffset? effectiveTo = null)
         {
             var candidate = new Dictionary<string, string?>
             {
@@ -684,7 +716,7 @@ public sealed class KernelClockIntegrationTests
                 ["role"] = "administrator",
                 ["scope"] = "/",
                 ["residency"] = "cache",
-                ["effectiveTo"] = "",
+                ["effectiveTo"] = effectiveTo?.ToString("O") ?? "",
                 ["reason"] = "manual",
             };
             if (effectiveFrom is { } from) candidate["effectiveFrom"] = from.ToString("O");
@@ -702,6 +734,17 @@ public sealed class KernelClockIntegrationTests
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var grants = await Services.GetRequiredService<IGrantStore>().SnapshotAsync(tenant);
             return grants.Where(grant => grant.Subject.Value == subject).ToList();
+        }
+
+        internal async Task<(int Entities, int Workflows, int Outbox)> AccessSubmissionCountsAsync()
+        {
+            var entities = 0;
+            await foreach (var entity in Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>()
+                .QueryAsync(new Harborline.Api.Foundation.Assets.Entities.EntityQuery(
+                    Tenant: Harborline.Api.Foundation.MultiTenancy.TenantSelection.All))) entities++;
+            await using var db = await _nodeFactory.CreateDbContextAsync();
+            return (entities, await db.Set<WorkflowInstanceRecord>().CountAsync(),
+                await db.Set<Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow>().CountAsync());
         }
 
         internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()
