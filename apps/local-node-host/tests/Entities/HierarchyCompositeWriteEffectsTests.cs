@@ -615,6 +615,7 @@ public sealed class HierarchyCompositeWriteEffectsTests
             var unchanged = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
             Assert.Equal((Original, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
                 (unchanged.To, unchanged.Validity.ValidFrom, unchanged.Validity.ValidTo));
+            Assert.Equal(race ? 2 : 0, h.Hierarchy.AtomicCalls);
             Assert.Equal(addedBefore + (race ? 1 : 0), h.Hierarchy.Added.Count);
             Assert.Equal(race ? 1 : 0, h.Hierarchy.Invalidated.Count);
         }
@@ -655,6 +656,7 @@ public sealed class HierarchyCompositeWriteEffectsTests
         {
             await Assert.ThrowsAsync<ArgumentException>(Split);
             Assert.NotNull(await h.Entities.GetAsync(Original));
+            Assert.Equal(0, h.Hierarchy.AtomicCalls);
             Assert.Equal(addedBefore, h.Hierarchy.Added.Count);
             Assert.Empty(h.Hierarchy.Invalidated);
             Assert.Empty(await h.AuditRows());
@@ -684,12 +686,13 @@ public sealed class HierarchyCompositeWriteEffectsTests
         var h = await Harness.CreateAsync(Original, East, KidA);
         await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
         var addedBefore = h.Hierarchy.Added.Count;
-        var parent = retainOldParent ? Original : Id(target);
+        var parent = retainOldParent ? Original : target == "original" ? East : Id(target);
         await Assert.ThrowsAsync<ArgumentException>(() => h.Coordinator.SplitAsync(Original, [Target(target)],
             new Dictionary<EntityId, EntityId> { [KidA] = parent }, "invalid-target", Actor, Tenant, At));
         Assert.NotNull(await h.Entities.GetAsync(Original));
         Assert.NotNull(await h.Entities.GetAsync(East));
         Assert.NotNull(await h.Entities.GetAsync(KidA));
+        Assert.Equal(0, h.Hierarchy.AtomicCalls);
         Assert.Equal(addedBefore, h.Hierarchy.Added.Count);
         Assert.Empty(h.Hierarchy.Invalidated);
         Assert.Empty(await h.AuditRows());
@@ -785,9 +788,11 @@ public sealed class HierarchyCompositeWriteEffectsTests
         public List<EntityEdge> Added { get; } = [];
         public List<(long EdgeId, DateTimeOffset ValidTo)> Invalidated { get; } = [];
         public Func<Task>? BeforeAtomic { get; set; }
+        public int AtomicCalls { get; private set; }
 
         public async Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default)
         {
+            AtomicCalls++;
             var beforeAtomic = BeforeAtomic;
             BeforeAtomic = null;
             if (beforeAtomic is not null) await beforeAtomic();
