@@ -218,6 +218,37 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    [InlineData("async Task<int> Deferred() { return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); } return await Done();")]
+    [InlineData("Func<Task<int>> deferred = async () => await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await Done();")]
+    [InlineData("Func<Task<int>> deferred = async delegate { return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); }; return await Done();")]
+    [InlineData("if (false) { return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); } return await Done();")]
+    [InlineData("return await Done(); return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("return false ? await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)) : await Done();")]
+    [InlineData("_ = unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await Done();")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => { if (false) { await WritePipeline.RunAsync(write, observer, ct); } return await Done(); });")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => { return await Done(); await WritePipeline.RunAsync(write, observer, ct); });")]
+    public void ExemptionRejectsDeferredDiscardedOrUnreachableAtomicExecution(string body)
+    {
+        var source = """
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            class Fixture {
+                Task<int> Done() => Task.FromResult(0);
+                async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit,
+                    KernelWrite<object, int, int, int> write, IWritePipelineObserver observer, CancellationToken ct) {
+            """ + body + " } }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
     private static SemanticModel BoundaryModel(SyntaxTree tree)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -267,12 +298,19 @@ public sealed class WritePipelineExecutorFenceTests
                 && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
                 && IsReviewedAtomicCall(atomic, model)
                 && atomic.ArgumentList.Arguments[0] == argument
+                && atomic.Ancestors().First(node =>
+                    node is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax or MethodDeclarationSyntax) == method
+                && CompletesTaskInDirectReachableBody(atomic, method, model)
                 && CompletesExecutorBeforeCallbackReturns(call, function, model);
         });
     }
 
     private static bool CompletesExecutorBeforeCallbackReturns(
         InvocationExpressionSyntax call, SyntaxNode callback, SemanticModel model)
+        => CompletesTaskInDirectReachableBody(call, callback, model);
+
+    private static bool CompletesTaskInDirectReachableBody(
+        InvocationExpressionSyntax call, SyntaxNode function, SemanticModel model)
     {
         // A task merely created inside the callback can outlive the atomic scope. Require direct await or
         // task return; accepting arbitrary assignments would need data-flow proof of their eventual await.
@@ -288,11 +326,28 @@ public sealed class WritePipelineExecutorFenceTests
                 task = wrapper;
             else break;
         }
-        if (task.Parent is AwaitExpressionSyntax) return true;
-        // An async callback can return the executor task as its result rather than await it.
-        return callback is AnonymousFunctionExpressionSyntax anonymous && anonymous.AsyncKeyword.IsKind(SyntaxKind.None)
-            && (task.Parent is ReturnStatementSyntax
-                || callback is LambdaExpressionSyntax lambda && lambda.Body == task);
+        var awaited = task.Parent is AwaitExpressionSyntax;
+        if (awaited) task = (AwaitExpressionSyntax)task.Parent!;
+        while (task.Parent is ParenthesizedExpressionSyntax
+            || task.Parent is PostfixUnaryExpressionSyntax postfix && postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression))
+            task = (ExpressionSyntax)task.Parent;
+        // Async functions must await the task. A non-async callback may return that exact task instead.
+        if (!awaited && function is not AnonymousFunctionExpressionSyntax { AsyncKeyword.RawKind: 0 }) return false;
+        if (function is LambdaExpressionSyntax lambda && lambda.Body == task) return true;
+        var body = function switch
+        {
+            MethodDeclarationSyntax method => method.Body,
+            LambdaExpressionSyntax { Body: BlockSyntax block } => block,
+            AnonymousMethodExpressionSyntax anonymous => anonymous.Block,
+            _ => null,
+        };
+        // Deliberately require a direct body statement. Conditional expressions, nested branches and
+        // deferred functions need a separate execution proof rather than broad descendant discovery.
+        var statement = task.Parent as StatementSyntax;
+        if (statement?.Parent != body || body is null
+            || statement is not ReturnStatementSyntax && !(awaited && statement is ExpressionStatementSyntax)) return false;
+        var flow = model.AnalyzeControlFlow(statement);
+        return flow is { Succeeded: true, StartPointIsReachable: true };
     }
 
     [Fact(DisplayName = "ck-10 fence: the record writer commits only from its KernelWrite commit stages, EF saves included")]
