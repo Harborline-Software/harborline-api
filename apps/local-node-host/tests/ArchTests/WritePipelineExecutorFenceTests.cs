@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Hierarchy;
 using Harborline.Api.Kernel.Runtime;
@@ -828,6 +829,221 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(HasRecordedCompileInput(recordedInputs, assemblyHash, expectedFile));
     }
 
+    [Fact]
+    public async Task ReviewedMergeRejectsADeferredRealExecutorFromReact()
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), HostHierarchySource));
+        source = source.Replace("protected override ValueTask<MergeResult> ReactAsync(ValidatedRecordBody validated, CancellationToken ct) =>\r\n            ValueTask.FromResult(result);",
+            DeferredReactSource).Replace("protected override ValueTask<MergeResult> ReactAsync(ValidatedRecordBody validated, CancellationToken ct) =>\n            ValueTask.FromResult(result);", DeferredReactSource);
+        var tree = CSharpSyntaxTree.ParseText(source + DeferredWitnessSource);
+        var model = BoundaryModel(tree);
+        using var image = new MemoryStream();
+        var emitted = model.Compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var assembly = Assembly.Load(image.ToArray());
+        var writer = assembly.GetType(typeof(NodeHierarchyCompositeCoordinator).FullName + "+Merge")!;
+        var boundary = assembly.GetType("Harborline.Api.LocalNodeHost.Data.Entities.DeferredBoundaryWitness")!;
+        var instance = RuntimeHelpers.GetUninitializedObject(writer);
+        writer.GetMethod("ReactAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(instance, [null, CancellationToken.None]);
+        boundary.GetField("Inside")!.SetValue(null, false);
+        ((TaskCompletionSource)boundary.GetField("Release")!.GetValue(null)!).SetResult();
+        await ((TaskCompletionSource)boundary.GetField("Finished")!.GetValue(null)!).Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, (int)boundary.GetField("Outside")!.GetValue(null)!);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "MergeAsync");
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Fact]
+    public async Task HostCompilerProofRejectsALinkedReplacementBehindAReviewedPhysicalDecoy()
+    {
+        var physicalPath = Path.Combine(RepositoryRoot(), HostHierarchySource);
+        var physical = File.ReadAllText(physicalPath);
+        var safe = CSharpSyntaxTree.ParseText(physical);
+        var merge = safe.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "MergeAsync");
+        Assert.True(RunsExecutorInsideAtomicCallback(merge, BoundaryModel(safe)));
+        var replacementBody = merge.Body!.Statements.Take(merge.Body.Statements.Count - 1)
+            .Append(SyntaxFactory.ParseStatement("if (oldEntities.Count < 0) { " + merge.Body.Statements[^1] + " }"))
+            .Append(SyntaxFactory.ParseStatement("return (await WritePipeline.RunAsync(new Merge(this, oldEntities, newSchema, newBody, newOptions, justification, actor, tenant, at), pipelineObserver, ct).ConfigureAwait(false))!;"));
+        var replacement = safe.GetRoot().ReplaceNode(merge, merge.WithBody(SyntaxFactory.Block(replacementBody))).ToFullString();
+        var mappedPath = physicalPath.Replace('\\', '/');
+        var physicalHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(physicalPath)));
+        var source = $"#pragma checksum \"{mappedPath}\" \"{{8829d00f-11b8-4213-878b-770e8597ac16}}\" \"{physicalHash}\"\n#line 1 \"{mappedPath}\"\n" + replacement;
+        var linkedPath = Path.Combine(RepositoryRoot(), "external/LinkedHostHierarchy.cs");
+        var tree = CSharpSyntaxTree.ParseText(Microsoft.CodeAnalysis.Text.SourceText.From(source,
+            System.Text.Encoding.UTF8, Microsoft.CodeAnalysis.Text.SourceHashAlgorithm.Sha256), path: linkedPath);
+        var compilation = BoundaryModel(tree).Compilation.WithAssemblyName(typeof(NodeHierarchyCompositeCoordinator).Assembly.GetName().Name!);
+        using var image = new MemoryStream();
+        using var symbols = new MemoryStream();
+        var emitted = compilation.Emit(image, symbols, options: new Microsoft.CodeAnalysis.Emit.EmitOptions(
+            debugInformationFormat: Microsoft.CodeAnalysis.Emit.DebugInformationFormat.PortablePdb));
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var assembly = Assembly.Load(image.ToArray());
+        var method = assembly.GetType(typeof(NodeHierarchyCompositeCoordinator).FullName!)!.GetMethod("MergeAsync")!;
+        // The linked caller enters the real executor while no atomic callback is open.
+        // Its null unit proves ExecuteAtomicAsync was not entered on this path; an observer
+        // records the first real stage before the deliberately uninitialized service seam refuses.
+        var instance = RuntimeHelpers.GetUninitializedObject(method.DeclaringType!);
+        var fields = method.DeclaringType!.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+        fields.Single(field => field.FieldType == typeof(TimeProvider)).SetValue(instance, TimeProvider.System);
+        var observer = new OutsideUnitObserver();
+        fields.Single(field => field.FieldType == typeof(IWritePipelineObserver)).SetValue(instance, observer);
+        var actor = new Harborline.Api.Foundation.Assets.Common.ActorId("boundary-witness");
+        var tenant = new TenantId("boundary-witness");
+        using var body = System.Text.Json.JsonDocument.Parse("{}");
+        var run = (Task<MergeResult>)method.Invoke(instance, [Array.Empty<EntityId>(),
+            new Harborline.Api.Foundation.Assets.Common.SchemaId("boundary.witness"), body,
+            new CreateOptions("entity", "test", "boundary-witness", actor, tenant, ExplicitLocalPart: "boundary-witness"),
+            "boundary-witness", actor, tenant, DateTimeOffset.UnixEpoch, CancellationToken.None])!;
+        await Assert.ThrowsAsync<NullReferenceException>(() => run);
+        Assert.Equal(1, observer.EnteredStages);
+        var moveNext = method.GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var calls = RawMutationPortSymbolInventoryTests.CalledMethods(moveNext).ToArray();
+        Assert.Contains(calls, call => call.Target.Name == "ExecuteAtomicAsync" && call.Target.DeclaringType == typeof(IHierarchyCompositeUnitOfWork));
+        Assert.Contains(calls, call => call.Target.Name == "RunAsync" && call.Target.DeclaringType == typeof(WritePipeline));
+        symbols.Position = 0;
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(symbols, MetadataStreamOptions.LeaveOpen);
+        Assert.True(HasMatchingSourceDocument(provider.GetMetadataReader(), (MethodDefinitionHandle)MetadataTokens.Handle(moveNext.MetadataToken), HostHierarchySource));
+        var directory = Path.Combine(Path.GetTempPath(), "host-proof-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var output = Path.GetDirectoryName(typeof(InMemoryEntityStore).Assembly.Location)!;
+            foreach (var name in new[] { "Harborline.Api.Foundation", "Harborline.Api.Kernel.Runtime", "Harborline.Api.LocalNodeHost" })
+                foreach (var extension in new[] { ".compile-image", ".compile-symbols", ".compile-inputs.txt" })
+                    File.Copy(Path.Combine(output, name + extension), Path.Combine(directory, name + extension));
+            var hostPath = Path.Combine(directory, assembly.GetName().Name + ".compile-image");
+            File.WriteAllBytes(hostPath, image.ToArray());
+            File.WriteAllBytes(Path.ChangeExtension(hostPath, ".compile-symbols"), symbols.ToArray());
+            File.WriteAllLines(Path.ChangeExtension(hostPath, ".compile-inputs.txt"),
+                ["assembly|" + Convert.ToHexString(SHA256.HashData(image.ToArray())),
+                 "source|" + linkedPath + "|" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(source)))]);
+            Assert.False(HasReviewedConstructionArtifacts(directory, assembly));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private sealed class OutsideUnitObserver : IWritePipelineObserver
+    {
+        internal int EnteredStages { get; private set; }
+        public void OnStage(WritePipelineStage stage)
+        {
+            Assert.Equal(WritePipelineStage.Authorize, stage);
+            EnteredStages++;
+        }
+    }
+
+    [Theory]
+    [InlineData("getter")]
+    [InlineData("helper")]
+    public void ReviewedMergeRejectsDeferredEffectsInItsLocalHelperClosure(string change)
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), HostHierarchySource)).Replace("\r\n", "\n");
+        source = change == "getter"
+            ? source.Replace("private IHierarchyCompositeUnitOfWork Store => unitOfWork;",
+                "private IHierarchyCompositeUnitOfWork Store { get { _ = Task.Run(() => Task.Delay(1)); return unitOfWork; } }")
+            : source.Replace("var edges = new List<EntityEdge>();\n        foreach (var parent in parents.Distinct())\n        await foreach (var edge in unitOfWork.GetChildrenNotEndedAsync",
+                "_ = Task.Run(() => Task.Delay(1));\n        var edges = new List<EntityEdge>();\n        foreach (var parent in parents.Distinct())\n        await foreach (var edge in unitOfWork.GetChildrenNotEndedAsync");
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var model = BoundaryModel(tree);
+        using var image = new MemoryStream();
+        var emitted = model.Compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var merge = tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Single(type => type.Identifier.ValueText == "Merge");
+        Assert.False(HasReviewedMergeOwnerClosure((INamedTypeSymbol)model.GetDeclaredSymbol(merge)!));
+    }
+
+    [Fact]
+    public void ReviewedMergeRejectsLinkedDependencyTypesWithUnchangedStageTokens()
+    {
+        var physical = File.ReadAllText(Path.Combine(RepositoryRoot(), HostHierarchySource));
+        var tree = CSharpSyntaxTree.ParseText(physical);
+        var linked = CSharpSyntaxTree.ParseText("""
+            using System;
+            using System.Collections.Generic;
+            using System.Text.Json;
+            using Harborline.Api.Foundation.Assets.Entities;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Common;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            namespace Harborline.Api.LocalNodeHost.Data.Entities;
+            public sealed record MergeResult(EntityId NewId, IReadOnlyList<EntityId> OldIds, IReadOnlyList<EntityId> Reassigned)
+            {
+                private readonly Task deferred = Task.Run(() => Task.Delay(1));
+            }
+            public interface IHierarchyCompositeCoordinator
+            {
+                Task<SplitResult> SplitAsync(
+                    EntityId oldEntity,
+                    IReadOnlyList<SplitTarget> newEntities,
+                    IReadOnlyDictionary<EntityId, EntityId> childReassignments,
+                    string justification,
+                    ActorId actor,
+                    TenantId tenant,
+                    DateTimeOffset effectiveAt,
+                    CancellationToken ct = default);
+
+                Task<MergeResult> MergeAsync(
+                    IReadOnlyList<EntityId> oldEntities,
+                    SchemaId newSchema,
+                    JsonDocument newBody,
+                    CreateOptions newOptions,
+                    string justification,
+                    ActorId actor,
+                    TenantId tenant,
+                    DateTimeOffset effectiveAt,
+                    CancellationToken ct = default);
+
+                Task ReparentAsync(
+                    EntityId child,
+                    EntityId oldParent,
+                    EntityId newParent,
+                    string justification,
+                    ActorId actor,
+                    TenantId tenant,
+                    DateTimeOffset effectiveAt,
+                    CancellationToken ct = default);
+            }
+
+            """);
+        var compilation = BoundaryModel(tree).Compilation.AddSyntaxTrees(linked);
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var method = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "MergeAsync");
+        Assert.False(RunsExecutorInsideAtomicCallback(method, compilation.GetSemanticModel(tree)));
+    }
+
+    private const string HostHierarchySource = "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs";
+    private const string DeferredReactSource = """
+        protected override ValueTask<MergeResult> ReactAsync(ValidatedRecordBody validated, CancellationToken ct)
+        {
+            _ = Task.Run(async () => {
+                await DeferredBoundaryWitness.Release.Task;
+                try { await WritePipeline.RunAsync(this, new DeferredBoundaryWitness.Observer(), default); }
+                catch (NullReferenceException) { /* Uninitialized fixture reaches the real executor before the service seam. */ }
+                finally { DeferredBoundaryWitness.Finished.TrySetResult(); }
+            });
+            return ValueTask.FromResult(result);
+        }
+        """;
+    private const string DeferredWitnessSource = """
+        public static class DeferredBoundaryWitness
+        {
+            public static bool Inside = true;
+            public static int Outside;
+            public static readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public static readonly TaskCompletionSource Finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public sealed class Observer : IWritePipelineObserver
+            {
+                public void OnStage(WritePipelineStage stage)
+                {
+                    if (!Inside) Interlocked.Increment(ref Outside);
+                }
+            }
+        }
+        """;
+
     private static SemanticModel BoundaryModel(SyntaxTree tree, MetadataReference? kernelReference = null)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -1234,30 +1450,118 @@ public sealed class WritePipelineExecutorFenceTests
 
     private static bool HasReviewedWriterConstructionSource(INamedTypeSymbol writer, SemanticModel model)
     {
-        // Closed construction template: primary-parameter capture, four reviewed field initializers,
-        // the existing id calculation, and an implicit empty base constructor. This is not a proof
-        // of arbitrary constructors or helper purity. The closed ID/encoder templates trust the existing
-        // identifier value contracts, framework hashing/span/string APIs, and compiler-generated lambdas.
-        // Domain/helper construction changes require review; the actual artifact and its PDB bind the source.
+        // Closed writer contract: primary captures, initializers, six stages, and the finite
+        // local helper closure. Injected services and existing identifier value contracts,
+        // framework hashing/span/string APIs, and compiler-generated lambdas remain trusted.
+        // Changes to this reviewed domain require a new literal template and boundary review.
         if (writer.DeclaringSyntaxReferences.Length != 1
             || writer.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax declaration
             || declaration.SyntaxTree.GetRoot().ContainsDirectives
             || declaration.Members.Any(member => member is not FieldDeclarationSyntax and not MethodDeclarationSyntax)) return false;
+        // ADR-0038's reviewed Merge stages are a closed source contract, not arbitrary callbacks.
+        // The literal snapshot deliberately includes React and ValidateTargetTenant.
         var expected = CSharpSyntaxTree.ParseText("""
-            private sealed class Merge(NodeHierarchyCompositeCoordinator coordinator, IReadOnlyList<EntityId> oldEntities,
-                SchemaId newSchema, JsonDocument newBody, CreateOptions newOptions, string justification,
-                ActorId actor, TenantId tenant, DateTimeOffset at)
+            private sealed class Merge(
+                NodeHierarchyCompositeCoordinator coordinator,
+                IReadOnlyList<EntityId> oldEntities,
+                SchemaId newSchema,
+                JsonDocument newBody,
+                CreateOptions newOptions,
+                string justification,
+                ActorId actor,
+                TenantId tenant,
+                DateTimeOffset at)
                 : KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>
             {
                 private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions);
                 private CompositeAuthorization authorization = null!;
                 private IReadOnlyList<EntityEdge> displaced = [];
                 private MergeResult result = null!;
+
+                protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+                    authorization = await coordinator.DecideAllAsync(
+                        [expectedNewId, .. oldEntities], actor, tenant, at, ct).ConfigureAwait(false);
+
+                /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
+                /// superseded and deleted with them, so it is not moved under the merged record.</summary>
+                protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
+                    displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
+
+                protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
+                    ValueTask.FromResult(newOptions with { ValidFrom = at });
+
+                protected override async ValueTask<ValidatedRecordBody> ValidateAsync(
+                    IReadOnlyList<EntityEdge> bound, CreateOptions mutation, CancellationToken ct)
+                {
+                    ValidateTargetTenant(mutation, tenant);
+                    authorization = await coordinator.DecideAllAsync(
+                        bound.Select(edge => edge.From), actor, tenant, at, ct, authorization).ConfigureAwait(false);
+                    // Ticket 366: the merge target is a record, admitted from the decision that admitted it.
+                    return await ValidatedRecordBody.AdmitAsync(
+                        coordinator.Validator, authorization.Require(expectedNewId), newSchema, newBody, tenant,
+                        mutation.Binding, ct).ConfigureAwait(false);
+                }
+
+                private static void ValidateTargetTenant(CreateOptions newOptions, TenantId tenant)
+                {
+                    if (newOptions.Tenant != tenant)
+                        throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
+                }
+
+                protected override async ValueTask CommitAsync(ValidatedRecordBody validated, CancellationToken ct)
+                {
+                    var store = coordinator.Store;
+                    var newId = await coordinator.Entities.CreateAsync(
+                        validated, newOptions with { ValidFrom = at }, ct).ConfigureAwait(false);
+                    if (newId != expectedNewId)
+                        throw new InvalidOperationException("The entity store minted an id different from the pre-authorized merge target.");
+                    var reassigned = new List<EntityId>();
+                    foreach (var oldId in oldEntities)
+                    {
+                        authorization.Require(oldId);
+                        foreach (var edge in displaced.Where(edge => edge.To == oldId))
+                        {
+                            authorization.Require(edge.From);
+                            authorization.Require(newId);
+                            // An edge committed by a later-admitted act may start after this merge's admitted clock.
+                            // Close it at its start (an empty half-open interval), never before it, and preserve that
+                            // scheduled start on the replacement. Entity and audit admission remain at the merge clock.
+                            var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                            await store.InvalidateEdgeAsync(edge.Id, start, ct).ConfigureAwait(false);
+                            if (oldEntities.Contains(edge.From))
+                                continue;
+                            var replacementEdge = await store.AddEdgeAsync(
+                                edge.From, newId, EdgeKind.ChildOf, start, null, ct).ConfigureAwait(false);
+                            if (edge.Validity.ValidTo is { } validTo)
+                                await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, ct).ConfigureAwait(false);
+                            reassigned.Add(edge.From);
+                        }
+                        authorization.Require(oldId);
+                        authorization.Require(newId);
+                        await store.AddEdgeAsync(oldId, newId, EdgeKind.SupersededBy, at, null, ct).ConfigureAwait(false);
+                        await coordinator.Entities.DeleteAsync(
+                            oldId, new DeleteOptions(actor, at, justification), ct).ConfigureAwait(false);
+                    }
+                    using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        op = "merge",
+                        newId = newId.ToString(),
+                        oldIds = oldEntities.Select(id => id.ToString()).ToArray(),
+                        reassigned = reassigned.Select(id => id.ToString()).ToArray(),
+                    }));
+                    await coordinator.AuditWriter.AppendAsync(new AuditAppend(
+                        newId, null, Op.Merge, actor, tenant, at, payload, justification),
+                        authorization.Require(newId), ct)
+                        .ConfigureAwait(false);
+                    result = new MergeResult(newId, oldEntities, reassigned);
+                }
+
+                protected override ValueTask<MergeResult> ReactAsync(ValidatedRecordBody validated, CancellationToken ct) =>
+                    ValueTask.FromResult(result);
             }
             """).GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Single();
-        var surface = declaration.WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(
-            declaration.Members.OfType<FieldDeclarationSyntax>()));
-        if (!HasSameReviewedTokens(surface, expected)) return false;
+        if (!HasSameReviewedTokens(declaration, expected) || !HasReviewedMergeOwnerClosure(writer)
+            || !HasReviewedMergeDependencyBindings(writer, model)) return false;
         var derive = declaration.Members.OfType<FieldDeclarationSyntax>()
             .SelectMany(field => field.DescendantNodes().OfType<InvocationExpressionSyntax>()).Single();
         if (model.GetSymbolInfo(derive).Symbol is not IMethodSymbol { IsStatic: true, Arity: 0, Parameters.Length: 2 } calculation
@@ -1270,6 +1574,153 @@ public sealed class WritePipelineExecutorFenceTests
         return HasReviewedConstructionArtifacts();
     }
 
+    private static bool HasReviewedMergeOwnerClosure(INamedTypeSymbol writer)
+    {
+        var owner = writer.ContainingType;
+        if (owner.DeclaringSyntaxReferences.Length != 1
+            || owner.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax declaration
+            || declaration.Members.OfType<ConstructorDeclarationSyntax>().Any()) return false;
+        // Only the local helpers reached by Merge are pinned. Injected services keep their
+        // existing owner contracts; unrelated Split/Reparent stages are not a purity proof.
+        var members = declaration.Members.Where(member => member is FieldDeclarationSyntax or PropertyDeclarationSyntax
+            || member is MethodDeclarationSyntax method && method.Identifier.ValueText is "DecideAllAsync" or "ReadChildrenNotEndedAsync"
+            || member is ClassDeclarationSyntax type && type.Identifier.ValueText == "CompositeAuthorization");
+        var actual = declaration.WithMembers(SyntaxFactory.List(members));
+        var expected = CSharpSyntaxTree.ParseText("""
+            public sealed class NodeHierarchyCompositeCoordinator(
+                IEntityMutationStore entities,
+                IHierarchyCompositeUnitOfWork unitOfWork,
+                IHierarchyAuthorizedAuditWriter audit,
+                AuthorizationGate gate,
+                TimeProvider timeProvider,
+                [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
+                IWritePipelineObserver? pipelineObserver = null)
+                : IHierarchyCompositeCoordinator
+            {
+                private static readonly AuthorizationOperation RecordsWrite =
+                    AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
+
+                private IHierarchyCompositeUnitOfWork Store => unitOfWork;
+                private IHierarchyAuthorizedAuditWriter AuditWriter => audit;
+                private IEntityMutationStore Entities => entities;
+                private IEntityValidator Validator => validator;
+                private async Task<CompositeAuthorization> DecideAllAsync(
+                    IEnumerable<EntityId> targets,
+                    ActorId actor,
+                    TenantId tenant,
+                    DateTimeOffset at,
+                    CancellationToken ct,
+                    CompositeAuthorization? decided = null)
+                {
+                    var decisions = new Dictionary<string, AuthorizationDecision>(
+                        decided?.Decisions ?? new Dictionary<string, AuthorizationDecision>(), StringComparer.Ordinal);
+                    foreach (var target in targets.Distinct())
+                    {
+                        if (decisions.ContainsKey(target.LocalPart))
+                            continue;
+                        var scope = ScopeExpression.Parse($"/records/{target.LocalPart}");
+                        var decision = await gate.DecideAsync(new AuthorizationGateRequest(
+                            new PermissionAtom(RecordsWrite, scope),
+                            actor,
+                            tenant,
+                            new AuthorizationTarget("record", target.LocalPart, scope),
+                            at), ct).ConfigureAwait(false);
+                        decision.RequireAllowed();
+                        decisions.Add(target.LocalPart, decision);
+                    }
+                    return new CompositeAuthorization(decisions);
+                }
+                private async Task<IReadOnlyList<EntityEdge>> ReadChildrenNotEndedAsync(
+                    IEnumerable<EntityId> parents,
+                    DateTimeOffset asOf,
+                    CancellationToken ct,
+                    Func<EntityEdge, bool>? include = null)
+                {
+                    var edges = new List<EntityEdge>();
+                    foreach (var parent in parents.Distinct())
+                    await foreach (var edge in unitOfWork.GetChildrenNotEndedAsync(parent, asOf, ct).ConfigureAwait(false))
+                        if (include is null || include(edge))
+                            edges.Add(edge);
+                    return edges;
+                }
+                private sealed class CompositeAuthorization(IReadOnlyDictionary<string, AuthorizationDecision> decisions)
+                {
+                    internal IReadOnlyDictionary<string, AuthorizationDecision> Decisions => decisions;
+
+                    internal AuthorizationDecision Require(EntityId target)
+                    {
+                        if (!decisions.TryGetValue(target.LocalPart, out var decision))
+                            throw new InvalidOperationException($"The hierarchy target '{target}' was not authorized before the unit of work.");
+                        return decision.RequireAllowedReaction(
+                            RecordsWrite, decision.Request.Tenant, "record", target.LocalPart);
+                    }
+
+                }
+            }
+            """).GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().First();
+        return HasSameReviewedTokens(actual, expected);
+    }
+
+    private static bool HasReviewedMergeDependencyBindings(INamedTypeSymbol writer, SemanticModel model)
+    {
+        var owner = writer.ContainingType;
+        var ownerSource = (ClassDeclarationSyntax)owner.DeclaringSyntaxReferences.Single().GetSyntax();
+        var auditContract = model.Compilation.GetTypeByMetadataName(typeof(IHierarchyAuthorizedAuditWriter).FullName!);
+        if (auditContract?.DeclaringSyntaxReferences is not { Length: 1 }
+            || auditContract.DeclaringSyntaxReferences[0].GetSyntax() is not InterfaceDeclarationSyntax auditSource
+            || auditSource.SyntaxTree != ownerSource.SyntaxTree) return false;
+        var expectedAudit = SyntaxFactory.ParseMemberDeclaration("""
+            public interface IHierarchyAuthorizedAuditWriter
+            {
+                Task<AuditId> AppendAsync(AuditAppend append, AuthorizationDecision decision, CancellationToken ct = default);
+            }
+            """);
+        if (expectedAudit is null || !HasSameReviewedTokens(auditSource, expectedAudit)) return false;
+        INamedTypeSymbol[] owned = [owner, writer, owner.GetTypeMembers("CompositeAuthorization").Single(), auditContract];
+        // These existing service/value/framework assemblies are the explicit trusted contract
+        // boundary. No new source-declared dependency, same-namespace shadow, or host helper
+        // may acquire that trust just by using an approved simple name.
+        var trustedAssemblies = new[] {
+            typeof(object).Assembly, typeof(Enumerable).Assembly, typeof(System.Text.Json.JsonDocument).Assembly,
+            typeof(EntityId).Assembly, typeof(TenantId).Assembly, typeof(WritePipeline).Assembly,
+            typeof(Harborline.Api.Foundation.Authorization.AuthorizationGate).Assembly,
+            typeof(Harborline.Api.Foundation.Authorization.AuthorizationDecision).Assembly,
+            typeof(Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions).Assembly,
+            typeof(Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator).Assembly,
+            typeof(Microsoft.Extensions.DependencyInjection.FromKeyedServicesAttribute).Assembly,
+        }.Select(assembly => assembly.FullName).ToHashSet(StringComparer.Ordinal);
+        bool Trusted(ITypeSymbol type)
+        {
+            if (type is IArrayTypeSymbol array) return Trusted(array.ElementType);
+            if (type is not INamedTypeSymbol named) return type is ITypeParameterSymbol;
+            if (named.IsAnonymousType) return named.GetMembers().OfType<IPropertySymbol>().All(property => Trusted(property.Type));
+            return (owned.Any(local => SymbolEqualityComparer.Default.Equals(local, named.OriginalDefinition))
+                    || trustedAssemblies.Contains(named.ContainingAssembly.Identity.ToString()))
+                && named.TypeArguments.All(Trusted);
+        }
+        IEnumerable<SyntaxNode> roots = [ownerSource.ParameterList!, ownerSource.BaseList!, auditSource,
+            writer.DeclaringSyntaxReferences.Single().GetSyntax()];
+        roots = roots.Concat(ownerSource.Members.Where(member => member is FieldDeclarationSyntax or PropertyDeclarationSyntax
+            || member is MethodDeclarationSyntax method && method.Identifier.ValueText is "DecideAllAsync" or "ReadChildrenNotEndedAsync"
+            || member is ClassDeclarationSyntax type && type.Identifier.ValueText == "CompositeAuthorization"));
+        foreach (var node in roots.SelectMany(root => root.DescendantNodesAndSelf()))
+        {
+            // nameof is a compiler form: its identifier has an error pseudo-type, while
+            // the complete expression is a bound constant string and its argument is checked below.
+            if (node is IdentifierNameSyntax { Identifier.ValueText: "nameof", Parent: InvocationExpressionSyntax nameOf }
+                && model.GetSymbolInfo(nameOf).Symbol is null
+                && model.GetTypeInfo(nameOf).Type?.SpecialType == SpecialType.System_String) continue;
+            if (node is ExpressionSyntax expression && model.GetTypeInfo(expression).Type is { } type && !Trusted(type)) return false;
+            if (node is ExpressionSyntax or AttributeSyntax)
+            {
+                var symbol = model.GetSymbolInfo(node).Symbol;
+                if (symbol is INamedTypeSymbol named && !Trusted(named)
+                    || symbol?.ContainingType is { } declaring && !Trusted(declaring)) return false;
+            }
+        }
+        return true;
+    }
+
     // Authenticate compiler output rather than coverage-rewritten IL. The approved
     // build target/SDK and coverage collector are trusted tools; this does not
     // attest arbitrary malicious post-build rewrites of the live coverage binary.
@@ -1279,7 +1730,8 @@ public sealed class WritePipelineExecutorFenceTests
         var directory = Path.GetDirectoryName(typeof(InMemoryEntityStore).Assembly.Location)!;
         var foundationPath = Path.Combine(directory, "Harborline.Api.Foundation.compile-image");
         var kernelPath = Path.Combine(directory, "Harborline.Api.Kernel.Runtime.compile-image");
-        foreach (var (assembly, image) in new[] { (typeof(InMemoryEntityStore).Assembly, foundationPath), (typeof(WritePipeline).Assembly, kernelPath) })
+        var hostPath = Path.Combine(directory, "Harborline.Api.LocalNodeHost.compile-image");
+        foreach (var (assembly, image) in new[] { (typeof(InMemoryEntityStore).Assembly, foundationPath), (typeof(WritePipeline).Assembly, kernelPath), (typeof(NodeHierarchyCompositeCoordinator).Assembly, hostPath) })
         {
             Assert.True(File.Exists(image), image);
             using var stream = File.OpenRead(image);
@@ -1288,7 +1740,10 @@ public sealed class WritePipelineExecutorFenceTests
             Assert.Equal(assembly.FullName, AssemblyName.GetAssemblyName(image).FullName);
             Assert.True(HasMatchingCompilerImage(assembly, image), image);
         }
-        using var context = new ConstructionProofContext(foundationPath, kernelPath);
+        using var context = new ConstructionProofContext(foundationPath, kernelPath, hostPath);
+        var hostMethod = context.Host!.GetType(typeof(NodeHierarchyCompositeCoordinator).FullName!)!.GetMethod("MergeAsync")!;
+        Assert.True(HasSameMethodIdentity(hostMethod, typeof(NodeHierarchyCompositeCoordinator).GetMethod("MergeAsync")!), "host method identity");
+        Assert.True(HasBoundCompiledSource(hostMethod.GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic)!, HostHierarchySource, hostPath), "host source binding");
         var owner = context.Foundation.GetType(typeof(InMemoryEntityStore).FullName!)!;
         var encoder = context.Foundation.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!;
         var calculation = owner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!;
@@ -1306,18 +1761,26 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.True(HasReviewedCalculationBindings(calculation, encode, context.Foundation), "calculation bindings");
     }
 
-    private static bool HasReviewedConstructionArtifacts(string? proofDirectory = null)
+    private static bool HasReviewedConstructionArtifacts(string? proofDirectory = null, Assembly? actualHost = null)
     {
         const string baseFile = "packages/kernel-runtime/WritePipelineStage.cs";
         const string calculationFile = "packages/foundation/Assets/Entities/InMemoryEntityStore.cs";
         var actualOwner = typeof(InMemoryEntityStore);
         var actualKernel = typeof(KernelWrite<,,,>);
+        actualHost ??= typeof(NodeHierarchyCompositeCoordinator).Assembly;
         proofDirectory ??= Path.GetDirectoryName(actualOwner.Assembly.Location)!;
         var foundationPath = Path.Combine(proofDirectory, actualOwner.Assembly.GetName().Name + ".compile-image");
         var kernelPath = Path.Combine(proofDirectory, actualKernel.Assembly.GetName().Name + ".compile-image");
-        if (!HasMatchingCompilerImage(actualOwner.Assembly, foundationPath)
+        var hostPath = Path.Combine(proofDirectory, actualHost.GetName().Name + ".compile-image");
+        if (!HasMatchingCompilerImage(actualHost, hostPath)
+            || !HasMatchingCompilerImage(actualOwner.Assembly, foundationPath)
             || !HasMatchingCompilerImage(actualKernel.Assembly, kernelPath)) return false;
-        using var context = new ConstructionProofContext(foundationPath, kernelPath);
+        using var context = new ConstructionProofContext(foundationPath, kernelPath, hostPath);
+        var hostMethod = context.Host!.GetType(typeof(NodeHierarchyCompositeCoordinator).FullName!, throwOnError: true)!.GetMethod("MergeAsync")!;
+        var actualHostMethod = actualHost.GetType(typeof(NodeHierarchyCompositeCoordinator).FullName!, throwOnError: true)!.GetMethod("MergeAsync")!;
+        if (!HasSameMethodIdentity(hostMethod, actualHostMethod)
+            || hostMethod.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic) is not { } hostBody
+            || !HasBoundCompiledSource(hostBody, HostHierarchySource, hostPath)) return false;
         var owner = context.Foundation.GetType(actualOwner.FullName!, throwOnError: true)!;
         var encoder = context.Foundation.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower", throwOnError: true)!;
         var kernel = context.Kernel.GetType(actualKernel.FullName!, throwOnError: true)!;
@@ -1346,6 +1809,12 @@ public sealed class WritePipelineExecutorFenceTests
     [InlineData("missing-symbols")]
     [InlineData("replaced-symbols")]
     [InlineData("wrong-manifest")]
+    [InlineData("host-missing-image")]
+    [InlineData("host-modified-image")]
+    [InlineData("host-stale-module")]
+    [InlineData("host-missing-symbols")]
+    [InlineData("host-replaced-symbols")]
+    [InlineData("host-wrong-manifest")]
     public void CompilerConstructionProofRejectsMissingTamperedOrStaleEvidence(string change)
     {
         var output = Path.GetDirectoryName(typeof(InMemoryEntityStore).Assembly.Location)!;
@@ -1353,11 +1822,13 @@ public sealed class WritePipelineExecutorFenceTests
         Directory.CreateDirectory(directory);
         try
         {
-            foreach (var name in new[] { "Harborline.Api.Foundation", "Harborline.Api.Kernel.Runtime" })
+            foreach (var name in new[] { "Harborline.Api.Foundation", "Harborline.Api.Kernel.Runtime", "Harborline.Api.LocalNodeHost" })
                 foreach (var extension in new[] { ".compile-image", ".compile-symbols", ".compile-inputs.txt" })
                     File.Copy(Path.Combine(output, name + extension), Path.Combine(directory, name + extension));
             Assert.True(HasReviewedConstructionArtifacts(directory));
-            var imagePath = Path.Combine(directory, "Harborline.Api.Foundation.compile-image");
+            var target = change.StartsWith("host-", StringComparison.Ordinal) ? typeof(NodeHierarchyCompositeCoordinator).Assembly : typeof(InMemoryEntityStore).Assembly;
+            if (change.StartsWith("host-", StringComparison.Ordinal)) change = change[5..];
+            var imagePath = Path.Combine(directory, target.GetName().Name + ".compile-image");
             var symbolsPath = Path.ChangeExtension(imagePath, ".compile-symbols");
             var manifestPath = Path.ChangeExtension(imagePath, ".compile-inputs.txt");
             switch (change)
@@ -1368,7 +1839,7 @@ public sealed class WritePipelineExecutorFenceTests
                     break;
                 case "stale-module":
                     var bytes = File.ReadAllBytes(imagePath);
-                    var id = typeof(InMemoryEntityStore).Module.ModuleVersionId.ToByteArray();
+                    var id = target.ManifestModule.ModuleVersionId.ToByteArray();
                     var index = bytes.AsSpan().IndexOf(id);
                     Assert.True(index >= 0);
                     bytes[index] ^= 0x01;
@@ -1417,11 +1888,13 @@ public sealed class WritePipelineExecutorFenceTests
     {
         internal Assembly Foundation { get; }
         internal Assembly Kernel { get; }
+        internal Assembly? Host { get; }
 
-        internal ConstructionProofContext(string foundationPath, string kernelPath) : base(isCollectible: true)
+        internal ConstructionProofContext(string foundationPath, string kernelPath, string? hostPath = null) : base(isCollectible: true)
         {
             Foundation = LoadImage(foundationPath);
             Kernel = LoadImage(kernelPath);
+            if (hostPath is not null) Host = LoadImage(hostPath);
         }
 
         private Assembly LoadImage(string imagePath)
