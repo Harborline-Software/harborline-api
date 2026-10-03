@@ -39,6 +39,7 @@ export function afterCompile({argsFile, source, captureSession, env}) {
   const beforeMatches = before.captureSession === captureSession && observation.completeCompilerObservation
     && observation.files.every(file => before.files.some(prior => prior.identity === file.identity && prior.sha256 === file.sha256))
   const snapshot = {schemaVersion: 1, captureSession, beforeMatches,
+    resolvedPackageRoot: compilerRoots(source, env).find(root => root.name === 'packages')?.directory ?? null,
     argsDigest: digest(readFileSync(argsFile)), contextDigest: digest(readFileSync(argsFile.replace(/\.args$/, '.context'))),
     files: observation.files}
   writeFileSync(argsFile.replace(/\.args$/, '.snapshot'), JSON.stringify(snapshot))

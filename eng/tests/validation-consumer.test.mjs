@@ -20,6 +20,7 @@ test('candidate-specific reports deny incomplete lanes and coverage-mode mismatc
   const records = ['verify-macos', 'verify-linux', 'verify-windows-hosted'].map(lane => {
     const manifest = inputs()
     manifest.platform.os = lane === 'verify-macos' ? 'darwin' : lane === 'verify-linux' ? 'linux' : 'win32'
+    manifest.platform.architecture = lane === 'verify-macos' ? 'arm64' : 'x64'
     manifest.selection.hostBaseline = lane === 'verify-macos' ? 'eng/baselines/host-test-baseline.macos.json'
       : lane === 'verify-linux' ? 'eng/baselines/host-test-baseline.ubuntu.json' : 'eng/baselines/host-test-baseline.json'
     if (lane === 'verify-windows-hosted') {
@@ -42,7 +43,7 @@ test('candidate-specific reports deny incomplete lanes and coverage-mode mismatc
   records[2].observation.fingerprint = fingerprint(records[2].observation.inputs)
   assert.equal((await inspect()).requiredLaneSetComplete, true)
   for (const [field, invalid] of [['lane', 'shared'], ['platform', {...records[0].observation.inputs.platform, os: 'win32'}],
-    ['platform', {...records[0].observation.inputs.platform, architecture: 'arm64'}],
+    ['platform', {...records[0].observation.inputs.platform, architecture: 'x64'}],
     ['selection', {...records[0].observation.inputs.selection, hostBaseline: 'eng/baselines/host-test-baseline.json'}],
     ['commitInputs', {...records[0].observation.inputs.commitInputs, scope: 'shared'}]]) {
     const original = records[0].observation.inputs[field]

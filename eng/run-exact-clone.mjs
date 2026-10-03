@@ -25,6 +25,7 @@ import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './cove
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
+import {establishNuGetRoot} from './validation-nuget-root.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -148,6 +149,13 @@ try {
     for (const report of Object.values(coveragePaths)) rmSync(report, {force: true})
   }
   execFileSync('git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], {stdio: 'ignore'})
+  try {
+    // Resolve once before restore/build. The child snapshot and later collector
+    // inherit this independently observed root, including NuGet.config overrides.
+    establishNuGetRoot({cwd: clone})
+  } catch {
+    console.error('compiler package root unavailable; input observation remains incomplete')
+  }
 
   // Sanity: the clone must carry no build or dependency artifacts. If it does, the .gitignore is
   // wrong and this gate would be testing the same ambient state it exists to exclude.

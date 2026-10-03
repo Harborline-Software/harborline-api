@@ -123,6 +123,17 @@ expected OS, architecture, baseline and host scope as well as coverage/quality.
 Projects with NET analyzers disabled remain unobserved rather than invoking a
 missing SDK analyzer preparation target.
 
+The exact-clone parent queries `dotnet nuget locals global-packages --list
+--force-english-output` in the checkout before restore/build, then shares that
+resolved `NUGET_PACKAGES` root with its children and collector. Snapshot metadata
+records the child root but never grants a new approved root; a mismatch refuses
+completeness. Missing, relative or ambiguous native query output remains
+unobserved. Bounded native proofs exercised both an initially unset override
+(NuGet's actual default) and an explicit isolated override; both parent/child
+roots matched independent native queries and both fresh captures contained 193
+files. Package-file root/hash mismatches also have independent Node fixtures.
+The standard `macos-15` profile is ARM64, with its macOS host baseline.
+
 No signer or check-writing token was added. The consumer publishes a shadow
 artifact using the existing Actions runtime mechanism and cannot skip gates or
 write required candidate check verdicts. Promoting it to an authoritative required

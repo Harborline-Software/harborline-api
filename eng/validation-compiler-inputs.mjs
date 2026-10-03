@@ -110,6 +110,10 @@ export function readCompilerObservation({argsFile, roots, expectedCaptureSession
   if (!capturePhase) {
     try {
       const snapshot = JSON.parse(readFileSync(argsFile.replace(/\.args$/, '.snapshot'), 'utf8'))
+      const packageRoot = roots.find(root => root.name === 'packages')?.directory ?? null
+      if (packageRoot === null ? snapshot.resolvedPackageRoot != null
+        : typeof snapshot.resolvedPackageRoot !== 'string' || path.relative(packageRoot, snapshot.resolvedPackageRoot) !== '')
+        problems.push('compiler resolved package root differs from collector')
       if (!/^[0-9a-f-]{36}$/.test(expectedCaptureSession ?? '') || snapshot.captureSession !== expectedCaptureSession
         || snapshot.schemaVersion !== 1 || snapshot.beforeMatches !== true
         || snapshot.argsDigest !== digest(readFileSync(argsFile))

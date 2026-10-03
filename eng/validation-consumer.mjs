@@ -8,7 +8,8 @@ import {compareObservations} from './validation-shadow-report.mjs'
 import {fingerprint, inputProblems} from './validation-reuse.mjs'
 
 const hostProfiles = {
-  'verify-macos': {os: 'darwin', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.macos.json'},
+  // GitHub's standard macos-15 selector is ARM64; macos-15-intel is a different profile.
+  'verify-macos': {os: 'darwin', architecture: 'arm64', baseline: 'eng/baselines/host-test-baseline.macos.json'},
   'verify-linux': {os: 'linux', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.ubuntu.json'},
   'verify-windows-hosted': {os: 'win32', architecture: 'x64', baseline: 'eng/baselines/host-test-baseline.json'},
 }
