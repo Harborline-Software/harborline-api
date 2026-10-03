@@ -70,7 +70,6 @@
                 "kind": "Literal",
                 "value": "Reason"
               },
-              "controlHint": "select",
               "piiSensitivity": "None"
             },
             "residency": {
@@ -78,7 +77,6 @@
                 "kind": "Literal",
                 "value": "Residency"
               },
-              "controlHint": "select",
               "piiSensitivity": "None"
             }
           },
