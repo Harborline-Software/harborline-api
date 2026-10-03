@@ -59,6 +59,18 @@ test('importing a CLI as a module does not run its main body', async () => {
   assert.equal(typeof module.normalizeEslintSarifFile, 'function')
 })
 
+test('validation CLIs refuse bad input through a linked repository instead of returning silent success', t => {
+  const link = linkedRepositoryRoot(t)
+  if (!link) return t.skip('symlink creation not permitted on this host')
+  for (const [name, diagnostic] of [['validation-github-shadow.mjs', /validation shadow unavailable/],
+    ['validation-shadow-report.mjs', /usage: validation-shadow-report\.mjs/]]) {
+    const result = spawnSync(process.execPath, [path.join(link, 'eng', name)],
+      {cwd: repositoryRoot, encoding: 'utf8', timeout: 10000})
+    assert.notEqual(result.status, 0, `${name} must execute its refusal through a junction`)
+    assert.match(result.stderr, diagnostic)
+  }
+})
+
 test('no entry point compares process.argv[1] against import.meta', () => {
   const offenders = []
   const walk = directory => {

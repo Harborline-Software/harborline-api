@@ -16,8 +16,9 @@ export function compareObservations(current, prior) {
     trustBlocker: 'unsigned branch-produced observation; authenticated isolated producer required'}
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (import.meta.main) {
   const [currentDirectory, priorDirectory, output] = process.argv.slice(2)
+  if (!currentDirectory || !priorDirectory || !output) throw new Error('usage: validation-shadow-report.mjs <current> <prior> <output>')
   const observations = directory => {
     const found = new Map()
     const visit = root => {
