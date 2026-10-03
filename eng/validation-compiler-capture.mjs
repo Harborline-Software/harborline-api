@@ -45,9 +45,12 @@ export function afterCompile({argsFile, source, captureSession, env}) {
   return snapshot
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (import.meta.main) {
   const [phase, argsFile, source, captureSession] = process.argv.slice(2)
-  try {
+  if (!['before', 'after'].includes(phase) || !argsFile || !source || !captureSession) {
+    console.error('usage: validation-compiler-capture.mjs before|after <args> <source> <session>')
+    process.exitCode = 1
+  } else try {
     if (phase === 'before') beforeCompile({argsFile, source, captureSession})
     else if (phase === 'after') afterCompile({argsFile, source, captureSession})
     else throw new Error('unknown capture phase')

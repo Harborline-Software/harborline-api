@@ -63,7 +63,9 @@ test('validation CLIs refuse bad input through a linked repository instead of re
   const link = linkedRepositoryRoot(t)
   if (!link) return t.skip('symlink creation not permitted on this host')
   for (const [name, diagnostic] of [['validation-github-shadow.mjs', /validation shadow unavailable/],
-    ['validation-shadow-report.mjs', /usage: validation-shadow-report\.mjs/]]) {
+    ['validation-shadow-report.mjs', /usage: validation-shadow-report\.mjs/],
+    ['validation-consumer.mjs', /validation consumer unavailable/],
+    ['validation-compiler-capture.mjs', /usage: validation-compiler-capture\.mjs/]]) {
     const result = spawnSync(process.execPath, [path.join(link, 'eng', name)],
       {cwd: repositoryRoot, encoding: 'utf8', timeout: 10000})
     assert.notEqual(result.status, 0, `${name} must execute its refusal through a junction`)

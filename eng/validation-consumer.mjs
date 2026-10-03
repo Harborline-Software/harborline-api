@@ -60,7 +60,7 @@ export async function inspectCandidate({api, runId, consumerContext, observe = o
     reuseAuthorized: false, requiredWorkSkipped: false}
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+if (import.meta.main) {
   const directory = path.resolve('.claude/gate-evidence')
   const context = {repository: process.env.VALIDATION_CONSUMER_REPOSITORY,
     eventName: process.env.VALIDATION_CONSUMER_EVENT, workflowRef: process.env.VALIDATION_CONSUMER_WORKFLOW_REF,

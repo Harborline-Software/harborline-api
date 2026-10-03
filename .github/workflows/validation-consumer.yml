@@ -41,4 +41,5 @@ jobs:
         with:
           name: validation-consumer-shadow-${{ github.run_id }}
           if-no-files-found: ignore
+          include-hidden-files: true # bounded to the one explicit JSON file below
           path: .claude/gate-evidence/validation-consumer-shadow.json
