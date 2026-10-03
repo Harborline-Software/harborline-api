@@ -86,7 +86,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     /// <c>AddSqlCipherLocalNodeDbContext</c>).</summary>
     /// <param name="factory">The packs context factory.</param>
     /// <param name="audit">
-    /// T-1048 (DES-0029 ck-6): when present, an install, activation or deactivation stages its carried
+    /// T-1048 (DES-0029 ck-6): when present, an install, activation, deactivation or narrowing stages its carried
     /// <see cref="PackCommitAudit"/> through this adapter in the same transaction as the change, as an audit outbox
     /// entry. Null stages nothing, and the installer's post-commit append records the audit.
     /// </param>
@@ -216,6 +216,16 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         lock (_gate)
         {
             using var ctx = CreateContext();
+            using var transaction = ctx.Database.CurrentTransaction is null ? ctx.Database.BeginTransaction() : null;
+            if (tenantOverride.ExpectedReadset is { } readset)
+            {
+                var observedActive = ctx.InstalledVersions.AsNoTracking()
+                    .FirstOrDefault(row => row.Tenant == t && row.PackKey == packKey && row.Lifecycle == LifecycleActive);
+                var observedOverrides = ctx.Overrides.AsNoTracking()
+                    .Where(row => row.Tenant == t && row.PackKey == packKey).ToList()
+                    .Select(row => new PackTenantOverride(row.ContentKey, ParseOverlay(row.ContentKey, row.OverlayJson))).ToArray();
+                readset.RequireCurrent(observedActive is null ? null : Materialize(observedActive), observedOverrides);
+            }
             var row = ctx.Overrides.Find(t, packKey, tenantOverride.ContentKey);
             if (row is null)
             {
@@ -233,7 +243,9 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
                 row.OverlayJson = json;
             }
 
+            StageAudit(ctx, tenantOverride.Audit);
             ctx.SaveChanges();
+            transaction?.Commit();
         }
     }
 
