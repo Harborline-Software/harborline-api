@@ -53,7 +53,7 @@ test('download redirect never receives API credentials and non-HTTPS redirects a
   await assert.rejects(api('https://attacker.example'), /unsupported API endpoint/)
 })
 const inputs = {schemaVersion: 1, repository: run.repository.full_name, candidateTree: 'b'.repeat(40), lane: 'host',
-  dependencies: {}, producer: {}, toolchain: {}, platform: {}, pins: {}, selection: {}, coverage: {enabled: false},
+  dependencies: {}, producer: {}, toolchain: {}, platform: {os: 'darwin', architecture: 'arm64'}, pins: {}, selection: {}, coverage: {enabled: false},
   commitInputs: {}, unknownInputs: ['evaluated compiler inputs not observed']}
 const unpack = () => ({observation: {candidateSha: 'c'.repeat(40), inputs, fingerprint: fingerprint(inputs)},
   receipt: {baseHead: 'c'.repeat(40), testedTree: 'b'.repeat(40), lane: 'host'}})
@@ -73,18 +73,28 @@ test('real orchestration verifies transport but never promotes unsigned branch d
   assert.equal(result.lanes[0].trusted, false)
   assert.equal(result.reuseAuthorized, false)
   assert.equal(result.requiredWorkSkipped, false)
+  assert.deepEqual(result.lanes[0].currentProblems, [])
+  assert.deepEqual(result.lanes[0].priorProblems, [])
+  assert.equal(result.lanes[0].currentEvent, 'pull_request')
+  assert.equal(result.lanes[0].priorEvent, 'pull_request')
+  assert.deepEqual(result.lanes[1].currentProblems, ['missing or duplicate job/artifact'])
+  assert.deepEqual(result.lanes[1].priorProblems, ['missing or duplicate job/artifact'])
   assert.equal((await observeRun({runId: 123, api: mockApi, unpack}))[0].event, 'pull_request')
 })
 
 test('merge-group event comes from authenticated run metadata for coverage profile selection', async () => {
-  const observed = await observeRun({runId: 123, unpack, api: async endpoint => {
+  const api = async endpoint => {
     if (endpoint.endsWith('/123')) return {...run, event: 'merge_group', head_sha: 'c'.repeat(40)}
     if (endpoint.includes('/artifacts?')) return {total_count: 1, artifacts: [{...artifact,
       workflow_run: {...artifact.workflow_run, head_sha: 'c'.repeat(40)}}]}
     return mockApi(endpoint)
-  }})
+  }
+  const observed = await observeRun({runId: 123, unpack, api})
   assert.equal(observed[0].transportVerified, true)
   assert.equal(observed[0].event, 'merge_group')
+  const report = await compareRuns({currentRunId: 123, priorRunId: 123, unpack, api})
+  assert.equal(report.lanes[0].currentEvent, 'merge_group')
+  assert.equal(report.lanes[0].priorEvent, 'merge_group')
 })
 test('orchestration rejects forged candidate binding, duplicate artifacts and pagination gaps', async () => {
   const forged = await observeRun({runId: 123, api: mockApi, unpack: () => ({...unpack(), receipt: {lane: 'all'}})})
@@ -122,7 +132,9 @@ test('normal gh download artifact folders compare by canonical host lane across 
   const current = path.join(root, 'current'), prior = path.join(root, 'prior')
   for (const lane of ['verify-macos', 'verify-linux', 'verify-windows-hosted']) {
     const manifest = fixtureInputs()
-    manifest.unknownInputs = ['trusted producer closure not established']
+    manifest.platform = lane === 'verify-macos' ? {os: 'darwin', architecture: 'arm64', release: '24.0'}
+      : lane === 'verify-linux' ? {os: 'linux', architecture: 'x64', release: '6.8'}
+        : {os: 'win32', architecture: 'x64', release: '10.0.26100'}
     const observation = {candidateSha: 'a'.repeat(40), inputs: manifest, fingerprint: fingerprint(manifest)}
     for (const [directory, runId] of [[current, '123'], [prior, '122']]) {
       const folder = path.join(directory, `${lane}-evidence-${runId}`, '.claude/gate-evidence')
@@ -134,7 +146,7 @@ test('normal gh download artifact folders compare by canonical host lane across 
   assert.deepEqual(result.lanes.map(lane => lane.lane), ['verify-macos', 'verify-linux', 'verify-windows-hosted'])
   assert.equal(result.evidenceState, 'present')
   assert.equal(result.lanes.every(lane => lane.sameInputs), true)
-  assert.equal(result.lanes.every(lane => lane.completeInputs), false)
+  assert.equal(result.lanes.every(lane => lane.completeInputs), true)
   assert.equal(result.reuseAuthorized, false)
   assert.equal(result.requiredWorkSkipped, false)
   // The real documented CLI must compare the same two downloaded directory shapes.
@@ -143,6 +155,30 @@ test('normal gh download artifact folders compare by canonical host lane across 
     current, prior, output], {encoding: 'utf8'})
   assert.equal(cli.status, 0, cli.stderr)
   assert.equal(JSON.parse(readFileSync(output, 'utf8')).lanes.every(lane => lane.sameInputs), true)
+  // Complete Windows evidence copied into every folder cannot qualify Mac/Linux.
+  const windowsInputs = fixtureInputs()
+  const wrongHost = {candidateSha: 'a'.repeat(40), inputs: windowsInputs, fingerprint: fingerprint(windowsInputs)}
+  for (const [directory, runId] of [[current, '123'], [prior, '122']])
+    for (const lane of ['verify-macos', 'verify-linux', 'verify-windows-hosted'])
+      writeFileSync(path.join(directory, `${lane}-evidence-${runId}`, '.claude/gate-evidence/validation-inputs-shadow.json'), JSON.stringify(wrongHost))
+  const wrong = compareDirectories(current, prior)
+  assert.equal(wrong.evidenceState, 'unknown')
+  for (const lane of wrong.lanes.slice(0, 2)) {
+    assert.equal(lane.completeInputs, false)
+    assert.deepEqual(lane.problems, ['current observation host profile differs from expected lane',
+      'prior observation host profile differs from expected lane'])
+  }
+  assert.equal(wrong.lanes[2].completeInputs, true)
+  assert.equal(wrong.reuseAuthorized, false)
+  assert.equal(wrong.requiredWorkSkipped, false)
+  for (const candidateSha of [undefined, 'invalid', 'a'.repeat(39)]) {
+    writeFileSync(path.join(current, 'verify-windows-hosted-evidence-123', '.claude/gate-evidence/validation-inputs-shadow.json'),
+      JSON.stringify({...wrongHost, candidateSha}))
+    const malformed = compareDirectories(current, prior)
+    assert.equal(malformed.evidenceState, 'unknown')
+    assert.equal(malformed.lanes[2].completeInputs, false)
+    assert.match(malformed.lanes[2].problems.join(), /candidate identity missing or invalid/)
+  }
   rmSync(path.join(current, 'verify-linux-evidence-123'), {recursive: true})
   const missingCurrent = compareDirectories(current, prior)
   assert.equal(missingCurrent.evidenceState, 'unknown')

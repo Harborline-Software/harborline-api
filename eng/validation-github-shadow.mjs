@@ -128,8 +128,10 @@ export async function compareRuns({currentRunId, priorRunId, api, unpack}) {
       const before = prior.find(entry => entry.lane === lane)
       return {lane, currentTransportVerified: item?.transportVerified ?? false,
         priorTransportVerified: before?.transportVerified ?? false,
-        currentProblems: item?.problems ?? ['current host lane missing'], priorProblems: before?.problems ?? ['prior host lane missing'],
-        ...compareObservations(item?.observation, before?.observation)}
+        currentEvent: item?.event ?? null, priorEvent: before?.event ?? null,
+        currentProblems: item ? (item.problems ?? []) : ['current host lane missing'],
+        priorProblems: before ? (before.problems ?? []) : ['prior host lane missing'],
+        ...compareObservations(item?.observation, before?.observation, lane)}
     })}
 }
 
