@@ -49,6 +49,7 @@ public sealed class FormSubmitOutboxEntityModule : IHarborlineEntityModule
                 .HasColumnName("submitted_values_json")
                 .HasColumnType("TEXT")
                 .IsRequired();
+            entity.Property(row => row.ProjectionDefinitionJson).HasColumnType("TEXT");
             entity.Property(row => row.CaseRef).HasMaxLength(512);
             entity.Property(row => row.State).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(row => row.Attempts).IsRequired();

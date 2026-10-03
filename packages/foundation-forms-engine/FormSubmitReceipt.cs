@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Submission;
 
 namespace Harborline.Api.Foundation.Forms.Engine;
@@ -18,10 +19,12 @@ namespace Harborline.Api.Foundation.Forms.Engine;
 /// (audited server-side) so the route can honestly tell the user — never silent success. Defaults to an
 /// empty list so a pre-Wave-3a receipt is unchanged.
 /// </param>
+/// <param name="ProjectionDefinition">The exact projection definition pinned on the persisted entity, when applicable.</param>
 public readonly record struct FormSubmitReceipt(
     EntityId InstanceId,
     DateTimeOffset SubmittedAt,
-    IReadOnlyList<FormSubmitProjectionSkip>? ProjectionSkips = null)
+    IReadOnlyList<FormSubmitProjectionSkip>? ProjectionSkips = null,
+    DefinitionCoordinates? ProjectionDefinition = null)
 {
     /// <summary>The reported skips, never null (empty when nothing was skipped).</summary>
     public IReadOnlyList<FormSubmitProjectionSkip> Skips =>
