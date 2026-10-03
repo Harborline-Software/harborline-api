@@ -15,8 +15,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Entities;
 /// <summary>
 /// Ticket 331 slice 2 -- a persisted legal entity and the audit id of the decision that permitted the
 /// write, so the route can answer "why was this allowed?" with an addressable id. With the audit outbox
-/// composed (T-1048) it is the entry committed with the write; otherwise it is null when no audit sink is
-/// composed or its post-commit append faulted. The write itself stands either way.
+/// composed (T-1048) it identifies the committed entry only after actual trail delivery is confirmed. It is
+/// null while delivery is owed or cannot be confirmed, or when no audit sink is composed. The write stands.
 /// </summary>
 public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
 
@@ -80,7 +80,8 @@ public sealed class NodeEntityWriter(
 
     /// <summary>
     /// React: delivers the audit commit staged now (the drain daemon delivers it if this delivery fails, and the
-    /// write stands either way) and returns its id; with no outbox composed, records the act after commit.
+    /// write stands either way) and returns its id only when the actual trail holds it; with no outbox composed,
+    /// records the act after commit.
     /// </summary>
     private async ValueTask<Guid?> DeliverAcceptedAsync(
         Guid? staged, AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema,
@@ -91,6 +92,9 @@ public sealed class NodeEntityWriter(
         try
         {
             await outbox.DrainAsync(ct).ConfigureAwait(false);
+            return staged is { } auditId
+                && await outbox.IsDeliveredAsync(decision.Request.Tenant, auditId, ct).ConfigureAwait(false)
+                    ? auditId : null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -98,7 +102,7 @@ public sealed class NodeEntityWriter(
             _ = exception;
         }
 
-        return staged;
+        return null;
     }
     /// <summary>
     /// Stage two (ADR 0065 clause 4), with its refusal recorded where the decision trace reads it

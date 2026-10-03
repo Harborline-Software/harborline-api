@@ -113,11 +113,39 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
         var written = await Writer().CreateLegalEntityAsync(
             new CreateLegalEntityCommand(new LegalEntityId("t1048f-live"), "Live LLC", "Llc", "DisregardedEntity", null), Authority);
 
-        var record = Assert.Single(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordWritten")));
+        var record = Assert.Single((await _audit.Reader.ListAsync(Tenant,
+            new AuditEventReaderQuery(EventType: new AuditEventType("RecordWritten")))).Records);
         Assert.NotNull(written.AuditId);
         Assert.Equal(written.AuditId, record.AuditId);
         Assert.Equal(Actor, record.Actor);
         Assert.Empty(await OwedAsync(_audit));
+    }
+
+    [Fact]
+    public async Task LegalEntityCreate_AppendFailure_ReturnsNoTraceId_AndRecoversTheOwedAuditOnce()
+    {
+        await _audit.ExecuteAsync("CREATE TRIGGER t1048f_legal_delivery_fault BEFORE INSERT ON search_audit_trail BEGIN SELECT RAISE(ABORT, 'legal audit delivery failure'); END;");
+        var id = new LegalEntityId("t1048f-delivery-fault");
+
+        var written = await Writer().CreateLegalEntityAsync(
+            new CreateLegalEntityCommand(id, "Owed LLC", "Llc", "DisregardedEntity", null), Authority);
+
+        Assert.Null(written.AuditId);
+        await using (var db = LocalNode(_audit))
+            Assert.Equal("Owed LLC", (await db.Set<LegalEntity>().SingleAsync(row => row.Id == id)).LegalName);
+        var owedId = Guid.Parse(Assert.Single(await OwedAsync(_audit)));
+        Assert.Empty((await _audit.Reader.ListAsync(Tenant,
+            new AuditEventReaderQuery(EventType: new AuditEventType("RecordWritten")))).Records);
+        await _audit.ExecuteAsync("DROP TRIGGER t1048f_legal_delivery_fault;");
+
+        await using var restarted = _audit.Reopen();
+        Assert.Equal(1, await restarted.Outbox.DrainAsync());
+        var recovered = Assert.Single((await restarted.Reader.ListAsync(Tenant,
+            new AuditEventReaderQuery(EventType: new AuditEventType("RecordWritten")))).Records);
+        Assert.Equal(owedId, recovered.AuditId);
+        Assert.Equal("t1048f-delivery-fault", recovered.Payload.Payload.Body["recordId"]?.ToString());
+        Assert.Equal(0, await restarted.Outbox.DrainAsync());
+        Assert.Empty(await OwedAsync(restarted));
     }
 
     [Fact]
@@ -281,7 +309,8 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
     }
 
     private static LocalNodeDbContext LocalNode(DurableAuditHarness harness) =>
-        harness.Store.CreateLocalNodeContext([new FinancialLedgerEntityModule(), new Data.Audit.AuditOutboxEntityModule()]);
+        harness.Store.CreateLocalNodeContext([new FinancialLedgerEntityModule(),
+            new Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule(), new Data.Audit.AuditOutboxEntityModule()]);
 
     private sealed class LocalNodeFactory(DurableAuditHarness harness) : IDbContextFactory<LocalNodeDbContext>
     {

@@ -221,6 +221,10 @@ public sealed class NodeAuditOutbox(
         return delivered;
     }
 
+    /// <summary>Confirms that this tenant's audit is addressable on the actual trail, even if its outbox mark failed.</summary>
+    public Task<bool> IsDeliveredAsync(TenantId tenant, Guid auditId, CancellationToken ct = default) =>
+        HoldsAsync(tenant, auditId, ct);
+
     private async Task<bool> HoldsAsync(TenantId tenant, Guid auditId, CancellationToken ct)
     {
         await foreach (var _ in trail.QueryAsync(new AuditQuery(tenant, AuditId: auditId), ct).ConfigureAwait(false))
