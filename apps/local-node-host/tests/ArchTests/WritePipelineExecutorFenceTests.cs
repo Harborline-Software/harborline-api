@@ -350,6 +350,61 @@ public sealed class WritePipelineExecutorFenceTests
     }
 
     [Theory]
+    [InlineData("var escape = new Escape(write, observer); await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await escape.Pending;")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); var escape = new Escape(write, observer); return await escape.PendingField;")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await Escape.PendingStatic;")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await Escape.Shared[0];")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await +Escape.Shared;")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); Task<int> pending = Escape.Shared; return await pending;")]
+    public void ExemptionRejectsNonInvocationEffectsOutsideAtomicCallback(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText(BoundaryFixture(body) + """
+            class Escape {
+                static KernelWrite<object, int, int, int> write = null;
+                static IWritePipelineObserver observer = null;
+                public static Escape Shared;
+                public readonly Task<int> PendingField;
+                public Escape(KernelWrite<object, int, int, int> supplied, IWritePipelineObserver observed) {
+                    write = supplied; observer = observed;
+                    PendingField = WritePipeline.RunAsync(write, observer, default).AsTask();
+                }
+                public Task<int> Pending => WritePipeline.RunAsync(write, observer, default).AsTask();
+                public static Task<int> PendingStatic => WritePipeline.RunAsync(write, observer, default).AsTask();
+                public Task<int> this[int index] => WritePipeline.RunAsync(write, observer, default).AsTask();
+                public static Task<int> operator +(Escape value) => WritePipeline.RunAsync(write, observer, default).AsTask();
+                public static implicit operator Task<int>(Escape value) => WritePipeline.RunAsync(write, observer, default).AsTask();
+            }
+            """);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Fact]
+    public void ExemptionRejectsStaticFieldInitializerExecutionOutsideAtomicCallback()
+    {
+        var tree = CSharpSyntaxTree.ParseText(BoundaryFixture("""
+            await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));
+            return await Escape.Pending;
+            """) + """
+            class Escape {
+                static KernelWrite<object, int, int, int> write = null;
+                static IWritePipelineObserver observer = null;
+                public static readonly Task<int> Pending = WritePipeline.RunAsync(write, observer, default).AsTask();
+                // An explicit type initializer makes the first static field read the initialization trigger.
+                static Escape() { }
+            }
+            """);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ExemptionRejectsConditionalShippingAndDecoyBranches(bool productionSymbols)
@@ -453,6 +508,11 @@ public sealed class WritePipelineExecutorFenceTests
         if (method.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(call =>
             !call.Ancestors().Contains(callback) && call != atomicCall
                 && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model))) return false;
+        // Invocation syntax is not the complete side-effect surface: construction, accessors and
+        // user-defined operators/conversions can run an escaped executor without an invocation node.
+        // Refuse those outside the reviewed callback instead of assuming interprocedural purity.
+        if (method.DescendantNodes().OfType<ExpressionSyntax>().Any(expression =>
+            !expression.Ancestors().Contains(callback) && HasUnsupportedOuterEffect(expression, model))) return false;
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsExecutorCall(call, model))
             .ToArray();
@@ -471,6 +531,20 @@ public sealed class WritePipelineExecutorFenceTests
                 && CompletesTaskInDirectReachableBody(atomic, method, model)
                 && CompletesExecutorBeforeCallbackReturns(call, function, model);
         });
+    }
+
+    private static bool HasUnsupportedOuterEffect(ExpressionSyntax expression, SemanticModel model)
+    {
+        if (expression is BaseObjectCreationExpressionSyntax or AssignmentExpressionSyntax
+            || expression.IsKind(SyntaxKind.PreIncrementExpression)
+            || expression.IsKind(SyntaxKind.PreDecrementExpression)
+            || expression.IsKind(SyntaxKind.PostIncrementExpression)
+            || expression.IsKind(SyntaxKind.PostDecrementExpression)) return true;
+        var symbol = model.GetSymbolInfo(expression).Symbol;
+        if (symbol is IPropertySymbol or IEventSymbol
+            || symbol is IFieldSymbol { IsStatic: true, IsConst: false }) return true;
+        if (symbol is IMethodSymbol { MethodKind: MethodKind.UserDefinedOperator or MethodKind.Conversion }) return true;
+        return model.GetConversion(expression).MethodSymbol is not null;
     }
 
     private static bool IsMutationCall(InvocationExpressionSyntax call, SemanticModel model)
