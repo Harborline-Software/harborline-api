@@ -13,6 +13,7 @@
     <ProjectReference Include="..\kernel-schema-registry\Harborline.Kernel.SchemaRegistry.csproj" />
     <ProjectReference Include="..\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+    <ProjectReference Include="..\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
     <!-- F-11: the SPINE-2 governance seam (IFieldPolicyEnforcer + IAspectResolver) the engine
          optionally composes to enforce classification on field VALUES (ADR 0140 D2). -->
     <ProjectReference Include="..\foundation-governance\Harborline.Foundation.Governance.csproj" />
