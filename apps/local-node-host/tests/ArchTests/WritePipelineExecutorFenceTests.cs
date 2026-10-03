@@ -114,7 +114,9 @@ public sealed class WritePipelineExecutorFenceTests
     [Fact(DisplayName = "ck-10 S6 fence: every exempt site runs the executor inside the unit it opens")]
     public void EveryExemptSiteRunsTheExecutorInsideItsUnit()
     {
-        var runCallers = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
+        var assemblies = ProductionAssemblies();
+        var mutationSites = RawMutationPortSymbolInventoryTests.DiscoverCalls(assemblies, IsCommitSink);
+        var runCallers = RawMutationPortSymbolInventoryTests.DiscoverCalls(assemblies,
                 target => target.DeclaringType == typeof(WritePipeline) && target.Name == nameof(WritePipeline.RunAsync))
             .Select(site => site.Symbol)
             .ToArray();
@@ -125,6 +127,16 @@ public sealed class WritePipelineExecutorFenceTests
             var caller = row.Key[(row.Key.IndexOf('|') + 1)..];
             var method = caller[(caller.LastIndexOf('.') + 1)..];
             var type = caller[..caller.LastIndexOf('.')];
+            // The exemption reviews ONE opener, not every sink sharing the same path|method key.
+            // Keep ordinals and targets: two calls to the same opener must not collapse into one row.
+            var sites = mutationSites.Where(site => site.Path == row.Key[..row.Key.IndexOf('|')]
+                && (site.Symbol.StartsWith(caller + "(", StringComparison.Ordinal)
+                    || (site.Symbol.StartsWith(type + "+", StringComparison.Ordinal)
+                            || site.Symbol.StartsWith(type + ".", StringComparison.Ordinal))
+                        && site.Symbol.Contains($"<{method}>", StringComparison.Ordinal))).ToArray();
+            Assert.True(HasOnlyReviewedExemptionSite(sites),
+                $"Exempt site {caller} has unreviewed mutation sites:\n" + string.Join("\n", sites.Select(site =>
+                    $"{Describe(site)} -> {site.Target} #{site.Ordinal}")));
             // Retain the IL check so the source check cannot accept a different RunAsync symbol.
             Assert.True(
                 runCallers.Any(symbol => symbol.StartsWith(type, StringComparison.Ordinal)
@@ -138,6 +150,26 @@ public sealed class WritePipelineExecutorFenceTests
             Assert.True(RunsExecutorInsideAtomicCallback(declaration, BoundaryModel(tree)),
                 $"Exempt site {caller} must run the executor in the callback passed to ExecuteAtomicAsync.");
         });
+    }
+
+    private static bool HasOnlyReviewedExemptionSite(IReadOnlyList<RawMutationPortSymbolInventoryTests.CallSite> sites)
+    {
+        var reviewed = typeof(IHierarchyCompositeUnitOfWork).GetMethod(nameof(IHierarchyCompositeUnitOfWork.ExecuteAtomicAsync))!
+            .MakeGenericMethod(typeof(MergeResult));
+        return sites.Count == 1 && sites[0].Ordinal == 0
+            && sites[0].Target == MethodSignatureSymbol.Format(reviewed);
+    }
+
+    [Fact]
+    public void ExemptionCountsEveryMutationSiteWithoutCollapsingTargetsOrOrdinals()
+    {
+        var target = MethodSignatureSymbol.Format(typeof(IHierarchyCompositeUnitOfWork)
+            .GetMethod(nameof(IHierarchyCompositeUnitOfWork.ExecuteAtomicAsync))!.MakeGenericMethod(typeof(MergeResult)));
+        var opener = new RawMutationPortSymbolInventoryTests.CallSite("fixture.cs", "Fixture.MergeAsync()", 1, target, 0);
+        Assert.True(HasOnlyReviewedExemptionSite([opener]));
+        Assert.False(HasOnlyReviewedExemptionSite([]));
+        Assert.False(HasOnlyReviewedExemptionSite([opener, opener with { Ordinal = 1 }]));
+        Assert.False(HasOnlyReviewedExemptionSite([opener, opener with { Target = "OtherMutation", Ordinal = 0 }]));
     }
 
     [Theory]
@@ -249,6 +281,37 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    [InlineData("await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch); return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch); return await Done();")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => { await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch); return await WritePipeline.RunAsync(write, observer, ct); });")]
+    [InlineData("async Task Deferred() { await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch); } return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("if (false) { await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch); } return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("await unit.ExecuteAtomicAsync(ct => Done()); return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("async Task Deferred() { await unit.ExecuteAtomicAsync(ct => Done()); } return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct), Token(unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch)));")]
+    [InlineData("return await unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct); return await WritePipeline.RunAsync(write, observer, ct); });")]
+    public void ExemptionRejectsEveryAdditionalMutationOrOpenerEvenWithAValidExecutor(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("""
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            class Fixture {
+                Task<int> Done() => Task.FromResult(0);
+                CancellationToken Token(Task sideEffect) => default;
+                async Task<int> MergeAsync(IHierarchyCompositeUnitOfWork unit,
+                    KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
+            """ + body + " } }");
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
     private static SemanticModel BoundaryModel(SyntaxTree tree)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -286,16 +349,20 @@ public sealed class WritePipelineExecutorFenceTests
 
     private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method, SemanticModel model)
     {
+        var mutationCalls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Where(call => IsMutationCall(call, model)).ToArray();
+        if (mutationCalls.Length != 1 || !IsReviewedAtomicCall(mutationCalls[0], model)) return false;
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsExecutorCall(call, model))
             .ToArray();
-        return calls.Length > 0 && calls.All(call =>
+        return calls.Length == 1 && calls.All(call =>
         {
             // The nearest function must be the callback itself, not a deferred nested lambda/local function.
             var function = call.Ancestors().FirstOrDefault(node =>
                 node is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax or MethodDeclarationSyntax);
             return function is AnonymousFunctionExpressionSyntax { Parent: ArgumentSyntax argument }
                 && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
+                && atomic == mutationCalls[0]
                 && IsReviewedAtomicCall(atomic, model)
                 && atomic.ArgumentList.Arguments[0] == argument
                 && atomic.Ancestors().First(node =>
@@ -303,6 +370,23 @@ public sealed class WritePipelineExecutorFenceTests
                 && CompletesTaskInDirectReachableBody(atomic, method, model)
                 && CompletesExecutorBeforeCallbackReturns(call, function, model);
         });
+    }
+
+    private static bool IsMutationCall(InvocationExpressionSyntax call, SemanticModel model)
+    {
+        if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol symbol) return false;
+        static string MetadataName(INamedTypeSymbol type) => type.ContainingType is { } parent
+            ? MetadataName(parent) + "+" + type.MetadataName
+            : (type.ContainingNamespace.IsGlobalNamespace ? "" : type.ContainingNamespace + ".") + type.MetadataName;
+        var assembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(candidate =>
+            candidate.FullName == symbol.ContainingAssembly.Identity.ToString());
+        var declaring = assembly?.GetType(MetadataName(symbol.ContainingType.OriginalDefinition));
+        if (declaring is null) return false;
+        return declaring.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            .Any(target => target.Name == symbol.MetadataName
+                && target.GetParameters().Length == symbol.Parameters.Length
+                && (target.IsGenericMethod ? target.GetGenericArguments().Length : 0) == symbol.Arity
+                && IsCommitSink(target));
     }
 
     private static bool CompletesExecutorBeforeCallbackReturns(
