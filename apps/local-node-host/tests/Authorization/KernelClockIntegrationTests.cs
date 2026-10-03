@@ -61,6 +61,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 [Collection("Harborline process environment")]
 public sealed class KernelClockIntegrationTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper diagnosticOutput;
+
+    public KernelClockIntegrationTests(Xunit.Abstractions.ITestOutputHelper diagnosticOutput) =>
+        this.diagnosticOutput = diagnosticOutput;
+
     private static readonly DateTimeOffset FrozenAt = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("ticket-216");
     private static readonly ActorId Principal = new("operator");
@@ -245,24 +250,27 @@ public sealed class KernelClockIntegrationTests
         int expectedMemberAudits,
         int expectedCapabilityAudits)
     {
-        var clock = new MutableHostClock(FrozenAt);
-        await using var fixture = await ProductionFixture.CreateAsync(clock);
-        await fixture.PrepareAsync("identity-administration");
-        await fixture.InstallRevocationFaultAsync(faultStep);
+        await SqliteStartupLifecycleProbe.RunObservedAsync(async () =>
+        {
+            var clock = new MutableHostClock(FrozenAt);
+            await using var fixture = await ProductionFixture.CreateAsync(clock);
+            await fixture.PrepareAsync("identity-administration");
+            await fixture.InstallRevocationFaultAsync(faultStep);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
-        await fixture.RestartAsync();
-        // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await fixture.RestartAsync();
+            // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
 
-        await fixture.ClearRevocationFaultAsync(faultStep);
-        await fixture.IdentityAdministrationAsync();
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive: false, expectedGrantLive: false,
-            expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+            await fixture.ClearRevocationFaultAsync(faultStep);
+            await fixture.IdentityAdministrationAsync();
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive: false, expectedGrantLive: false,
+                expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+        }, diagnosticOutput.WriteLine);
     }
 
     [Theory]
@@ -406,7 +414,7 @@ public sealed class KernelClockIntegrationTests
                     "ticket-216-kernel-clock",
                     directory,
                     CancellationToken.None,
-                    clock, finalServiceRegistration);
+                    clock, SqliteStartupLifecycleProbe.Combine(finalServiceRegistration));
                 var provider = LocalNodeHostRuntime.CurrentServices
                     ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
                 Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
@@ -434,6 +442,7 @@ public sealed class KernelClockIntegrationTests
             }
             catch (Exception startupFailure)
             {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup", startupFailure);
                 try
                 {
                     await CleanupAsync(directory, priorInstallRoot, priorRootSeed, priorEventLogLevel,
@@ -441,6 +450,7 @@ public sealed class KernelClockIntegrationTests
                 }
                 catch (Exception cleanupFailure)
                 {
+                    SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup-disposal", cleanupFailure);
                     throw new AggregateException(startupFailure, cleanupFailure);
                 }
                 throw;
@@ -1435,9 +1445,22 @@ public sealed class KernelClockIntegrationTests
 
         internal async Task RestartAsync()
         {
-            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            _baseAddress = await LocalNodeHostRuntime.StartAsync(
-                "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock);
+            try { await LocalNodeHostRuntime.StopAsync(CancellationToken.None); }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-disposal", original);
+                throw;
+            }
+            try
+            {
+                _baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock, SqliteStartupLifecycleProbe.Combine(null));
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-startup", original);
+                throw;
+            }
             Services = LocalNodeHostRuntime.CurrentServices
                 ?? throw new InvalidOperationException("The restarted host did not expose its service provider.");
             _nodeFactory = Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -1536,6 +1559,11 @@ public sealed class KernelClockIntegrationTests
             {
                 await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
                 if (cleanupFault is not null) await cleanupFault();
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("disposal", original);
+                throw;
             }
             finally
             {
