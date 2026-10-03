@@ -4,7 +4,7 @@ import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFile
 import path from 'node:path'
 import {hostname} from 'node:os'
 import {readHostTrx} from './host-baseline.mjs'
-import {copyCoberturaReport} from './coverage.mjs'
+import {copyCoberturaReport, coverageSummaryFromFile, isCollectorCoberturaReport} from './coverage.mjs'
 
 // An additional early regression check, never a replacement for a landing lane.
 // Digests bind content; they are not authentication or permission to reuse a build.
@@ -74,7 +74,8 @@ export function requireRunnableSelection(plan) {
   if (plan?.schemaVersion !== 1 || digest(body) !== plan.planDigest) fail('invalid-plan', 'selection digest/schema mismatch')
   if (plan.selection === 'unsupported') fail('unsupported-selection', 'unknown change class or unavailable/invalid diff; dual-mode proof is required but no supported focused selector was established')
   if (plan.diffAvailable !== true || !Array.isArray(plan.changes) || plan.changes.some(row =>
-    !safePath(row.path) || row.kind !== category(row.path) || !/^(A|M|D|R(?:100|[0-9]{1,2})?|C(?:100|[0-9]{1,2})?)$/.test(row.status ?? ''))) {
+    !row || !safePath(row.path) || row.kind === 'unknown' || row.kind !== category(row.path)
+    || !/^(A|M|D|R(?:100|[0-9]{1,2})?|C(?:100|[0-9]{1,2})?)$/.test(row.status ?? ''))) {
     fail('invalid-plan', 'change records do not match the classifier')
   }
   const expected = plan.changes.some(row => row.kind !== 'documentation') ? modes : []
@@ -117,7 +118,15 @@ export function validateFocusedModeEvidence(plan, expected, receipts) {
       if (!results.some(test => test.testName === name)) fail('missing-test', `${mode} ${name}`)
     }
     if (mode === 'coverage-on' && !/^sha256:[a-f0-9]{64}$/.test(row.coverageDigest ?? '')) fail('missing-coverage', mode)
-    if (mode === 'coverage-off' && row.coverageDigest !== null) fail('unexpected-coverage', mode)
+    if (mode === 'coverage-on') {
+      const coverage = row.coverage
+      if (!Number.isSafeInteger(coverage?.validLines) || coverage.validLines <= 0
+        || !Number.isSafeInteger(coverage?.coveredLines) || coverage.coveredLines < 0 || coverage.coveredLines > coverage.validLines
+        || !Array.isArray(coverage?.paths) || !coverage.paths.length
+        || coverage.paths.some(file => typeof file !== 'string' || !file.trim())
+        || new Set(coverage.paths).size !== coverage.paths.length) fail('nonpopulated-coverage', mode)
+    }
+    if (mode === 'coverage-off' && (row.coverageDigest !== null || row.coverage !== null)) fail('unexpected-coverage', mode)
   }
   const inventories = receipts.map(row => row.results.map(test => test.rosterId).sort())
   if (JSON.stringify(inventories[0]) !== JSON.stringify(inventories[1])) fail('inventory-mismatch', 'OFF and ON executed different tests')
@@ -147,7 +156,8 @@ function dependencyDigest(root) {
 
 const coberturaFiles = directory => readdirSync(directory, {withFileTypes: true}).flatMap(entry => {
   const file = path.join(directory, entry.name)
-  return entry.isDirectory() ? coberturaFiles(file) : entry.name.endsWith('.cobertura.xml') ? [file] : []
+    return entry.isDirectory() ? coberturaFiles(file)
+      : entry.isFile() && (isCollectorCoberturaReport(file) || /\.cobertura\.xml$/i.test(entry.name)) ? [file] : []
 })
 
 // Executable hook: called by the existing verify-preflight CLI for host/all.
@@ -190,16 +200,18 @@ export function executeFocusedModes({apiRoot = process.cwd(), env = process.env,
     catch { result = {status: null} }
     const trx = readTrx(path.join(resultsDirectory, 'focused.trx'))
     let coverageDigest = null
+    let coverage = null
     if (mode === 'coverage-on') {
       try {
         const target = path.join(resultsDirectory, 'focused.cobertura.xml')
         copyCoberturaReport({resultsDirectory, target, label: 'focused-mode-parity', sourceRoot: apiRoot})
+        coverage = coverageSummaryFromFile(target)
         coverageDigest = `sha256:${createHash('sha256').update(readFileSync(target)).digest('hex')}`
       } catch { /* Missing collector output is rejected after both modes execute. */ }
     } else if (coberturaFiles(resultsDirectory).length) coverageDigest = 'unexpected'
     receipts.push({schemaVersion: 1, mode, ...expected, planDigest: plan.planDigest, scopeDigest,
       executed: result?.status !== null && result?.status !== undefined, exitCode: result?.status ?? null,
-      counts: trx.counts, results: trx.results, coverageDigest})
+      counts: trx.counts, results: trx.results, coverageDigest, coverage})
   }
   writeFileSync(path.join(directory, 'receipts.json'), `${JSON.stringify({plan, expected, receipts}, null, 2)}\n`, 'utf8')
   if (git('status', '--porcelain') || git('rev-parse', 'HEAD') !== commit || git('rev-parse', 'HEAD^{tree}') !== tree

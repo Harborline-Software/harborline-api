@@ -24,7 +24,8 @@ const trx = () => ({counts: {total: 5, passed: 5, failed: 0, notExecuted: 0},
 const selected = () => classifyFocusedModes([{status: 'M', path: 'packages/foundation/Compiler.cs'}])
 const evidence = plan => ['coverage-off', 'coverage-on'].map(mode => ({schemaVersion: 1, mode, ...context,
   planDigest: plan.planDigest, scopeDigest: scope, executed: true, exitCode: 0, ...trx(),
-  coverageDigest: mode === 'coverage-on' ? `sha256:${'d'.repeat(64)}` : null}))
+  coverageDigest: mode === 'coverage-on' ? `sha256:${'d'.repeat(64)}` : null,
+  coverage: mode === 'coverage-on' ? {validLines: 1, coveredLines: 0, paths: ['source.cs']} : null}))
 
 for (const [file, kind] of [
   ['apps/local-node-host/Validation/Check.cs', 'validation'],
@@ -82,6 +83,11 @@ test('a recomputed digest cannot disguise a runtime path as documentation', () =
   const body = {...plan}; delete body.planDigest; plan.planDigest = hash(body)
   assert.throws(() => requireRunnableSelection(plan), /invalid-plan/)
 })
+test('an unsupported change cannot become a runnable selector by recomputing its consistency digest', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'unknown.blob'}]); plan.selection = 'focused'
+  const body = {...plan}; delete body.planDigest; plan.planDigest = hash(body)
+  assert.throws(() => requireRunnableSelection(plan), /invalid-plan/)
+})
 test('complete matching ON/OFF results pass the bounded receipt contract', () => {
   const plan = selected()
   assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
@@ -104,6 +110,9 @@ for (const [label, alter, error] of [
   ['duplicate result', rows => { rows[0].results[1] = rows[0].results[0] }, 'nonpassing-evidence'],
   ['required test missing', rows => { rows[0].results[0] = {testName: 'unrelated', rosterId: 'unrelated', outcome: 'Passed'} }, 'missing-test'],
   ['collector produced no proof', rows => { rows[1].coverageDigest = null }, 'missing-coverage'],
+  ['collector produced no executable lines', rows => { rows[1].coverage.validLines = 0 }, 'nonpopulated-coverage'],
+  ['collector produced no source paths', rows => { rows[1].coverage.paths = [] }, 'nonpopulated-coverage'],
+  ['collector counts are inconsistent', rows => { rows[1].coverage.coveredLines = 2 }, 'nonpopulated-coverage'],
   ['OFF produced coverage', rows => { rows[0].coverageDigest = `sha256:${'1'.repeat(64)}` }, 'unexpected-coverage'],
 ]) test(`receipt refuses ${label}`, () => {
   const plan = selected(), rows = evidence(plan); alter(rows)
@@ -118,7 +127,9 @@ test('a different extra test inventory fails even when both modes passed all req
   assert.throws(() => validateFocusedModeEvidence(plan, context, rows), /inventory-mismatch/)
 })
 
-function executorFixture({delta = 'M\0packages/foundation/Compiler.cs\0', childFailure = false, changeInputs = false} = {}) {
+const populatedCoverage = '<coverage line-rate="0"><sources><source>src</source></sources><packages><package name="production"><classes><class name="Example" filename="source.cs"><lines><line number="7" hits="0" /></lines></class></classes></package></packages></coverage>'
+function executorFixture({delta = 'M\0packages/foundation/Compiler.cs\0', childFailure = false, changeInputs = false,
+  coverageXml = populatedCoverage, collectorName = 'coverage.cobertura.xml', offCollectorName = null} = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'focused-mode-contract-')), calls = []; let sourceChecks = 0
   const git = (...args) => {
     if (args[0] === 'status') return changeInputs && sourceChecks++ > 0 ? ' M source.cs' : ''
@@ -129,13 +140,42 @@ function executorFixture({delta = 'M\0packages/foundation/Compiler.cs\0', childF
   const command = (executable, args, options) => {
     calls.push({executable, args, options})
     const output = args[args.indexOf('--results-directory') + 1]
-    if (options.env.HARBORLINE_GATE_COVERAGE === '1') writeFileSync(path.join(output, 'coverage.cobertura.xml'),
-      '<coverage line-rate="1"><sources><source>src</source></sources><packages></packages></coverage>')
+    // The process is simulated, but result parsing and report processing are real.
+    writeFileSync(path.join(output, 'focused.trx'), `<TestRun><Results>${requiredNames.map((name, i) =>
+      `<UnitTestResult testName="${name}" testId="test-${i}" outcome="Passed" />`).join('')}</Results><ResultSummary><Counters total="5" passed="5" failed="0" notExecuted="0" /></ResultSummary></TestRun>`)
+    if (options.env.HARBORLINE_GATE_COVERAGE === '1') writeFileSync(path.join(output, collectorName), coverageXml)
+    else if (offCollectorName) writeFileSync(path.join(output, offCollectorName), populatedCoverage)
     return {status: childFailure && calls.length === 1 ? 1 : 0}
   }
   return {root, calls, options: {apiRoot: root, git, command, sdk: () => context.sdk,
-    dependencies: () => context.dependencies, readTrx: trx}, cleanup: () => rmSync(root, {recursive: true, force: true})}
+    dependencies: () => context.dependencies}, cleanup: () => rmSync(root, {recursive: true, force: true})}
 }
+
+for (const collectorName of ['coverage.cobertura.xml', 'cobertura-coverage.xml', 'COBERTURA-COVERAGE.XML']) {
+  test(`populated ON collector report is accepted: ${collectorName}`, () => {
+    const fixture = executorFixture({collectorName})
+    try { assert.equal(executeFocusedModes(fixture.options).status, 'passed') }
+    finally { fixture.cleanup() }
+  })
+  test(`OFF collector output fails after both modes execute: ${collectorName}`, () => {
+    const fixture = executorFixture({offCollectorName: collectorName})
+    try {
+      assert.throws(() => executeFocusedModes(fixture.options), /unexpected-coverage/)
+      assert.equal(fixture.calls.length, 2)
+    } finally { fixture.cleanup() }
+  })
+}
+for (const [label, coverageXml, expectedError] of [
+  ['zero classes', '<coverage line-rate="1"><sources><source>src</source></sources><packages></packages></coverage>', 'nonpopulated-coverage'],
+  ['zero lines', populatedCoverage.replace('<line number="7" hits="0" />', ''), 'nonpopulated-coverage'],
+  ['invalid hits', populatedCoverage.replace('hits="0"', 'hits="invalid"'), 'missing-coverage'],
+]) test(`ON ${label} cannot certify collection with successful real TRX parsing`, () => {
+  const fixture = executorFixture({coverageXml})
+  try {
+    assert.throws(() => executeFocusedModes(fixture.options), new RegExp(expectedError))
+    assert.equal(fixture.calls.length, 2)
+  } finally { fixture.cleanup() }
+})
 test('the real executor hook rebuilds isolated OFF/ON outputs before validating receipts', () => {
   const fixture = executorFixture()
   try {
