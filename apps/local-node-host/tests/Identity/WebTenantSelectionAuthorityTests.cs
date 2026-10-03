@@ -18,6 +18,35 @@ public sealed class WebTenantSelectionAuthorityTests
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// T-1009: the selection authority validates its session options at construction, so a
+    /// non-positive absolute lifetime cannot reach a minted session. No database is opened.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void Selection_authority_refuses_session_options_with_a_non_positive_lifetime()
+    {
+        var identityFactory = new IdentityContextFactory(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+            Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var resolver = new FixedPartitionResolver();
+        var time = new FixedTimeProvider(Now);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new WebTenantSelectionAuthority(
+            identityFactory,
+            sessionFactory,
+            new FixedCandidateLocator(),
+            new InstallationIdentityCoordinatorService(
+                identityFactory, resolver, new AcceptingAdmission(), time, TestAuthorization.Gate(true)),
+            resolver,
+            new FixedPartyReader(Guid.NewGuid().ToString("D")),
+            new InstallationIdentityCutoverOrchestrator(identityFactory, time),
+            Options.Create(new SessionOptions { AbsoluteLifetime = TimeSpan.Zero }),
+            time));
+
+        Assert.Equal("AbsoluteLifetime", exception.ParamName);
+    }
+
     [Fact]
     [Trait("PlanCard", "MTW-2")]
     public async Task Selection_Completes_Both_Audit_Heads_Before_Mint_And_Consumes_Exactly_Once()
