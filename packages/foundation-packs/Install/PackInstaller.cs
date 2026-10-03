@@ -188,7 +188,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             var transaction = plan.NewInstalledPack is null
                 ? null
                 : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached)
-                { CompareWatermark = true, ExpectedWatermark = bound.Watermark };
+                { CompareWatermark = true, ExpectedWatermark = bound.Watermark, ExpectedInstalledState = bound.Installed };
             return ValueTask.FromResult(new InstallMutation(plan, transaction));
         }
 
@@ -217,14 +217,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         protected override ValueTask CommitAsync(InstallSealed validated, CancellationToken ct)
         {
             try { installer._mutations.Commit(validated.Transaction); }
-            catch (PackInstallWatermarkChangedException)
+            catch (Exception exception) when (exception is PackInstallWatermarkChangedException or PackInstallStateChangedException)
             {
                 throw new Refused(AuditRefusal(validated.Plan with
                 {
                     Preview = validated.Plan.Preview with
                     {
                         Verdict = PackInstallVerdict.Refused,
-                        RefusalCodes = [PackInstallCodes.RefusedWatermarkChanged],
+                        RefusalCodes = [exception is PackInstallWatermarkChangedException
+                            ? PackInstallCodes.RefusedWatermarkChanged : PackInstallCodes.RefusedInstalledStateChanged],
                     },
                 }));
             }
