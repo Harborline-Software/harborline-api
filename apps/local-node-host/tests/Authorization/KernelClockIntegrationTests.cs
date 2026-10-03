@@ -246,6 +246,36 @@ public sealed class KernelClockIntegrationTests
         Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
     }
 
+    [Theory]
+    [InlineData("not-a-date")]
+    [InlineData("   ")]
+    public async Task Access_grant_form_refuses_a_malformed_nonempty_end_before_saving(string endText)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, effectiveToText: endText);
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Access_grant_form_admits_an_empty_or_omitted_end(bool omitted)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, omitEffectiveTo: omitted);
+        Assert.True(status == HttpStatusCode.Created, body.ToString());
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+        Assert.Null(grant.Validity.ValidTo);
+    }
+
     [Fact]
     public async Task Access_grant_form_retains_backdate_refusal_precedence_for_an_invalid_interval()
     {
@@ -710,7 +740,8 @@ public sealed class KernelClockIntegrationTests
         // A null effectiveFrom is sent as omittedAs says: "absent" (no member), "null" (JSON null) or "blank".
         // The form schema refuses a JSON null text value before any projection, so only absent and blank reach the default.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent", DateTimeOffset? effectiveTo = null)
+            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent", DateTimeOffset? effectiveTo = null,
+            string? effectiveToText = null, bool omitEffectiveTo = false)
         {
             var candidate = new Dictionary<string, string?>
             {
@@ -718,9 +749,10 @@ public sealed class KernelClockIntegrationTests
                 ["role"] = "administrator",
                 ["scope"] = "/",
                 ["residency"] = "cache",
-                ["effectiveTo"] = effectiveTo?.ToString("O") ?? "",
+                ["effectiveTo"] = effectiveToText ?? effectiveTo?.ToString("O") ?? "",
                 ["reason"] = "manual",
             };
+            if (omitEffectiveTo) candidate.Remove("effectiveTo");
             if (effectiveFrom is { } from) candidate["effectiveFrom"] = from.ToString("O");
             else if (omittedAs != "absent") candidate["effectiveFrom"] = omittedAs == "null" ? null : "   ";
             if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");
