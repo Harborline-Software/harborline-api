@@ -23,6 +23,7 @@ import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx,
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
+import {persistInputShadow} from './validation-inputs.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -153,6 +154,9 @@ try {
   const artifacts = tracked.filter(file => /(^|\/)(node_modules|obj|bin)\//.test(file))
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
+  run('validation-reuse-contracts', process.execPath, ['--test',
+    'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
+    'eng/tests/validation-github-shadow.test.mjs'], clone)
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
@@ -557,6 +561,10 @@ try {
     recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), steps,
   }
 } finally {
+  // Observe the dependency/native closure while scratch still exists. Shadow data never
+  // authorizes skipping work and a collection failure cannot change the gate verdict.
+  persistInputShadow({apiRoot, clone, hostBaseline: BASELINES.host,
+    coverage: collectCoverage, quality: qualityEnabled})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})

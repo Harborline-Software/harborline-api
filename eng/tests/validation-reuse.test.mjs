@@ -1,0 +1,96 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {generateKeyPairSync, sign} from 'node:crypto'
+import {canonical, digest, fingerprint, compareInputs, verifyReceipt, shadowVerdict} from '../validation-reuse.mjs'
+import {compareObservations} from '../validation-shadow-report.mjs'
+
+const inputs = () => ({schemaVersion: 1, repository: 'Harborline-Software/harborline-api', candidateTree: 'a'.repeat(40),
+  lane: 'host', dependencies: {evaluated: ['NuGet/library/1.2.3'], native: ['sqlcipher/hash']},
+  producer: {workflow: 'workflow-hash', scripts: 'scripts-hash'}, toolchain: {sdk: '11.0.100'},
+  platform: {os: 'win32', architecture: 'x64'}, pins: {platform: 'b'.repeat(40), quality: 'c'.repeat(40), control: 'd'.repeat(40)},
+  selection: {host: 'Lane!=perf'}, coverage: {enabled: false}, commitInputs: {scope: 'host'}, unknownInputs: []})
+const {privateKey, publicKey} = generateKeyPairSync('ed25519')
+const bytes = Buffer.from('immutable test artifact')
+const observation = {repository: 'Harborline-Software/harborline-api', runId: '123', runAttempt: '1', jobId: '456',
+  workflowPath: '.github/workflows/trusted-validation.yml', workflowCommit: 'e'.repeat(40), headSha: 'f'.repeat(40),
+  artifactId: '789', status: 'completed', conclusion: 'success', expired: false, artifactDigest: digest(bytes)}
+const policy = {mode: 'shadow', keys: {test: publicKey}, producers: [{repository: observation.repository,
+  workflowPath: observation.workflowPath, workflowCommit: observation.workflowCommit}], requiredInvocations: ['host-tests', 'baseline-match']}
+const envelope = (change = () => {}) => {
+  const payload = {inputs: inputs(), artifactDigest: digest(bytes), provenance: {...observation}, status: 'PASS', completed: true,
+    invocations: [{id: 'host-tests', status: 'completed', verdict: 'PASS'}, {id: 'baseline-match', status: 'completed', verdict: 'PASS'}]}
+  change(payload)
+  payload.inputFingerprint = fingerprint(payload.inputs)
+  return {schemaVersion: 1, keyId: 'test', payload,
+    signature: sign(null, Buffer.from(`harborline-validation-receipt/v1\n${canonical(payload)}`), privateKey).toString('base64')}
+}
+const verify = (receipt = envelope(), overrides = {}) => verifyReceipt({envelope: receipt, artifactBytes: bytes, observation, policy, ...overrides})
+
+test('canonical JSON is stable and SHA-256 matches the published abc test vector', () => {
+  assert.equal(canonical({z: 1, a: {y: 2, b: 3}}), '{"a":{"b":3,"y":2},"z":1}')
+  assert.equal(digest('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+  assert.throws(() => canonical({value: undefined}))
+})
+test('every lane input dimension invalidates equality and names the changed field', () => {
+  for (const field of ['candidateTree', 'lane', 'dependencies', 'producer', 'toolchain', 'platform', 'pins', 'selection', 'coverage', 'commitInputs']) {
+    const changed = structuredClone(inputs())
+    changed[field] = field === 'candidateTree' ? 'b'.repeat(40) : field === 'lane' ? 'packages' : {changed: true}
+    const result = compareInputs(inputs(), changed)
+    assert.equal(result.sameInputs, false, field)
+    assert.ok(result.differences.some(key => key.startsWith(`inputs.${field}`)), field)
+  }
+})
+test('coverage mismatch is precise; missing and unknown inputs fail closed', () => {
+  const changed = inputs(); changed.coverage.enabled = true
+  assert.deepEqual(compareInputs(inputs(), changed).differences, ['inputs.coverage.enabled'])
+  const missing = inputs(); delete missing.toolchain
+  assert.equal(compareInputs(inputs(), missing).completeInputs, false)
+  const unknown = inputs(); unknown.unknownInputs.push('native version')
+  assert.equal(compareInputs(unknown, unknown).completeInputs, false)
+})
+test('only authenticated successful observed producer evidence is trusted', () => {
+  assert.equal(verify().trusted, true)
+  assert.equal(verify(envelope(), {policy: undefined}).trusted, false)
+  assert.equal(verify(envelope(), {policy: {...policy, keys: {}}}).trusted, false)
+  assert.equal(verify(envelope(), {artifactBytes: Buffer.from('changed')}).trusted, false)
+  assert.equal(verify(envelope(), {artifactBytes: undefined}).trusted, false)
+  assert.equal(verify(envelope(), {policy: {...policy, producers: {}}}).trusted, false)
+  assert.equal(verify(envelope(), {observation: {...observation, expired: true}}).trusted, false)
+  assert.equal(verify(envelope(), {policy: {...policy, producers: []}}).trusted, false)
+  const forged = envelope(); forged.payload.inputs.coverage.enabled = true
+  assert.equal(verify(forged).trusted, false)
+})
+test('failure, cancellation, skip, missing or duplicate invocation cannot be reused', () => {
+  for (const status of ['failure', 'cancelled', 'skipped', null])
+    assert.equal(verify(envelope(), {observation: {...observation, conclusion: status}}).trusted, false)
+  for (const status of ['skipped', 'cancelled', 'running'])
+    assert.equal(verify(envelope(payload => {payload.invocations[0].status = status})).trusted, false)
+  assert.equal(verify(envelope(payload => {payload.status = 'FAIL'})).trusted, false)
+  assert.equal(verify(envelope(payload => {payload.invocations.pop()})).trusted, false)
+  assert.equal(verify(envelope(payload => {payload.invocations.push({...payload.invocations[0]})})).trusted, false)
+})
+test('all observed producer identity fields must match signed provenance', () => {
+  for (const field of ['repository', 'runId', 'runAttempt', 'jobId', 'workflowPath', 'workflowCommit', 'headSha', 'artifactId'])
+    assert.equal(verify(envelope(), {observation: {...observation, [field]: 'different'}}).trusted, false, field)
+})
+test('package consumption stays bound to the transferred artifact', () => {
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'})).trusted, false)
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.packageProof = {
+    artifactDigest: digest(bytes), consumedDigest: digest(bytes)}})).trusted, true)
+  assert.equal(verify(envelope(payload => {payload.inputs.lane = 'packages'; payload.packageProof = {
+    artifactDigest: digest(bytes), consumedDigest: 'different'}})).trusted, false)
+})
+test('even a trusted same-input result issues only a new candidate-specific shadow verdict', () => {
+  const result = shadowVerdict({candidateSha: '1'.repeat(40), currentInputs: inputs(), priorReceipt: envelope(), artifactBytes: bytes, observation, policy})
+  assert.equal(result.candidateSha, '1'.repeat(40))
+  assert.equal(result.wouldReuse, true)
+  assert.equal(result.reuseAuthorized, false)
+  assert.equal(result.requiredWorkSkipped, false)
+})
+test('unsigned branch observations are diagnostic only, including matching trees', () => {
+  const item = {candidateSha: '1'.repeat(40), inputs: inputs(), fingerprint: fingerprint(inputs())}
+  assert.equal(compareObservations(item, item).sameInputs, true)
+  assert.equal(compareObservations(item, item).trusted, false)
+  assert.equal(compareObservations(item, item).wouldReuse, false)
+  assert.equal(compareObservations(item, {...item, fingerprint: 'forged'}).sameInputs, false)
+})
