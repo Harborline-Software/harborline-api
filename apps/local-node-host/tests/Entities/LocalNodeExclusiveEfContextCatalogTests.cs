@@ -126,6 +126,15 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
     public void Catalog_Binds_The_Exact_16_Contexts_66_Migrations_And_15_Plus_1_Owners()
+        => AssertExactCurrentCatalog();
+
+    // Preserve the reconciled base's executable identity while sharing the current literal migration oracle.
+    [Fact]
+    [Trait("PlanCard", "ADM-01A")]
+    public void Catalog_Binds_The_Exact_16_Contexts_60_Migrations_And_15_Plus_1_Owners()
+        => AssertExactCurrentCatalog();
+
+    private static void AssertExactCurrentCatalog()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 
