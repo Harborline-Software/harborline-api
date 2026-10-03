@@ -259,6 +259,8 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
             transaction.RequireCurrentWatermark(observedWatermark is null ? null : new PackInstallWatermark(
                 pack.PackKey, observedWatermark.Version,
                 JsonSerializer.Deserialize<Dictionary<string, int>>(observedWatermark.FloorsJson, Json)!));
+            transaction.RequireCurrentInstalledState(ctx.InstalledVersions.AsNoTracking()
+                .Where(row => row.Tenant == t).ToList().Select(Materialize));
 
             // (1) Upsert the new immutable seed-layer version row (committed in the pack's own lifecycle — Draft
             //     at install; activation is a separate pointer flip). The payload is the FULL InstalledPack JSON.

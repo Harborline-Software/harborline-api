@@ -153,6 +153,20 @@ public sealed record PackInstallTransaction(
     /// <summary>The watermark read by bind; null means no watermark existed.</summary>
     public PackInstallWatermark? ExpectedWatermark { get; init; }
 
+    /// <summary>The tenant-wide installed snapshot used by admission; null disables comparison for raw callers.</summary>
+    public IReadOnlyList<InstalledPack>? ExpectedInstalledState { get; init; }
+
+    /// <summary>Checks every installed-state premise under the same serialization boundary as the write.</summary>
+    public void RequireCurrentInstalledState(IEnumerable<InstalledPack> current)
+    {
+        if (ExpectedInstalledState is null) return;
+        static string[] Snapshot(IEnumerable<InstalledPack> packs) => packs
+            .OrderBy(pack => pack.PackKey, StringComparer.Ordinal).ThenBy(pack => pack.Version, StringComparer.Ordinal)
+            .Select(pack => System.Text.Json.JsonSerializer.Serialize(pack)).ToArray();
+        if (!Snapshot(current).SequenceEqual(Snapshot(ExpectedInstalledState), StringComparer.Ordinal))
+            throw new PackInstallStateChangedException();
+    }
+
     /// <summary>Refuses a stale install plan before any part of it is persisted.</summary>
     public void RequireCurrentWatermark(PackInstallWatermark? current)
     {
@@ -178,3 +192,7 @@ public sealed class PackInstallWatermarkChangedException()
 /// <param name="Entries">The entries, in the order they are recorded.</param>
 /// <param name="Decision">The decision that allowed the write.</param>
 public sealed record PackCommitAudit(IReadOnlyList<PackInstallAuditEntry> Entries, AuthorizationDecision Decision);
+
+/// <summary>A concurrent write changed tenant-wide installed premises; retry must bind fresh state.</summary>
+public sealed class PackInstallStateChangedException()
+    : InvalidOperationException("The tenant installed pack state changed before commit.");
