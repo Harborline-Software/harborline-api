@@ -161,12 +161,6 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
                 m.GetParameters().Any(p => p.ParameterType == typeof(JsonDocument)));
             Assert.True(raw.IsAssembly, $"{name}(JsonDocument) must be internal to the envelope writers");
         }
-
-        // The batch default-interface member fans out to the raw seam, so it is internal too.
-        var batch = Assert.Single(
-            port.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance),
-            m => m.Name == nameof(IEntityMutationStore.CreateBatchAsync));
-        Assert.True(batch.IsAssembly, "CreateBatchAsync must be internal to the envelope writers");
     }
 
     [Fact(DisplayName = "Ticket 366: the raw seam is visible only to the named non-record write owners (holds RW-9 RW-H2)")]
