@@ -1,0 +1,622 @@
+[
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "fc4c3a2a-af61-1ce4-9eda-995623650c5d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.NodeEntityWriter_DenialPerformsNoLoadValidationMutationOrSave"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "13a658d6-b6be-40c2-b8f0-4d318ced11cf",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.NodeEntityWriter_EveryEntryPointDeniesBeforeValidationStoreOrDb"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "61cb3308-3296-ee9d-ffa5-9f7da4f6444b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyOperations_OwnsNoRawMutationPort"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "00f8ff12-1b98-5d90-e63d-dbadb2b3f276",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_UsesOneDecisionAndCommitsEntityEdgeAndAuditTogether"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "bb9c2a28-9281-7579-70b7-6171e735e23b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_SamplesClockOnceForEveryDecisionAndUnitOfWorkTimestamp"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "cc83ccd6-b155-7e97-2f67-b08dcc5a39a1",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyMerge_SnapshotsAndAdmitsConcurrentChildInsideAtomicScope"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "10818ca3-a761-a695-0c9f-a6170978ee41",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyMerge_AdmitsChildCommittedAfterTheActInstantWhileWaitingForTheScope"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "63a78e26-3e69-1ff3-22d0-ee987235955d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyMerge_ReparentsActiveChildWhoseEdgeHasAFiniteFutureEnd"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "9c13b478-299d-4d1a-5cd3-6b7aa4aecb69",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_ReparentedChildKeepsItsFiniteFutureEnd"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "96261374-8629-b543-ad36-e1e951f593d0",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyReparent_ReplacementEdgeKeepsItsFiniteFutureEnd"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "c65556a5-2718-47e0-ce7c-7d5e04c391d6",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyReparent_MultipleRepresentableOldEdgesDoesNotThrow"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "eeee7a10-293d-d530-0b97-ee3a7f60cc9b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_LateAuditFailureRollsBackEntitiesEdgesAndAudit"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "129a941e-0dbd-3746-2c11-23763ce140b5",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyRollback_DoesNotEraseConcurrentProductionWrite_AndReadersSeeNoPartialState"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "1267621a-3846-8722-0049-eab59eeff363",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.EntityReaders_CaptureWholeCommittedSnapshotBeforeCompositeRollback"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "56d4eeb3-f5ce-e1dd-805f-8fae85706ba2",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_LateTargetValidationFailureLeavesNoPartialWrite"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "992ad7de-ee89-9ac3-0f4f-a4a4262b8474",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyCompositeDenialTouchesNoEntityEdgeOrAuditWrites"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "a29045bb-522f-fadc-eecb-0f548eb46750",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchySplit_ReplacementDenialPrecedesUnitOfWorkAndAllPersistence"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "ef72fa7e-04bf-61ce-bf8d-f1dc7747e65f",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyMerge_SourceDenialInsideAtomicScopePrecedesAllPersistence"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "afb9ff2e-ace6-e20f-045e-ebafcb44ccf3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.HierarchyReparent_ParentDenialPrecedesUnitOfWorkAndAllPersistence"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "c43933fd-b3d1-c8ed-666f-0ad7986dc774",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.BankWriter_GatesCreateArchiveAndOpeningBalance"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "cdc6b3a1-e932-d8b3-67d5-e67f59f5e700",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.FormEngine_GatesBeforeTokenBindingAndEntityCreate"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "ef79291a-bab7-ca74-9ec7-4a2e54a06db4",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.FormDefinitionLifecycle_GatesCreateReplacePublishBeforeLegalHoldAndPersistence"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "5e20b74c-f6d5-1c45-175e-36a0bbfa871a",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.WorkflowDefinitionLifecycle_GatesCreateReplacePublish"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "564a6435-6ac3-39ff-14c1-723d8b29f3e8",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackInstaller_GatesInstallActivateDeactivateBeforeAdmissionOrTransaction"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "88c66cdb-261c-e1bf-fb72-8830bc2fa080",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackInstaller_DeniedInstallReadsClaimedCoordinatesWithoutParsingContents"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "8c9a391f-8d70-2518-23d6-a935cbdcd8c8",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackInstaller_DuplicatePropertiesCanNeverVerifyAndNeverReachCollaborators"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "a1449428-477f-7a7e-bcff-94d19cb40581",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackInstaller_DuplicatePropertiesCanNeverVerifyAndNeverReachCollaborators"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "d565e91f-b760-ccad-4df9-134b2e2b83fb",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackSeedProjector_RejectsDeniedReactionBeforeReadingOrWritingStores"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "5e056330-2414-5bae-c2c4-de623871fa09",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackProjectionAuthority_EveryDecisionBindingIsFailClosed"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "48f12858-65a3-9459-bdb4-d776b2769879",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackProjectionAuthority_RefusesIncompleteAdmissionEvidence"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "852d54f9-f00b-16a1-a2df-087b25f642fb",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackProjectionAuthority_IsConsumedOnceByProjector"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "3c988e1f-5c9a-6d1f-a992-7ec1898eabdf",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackInstaller_RetiresAuthorityCapturedByProjectionSeam"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "15fb27e6-1515-a68d-dd38-454dfde965a0",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackFirstPublish_StampsAuthoritySourceAndRejectsFabricatedClaimsBeforeWrite"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "4f390924-233b-b033-0fd4-8be0c47b5eca",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackFormLifecycle_PersistsActivationInstantForEveryTransition"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "d98373ac-cb61-1e6e-34ce-d1461b85bd98",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackFormLifecycle_PersistsActivationInstantForEveryTransition"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "4ec53d15-d29a-e7f1-6a6b-09c94102932d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackWorkflowLifecycle_PersistsActivationInstantForEveryTransition"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "6f182e6c-a3e7-9ba0-fe88-97ee3beebda9",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackWorkflowLifecycle_PersistsActivationInstantForEveryTransition"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "6e12efbd-f24e-d4c9-96a7-aa30b89e4a56",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.PackFormLifecycle_UsesPersistedSourceInsteadOfFabricatedModelClaim"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "4158f24a-8d64-322a-723c-0b44f6aadbb3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_AuthorizeRefusalStopsBeforeBindCommitAndReact"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "a70e2f0b-fefa-7aad-4771-8797854ca619",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_ValidateRefusalRunsBindAndMutateButStopsBeforeCommitAndReact"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "503c5463-d1c3-40ea-1e99-9d5721880ede",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_RunsEachRealStageInKernelOrder"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "c5fbc9d6-56c7-7070-b8aa-15aa666b32a5",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "93cdf3d0-14d2-cf33-787f-7e4f2975ac5d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "a664053f-1821-efdf-c7ae-b58d84af530e",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "fc4157f1-9584-391d-bb0e-ac95961f1ec7",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "5ab924b3-e277-369d-1033-132cd1569f25",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "82049dfe-0609-b3c5-2ad3-3a364476d9bb",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "d4c5920a-251c-5a6e-3526-5d120615fada",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_PersistsExactlyTheValidatedPayload"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "68ca9b0b-aed8-c4b3-5e0c-fcae2726871d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_PersistsExactlyTheValidatedPayload"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "efa4c08f-29a6-b2d5-3380-ffce42dd99be",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_PersistsExactlyTheValidatedPayload"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "75782cd4-6d72-f000-919e-cb9229ae9bfb",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_PackWritesRefuseAnUnusableAuthorityBeforeAnyStateRead"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "ad53f5ea-35e3-3ec3-5b73-aca8f9da3913",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.WritePipeline_OrderCannotBeMutatedByACallerHoldingIt"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "7b3086a3-ca96-29a9-039d-6b768f565735",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationSeed_SealedBootstrapRefuses"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "0f8a76c1-dcf8-4235-fd82-4efa04c6962c",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_DeniedOrdinaryAndBootstrapWritesNeverReachStore"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "9a1b4cbe-e66f-3f61-16e6-c740b8218289",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationSeed_RevokedAdministratorPermanentlySealsBootstrap"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "69b7c13a-709a-bb17-f267-8e90e856d1ba",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationSeed_UpgradesAdministeredPreSliceInstallOnceWithAdditiveDefinitionsAndSchedulerGrant"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "e62d2f38-ecd6-3662-9a0e-9c1b76502781",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationSeed_AdministratorInAnotherTenantSealsGlobalBootstrap"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "37b970e4-a95f-5669-cdcb-302d299c5298",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationSeed_ForeignGrantStoreIsRejectedByStableFenceFailure"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Authorization\\AuthorizationWriteStageTests.cs",
+    "id": "5e9a8130-bf68-415d-99ce-6dc4cc493f8a",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.RouteGuards_RemainPresent_AndRoutesResolveAdmittedCoordinators"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "7c098d51-e261-9480-a4a8-379484273e5e",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Create_WrongTypedProperty_IsRefusedWithCodeAndPointer"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "3b9e6eed-b050-1ea8-4354-6a94d2d1a3c8",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Create_MissingRequiredProperty_IsRefused"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "49230f9d-a96e-2efe-1abd-77243caeda48",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Create_ValidBody_PersistsAndReadsBack"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "e845d24d-c7bd-2cda-5c0e-e5a04004a2c4",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Validate_UnactivatedSchema_RefusesByName"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "41befb50-758b-f3af-ff28-4632e18de0b7",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Create_UnauthorizedWithInvalidBody_IsRefusedByTheGate"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "1ef009c1-509e-a7c0-ae0b-f3dc104aeff9",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Writer_DeniedCallerWithInvalidBody_IsRefusedByTheGate"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "6b8a8561-cb02-c4ae-dd7f-c82e1bc68530",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.HeadlessCoordinator_RunsTheSameValidator"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "06d0c8af-157c-d2aa-e663-295405b1a84b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Writer_ValidatesTheTrimmedNameItStores"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "ef54b1c3-2367-8320-c029-911898a656bd",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Writer_WhitespaceOnlyName_IsRefusedByTheSchema"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "3d0bad08-3d88-400c-cab8-60b8a6778264",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Writer_StoresOnlyTheKindValidateAdmitted"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "9ecb618c-0a0d-62fb-6ed3-ab4aa25d9bfb",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Writer_StoresOnlyTheKindValidateAdmitted"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "7758d779-d847-1830-0197-34a3c936d07b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.ReActivation_ReplacesTheCompiledArtefact"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "0f3b5a7c-a932-4925-df3a-a0702369c751",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Composition_GivesBothRecordCoordinatorsTheRealValidator"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "67a93ae2-d1cb-1ce0-53d4-59112ce8918a",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.Composition_RecordWriteValidatorDefault_IsNeverTheNullObject"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "1ba364d4-0efe-7273-56b8-1f484b5bab94",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.HierarchySplit_RunsTheValidator"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\CompiledSchemaEntityValidationTests.cs",
+    "id": "034226b9-b879-4278-f5eb-e7d84938d52b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.CompiledSchemaEntityValidationTests.SchemaDeclaringNothing_AcceptsAWellFormedBody"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "c1dc8e2b-e1e2-0be7-9600-e855366bea61",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Split_WithChildReassignments_WritesEveryEdgeEntityAndAuditRow"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "e6ae9be0-2ea7-39c6-f5f2-f3313d73397f",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Merge_WithDisplacedChildren_WritesEveryEdgeEntityAndAuditRow"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "7fc5e0bd-8395-3e20-0a73-7e91e8aa2540",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Merge_OfARecordWithItsOwnChild_ReparentsOnlyOutsideChildren"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "557e1a57-1d18-a726-8efd-848a35a61582",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Reparent_WritesOneAuditRow"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "566c4b35-3044-f63e-0311-695aab7f3245",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Reparent_TwoFiniteDisplacedEdges_ReplacementEndsAtTheLater"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "623b873a-a1aa-1bf9-c2ea-21fb5f5c5e04",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Reparent_FiniteAndOpenDisplacedEdges_ReplacementIsOpenEnded"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "a5715613-05c0-f5ab-1ecf-ed8768d78eed",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Split_TargetInAnotherTenant_IsRefusedAndWritesNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "71c76202-576d-e2d5-f0f1-b3d46eee6da3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Merge_TargetInAnotherTenant_IsRefusedAndWritesNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "17145dc6-15b9-7ad3-d328-6a4145199e0f",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Merge_StoreMintsAnUnexpectedId_ThrowsInsideTheUnitAndPersistsNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "6f9366f3-854b-6673-b5f9-b44d83189531",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Split_NullArguments_ThrowBeforeAnyStage"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "7ae908c5-4954-d22e-4460-fbcb60c5cff3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.Merge_NullArguments_ThrowBeforeAnyStage"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "5c036300-6ec7-b0e0-5d28-3111ac3bfe5e",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.AuditWriter_DecisionForAnotherRecord_IsRefused"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "a518b9ca-dc01-8aea-3a11-a8386bdfa255",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.AuditWriter_DecisionForAnotherPrincipal_IsDenied"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "398f6aa8-f8d0-b626-9107-51718f2094f3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.ChangedDisplacedEdges_RefuseCommitAndWriteNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "33b7cb8e-49ed-f4f6-233c-74d782ff3cc1",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.ChangedDisplacedEdges_RefuseCommitAndWriteNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "82145714-0664-f59c-d7fe-37ef37e956f8",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.ChangedDisplacedEdges_RefuseCommitAndWriteNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "44114380-4232-9d12-a469-ed868bb80976",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.ChangedDisplacedEdges_RefuseCommitAndWriteNothing"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "e9deadad-b5ad-8fd6-0a3f-535311db74ab",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "64e51be1-1e5f-cee5-f006-0ed04c689128",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "45f00c41-23a8-f902-f77f-b78f6b843ea1",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.SplitAfterLaterAdmittedReparent_RefusesChangedIntervalBeforeMintingAnyReplacement"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "9d7dba68-9cc0-f779-4f24-8e6fd81442b8",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.OpposingReparentAtLaterInstant_RefusesEarlierMoveAtCommit"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "d8b63399-78ee-bae0-e51a-0534538156fe",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.ReparentWithNonoverlappingFutureReverseEdge_DoesNotRefuse"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "74b92afb-947d-9c4f-ef59-def796f6e662",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.FutureMultihopDescendant_RefusesOnlyWhenAllPathIntervalsOverlap"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "afa0fdb4-45e9-a542-e83c-8e15d30e2fea",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.FutureMultihopDescendant_RefusesOnlyWhenAllPathIntervalsOverlap"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "bf3f96e8-744f-c50f-1a72-71245200c750",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyCompositeWriteEffectsTests.cs",
+    "id": "9909e5a6-f73e-92ac-5a5e-e134b8d64d67",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyCompositeWriteEffectsTests.FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyMergePipelineTests.cs",
+    "id": "a75fa636-c258-ec8d-bbe0-762e6ca8a1ff",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyMergePipelineTests.Merge_RunsTheSixStages"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyMergePipelineTests.cs",
+    "id": "ad46ce6c-12b0-5aba-85b5-b9a385fff64d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyMergePipelineTests.Merge_AnUnwritableDisplacedChild_IsRefusedAtValidate_AndAnAllowedRetryMerges"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyMergePipelineTests.cs",
+    "id": "ac0f24c3-31c8-1411-11c9-74e211da6b46",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyMergePipelineTests.Merge_RefusedNamedOriginal_StopsAtAuthorize"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyReparentPipelineTests.cs",
+    "id": "511b87f5-077a-7724-9df9-3a998beccfd3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyReparentPipelineTests.Reparent_RunsTheSixStages"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyReparentPipelineTests.cs",
+    "id": "b914b82c-e872-c747-fd66-e0e4c9b40ed3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyReparentPipelineTests.Reparent_RefusedCaller_StopsAtAuthorize"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyReparentPipelineTests.cs",
+    "id": "758d0aa4-9d7c-c9bf-314e-b6aacbe3b6ff",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyReparentPipelineTests.Reparent_UnderItself_IsRefusedAtValidate"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyReparentPipelineTests.cs",
+    "id": "f52c9915-910a-1772-b524-b4f7034e8d2d",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyReparentPipelineTests.Reparent_UnderOwnDescendant_IsRefusedAtValidate_AndAValidRetrySucceeds"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchyReparentPipelineTests.cs",
+    "id": "aa32a1c8-20e0-6abd-43d2-736a27cb3e93",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchyReparentPipelineTests.OpposingReparents_TheSecondToCommitIsRefusedInsideItsUnit"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchySplitPipelineTests.cs",
+    "id": "65d0d2d8-9b18-160b-8d9f-25169cdb808b",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchySplitPipelineTests.Split_RunsTheSixStages"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchySplitPipelineTests.cs",
+    "id": "bbdaa60a-f895-553f-627e-b78347ddae1e",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchySplitPipelineTests.Split_ARefusedReplacement_StopsAtValidate_BeforeAnyWrite_AndAValidRetrySucceeds"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\HierarchySplitPipelineTests.cs",
+    "id": "7bba5d6d-168f-20f3-5079-bc12bb62a143",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.HierarchySplitPipelineTests.Split_RefusedCaller_StopsAtAuthorize"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "a872f3e6-2bf1-a6cd-295d-73c3eedbd1f0",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Violating_write_is_refused_before_commit_with_the_rule_named"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "dd7d7cd5-01b1-b4c3-655f-f8f7cfa30afe",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Satisfying_write_commits"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "e0715e0d-5665-3a52-8c17-2cbc80eabbb7",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Violating_update_is_refused_and_the_record_keeps_its_version"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "801f0dee-acaa-4afe-6f6d-6fafacb83c24",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Rule_exceeding_its_step_budget_refuses_the_write"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "e04a9cb5-239b-f6da-c7f1-5636efca9c31",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Rule_that_does_not_compile_refuses_the_write"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "4df6d5aa-95f3-1f9f-a7ea-e678d4b0f4a1",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Missing_bound_form_refuses_the_write"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "1b801ab3-41dd-f4f6-f80b-52fedc6117ae",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Hierarchy_split_target_is_refused_by_its_bound_rule"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\Entities\\RecordWriteRulesStageTests.cs",
+    "id": "1dbb559d-0a0b-f4ce-3f06-65f6b65b090a",
+    "name": "Harborline.Api.LocalNodeHost.Tests.Entities.RecordWriteRulesStageTests.Hierarchy_merge_target_is_refused_by_its_bound_rule"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\KeyHierarchy\\LocalNodeKeyHierarchyTests.cs",
+    "id": "11c6779a-e705-9207-5168-a3f84c1420f0",
+    "name": "Harborline.Api.LocalNodeHost.Tests.KeyHierarchy.LocalNodeKeyHierarchyTests.Sc4StoreDek_ExtendsRecoverableCustodyToPerTeamStores"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\KeyHierarchy\\LocalNodeKeyHierarchyTests.cs",
+    "id": "cc78147d-2e9c-c246-66ed-fbb30126f84c",
+    "name": "Harborline.Api.LocalNodeHost.Tests.KeyHierarchy.LocalNodeKeyHierarchyTests.Sc4Guard_UsesResolvedHierarchyInsteadOfCallerAssertion"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\KeyHierarchy\\LocalNodeKeyHierarchyTests.cs",
+    "id": "0315c6b8-fc14-6313-a21a-b0fdc9c3b782",
+    "name": "Harborline.Api.LocalNodeHost.Tests.KeyHierarchy.LocalNodeKeyHierarchyTests.TeamStoreActivation_RekeysLegacySeedKeyToRecoverableAtRestRoot"
+  },
+  {
+    "file": "C:\\Users\\Chris\\Documents\\Codex\\2026-10-02\\task-10\\pr331\\apps\\local-node-host\\tests\\KeyHierarchy\\LocalNodeKeyHierarchyTests.cs",
+    "id": "e3ee4418-3ec3-acbb-20ee-29c4a03380d3",
+    "name": "Harborline.Api.LocalNodeHost.Tests.KeyHierarchy.LocalNodeKeyHierarchyTests.DeriveReplacementKeys_CoversEveryRootDerivedDomain"
+  }
+]
