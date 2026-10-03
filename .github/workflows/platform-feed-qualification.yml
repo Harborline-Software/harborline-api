@@ -1,0 +1,49 @@
+name: platform-feed-qualification
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/platform-feed-qualification.yml'
+      - 'eng/platform-feed-*.mjs'
+      - 'eng/platform-feed-profile.json'
+      - 'eng/build-local-feed.mjs'
+      - 'eng/same-job-platform-feed.mjs'
+      - 'eng/exact-clone-platform-feed.mjs'
+      - 'eng/platform-pin.json'
+permissions:
+  contents: read
+concurrency:
+  group: platform-feed-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  qualify-linux-docker-node24:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read platform pin
+        id: pin
+        run: echo "commit=$(node -p "JSON.parse(require('fs').readFileSync('eng/platform-pin.json')).commit")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.pin.outputs.commit }}
+          path: .platform
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Qualify production builder and restored bytes
+        run: node eng/platform-feed-qualification.mjs "$GITHUB_WORKSPACE/.platform"
+      - name: Scoped qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-feed-qualification-${{ github.run_id }}
+          if-no-files-found: error
+          include-hidden-files: true # explicit bounded evidence JSON only
+          path: .claude/platform-feed-qualification/evidence.json

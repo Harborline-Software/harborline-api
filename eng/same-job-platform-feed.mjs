@@ -30,13 +30,13 @@ export function feedIdentity({pin, platformTree, plan, sdk, node, os, arch, imag
 
 const producerInputs = ['eng/build-local-feed.mjs', 'eng/same-job-platform-feed.mjs',
   'eng/exact-clone-platform-feed.mjs', '.github/actions/platform-feed/action.yml', 'eng/platform-pin.json', 'global.json']
-const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {encoding: 'utf8'}).trim()
+const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {encoding: 'utf8', env: buildEnvironment()}).trim()
 export function assertCommittedProducer(apiRoot = root) {
   // Byte digests alone do not establish provenance. Every producing input must be tracked and
   // match HEAD before the canonical builder can mint a handoff, and again after it returns.
   for (const file of producerInputs) {
     git(apiRoot, 'cat-file', '-e', `HEAD:${file}`)
-    execFileSync('git', ['-C', apiRoot, 'diff', '--quiet', 'HEAD', '--', file], {stdio: 'pipe'})
+    execFileSync('git', ['-C', apiRoot, 'diff', '--quiet', 'HEAD', '--', file], {stdio: 'pipe', env: buildEnvironment()})
   }
 }
 
@@ -61,7 +61,7 @@ function currentIdentity(platform, pin, env = process.env) {
   const plan = JSON.parse(execFileSync(process.execPath, ['eng/build-local-feed.mjs', '--dry-run'], {
     cwd: root, encoding: 'utf8', env: {...buildEnvironment(env), HARBORLINE_PLATFORM_REPO: platform},
   }))
-  const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8'}).trim()
+  const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8', env: buildEnvironment(env)}).trim()
   const scripts = Object.fromEntries(producerInputs.map(file => [file, sha256(readFileSync(path.join(root, file)))]))
   return feedIdentity({pin, platformTree, plan,
     apiCommit: git(root, 'rev-parse', 'HEAD'), apiTree: git(root, 'rev-parse', 'HEAD^{tree}'), session: jobSession(env),

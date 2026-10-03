@@ -12,7 +12,7 @@ export const producerPaths = ['.github/workflows/platform-feed-producer.yml', '.
   'eng/same-job-platform-feed.mjs', 'eng/exact-clone-platform-feed.mjs', 'eng/platform-feed-consumption.mjs',
   'eng/platform-feed-environment.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
 const git = (root, ...args) => execFileSync('git', ['-c', `safe.directory=${root}`, '-C', root, ...args],
-  {encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024}).trim()
+  {encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024, env: buildEnvironment()}).trim()
 
 export function fileClosure(root, prefix = '', excluded = new Set()) {
   const files = []
@@ -58,7 +58,7 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   // Clone only committed bytes/history; preserve the caller's local outputs.
   const platform = path.join(directory, 'platform')
   execFileSync('git', ['-c', `safe.directory=${sourcePlatform}`, 'clone', '--quiet', '--no-local', '--no-hardlinks', sourcePlatform, platform],
-    {encoding: 'utf8', timeout: 30000, stdio: 'pipe'})
+    {encoding: 'utf8', timeout: 30000, stdio: 'pipe', env: buildEnvironment()})
   git(platform, 'checkout', '--quiet', '--detach', pin.commit)
   if (canonical(platformIdentity(platform, pin)) !== canonical(platformBefore)) throw new Error('isolated platform clone differs')
   const tools = path.join(directory, 'tools'), packages = path.join(directory, 'packages'), output = path.join(directory, 'output')

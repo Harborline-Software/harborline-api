@@ -9,11 +9,12 @@ import {prepareContainer, producerPaths} from './platform-feed-container.mjs'
 import {canonical, hash, repository, reuseProblems, definitionProblems} from './platform-feed-reuse-policy.mjs'
 import {readPin} from './build-local-feed.mjs'
 import {createBundle, validateBundle, publishVerifiedSameJobFeed} from './same-job-platform-feed.mjs'
+import {buildEnvironment} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..'), prefix = `/repos/${repository}`
 const commit = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
 const git = (...args) => execFileSync('git', ['-c', `safe.directory=${root}`, '-C', root, ...args],
-  {encoding: 'utf8', timeout: 30000}).trim()
+  {encoding: 'utf8', timeout: 30000, env: buildEnvironment()}).trim()
 const blobHash = bytes => createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
 
 export function githubClient(token, fetcher = fetch) {
@@ -41,13 +42,24 @@ export function githubClient(token, fetcher = fetch) {
   }
 }
 
-export function unpackFeed(archive) {
+export function unpackFeed(archive, authenticatedDigest) {
+  if (typeof authenticatedDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(authenticatedDigest)
+    || archive.length > 64 * 1024 * 1024 || `sha256:${hash(archive)}` !== authenticatedDigest)
+    throw new Error('artifact archive digest differs from authenticated metadata')
   const directory = mkdtempSync(path.join(tmpdir(), 'api-feed-archive-'))
   try {
     const file = path.join(directory, 'artifact.zip'); writeFileSync(file, archive)
-    const script = "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n if z.namelist()!=['feed-bundle.json']: raise ValueError('unexpected artifact entries')\n if z.getinfo('feed-bundle.json').file_size>64*1024*1024: raise ValueError('oversize feed')\n sys.stdout.buffer.write(z.read('feed-bundle.json'))\n"
-    return execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-c', script, file],
-      {timeout: 10000, maxBuffer: 64 * 1024 * 1024, stdio: 'pipe'})
+    // -I ignores cwd, PYTHONPATH and user site modules. Both ZIP bytes and decoded entry
+    // are bound in one isolated standard-library process; no candidate module is imported.
+    const script = "import sys,zipfile,hashlib,io,json,base64\nraw=open(sys.argv[1],'rb').read()\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n if z.namelist()!=['feed-bundle.json']: raise ValueError('unexpected artifact entries')\n if z.getinfo('feed-bundle.json').file_size>64*1024*1024: raise ValueError('oversize feed')\n entry=z.read('feed-bundle.json')\n print(json.dumps({'archiveSha256':hashlib.sha256(raw).hexdigest(),'entryBase64':base64.b64encode(entry).decode('ascii')}))\n"
+    const decoded = JSON.parse(execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-c', script, file],
+      {cwd: directory, timeout: 10000, maxBuffer: 90 * 1024 * 1024, stdio: 'pipe', env: buildEnvironment()}))
+    if (`sha256:${decoded.archiveSha256}` !== authenticatedDigest || typeof decoded.entryBase64 !== 'string')
+      throw new Error('decoded entry is not bound to authenticated archive')
+    const entry = Buffer.from(decoded.entryBase64, 'base64')
+    if (entry.length > 64 * 1024 * 1024 || entry.toString('base64') !== decoded.entryBase64)
+      throw new Error('invalid decoded archive entry')
+    return entry
   } finally {rmSync(directory, {recursive: true, force: true})}
 }
 
@@ -93,7 +105,7 @@ export async function findReusableFeed({api, trusted, expected, unpack = unpackF
       trustedDefinitionsMatch: definitionProblems({trustedTree: trusted.tree, sourceTree, paths: producerPaths}).length === 0,
       sourceOnProtectedMain: ['ahead', 'identical'].includes(ancestry.status)}
     if (reuseProblems({...binding, observed: expected}).length) continue
-    const raw = unpack(archive), bundle = JSON.parse(raw)
+    const raw = unpack(archive, artifact.digest), bundle = JSON.parse(raw)
     if (reuseProblems({...binding, observed: bundle.identity}).length) continue
     // The archive is authenticated above; this inner digest merely binds the decoded entry.
     const files = validateBundle(raw, hash(raw), expected, trusted.pin)

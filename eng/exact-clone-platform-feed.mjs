@@ -23,7 +23,7 @@ export function resolvePlatformCheckout({apiRoot, scratch, pin, env = process.en
   const explicit = env.HARBORLINE_PLATFORM_REPO
   const candidate = path.resolve(apiRoot, explicit ?? '../harborline-platform')
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {
-    env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    env: buildEnvironment(env), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   }).trim()
   const rejection = checkout => {
     if (!existsSync(checkout)) return 'missing'

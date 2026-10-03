@@ -76,3 +76,30 @@ required before this draft lands. No full hosted speedup is claimed yet.
 The expected savings are the duplicate same-job pack and, when exact matching
 producer evidence exists, the initial dependency pack. A scratch restore adds
 network work; hosted measurements must establish the resulting net savings.
+
+## Staged hosted acceptance
+
+Archive decoding requires the authenticated transport SHA-256, then runs Python
+with isolated imports (`-I`) and an owned temporary cwd. The isolated decoder
+hashes the exact ZIP it reads and returns its single bounded entry; the parent
+checks the authenticated digest again. Candidate workspace/PYTHONPATH modules
+cannot supply decoder code. The metadata parent retains its credential, while
+fallback action launches, standalone builder code before the platform version
+import, and all feed child processes strip GitHub, enterprise and runner broker
+credentials. Regression fixtures use synthetic values only.
+
+`platform-feed-qualification.yml` runs the separate qualification harness on
+Linux with real Docker Engine and Node24. It executes the unchanged production
+container builder, full API solution restore and archive/extracted-byte
+consumption verification, plus digest, stale-pin, archive, missing-package and
+DLL negative controls. Its missing-handoff control proves fresh-route selection;
+the actual production builder is exercised independently. No artifact is
+authenticated or published by this harness, and it reports cross-run reuse and
+hosted end-to-end speedup as unmeasured. A prelanding verify-linux pass can still
+be a fresh fallback because protected main does not yet contain the definitions.
+
+After reviewed definitions land, the protected-main producer must create a
+successful artifact. A coordinator-authorized consumer run must authenticate
+that artifact, prove matching independent inputs and consumed bytes, and finish
+all ordinary API gates. Only same-profile hosted end-to-end fresh/hit timings
+can establish net speedup. Keep main-source authentication unchanged throughout.

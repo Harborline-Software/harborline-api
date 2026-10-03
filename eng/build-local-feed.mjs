@@ -6,7 +6,7 @@ import {mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {inflateRawSync} from 'node:zlib'
-import {buildEnvironment} from './platform-feed-environment.mjs'
+import {buildEnvironment, scrubBuildCredentials} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 export function readPin(file = path.join(root, 'eng/platform-pin.json')) {
@@ -26,10 +26,12 @@ export function assertProducers(manifest, pin) {
   return identities
 }
 export function assertFeed(file = path.join(root, 'nuget.config')) {
-  const sources = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+  const sources = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, ' ')
   if (!/<add\s+key="harborline-local"\s+value="\.feed"\s*\/>/.test(sources)) throw new Error('nuget.config must declare the local .feed')
 }
 async function main() {
+  // Platform-controlled JavaScript runs in this process before dotnet children exist.
+  scrubBuildCredentials()
   const pin = readPin()
   if (process.argv[2] === '--check-manifest') {
     assertProducers(JSON.parse(readFileSync(process.argv[3], 'utf8')), pin)
@@ -45,7 +47,7 @@ async function main() {
   if (git('status', '--porcelain', '--untracked-files=normal')) throw new Error('platform checkout must be clean before packing')
   // Discover the pinned platform's explicit packable inventory; the producer pin catches drift.
   const manifest = git('ls-files', '*.csproj').split('\n').flatMap(project => {
-    const source = readFileSync(path.join(platform, project), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    const source = readFileSync(path.join(platform, project), 'utf8').replace(/<!--[\s\S]*?-->/g, ' ')
     if (!/<IsPackable>\s*true\s*<\/IsPackable>/.test(source)) return []
     const id = /<PackageId>([^<]+)<\/PackageId>/.exec(source)?.[1] ?? path.basename(project, '.csproj')
     const assembly = /<AssemblyName>([^<]+)<\/AssemblyName>/.exec(source)?.[1] ?? path.basename(project, '.csproj')

@@ -86,7 +86,8 @@ export function verifyConsumedFeed({clone, packages, bundlePath, bundleDigest, p
         approvedFile(clone, path.relative(clone, owner).replaceAll('\\', '/'))
         const referenced = path.resolve(path.dirname(owner), library.path)
         const source = approvedFile(clone, path.relative(clone, referenced).replaceAll('\\', '/')).toString('utf8')
-          .replace(/<!--[\s\S]*?-->/g, '')
+          // Preserve a token boundary: removing comments must not manufacture XML tags.
+          .replace(/<!--[\s\S]*?-->/g, ' ')
         const packageIds = [...source.matchAll(/<PackageId>([^<]+)<\/PackageId>/g)].map(match => match[1])
         const assemblyIds = [...source.matchAll(/<AssemblyName>([^<]+)<\/AssemblyName>/g)].map(match => match[1])
         const declared = packageIds.length === 1 ? packageIds[0] : packageIds.length === 0 && assemblyIds.length === 1

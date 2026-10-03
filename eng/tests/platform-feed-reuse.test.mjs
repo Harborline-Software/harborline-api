@@ -49,6 +49,7 @@ const bundle = (input = identity()) => Buffer.from(JSON.stringify({schemaVersion
 const now = Date.parse('2026-10-03T12:00:00Z')
 test('build children receive no metadata/runtime token while unrelated build environment stays intact', () => {
   const input = {GH_TOKEN: 'synthetic-one', GITHUB_TOKEN: 'synthetic-two', ACTIONS_RUNTIME_TOKEN: 'synthetic-three',
+    GH_ENTERPRISE_TOKEN: 'synthetic-enterprise-one', GITHUB_ENTERPRISE_TOKEN: 'synthetic-enterprise-two',
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-four', NUGET_PACKAGES: '/scratch/packages', HARBORLINE_FEED_NO_RESTORE: '1'}
   assert.deepEqual(buildEnvironment(input), {NUGET_PACKAGES: '/scratch/packages', HARBORLINE_FEED_NO_RESTORE: '1'})
   assert.equal(input.GH_TOKEN, 'synthetic-one', 'metadata parent retains its token')
@@ -94,6 +95,18 @@ test('actual restore consumption binds package archives and selected/extracted b
   }
   writeFileSync(assetsPath, JSON.stringify(projectReference()))
   assert.deepEqual(verifyConsumedFeed(options).packages, result.packages, 'legitimate API project references still compile freshly')
+  // XML forbids a comment inside an element name. Removing it must not create PackageId authority.
+  const splitTag = projectReference()
+  const splitProject = '../src/Harborline.Api.Contracts/Different.csproj'
+  splitTag.libraries['Harborline.Api.Contracts/0.1.0-preview.1'].path = splitProject
+  splitTag.libraries['Harborline.Api.Contracts/0.1.0-preview.1'].msbuildProject = splitProject
+  writeFileSync(path.join(path.dirname(contractProject), 'Different.csproj'),
+    '<Project><Package<!-- removed -->Id>Harborline.Api.Contracts</PackageId></Project>')
+  writeFileSync(assetsPath, JSON.stringify(splitTag))
+  assert.throws(() => verifyConsumedFeed(options), /differs from source identity/)
+  writeFileSync(contractProject, '<Project><!-- <PackageId>Harborline.Wrong</PackageId> --><PackageId>Harborline.Api.Contracts</PackageId></Project>')
+  writeFileSync(assetsPath, JSON.stringify(projectReference()))
+  assert.equal(verifyConsumedFeed(options).dependencyBytesVerified, true, 'ordinary comments remain inert')
   const changes = [
     () => writeFileSync(archivePath, 'older same-version cached archive'),
     () => writeFileSync(dllPath, 'older or changed extracted assembly'),
@@ -234,9 +247,24 @@ test('archive reader accepts only one bounded named data entry and never extract
   const python = process.platform === 'win32' ? 'python' : 'python3'
   const make = names => execFileSync(python, ['-c',
     "import io,sys,zipfile,json\nb=io.BytesIO()\nwith zipfile.ZipFile(b,'w') as z:\n for n in json.loads(sys.argv[1]): z.writestr(n,'fixture')\nsys.stdout.buffer.write(b.getvalue())", JSON.stringify(names)], {stdio: 'pipe'})
-  assert.equal(unpackFeed(make(['feed-bundle.json'])).toString(), 'fixture')
+  const decode = bytes => unpackFeed(bytes, `sha256:${digest(bytes)}`)
+  assert.equal(decode(make(['feed-bundle.json'])).toString(), 'fixture')
   for (const names of [['../execute.py'], ['feed-bundle.json', '../execute.py'], ['feed-bundle.json', 'feed-bundle.json']])
-    assert.throws(() => unpackFeed(make(names)))
+    assert.throws(() => decode(make(names)))
+  const archive = make(['feed-bundle.json'])
+  assert.throws(() => unpackFeed(archive, 'sha256:' + '0'.repeat(64)), /digest differs/)
+  const directory = mkdtempSync(path.join(tmpdir(), 'candidate-python-shadow-')), previousCwd = process.cwd(), previousPath = process.env.PYTHONPATH
+  const marker = path.join(directory, 'candidate-module-executed')
+  writeFileSync(path.join(directory, 'zipfile.py'), `open(${JSON.stringify(marker)},'w').write('executed')\nclass ZipFile:\n def __init__(self,*args): pass\n def __enter__(self): return self\n def __exit__(self,*args): pass\n def namelist(self): return ['feed-bundle.json']\n def getinfo(self,*args): return type('Info',(),{'file_size':6})()\n def read(self,*args): return b'forged'\n`)
+  try {
+    process.chdir(directory); process.env.PYTHONPATH = directory
+    assert.equal(decode(archive).toString(), 'fixture', 'authenticated ZIP entry is authoritative even with candidate shadow modules')
+    assert.equal(readdirSync(directory).includes('candidate-module-executed'), false, 'candidate module never executes')
+  } finally {
+    process.chdir(previousCwd)
+    if (previousPath === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = previousPath
+    rmSync(directory, {recursive: true, force: true})
+  }
 })
 
 function sourceFixture(t) {
@@ -406,10 +434,12 @@ test('composed action executes fresh fallback and propagates its failure; artifa
   ]
   for (const fixture of cases) {
     const record = path.join(directory, 'calls.txt'); writeFileSync(record, '')
-    const harness = 'set -eo pipefail\nnode() { printf "%s\\n" "$*" >> "$TEST_FEED_RECORD"; if [[ "$1" = eng/platform-feed-reuse.mjs ]]; then [[ -n "${GH_TOKEN:-}" ]] || return 88; return "$TEST_REUSE_STATUS"; else [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]] || return 91; return "$TEST_FRESH_STATUS"; fi; }\n'
+    const harness = 'set -eo pipefail\nnode() { printf "%s\\n" "$*" >> "$TEST_FEED_RECORD"; if [[ "$1" = eng/platform-feed-reuse.mjs ]]; then [[ -n "${GH_TOKEN:-}" ]] || return 88; return "$TEST_REUSE_STATUS"; else [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${GH_ENTERPRISE_TOKEN:-}${GITHUB_ENTERPRISE_TOKEN:-}${ACTIONS_RUNTIME_TOKEN:-}${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] || return 91; return "$TEST_FRESH_STATUS"; fi; }\n'
     const result = spawnSync(bash, ['-c', harness + run], {encoding: 'utf8', timeout: 10000, env: {...process.env,
       CROSS_RUN_REUSE: fixture.cross, SAME_JOB_HANDOFF: fixture.same, HARBORLINE_PLATFORM_REPO: '/fixture/platform',
       GH_TOKEN: 'synthetic-metadata-only', GITHUB_TOKEN: 'synthetic-build-forbidden',
+      GH_ENTERPRISE_TOKEN: 'synthetic-enterprise-one', GITHUB_ENTERPRISE_TOKEN: 'synthetic-enterprise-two',
+      ACTIONS_RUNTIME_TOKEN: 'synthetic-runtime', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-identity',
       TEST_FEED_RECORD: record.replaceAll('\\', '/'), TEST_REUSE_STATUS: String(fixture.reuse), TEST_FRESH_STATUS: String(fixture.fresh)}})
     assert.equal(result.status, fixture.status, result.stderr)
     assert.deepEqual(readFileSync(record, 'utf8').trim().split('\n').filter(Boolean), fixture.calls)

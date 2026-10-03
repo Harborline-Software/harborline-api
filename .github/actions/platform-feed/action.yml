@@ -53,7 +53,7 @@ runs:
           exit 1
         fi
         # Metadata authentication ends here; build tasks receive no broker token.
-        unset GH_TOKEN GITHUB_TOKEN
+        unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN
         if [[ "$SAME_JOB_HANDOFF" == 'true' ]]; then
           node eng/same-job-platform-feed.mjs build "$HARBORLINE_PLATFORM_REPO"
         else
