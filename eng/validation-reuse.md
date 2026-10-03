@@ -63,8 +63,10 @@ enumerate the three expected host lanes. Missing evidence on either side,
 empty directories and corrupt observations remain explicit unknown evidence;
 duplicate lane observations are refused. Presence does not establish complete
 inputs or authorize reuse. Each observation must match its expected host OS and
-architecture; copying Windows evidence into Mac/Linux folders is unknown
+architecture and host baseline; copying Windows evidence into Mac/Linux folders is unknown
 evidence. Missing or invalid candidate SHAs also remain unknown evidence.
+Candidate SHA/tree identities must be literal hexadecimal strings; JSON arrays
+and objects cannot qualify through JavaScript string coercion.
 Successful broker entries report no lane problems; failed entries
 preserve their actual diagnostics. Coverage profile selection uses the authenticated
 GitHub run event, including `merge_group`, retained as current/prior report fields.

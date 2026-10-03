@@ -6,7 +6,7 @@ import {execFileSync, spawnSync} from 'node:child_process'
 import path from 'node:path'
 import {mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {compareDirectories} from '../validation-shadow-report.mjs'
+import {compareDirectories, compareObservations} from '../validation-shadow-report.mjs'
 import {inputs as fixtureInputs} from './validation-fixtures.mjs'
 
 const archive = Buffer.from('archive fixture')
@@ -53,7 +53,7 @@ test('download redirect never receives API credentials and non-HTTPS redirects a
   await assert.rejects(api('https://attacker.example'), /unsupported API endpoint/)
 })
 const inputs = {schemaVersion: 1, repository: run.repository.full_name, candidateTree: 'b'.repeat(40), lane: 'host',
-  dependencies: {}, producer: {}, toolchain: {}, platform: {os: 'darwin', architecture: 'arm64'}, pins: {}, selection: {}, coverage: {enabled: false},
+  dependencies: {}, producer: {}, toolchain: {}, platform: {os: 'darwin', architecture: 'arm64'}, pins: {}, selection: {hostBaseline: 'eng/baselines/host-test-baseline.macos.json'}, coverage: {enabled: false},
   commitInputs: {}, unknownInputs: ['evaluated compiler inputs not observed']}
 const unpack = () => ({observation: {candidateSha: 'c'.repeat(40), inputs, fingerprint: fingerprint(inputs)},
   receipt: {baseHead: 'c'.repeat(40), testedTree: 'b'.repeat(40), lane: 'host'}})
@@ -135,6 +135,8 @@ test('normal gh download artifact folders compare by canonical host lane across 
     manifest.platform = lane === 'verify-macos' ? {os: 'darwin', architecture: 'arm64', release: '24.0'}
       : lane === 'verify-linux' ? {os: 'linux', architecture: 'x64', release: '6.8'}
         : {os: 'win32', architecture: 'x64', release: '10.0.26100'}
+    manifest.selection.hostBaseline = lane === 'verify-macos' ? 'eng/baselines/host-test-baseline.macos.json'
+      : lane === 'verify-linux' ? 'eng/baselines/host-test-baseline.ubuntu.json' : 'eng/baselines/host-test-baseline.json'
     const observation = {candidateSha: 'a'.repeat(40), inputs: manifest, fingerprint: fingerprint(manifest)}
     for (const [directory, runId] of [[current, '123'], [prior, '122']]) {
       const folder = path.join(directory, `${lane}-evidence-${runId}`, '.claude/gate-evidence')
@@ -171,7 +173,7 @@ test('normal gh download artifact folders compare by canonical host lane across 
   assert.equal(wrong.lanes[2].completeInputs, true)
   assert.equal(wrong.reuseAuthorized, false)
   assert.equal(wrong.requiredWorkSkipped, false)
-  for (const candidateSha of [undefined, 'invalid', 'a'.repeat(39)]) {
+  for (const candidateSha of [undefined, 'invalid', 'a'.repeat(39), ['a'.repeat(40)], {}, 123]) {
     writeFileSync(path.join(current, 'verify-windows-hosted-evidence-123', '.claude/gate-evidence/validation-inputs-shadow.json'),
       JSON.stringify({...wrongHost, candidateSha}))
     const malformed = compareDirectories(current, prior)
@@ -186,6 +188,58 @@ test('normal gh download artifact folders compare by canonical host lane across 
   assert.match(missingCurrent.lanes[1].problems.join(), /current observation missing/)
   rmSync(path.join(prior, 'verify-windows-hosted-evidence-122'), {recursive: true})
   assert.match(compareDirectories(current, prior).lanes[2].problems.join(), /prior observation missing/)
+})
+
+test('complete per-host observations reject adversarial identity types and profiles on either side', () => {
+  const profiles = [
+    ['verify-macos', 'darwin', 'arm64', 'eng/baselines/host-test-baseline.macos.json'],
+    ['verify-linux', 'linux', 'x64', 'eng/baselines/host-test-baseline.ubuntu.json'],
+    ['verify-windows-hosted', 'win32', 'x64', 'eng/baselines/host-test-baseline.json'],
+  ]
+  for (const [lane, os, architecture, baseline] of profiles) {
+    const manifest = fixtureInputs()
+    manifest.platform = {os, architecture, release: 'observed-release'}
+    manifest.selection.hostBaseline = baseline
+    const observation = {candidateSha: 'a'.repeat(40), inputs: manifest, fingerprint: fingerprint(manifest)}
+    assert.equal(compareObservations(observation, observation, lane).completeInputs, true, lane)
+    const changes = [
+      ['candidate-tree array', m => {m.candidateTree = ['a'.repeat(40)]}],
+      ['candidate-tree object', m => {m.candidateTree = {sha: 'a'.repeat(40)}}],
+      ['candidate-tree number', m => {m.candidateTree = 123}],
+      ['repository array', m => {m.repository = ['Harborline-Software/harborline-api']}],
+      ['lane array', m => {m.lane = ['host']}],
+      ['wrong lane', m => {m.lane = 'shared'}],
+      ['OS array', m => {m.platform.os = [os]}],
+      ['wrong OS', m => {m.platform.os = os === 'linux' ? 'win32' : 'linux'}],
+      ['architecture array', m => {m.platform.architecture = [architecture]}],
+      ['wrong architecture', m => {m.platform.architecture = architecture === 'x64' ? 'arm64' : 'x64'}],
+      ['baseline array', m => {m.selection.hostBaseline = [baseline]}],
+      ['wrong supported baseline', m => {m.selection.hostBaseline = baseline === profiles[2][3] ? profiles[0][3] : profiles[2][3]}],
+      ['selection array', m => {m.selection.host = ['Lane!=perf']}],
+      ['coverage string', m => {m.coverage.enabled = 'false'}],
+      ['quality string', m => {m.selection.quality = 'false'}],
+      ['pin commit array', m => {m.pins.platform.commit = ['b'.repeat(40)]}],
+      ['pin tree array', m => {m.pins.platform.tree = ['c'.repeat(40)]}],
+      ['pin declared array', m => {m.pins.platform.declared = ['b'.repeat(40)]}],
+      ['producer hash array', m => {m.producer.files[0].sha256 = ['3'.repeat(64)]}],
+      ['native hash array', m => {m.dependencies.native[0].sha256 = ['1'.repeat(64)]}],
+      ['lock hash array', m => {m.dependencies.restoredLocks[0].sha256 = ['2'.repeat(64)]}],
+    ]
+    const malformed = changes.map(([label, mutate]) => {
+      const inputs = structuredClone(manifest); mutate(inputs)
+      return [label, {...observation, inputs, fingerprint: fingerprint(inputs)}]
+    })
+    for (const candidateSha of [undefined, null, {}, 123, ['a'.repeat(40)], 'A'.repeat(40), 'a'.repeat(39)])
+      malformed.push(['candidate SHA type/format', {...observation, candidateSha}])
+    for (const [label, invalid] of malformed) for (const side of ['current', 'prior']) {
+      const result = compareObservations(side === 'current' ? invalid : observation,
+        side === 'prior' ? invalid : observation, lane)
+      assert.equal(result.completeInputs, false, `${lane}: ${side}: ${label}`)
+      assert.ok(result.problems.length > 0)
+      assert.equal(result.reuseAuthorized, false)
+      assert.equal(result.requiredWorkSkipped, false)
+    }
+  }
 })
 
 test('empty, malformed, unrecognized and duplicate directory evidence never becomes an empty successful lane set', t => {

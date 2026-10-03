@@ -10,10 +10,11 @@ export function compareObservations(current, prior, lane) {
   for (const [name, item] of [['current', current], ['prior', prior]]) {
     try {
       if (!item?.inputs || item.fingerprint !== fingerprint(item.inputs)) problems.push(`${name} observation missing or corrupt`)
-      else if (!/^[0-9a-f]{40}$/.test(item.candidateSha ?? '')) problems.push(`${name} observation candidate identity missing or invalid`)
+      else if (typeof item.candidateSha !== 'string' || !/^[0-9a-f]{40}$/.test(item.candidateSha)) problems.push(`${name} observation candidate identity missing or invalid`)
       else if (lane && (item.inputs.lane !== 'host'
         || item.inputs.platform?.os !== hostProfiles[lane]?.os
-        || item.inputs.platform?.architecture !== hostProfiles[lane]?.architecture))
+        || item.inputs.platform?.architecture !== hostProfiles[lane]?.architecture
+        || item.inputs.selection?.hostBaseline !== hostProfiles[lane]?.hostBaseline))
         problems.push(`${name} observation host profile differs from expected lane`)
     } catch {problems.push(`${name} observation missing or corrupt`)}
   }

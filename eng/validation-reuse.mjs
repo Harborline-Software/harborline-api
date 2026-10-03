@@ -25,7 +25,7 @@ export function inputProblems(manifest) {
   const problems = dimensions.filter(key => !Object.hasOwn(manifest, key)).map(key => `missing ${key}`)
   for (const key of Object.keys(manifest))
     if (key !== 'schemaVersion' && !dimensions.includes(key)) problems.push(`unknown dimension ${key}`)
-  if (!/^[0-9a-f]{40}$/.test(manifest.candidateTree ?? '')) problems.push('invalid candidateTree')
+  if (!sha1(manifest.candidateTree)) problems.push('invalid candidateTree')
   if (!['host', 'shared', 'packages', 'mutation'].includes(manifest.lane)) problems.push('unknown lane')
   if (manifest.repository !== 'Harborline-Software/harborline-api') problems.push('unknown repository')
   for (const key of ['dependencies', 'producer', 'toolchain', 'platform', 'pins', 'selection', 'coverage', 'commitInputs']) {
