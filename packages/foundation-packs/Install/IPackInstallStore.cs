@@ -146,6 +146,27 @@ public sealed record PackInstallTransaction(
     /// <summary>The tenant-wide installed snapshot used by admission; null disables comparison for raw callers.</summary>
     public IReadOnlyList<InstalledPack>? ExpectedInstalledState { get; init; }
 
+    /// <summary>The target's override snapshot used by reattachment; null disables comparison for raw callers.</summary>
+    public IReadOnlyList<PackTenantOverride>? ExpectedOverrides { get; init; }
+
+    /// <summary>The tenant ownership choices used by collision admission; null disables comparison for raw callers.</summary>
+    public IReadOnlyDictionary<string, string>? ExpectedKeyOwnership { get; init; }
+
+    /// <summary>Checks mutable admission inputs inside the store's atomic write boundary.</summary>
+    public void RequireCurrentAdmissionState(
+        IReadOnlyList<PackTenantOverride> overrides, IReadOnlyDictionary<string, string> ownership)
+    {
+        if (ExpectedOverrides is not null
+            && (overrides.Count != ExpectedOverrides.Count || ExpectedOverrides.Any(expected =>
+                !overrides.Any(current => current.ContentKey == expected.ContentKey
+                    && System.Text.Json.Nodes.JsonNode.DeepEquals(current.OverlayPatch, expected.OverlayPatch)))))
+            throw new PackInstallStateChangedException();
+        if (ExpectedKeyOwnership is not null
+            && (ownership.Count != ExpectedKeyOwnership.Count || ExpectedKeyOwnership.Any(expected =>
+                !ownership.TryGetValue(expected.Key, out var value) || value != expected.Value)))
+            throw new PackInstallStateChangedException();
+    }
+
     /// <summary>Checks every installed-state premise under the same serialization boundary as the write.</summary>
     public void RequireCurrentInstalledState(IEnumerable<InstalledPack> current)
     {

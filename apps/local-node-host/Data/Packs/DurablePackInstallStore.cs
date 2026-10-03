@@ -244,6 +244,11 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
                 JsonSerializer.Deserialize<Dictionary<string, int>>(observedWatermark.FloorsJson, Json)!));
             transaction.RequireCurrentInstalledState(ctx.InstalledVersions.AsNoTracking()
                 .Where(row => row.Tenant == t).ToList().Select(Materialize));
+            transaction.RequireCurrentAdmissionState(
+                ctx.Overrides.AsNoTracking().Where(row => row.Tenant == t && row.PackKey == pack.PackKey)
+                    .ToList().Select(row => new PackTenantOverride(row.ContentKey, ParseOverlay(row.ContentKey, row.OverlayJson))).ToList(),
+                ctx.KeyOwnership.AsNoTracking().Where(row => row.Tenant == t).ToList()
+                    .ToDictionary(row => row.ContentKey, row => row.OwningPackKey, StringComparer.Ordinal));
 
             // (1) Upsert the new immutable seed-layer version row (committed in the pack's own lifecycle — Draft
             //     at install; activation is a separate pointer flip). The payload is the FULL InstalledPack JSON.

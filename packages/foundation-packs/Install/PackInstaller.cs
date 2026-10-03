@@ -146,7 +146,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
     /// <summary>
     /// Pack install as its six ADR 0038 stages (ck-10 S5c). Authorize reads only the claimed coordinates and
-    /// keeps the audited pre-decision refusals. Bind reads the installed versions and the watermark. Mutate is
+    /// keeps the audited pre-decision refusals. Bind reads installed versions, watermark, overrides and tenant ownership. Mutate is
     /// the plan and its <see cref="PackInstallTransaction"/>. Validate runs the hard refusals (verify, revocation,
     /// scope, projector support, admission) and the S-8 watermark rule, which proceeds only under the explicit
     /// break-glass ceremony. Commit is the atomic seed-layer commit. React is the audit, the break-glass entry
@@ -179,7 +179,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             ValueTask.FromResult<InstallBound?>(new InstallBound(
                 installer._store.ListInstalled(context.Tenant),
                 claimed.PackKey,
-                installer._store.GetWatermark(context.Tenant, claimed.PackKey)));
+                installer._store.GetWatermark(context.Tenant, claimed.PackKey),
+                installer._store.GetOverrides(context.Tenant, claimed.PackKey),
+                installer._store.GetKeyOwnership(context.Tenant)));
 
         protected override ValueTask<InstallMutation> MutateAsync(InstallBound bound, CancellationToken ct)
         {
@@ -188,7 +190,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             var transaction = plan.NewInstalledPack is null
                 ? null
                 : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached)
-                { CompareWatermark = true, ExpectedWatermark = bound.Watermark, ExpectedInstalledState = bound.Installed };
+                {
+                    CompareWatermark = true,
+                    ExpectedWatermark = bound.Watermark,
+                    ExpectedInstalledState = bound.Installed,
+                    ExpectedOverrides = bound.Overrides,
+                    ExpectedKeyOwnership = bound.KeyOwnership,
+                };
             return ValueTask.FromResult(new InstallMutation(plan, transaction));
         }
 
@@ -267,9 +275,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
     }
 
-    /// <summary>The install-state snapshot bind reads: the tenant's installed versions and the claimed key's watermark.</summary>
+    /// <summary>The installed versions, target watermark and overrides, and tenant ownership choices read by bind.</summary>
     private sealed record InstallBound(
-        IReadOnlyList<InstalledPack> Installed, string PackKey, PackInstallWatermark? Watermark);
+        IReadOnlyList<InstalledPack> Installed, string PackKey, PackInstallWatermark? Watermark,
+        IReadOnlyList<PackTenantOverride> Overrides, IReadOnlyDictionary<string, string> KeyOwnership);
 
     private sealed record InstallMutation(InstallPlan Plan, PackInstallTransaction? Transaction);
 
@@ -1295,7 +1304,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // Install's bind stage has already read the installed versions and this key's watermark.
         var bindsThisKey = bound is not null && string.Equals(bound.PackKey, manifest.Key, StringComparison.Ordinal);
         var installed = bound?.Installed ?? _store.ListInstalled(context.Tenant);
-        var prior = _store.GetActive(context.Tenant, manifest.Key) ?? LatestInstalled(installed, manifest.Key);
+        var prior = installed.FirstOrDefault(pack => pack.PackKey == manifest.Key && pack.Lifecycle == PackLifecycleState.Active)
+            ?? LatestInstalled(installed, manifest.Key);
         var watermark = bindsThisKey ? bound!.Watermark : _store.GetWatermark(context.Tenant, manifest.Key);
         var isUpgrade = watermark is not null;
 
@@ -1323,7 +1333,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         // (S-10) total re-attach of prior overrides onto the new seed.
         var priorSeeds = prior?.SeedItems ?? (IReadOnlyList<PackSeedItem>)Array.Empty<PackSeedItem>();
-        var priorOverrides = _store.GetOverrides(context.Tenant, manifest.Key);
+        var priorOverrides = bindsThisKey ? bound!.Overrides : _store.GetOverrides(context.Tenant, manifest.Key);
         var reattach = PackReattachPlanner.Plan(priorSeeds, contents, priorOverrides, manifest.RenamedFrom);
         if (reattach.RefusalCode is not null)
         {
@@ -1495,7 +1505,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // (ADR 0129 D4/D5 — F4) Cross-pack same-key collisions: does this candidate ship a content key an
         // already-installed OTHER pack also ships? SURFACED here (never silently first-wins-merged, S-2);
         // install stays additive, and an UNRESOLVED collision is enforced fail-closed at ACTIVATE.
-        var crossPackCollisions = DetectCandidateCollisions(context.Tenant, installed, manifest, contents);
+        var crossPackCollisions = DetectCandidateCollisions(context.Tenant, installed, manifest, contents, bound?.KeyOwnership);
 
         var preview = new PackInstallPreview(
             verdict, manifest.Key, manifest.Version, signerB64, epoch, scope, isUpgrade, prior?.Version,
@@ -1731,7 +1741,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     /// </summary>
     private IReadOnlyList<PackCrossPackCollision> DetectCandidateCollisions(
         TenantId tenant, IReadOnlyList<InstalledPack> installed, PackManifest manifest,
-        IReadOnlyList<PackContentItem> contents)
+        IReadOnlyList<PackContentItem> contents, IReadOnlyDictionary<string, string>? keyOwnership = null)
     {
         // Existing installed claims EXCLUDING the candidate's own key (a same-key clash with a prior version
         // of THIS pack is an upgrade — S-10 re-attach — not a cross-pack collision) plus the candidate.
@@ -1740,7 +1750,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             manifest.Key,
             contents.Select(c => new PackClaimedContent(c.Key, c.Kind)).ToList(),
             manifest.Dependencies.Select(d => d.Key).ToList()));
-        return PackCompositionConflicts.Detect(claims, _store.GetKeyOwnership(tenant))
+        return PackCompositionConflicts.Detect(claims, keyOwnership ?? _store.GetKeyOwnership(tenant))
             .Where(c => c.ClaimingPackKeys.Contains(manifest.Key, StringComparer.Ordinal))
             .ToList();
     }
