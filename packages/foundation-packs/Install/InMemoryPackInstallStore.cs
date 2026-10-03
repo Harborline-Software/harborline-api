@@ -121,7 +121,12 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            var next = _byTenant.TryGetValue(tenant, out var current) ? current.Clone() : new TenantState();
+            _byTenant.TryGetValue(tenant, out var current);
+            var observedActive = current is not null && current.Active.TryGetValue(packKey, out var version)
+                ? current.Versions.GetValueOrDefault(VersionKey(packKey, version)) : null;
+            tenantOverride.ExpectedReadset?.RequireCurrent(observedActive,
+                current is not null && current.Overrides.TryGetValue(packKey, out var observedOverrides) ? observedOverrides : []);
+            var next = current is not null ? current.Clone() : new TenantState();
             var list = next.Overrides.TryGetValue(packKey, out var existing)
                 ? existing.Where(o => o.ContentKey != tenantOverride.ContentKey).ToList()
                 : new List<PackTenantOverride>();

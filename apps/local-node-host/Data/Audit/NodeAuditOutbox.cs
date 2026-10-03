@@ -192,7 +192,7 @@ public sealed class NodeAuditOutbox(
     }
 
     /// <summary>
-    /// Delivers every owed entry to the trail in stage order. An entry the trail already holds (a crash between
+    /// Delivers owed entries by occurrence time, honoring persisted ceremony predecessors. An entry the trail already holds (a crash between
     /// its append and its mark) is marked without a second append. A failed entry records its error and stays owed.
     /// </summary>
     /// <returns>The number of entries delivered or found delivered by this pass.</returns>
@@ -220,33 +220,48 @@ public sealed class NodeAuditOutbox(
         }
 
         var delivered = 0;
-        foreach (var row in owed.OrderBy(row => row.OccurredAt))
+        var pending = owed.OrderBy(row => row.OccurredAt).ToList();
+        while (pending.Count != 0)
         {
-            try
+            var attempted = false;
+            foreach (var row in pending.ToArray())
             {
-                var tenant = new TenantId(row.TenantId);
-                var auditId = Guid.Parse(row.AuditId);
-                if (!await HoldsAsync(tenant, auditId, ct).ConfigureAwait(false))
-                    await AppendAsync(row, tenant, auditId, ct).ConfigureAwait(false);
-                await MarkAsync(row.AuditId, publishedAt: time.GetUtcNow().ToUnixTimeMilliseconds(), error: null, ct)
-                    .ConfigureAwait(false);
-                delivered++;
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                logger.LogError(exception, "Audit outbox entry {AuditId} ({EventType}) is still owed to the audit trail.",
-                    row.AuditId, row.EventType);
                 try
                 {
-                    await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                    var tenant = new TenantId(row.TenantId);
+                    // Equal admission instants do not imply order. A ceremony's dependent entry remains owed
+                    // until its persisted predecessor is actually on the trail, including after a failed delivery.
+                    if (row.PredecessorAuditId is { } predecessor
+                        && !await HoldsAsync(tenant, Guid.Parse(predecessor), ct).ConfigureAwait(false))
+                        continue;
+                    pending.Remove(row);
+                    attempted = true;
+                    var auditId = Guid.Parse(row.AuditId);
+                    if (!await HoldsAsync(tenant, auditId, ct).ConfigureAwait(false))
+                        await AppendAsync(row, tenant, auditId, ct).ConfigureAwait(false);
+                    await MarkAsync(row.AuditId, publishedAt: time.GetUtcNow().ToUnixTimeMilliseconds(), error: null, ct)
+                        .ConfigureAwait(false);
+                    delivered++;
                 }
-                catch (Exception markFailure) when (markFailure is not OperationCanceledException)
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    // Recording the failure is best effort: the entry stays owed either way, and throwing here
-                    // would end the pass before the entries behind it are attempted.
-                    logger.LogError(markFailure, "Audit outbox entry {AuditId} could not record its delivery failure.", row.AuditId);
+                    pending.Remove(row);
+                    attempted = true;
+                    logger.LogError(exception, "Audit outbox entry {AuditId} ({EventType}) is still owed to the audit trail.",
+                        row.AuditId, row.EventType);
+                    try
+                    {
+                        await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception markFailure) when (markFailure is not OperationCanceledException)
+                    {
+                        // Recording the failure is best effort: the entry stays owed either way, and throwing here
+                        // would end the pass before the entries behind it are attempted.
+                        logger.LogError(markFailure, "Audit outbox entry {AuditId} could not record its delivery failure.", row.AuditId);
+                    }
                 }
             }
+            if (!attempted) break;
         }
 
         return delivered;

@@ -1,4 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.Packs.Install;
@@ -103,6 +105,12 @@ public sealed record PackProjectionAdmission
     public DateTimeOffset Instant { get; init; }
     public IReadOnlyList<string> DerivationIds { get; init; }
     public bool Projected { get; init; }
+
+    /// <summary>
+    /// T-1048: the audit of this transition, staged by a durable store in the transition's own commit. It is not
+    /// stored on the admission row, so a reconcile reads it back as null.
+    /// </summary>
+    public PackCommitAudit? Audit { get; init; }
 }
 
 /// <summary>Installer-only persistence seam for atomic lifecycle admission and reconciliation.</summary>
@@ -138,6 +146,8 @@ public sealed record PackInstallTransaction(
     PackInstallWatermark Watermark,
     IReadOnlyList<PackTenantOverride> ReattachedOverrides)
 {
+    /// <summary>T-1048: the audit of this install, staged by a durable store in the same commit.</summary>
+    public PackCommitAudit? Audit { get; init; }
     /// <summary>Compare the planning watermark at the store's atomic commit boundary.</summary>
     public bool CompareWatermark { get; init; }
     /// <summary>The watermark read by bind; null means no watermark existed.</summary>
@@ -194,6 +204,15 @@ public sealed record PackInstallTransaction(
 /// <summary>A concurrent install changed the planning watermark; retry must bind fresh state.</summary>
 public sealed class PackInstallWatermarkChangedException()
     : InvalidOperationException("The pack install watermark changed before commit.");
+
+/// <summary>
+/// T-1048 (DES-0029 ck-6): the authorized audit entries a committed pack write records, carried into the commit so a
+/// durable store stages them in the same transaction as the change. A store that cannot stage them ignores them;
+/// the installer appends the same entry instances to <see cref="IPackInstallAudit"/> after the commit either way.
+/// </summary>
+/// <param name="Entries">The entries, in the order they are recorded.</param>
+/// <param name="Decision">The decision that allowed the write.</param>
+public sealed record PackCommitAudit(IReadOnlyList<PackInstallAuditEntry> Entries, AuthorizationDecision Decision);
 
 /// <summary>A concurrent write changed tenant-wide installed premises; retry must bind fresh state.</summary>
 public sealed class PackInstallStateChangedException()
