@@ -496,6 +496,50 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    [InlineData("/_/apps/local-node-host/tests/ArchTests/WritePipelineExecutorFenceTests.cs")]
+    [InlineData("\\_\\apps\\local-node-host\\tests\\ArchTests\\WritePipelineExecutorFenceTests.cs")]
+    public void RepositoryLookupIgnoresMappedCompileTimePaths(string mappedCallerPath)
+    {
+        var root = RepositoryRoot(mappedCallerPath);
+        Assert.True(File.Exists(Path.Combine(root, "Harborline.Api.slnx")));
+        Assert.True(File.Exists(Path.Combine(root, "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExemptionRequiresTheCanonicalOverloadOnTheGenuineExecutorType(bool alternateOverload)
+    {
+        // Compile the actual kernel source with its real assembly identity and one extra overload.
+        // The negative is on the genuine class, not a lookalike class or helper outside the callback.
+        var kernelSource = File.ReadAllText(Path.Combine(RepositoryRoot(), "packages/kernel-runtime/WritePipelineStage.cs"))
+            .Replace("    private static void Enter(",
+                "    public static Task<TResult> RunAsync<TBound, TMutation, TSealed, TResult>(KernelWrite<TBound, TMutation, TSealed, TResult> write, IWritePipelineObserver observer, CancellationToken ct, bool decoy) where TBound : class => Task.FromResult(default(TResult)!);\n"
+                + "    private static void Enter(", StringComparison.Ordinal);
+        var kernelTree = CSharpSyntaxTree.ParseText(kernelSource);
+        var references = BoundaryModel(kernelTree).Compilation.References
+            .Where(reference => reference.Display != typeof(WritePipeline).Assembly.Location);
+        var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
+            + "global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+        var identity = typeof(WritePipeline).Assembly.GetName();
+        var version = CSharpSyntaxTree.ParseText($"[assembly: System.Reflection.AssemblyVersion(\"{identity.Version}\")]");
+        var compilation = CSharpCompilation.Create(identity.Name!, [kernelTree, globals, version], references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var kernelReference = MetadataReference.CreateFromImage(image.ToArray());
+        var call = alternateOverload ? "WritePipeline.RunAsync(write, observer, ct, false)" : "WritePipeline.RunAsync(write, observer, ct)";
+        var tree = CSharpSyntaxTree.ParseText(BoundaryFixture(
+            "return await unit.ExecuteAtomicAsync(async ct => await " + call + ");"));
+        var model = BoundaryModel(tree, kernelReference);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        Assert.Equal(!alternateOverload, RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
     private static string BoundaryFixture(string body) => """
         using System;
         using System.Threading;
@@ -509,7 +553,7 @@ public sealed class WritePipelineExecutorFenceTests
                 KernelWrite<object, int, int, int> write, IWritePipelineObserver observer) {
         """ + "\n" + body + "\n} }";
 
-    private static SemanticModel BoundaryModel(SyntaxTree tree)
+    private static SemanticModel BoundaryModel(SyntaxTree tree, MetadataReference? kernelReference = null)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
@@ -518,7 +562,9 @@ public sealed class WritePipelineExecutorFenceTests
                 typeof(Microsoft.CSharp.RuntimeBinder.Binder).Assembly.Location,
                 typeof(System.Linq.Expressions.Expression).Assembly.Location })
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(location => MetadataReference.CreateFromFile(location));
+            .Where(location => kernelReference is null || location != typeof(WritePipeline).Assembly.Location)
+            .Select(location => (MetadataReference)MetadataReference.CreateFromFile(location))
+            .Concat(kernelReference is null ? Array.Empty<MetadataReference>() : new[] { kernelReference });
         // The host relies on implicit global usings; include those when binding its standalone source file.
         var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
             + "global using System.Linq; global using System.Threading; global using System.Threading.Tasks; "
@@ -533,11 +579,39 @@ public sealed class WritePipelineExecutorFenceTests
         && symbol.ContainingType.ToDisplayString() == typeof(IHierarchyCompositeUnitOfWork).FullName
         && symbol.ContainingAssembly.Identity.ToString() == typeof(IHierarchyCompositeUnitOfWork).Assembly.FullName;
 
-    private static bool IsExecutorCall(InvocationExpressionSyntax call, SemanticModel model) =>
-        model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
-        && symbol.Name == nameof(WritePipeline.RunAsync)
-        && symbol.ContainingType.ToDisplayString() == typeof(WritePipeline).FullName
-        && symbol.ContainingAssembly.Identity.ToString() == typeof(WritePipeline).Assembly.FullName;
+    private static bool IsExecutorCall(InvocationExpressionSyntax call, SemanticModel model)
+    {
+        var executor = model.Compilation.GetTypeByMetadataName(typeof(WritePipeline).FullName!);
+        if (executor is null || executor.ContainingAssembly.Identity.ToString() != typeof(WritePipeline).Assembly.FullName
+            || model.GetSymbolInfo(call).Symbol is not IMethodSymbol actual) return false;
+        // Bind the original generic definition with the ADR-0038 API contract, not every future
+        // method named RunAsync on the same genuine type. Constructed generic calls share this symbol.
+        var expected = executor.GetMembers(nameof(WritePipeline.RunAsync)).OfType<IMethodSymbol>()
+            .SingleOrDefault(candidate => HasCanonicalExecutorContract(candidate, model));
+        return expected is not null && SymbolEqualityComparer.Default.Equals(actual.OriginalDefinition, expected);
+    }
+
+    private static bool HasCanonicalExecutorContract(IMethodSymbol method, SemanticModel model)
+    {
+        if (method is not { IsStatic: true, MethodKind: MethodKind.Ordinary, Arity: 4, Parameters.Length: 3 }
+            || method.ReturnsByRef || method.ReturnsByRefReadonly || method.IsExtensionMethod
+            || method.Parameters.Any(parameter => parameter.RefKind != RefKind.None || parameter.IsParams)
+            || !method.TypeParameters[0].HasReferenceTypeConstraint) return false;
+        return method.Parameters[0].Type is INamedTypeSymbol write
+            && SymbolEqualityComparer.Default.Equals(write.OriginalDefinition,
+                model.Compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!))
+            && write.TypeArguments.Length == 4
+            && write.TypeArguments.Select((argument, index) =>
+                SymbolEqualityComparer.Default.Equals(argument, method.TypeParameters[index])).All(equal => equal)
+            && SymbolEqualityComparer.Default.Equals(method.Parameters[1].Type,
+                model.Compilation.GetTypeByMetadataName(typeof(IWritePipelineObserver).FullName!))
+            && SymbolEqualityComparer.Default.Equals(method.Parameters[2].Type,
+                model.Compilation.GetTypeByMetadataName(typeof(CancellationToken).FullName!))
+            && method.ReturnType is INamedTypeSymbol result
+            && SymbolEqualityComparer.Default.Equals(result.OriginalDefinition,
+                model.Compilation.GetTypeByMetadataName(typeof(ValueTask<>).FullName!))
+            && SymbolEqualityComparer.Default.Equals(result.TypeArguments.Single(), method.TypeParameters[3]);
+    }
 
     private static bool IsReviewedPreludeCall(InvocationExpressionSyntax call, SemanticModel model) =>
         model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
@@ -555,8 +629,12 @@ public sealed class WritePipelineExecutorFenceTests
         && symbol.ContainingType.MetadataName is "Task`1" or "ValueTask`1"
         && symbol.ContainingAssembly.Identity.ToString() == typeof(Task).Assembly.FullName;
 
-    private static string RepositoryRoot([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "../../../.."));
+    private static string RepositoryRoot([CallerFilePath] string thisFile = "")
+    {
+        // Caller paths can be mapped to /_/ or embedded on another build machine. The runtime
+        // checkout, located above the test output, is the authority; ignore the compile-time path.
+        return Audit.AuditAppendSymbolInventory.RepositoryRoot();
+    }
 
     private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method, SemanticModel model)
     {
