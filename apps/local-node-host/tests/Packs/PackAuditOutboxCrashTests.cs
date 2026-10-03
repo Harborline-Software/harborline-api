@@ -262,7 +262,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
 
         var outcome = await installer.ActivateAsync(Context(), PackKey, "1.0.0");
 
-        Assert.Equal(PackInstallCodes.ActivateProjectionRefused, outcome.Error);
+        Assert.Equal("pack.install.activate.projection_refused", outcome.Error);
         Assert.Null(store.GetActive(Tenant, PackKey));
         Assert.Equal(["Installed"], await OutboxActionsAsync(_harness));
         Assert.Equal(["Installed", "Refused"], await TrailActionsAsync(_harness));
@@ -286,7 +286,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
 
         var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
 
-        Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.dependents_active", outcome.Error);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
         Assert.Equal(["Activated", "Installed"], await OutboxActionsAsync(_harness));
         Assert.Equal(["Installed", "Activated", "Refused"], await TrailActionsAsync(_harness));

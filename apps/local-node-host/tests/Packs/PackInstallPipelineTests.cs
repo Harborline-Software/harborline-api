@@ -79,7 +79,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Equal([Authorize], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
         Assert.Null(_store.GetWatermark(Tenant, PackKey));
-        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == PackInstallCodes.RefusedAuthorizationDenied);
+        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == "pack.install.refused.authorization_denied");
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.False(refused.Installed);
         Assert.Equal(PackInstallVerdict.RequiresBreakGlass, refused.Preview.Verdict);
         Assert.False(refused.BrokeGlass);
-        Assert.Contains(PackInstallCodes.RefusedDowngrade, refused.RefusalCodes);
+        Assert.Contains("pack.install.refused.downgrade", refused.RefusalCodes);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.BreakGlassOverride);
@@ -226,10 +226,55 @@ public sealed class PackInstallPipelineTests : IDisposable
         var entries = _audit.Query(Tenant).Where(entry => entry.PackKey == PackKey).ToList();
         var installed = Assert.Single(entries, entry => entry.Version == "1.0.0");
         Assert.Equal(PackInstallAuditAction.Installed, installed.Action);
-        Assert.Equal(PackInstallCodes.Installed, installed.Detail);
+        Assert.Equal("pack.install.installed", installed.Detail);
         var upgraded = Assert.Single(entries, entry => entry.Version == "2.0.0");
         Assert.Equal(PackInstallAuditAction.Upgraded, upgraded.Action);
-        Assert.Equal(PackInstallCodes.Upgraded, upgraded.Detail);
+        Assert.Equal("pack.install.upgraded", upgraded.Detail);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_concurrent_install_refuses_a_stale_watermark_before_committing(bool durable)
+    {
+        await using var database = durable ? await PacksTestStore.CreateAsync() : null;
+        IPackInstallStore store = durable ? new DurablePackInstallStore(database!.Factory) : new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate((IPackInstallMutationStore)store, Tenant);
+        var audit = new InMemoryPackInstallAudit();
+        var verifier = new PackVerifier(new Ed25519Verifier(), _codec);
+        var newer = new PackInstaller(verifier, store, new WorkflowRefusingPackContentAdmission(), audit,
+            TestAuthorization.Gate(_ => true));
+        Assert.True((await newer.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delayed = new PackInstaller(new PausedVerifier(verifier, entered, release), store,
+            new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.Gate(_ => true));
+        var lowerBytes = await PackAsync("2.0.0");
+        var higherBytes = await PackAsync("3.0.0");
+        var lowerTask = Task.Run(() => delayed.InstallAsync(lowerBytes, Context()));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.True((await newer.InstallAsync(higherBytes, Context())).Installed);
+        }
+        finally { release.Set(); }
+        var lower = await lowerTask.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.False(lower.Installed);
+        Assert.False(lower.BrokeGlass);
+        Assert.Equal(["pack.install.refused.watermark_changed"], lower.RefusalCodes);
+        Assert.Equal("3.0.0", store.GetWatermark(Tenant, PackKey)!.Version);
+        Assert.Null(store.GetVersion(Tenant, PackKey, "2.0.0"));
+        Assert.DoesNotContain(audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.BreakGlassOverride);
+    }
+
+    private sealed class PausedVerifier(IPackVerifier inner, TaskCompletionSource entered, ManualResetEventSlim release) : IPackVerifier
+    {
+        public PackVerificationResult Verify(ReadOnlySpan<byte> bytes, IPackTrustStore trustStore)
+        {
+            entered.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException("The concurrent install did not release verification.");
+            return inner.Verify(bytes, trustStore);
+        }
     }
 
     [Fact]
@@ -245,7 +290,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Null(_store.GetWatermark(Tenant, PackKey));
         var refusal = Assert.Single(_audit.Query(Tenant), entry => entry.PackKey == PackKey);
         Assert.True(refusal.PreDecision);
-        Assert.Equal(PackInstallCodes.RefusedNoPrincipal, refusal.Detail);
+        Assert.Equal("pack.install.refused.no_principal", refusal.Detail);
     }
 
     [Fact]

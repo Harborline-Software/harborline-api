@@ -148,7 +148,27 @@ public sealed record PackInstallTransaction(
 {
     /// <summary>T-1048: the audit of this install, staged by a durable store in the same commit.</summary>
     public PackCommitAudit? Audit { get; init; }
+    /// <summary>Compare the planning watermark at the store's atomic commit boundary.</summary>
+    public bool CompareWatermark { get; init; }
+    /// <summary>The watermark read by bind; null means no watermark existed.</summary>
+    public PackInstallWatermark? ExpectedWatermark { get; init; }
+
+    /// <summary>Refuses a stale install plan before any part of it is persisted.</summary>
+    public void RequireCurrentWatermark(PackInstallWatermark? current)
+    {
+        if (!CompareWatermark) return;
+        var expected = ExpectedWatermark;
+        if (current is null && expected is null) return;
+        if (current is not null && expected is not null
+            && current.Version == expected.Version && current.Floors.Count == expected.Floors.Count
+            && expected.Floors.All(pair => current.Floors.TryGetValue(pair.Key, out var value) && value == pair.Value)) return;
+        throw new PackInstallWatermarkChangedException();
+    }
 }
+
+/// <summary>A concurrent install changed the planning watermark; retry must bind fresh state.</summary>
+public sealed class PackInstallWatermarkChangedException()
+    : InvalidOperationException("The pack install watermark changed before commit.");
 
 /// <summary>
 /// T-1048 (DES-0029 ck-6): the authorized audit entries a committed pack write records, carried into the commit so a

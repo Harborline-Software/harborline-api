@@ -120,11 +120,12 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         // T-1048: the packs context maps the audit outbox (excluded from its migrations) so a pack install,
         // activation or deactivation stages its audit on its own save.
         "20261002120000_PacksMapsAuditOutbox",
+        "20261002190000_AuditOutboxPredecessor",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_61_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_66_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

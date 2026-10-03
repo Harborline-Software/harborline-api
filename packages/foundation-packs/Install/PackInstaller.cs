@@ -187,7 +187,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             // A hard refusal plans no seed layer, so there is no transaction for validate to seal.
             var transaction = plan.NewInstalledPack is null
                 ? null
-                : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached);
+                : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached)
+                { CompareWatermark = true, ExpectedWatermark = bound.Watermark };
             return ValueTask.FromResult(new InstallMutation(plan, transaction));
         }
 
@@ -220,7 +221,18 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         /// <summary>ATOMIC apply (S-7): the seed layer, watermark and re-attached overrides commit all-or-nothing.</summary>
         protected override ValueTask CommitAsync(InstallSealed validated, CancellationToken ct)
         {
-            installer._mutations.Commit(validated.Transaction);
+            try { installer._mutations.Commit(validated.Transaction); }
+            catch (PackInstallWatermarkChangedException)
+            {
+                throw new Refused(AuditRefusal(validated.Plan with
+                {
+                    Preview = validated.Plan.Preview with
+                    {
+                        Verdict = PackInstallVerdict.Refused,
+                        RefusalCodes = [PackInstallCodes.RefusedWatermarkChanged],
+                    },
+                }));
+            }
             return ValueTask.CompletedTask;
         }
 
