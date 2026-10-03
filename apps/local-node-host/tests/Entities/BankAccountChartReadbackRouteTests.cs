@@ -69,7 +69,6 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<IHarborlineEntityModule, BankingEntityModule>();
         builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialLedger.Data.FinancialLedgerEntityModule>();
         builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
-        builder.Services.AddSingleton<IAccountResolver, NodeEfAccountResolver>();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt =>
             opt.UseSqlite($"Data Source={Path.Combine(_dir, "bank.db")};Pooling=False"));
         builder.Services.AddDbContextFactory<NodeLocalBankFeedDbContext>(opt =>
@@ -111,7 +110,8 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
             banking,
             NodeTestActiveTeam.Accessor,
             new NodeBankAccountWriter(accounts, Authorization.TestAuthorization.AllowGate()),
-            TimeProvider.System);
+            TimeProvider.System,
+            new NodeEfAccountResolver(_factory));
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
@@ -146,6 +146,8 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
     [Fact]
     public async Task AcceptMatch_ResolvesNullChartThroughLedgerAccount_AndHonorsLockedPeriod()
     {
+        // The shipping listener has an inner container without this service; the outer resolver is explicit.
+        Assert.Null(_app.Services.GetService<IAccountResolver>());
         var account = await CreateAccountAsync("owner");
         var link = await ProposeAsync(account);
         var chart = new ChartOfAccountsId("match-chart");

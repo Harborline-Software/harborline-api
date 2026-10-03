@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.Banking.Feed;
 using Harborline.Api.Blocks.Banking.Import;
@@ -104,7 +103,8 @@ public static class BankAccountRoutes
         BankingServices banking,
         IActiveTeamAccessor activeTeam,
         NodeBankAccountWriter writer,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver? ledgerAccounts = null)
     {
         ArgumentNullException.ThrowIfNull(app);
 
@@ -116,7 +116,7 @@ public static class BankAccountRoutes
         MapImportStatement(app, banking, activeTeam);
         MapListStatementLines(app, banking, activeTeam);
         MapListMatchProposals(app, banking, activeTeam);
-        MapAcceptMatch(app, banking, activeTeam);
+        MapAcceptMatch(app, banking, activeTeam, ledgerAccounts);
         MapUnMatch(app, banking, activeTeam);
         MapGetReconciliationState(app, banking, activeTeam);
         MapLockReconciliation(app, banking, activeTeam);
@@ -357,9 +357,9 @@ public static class BankAccountRoutes
     }
 
     // ── POST /api/local-node/bank-accounts/{accountId}/accept-match ────────────
-    private static void MapAcceptMatch(IEndpointRouteBuilder app, BankingServices b, IActiveTeamAccessor activeTeam)
+    private static void MapAcceptMatch(IEndpointRouteBuilder app, BankingServices b, IActiveTeamAccessor activeTeam,
+        Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver? ledgerAccounts)
     {
-        var ledgerAccounts = app.ServiceProvider.GetService<Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver>();
         app.MapPost($"{RouteBase}/{{accountId}}/accept-match", async (string accountId, MatchLinkBody body, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);

@@ -71,7 +71,8 @@ public sealed class HostedBankingApiEndpoint : IHostedService
             banking,
             _activeTeam,
             _services.GetRequiredService<NodeBankAccountWriter>(),
-            _services.GetRequiredService<TimeProvider>()));
+            _services.GetRequiredService<TimeProvider>(),
+            _services.GetRequiredService<Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver>()));
 
         _logger.LogInformation(
             "Node-local banking API registered over the recoverable local-node store " +
