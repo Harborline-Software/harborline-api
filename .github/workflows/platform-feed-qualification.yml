@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
+      - name: Bound qualification diagnostics and preserve upload time
+        run: echo "HARBORLINE_QUALIFICATION_DEADLINE_MS=$(( ($(date +%s) + 1800) * 1000 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

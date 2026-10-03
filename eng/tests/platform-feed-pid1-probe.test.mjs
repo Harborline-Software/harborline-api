@@ -82,3 +82,31 @@ test('unsupported restore context refuses before running any command', () => {
       run: () => assert.fail('unsafe command'), ...options}))
   }
 })
+
+test('overall probe budget stops new cases and preserves container cleanup reserve', () => {
+  let elapsed = 0
+  const calls = [], stages = []
+  const results = probePidOneRestore({args, image, commit, budgetMs: 300000, now: () => elapsed,
+    classifyFailure: safeFailure, observe: stage => stages.push(stage),
+    run: (command, actual, options) => {
+      calls.push({command, timeout: options.timeout})
+      if (actual.includes('clone')) {elapsed = 280000; return ''}
+      elapsed = 300000
+      return commit + '\n'
+    }})
+  assert.deepEqual(calls, [{command: 'git', timeout: 30000}, {command: 'git', timeout: 10000}])
+  assert.equal(results.length, 1)
+  assert.equal(results[0].succeeded, false)
+  assert.equal(results[0].phase, 'container-restore')
+  assert.ok(stages.includes('pid1-probe-budget-exhausted'))
+})
+
+test('expired or missing job budget performs no diagnostic commands', () => {
+  for (const budgetMs of [0, 9999]) {
+    const results = probePidOneRestore({args, image, commit, budgetMs, now: () => 0,
+      classifyFailure: safeFailure, run: () => assert.fail('expired budget must not start a child')})
+    assert.deepEqual(results, [])
+  }
+  for (const budgetMs of [-1, Infinity, NaN, 300001])
+    assert.throws(() => probePidOneRestore({args, image, commit, budgetMs, classifyFailure: safeFailure}))
+})

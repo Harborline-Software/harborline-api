@@ -129,9 +129,14 @@ export function qualify(platform) {
     const failure = safeFailure(error)
     record('failed', {qualificationPassed: false, operation: currentStage, failure})
     if (failedRestore && failure.exitCode === 139 && failure.observedSignatures?.includes('runtime-fail-fast')) {
-      record('pid1-probe-started', {pairs: 3, productionQualificationPassed: false})
+      // The workflow establishes this deadline before checkout/setup. Leave two
+      // minutes for scratch cleanup and upload; diagnostics never extend the job.
+      const deadline = Number(process.env.HARBORLINE_QUALIFICATION_DEADLINE_MS)
+      const budgetMs = Number.isSafeInteger(deadline) && deadline > 0
+        ? Math.min(300000, Math.max(0, deadline - Date.now() - 120000)) : 0
+      record('pid1-probe-started', {pairs: 3, budgetMs, productionQualificationPassed: false})
       try {probePidOneRestore({args: failedRestore.args, image: profile.image, commit: pin.commit,
-        classifyFailure: safeFailure, observe: record})}
+        classifyFailure: safeFailure, observe: record, budgetMs})}
       catch {record('pid1-probe-unavailable', {productionQualificationPassed: false})}
     }
     throw new Error('platform feed qualification failed; see bounded stage evidence')
