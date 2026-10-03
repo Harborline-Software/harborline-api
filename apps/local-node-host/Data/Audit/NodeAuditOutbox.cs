@@ -42,7 +42,7 @@ public sealed class NodeAuditOutbox(
     /// </summary>
     /// <returns>The staged entry's audit id.</returns>
     public static Guid StageAuthorized(
-        NodeLocalSearchDbContext db,
+        DbContext db,
         AuditEventType eventType,
         AuthorizationDecision decision,
         IReadOnlyDictionary<string, string?> body,
@@ -57,7 +57,7 @@ public sealed class NodeAuditOutbox(
         var entry = new Dictionary<string, string?>(body, StringComparer.Ordinal);
         if (request.CorrelationId is { } correlation) entry["correlation_id"] = correlation.ToString("D");
         var id = auditId ?? Guid.NewGuid();
-        db.AuditOutbox.Add(new AuditOutboxRow
+        db.Set<AuditOutboxRow>().Add(new AuditOutboxRow
         {
             AuditId = id.ToString("D"),
             TenantId = request.Tenant.Value,
@@ -251,6 +251,10 @@ public sealed class NodeAuditOutbox(
 
         return delivered;
     }
+
+    /// <summary>Confirms that this tenant's audit is addressable on the actual trail, even if its outbox mark failed.</summary>
+    public Task<bool> IsDeliveredAsync(TenantId tenant, Guid auditId, CancellationToken ct = default) =>
+        HoldsAsync(tenant, auditId, ct);
 
     private async Task<bool> HoldsAsync(TenantId tenant, Guid auditId, CancellationToken ct)
     {

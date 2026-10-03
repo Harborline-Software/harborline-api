@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Diagnostics;
 using System.Net.Http.Json;
@@ -50,6 +51,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-000000000461"));
     private static readonly DateTimeOffset Frozen = new(2026, 9, 20, 9, 0, 0, TimeSpan.Zero);
 
+    private readonly ConcurrentQueue<string> _exampleRequests = new();
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private PacksTestStore _db = null!;
@@ -81,7 +83,9 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         _app.Use(async (http, next) =>
         {
             if (http.Request.Headers.ContainsKey("X-Test-Desktop")) http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            _exampleRequests.Enqueue($"request-start {http.Request.Method} {http.Request.Path}");
             await next(http);
+            _exampleRequests.Enqueue($"request-complete {http.Request.Method} {http.Request.Path} HTTP {http.Response.StatusCode}");
         });
         var clock = new FrozenClock(Frozen);
         ConfigurationProposalRoutes.Map(_app, _proposals, activeTeam, gate, clock, NullLogger.Instance);
@@ -98,9 +102,12 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     {
         _client?.Dispose();
         _keys?.Dispose();
-        await _app.StopAsync();
-        await _app.DisposeAsync();
-        await _db.DisposeAsync();
+        if (_app is not null)
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
+        }
+        if (_db is not null) await _db.DisposeAsync();
     }
 
     // Acceptance 1: a Proposed change records its baseline generation and never changes effective
@@ -405,11 +412,14 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
         processInfo.ArgumentList.Add("-NoProfile");
+        processInfo.ArgumentList.Add("-NonInteractive");
         processInfo.ArgumentList.Add("-Command");
-        processInfo.ArgumentList.Add("& $env:T463_EXAMPLE_SCRIPT -BaseUri $env:T463_EXAMPLE_URI -Mode Proposal -Headers @{ 'X-Test-Desktop'='1' } -ProposalId 't463-live-example' -PackageKey 'acme.finance' -CandidateFile $env:T463_EXAMPLE_CANDIDATE -Rationale 'Independent live example'");
+        processInfo.ArgumentList.Add("[Console]::Error.WriteLine('configuration-example: shell-started'); & $env:T463_EXAMPLE_SCRIPT -BaseUri $env:T463_EXAMPLE_URI -Mode Proposal -Headers @{ 'X-Test-Desktop'='1' } -ProposalId 't463-live-example' -PackageKey 'acme.finance' -CandidateFile $env:T463_EXAMPLE_CANDIDATE -Rationale 'Independent live example'");
         processInfo.Environment["T463_EXAMPLE_SCRIPT"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "t463-configuration.ps1");
         processInfo.Environment["T463_EXAMPLE_URI"] = _client.BaseAddress!.AbsoluteUri;
         processInfo.Environment["T463_EXAMPLE_CANDIDATE"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "asset.candidate.json");
+        processInfo.Environment["T463_EXAMPLE_DIAGNOSTICS"] = "1";
+        _exampleRequests.Clear();
         using var process = Process.Start(processInfo)!;
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEndAsync();
@@ -420,9 +430,16 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync();
             throw new TimeoutException(
-                $"Configuration example exceeded its 30-second deadline. stdout: {await output}\nstderr: {await errors}", exception);
+                $"Configuration example exceeded its 30-second deadline. stdout: {await output}\nstderr: {await errors}\nhost requests: {string.Join("; ", _exampleRequests)}", exception);
         }
-        Assert.True(process.ExitCode == 0, await errors);
+        var diagnostics = await errors;
+        Assert.True(process.ExitCode == 0, diagnostics);
+        Assert.Contains("configuration-example: shell-started", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: script-started", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: inputs-validated", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: request-complete POST /api/local-node/configuration/proposals/t463-live-example/versions HTTP 200", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: workflow-complete", diagnostics, StringComparison.Ordinal);
+        Assert.DoesNotContain("X-Test-Desktop", diagnostics, StringComparison.Ordinal);
         using var result = JsonDocument.Parse(await output);
         Assert.Equal("Proposal", result.RootElement.GetProperty("mode").GetString());
         Assert.Equal(baseline, result.RootElement.GetProperty("baselineDigest").GetString());
@@ -433,6 +450,28 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         Assert.Empty(EffectiveRows());
         Assert.Empty(PreparedProjections());
         Assert.Equal(baseline, await EffectiveDigestAsync());
+    }
+
+    [Fact]
+    public async Task The_api_example_completes_under_four_parallel_isolated_host_workflows()
+    {
+        // Model concurrent suite activity with bounded real shells and independent hosts/stores.
+        // Every workflow retains the same 30-second deadline and durable state assertions.
+        var fixtures = new List<ConfigurationProposalRouteTests>();
+        try
+        {
+            for (var index = 0; index < 4; index++)
+            {
+                var fixture = new ConfigurationProposalRouteTests();
+                fixtures.Add(fixture);
+                await fixture.InitializeAsync();
+            }
+            await Task.WhenAll(fixtures.Select(fixture => fixture.The_api_example_runs_proposal_save_and_read_against_the_isolated_http_host()));
+        }
+        finally
+        {
+            foreach (var fixture in fixtures) await fixture.DisposeAsync();
+        }
     }
 
     private async Task<JsonElement> StartAsync(string proposalId)

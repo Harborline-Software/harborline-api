@@ -20,6 +20,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "harborline.blocks.financial-periods",
         "harborline.blocks.people-foundation",
         "harborline.local-node.audit",
+        "harborline.local-node.audit-outbox",
         "harborline.local-node.bank-account-create-keys",
         "harborline.local-node.form-submit-outbox",
         "harborline.local-node.home-epoch",
