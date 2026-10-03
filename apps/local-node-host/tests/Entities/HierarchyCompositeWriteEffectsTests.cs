@@ -461,6 +461,66 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal(KidB, Assert.Single(await h.ParentEdges(OldB, At.AddDays(2))).To);
     }
 
+    [Fact]
+    public async Task FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(2));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(4));
+        var second = await h.Hierarchy.AddEdgeAsync(KidC, KidB, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(second.Id, At.AddDays(3));
+        var third = await h.Hierarchy.AddEdgeAsync(OldB, KidC, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(third.Id, At.AddHours(36));
+
+        // Oracle: [day2,day4), [day1,day3), [day1,day1.5) have no common instant.
+        // Replacing the inherited day2 start with day1 would falsely admit a descendant path.
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "inherited-start", Actor, Tenant, At);
+
+        var replacement = Assert.Single(await h.ParentEdges(KidA, At));
+        Assert.Equal((OldB, At, (DateTimeOffset?)null),
+            (replacement.To, replacement.Validity.ValidFrom, replacement.Validity.ValidTo));
+        var firstAfter = Assert.Single(await h.ParentEdges(KidB, At.AddDays(2)));
+        Assert.Equal((KidA, At.AddDays(2), (DateTimeOffset?)At.AddDays(4)),
+            (firstAfter.To, firstAfter.Validity.ValidFrom, firstAfter.Validity.ValidTo));
+        var secondAfter = Assert.Single(await h.ParentEdges(KidC, At.AddDays(2)));
+        Assert.Equal((KidB, At.AddDays(1), (DateTimeOffset?)At.AddDays(3)),
+            (secondAfter.To, secondAfter.Validity.ValidFrom, secondAfter.Validity.ValidTo));
+        var thirdAfter = Assert.Single(await h.ParentEdges(OldB, At.AddDays(1)));
+        Assert.Equal((KidC, At.AddDays(1), (DateTimeOffset?)At.AddHours(36)),
+            (thirdAfter.To, thirdAfter.Validity.ValidFrom, thirdAfter.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(OldB, At.AddHours(36)));
+        Assert.Equal("inherited-start", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Fact]
+    public async Task FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg()
+    {
+        var h = await Harness.CreateAsync();
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At.AddDays(3));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidB, EdgeKind.ChildOf, At.AddDays(2));
+
+        // Oracle: the candidate [day0,day3) must be clipped to [day1,day2) on the first leg.
+        // The next leg starts exactly at day2, so the half-open intersection is empty.
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "finite-path-end", Actor, Tenant, At);
+
+        var replacement = Assert.Single(await h.ParentEdges(KidA, At));
+        Assert.Equal((OldB, At, (DateTimeOffset?)At.AddDays(3)),
+            (replacement.To, replacement.Validity.ValidFrom, replacement.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(KidA, At.AddDays(3)));
+        var firstAfter = Assert.Single(await h.ParentEdges(KidB, At.AddDays(1)));
+        Assert.Equal((KidA, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
+            (firstAfter.To, firstAfter.Validity.ValidFrom, firstAfter.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(KidB, At.AddDays(2)));
+        var secondAfter = Assert.Single(await h.ParentEdges(OldB, At.AddDays(2)));
+        Assert.Equal((KidB, At.AddDays(2), (DateTimeOffset?)null),
+            (secondAfter.To, secondAfter.Validity.ValidFrom, secondAfter.Validity.ValidTo));
+        Assert.Equal("finite-path-end", Assert.Single(await h.AuditRows()).Justification);
+    }
+
     private static CreateOptions Options(string localPart, TenantId tenant) =>
         new("entity", "test", localPart, Actor, tenant, At, ExplicitLocalPart: localPart);
 
