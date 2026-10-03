@@ -136,6 +136,7 @@ internal static class LocalNodePatternAModuleCatalog
             Describe<ApEntityModule>(),
             Describe<PaymentsEntityModule>(),
             Describe<BankingEntityModule>(),
+            Describe<Banking.BankAccountCreateKeyEntityModule>(),
             Describe<PeopleEntityModule>(),
             Describe<DocsEntityModule>(),
             Describe<AuditEventEntityModule>(),

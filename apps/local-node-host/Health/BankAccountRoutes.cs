@@ -202,7 +202,33 @@ public static class BankAccountRoutes
                 UpdatedAtUtc:        now);
 
             var authority = Authority(http, LocalTenantId, id, at);
-            account = await writer.CreateAsync(account, authority, ct).ConfigureAwait(false);
+            // T-1047 (ADR-0100; DES-0006): a keyed create is durable across a restart; the writer scopes the key to
+            // the authority's tenant and principal. NodeMutationIdempotency has already validated the header shape.
+            if (http.Request.Headers[IdempotencyContract.HeaderName] is { Count: 1 } key && !string.IsNullOrEmpty(key[0]))
+            {
+                var outcome = await writer.CreateAsync(
+                        account,
+                        authority,
+                        new BankAccountCreateKey(key[0]!, Fingerprint(account), created => System.Text.Json.JsonSerializer.Serialize(
+                            ToDetail(created, created.OpeningBalance, null, feedConnected: false), System.Text.Json.JsonSerializerOptions.Web)),
+                        ct)
+                    .ConfigureAwait(false);
+                switch (outcome.Kind)
+                {
+                    case BankAccountCreateOutcomeKind.KeyReused:
+                        return Results.Conflict(new { code = "authorization.idempotency_key_reused" });
+                    case BankAccountCreateOutcomeKind.Replayed:
+                        return Results.Created(
+                            $"{RouteBase}/{outcome.Replayed!.AccountId}",
+                            System.Text.Json.JsonSerializer.Deserialize<BankAccountDetailWire>(
+                                outcome.Replayed.Response, System.Text.Json.JsonSerializerOptions.Web));
+                }
+                account = outcome.Account!;
+            }
+            else
+            {
+                account = await writer.CreateAsync(account, authority, ct).ConfigureAwait(false);
+            }
             // Newly-created account: no feed connected yet (no row in bank_feed_connections).
             return Results.Created($"{RouteBase}/{account.Id.Value}", ToDetail(account, account.OpeningBalance, null, feedConnected: false));
         });
@@ -251,6 +277,18 @@ public static class BankAccountRoutes
             return Results.Ok(ToDetail(updated, updated.OpeningBalance + lines.Sum(l => l.Amount), null, feedConnectedOnBalanceSet));
         });
     }
+
+    /// <summary>T-1047: SHA-256 of the canonical create request, the fields the account is built from after the
+    /// route's normalisation; the server-minted id, entity id and instants are not part of the request.</summary>
+    private static string Fingerprint(BankAccount account) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            Kind = account.Kind.ToString(),
+            account.DisplayName,
+            account.InstitutionName,
+            Currency = account.Currency.Iso4217,
+            LinkedLedgerAccount = account.LinkedLedgerAccount.GLAccountId.Value,
+        })));
 
     private static AuthorizationWriteContext Authority(
         HttpContext http,
