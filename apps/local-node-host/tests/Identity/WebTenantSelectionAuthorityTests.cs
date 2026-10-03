@@ -386,6 +386,11 @@ public sealed class WebTenantSelectionAuthorityTests
     {
         var leases = new AlwaysLeaseCoordinator();
         await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ReadHomeState = async () =>
+        {
+            await using var identity = fixture.IdentityFactory.CreateDbContext();
+            return (await identity.Coordinators.AsNoTracking().SingleAsync()).State;
+        };
         fixture.Store.ThrowAfterFinalizeOnce = true;
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
@@ -401,8 +406,18 @@ public sealed class WebTenantSelectionAuthorityTests
                 Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
             await recovery.RecoverPendingAsync();
         }
-        // One interrupted finalize and one completion; a stale snapshot must not finalize again.
-        Assert.Equal(2, fixture.Store.FinalizeCalls);
+        // Two commit-phase calls: response loss, then replay. Finalizing verifies the durable receipt;
+        // a live Completed retry verifies it again before minting. Recovery must not replay Completed.
+        Assert.Equal(2, fixture.Store.FinalizeHomeStates.Count(state => state == InstallationIdentityCoordinatorState.Committing));
+        var expectedStates = new List<InstallationIdentityCoordinatorState>
+        {
+            InstallationIdentityCoordinatorState.Committing,
+            InstallationIdentityCoordinatorState.Committing,
+            InstallationIdentityCoordinatorState.Finalizing,
+        };
+        if (liveWaits) expectedStates.Add(InstallationIdentityCoordinatorState.Completed);
+        Assert.Equal(expectedStates, fixture.Store.FinalizeHomeStates);
+        Assert.Equal(expectedStates.Count, fixture.Store.FinalizeCalls);
         var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
         Assert.Equal("34600000000040008000000000000001", envelope.CorrelationId);
         await using var sessions = fixture.SessionFactory.CreateDbContext();
@@ -657,6 +672,8 @@ public sealed class WebTenantSelectionAuthorityTests
         public bool ThrowAfterFinalizeOnce { get; set; }
         public string? ReceiptTenantId { get; set; }
         public int FinalizeCalls { get; private set; }
+        public Func<Task<InstallationIdentityCoordinatorState>>? ReadHomeState { get; set; }
+        public List<InstallationIdentityCoordinatorState> FinalizeHomeStates { get; } = [];
         public List<int> SessionCountsObservedDuringFinalize { get; } = [];
         public int ReadCalls { get; private set; }
         public int WriteCalls { get; private set; }
@@ -712,6 +729,7 @@ public sealed class WebTenantSelectionAuthorityTests
             await using var sessions = await sessionFactory.CreateDbContextAsync(cancellationToken);
             SessionCountsObservedDuringFinalize.Add(await sessions.UserSessions.CountAsync(cancellationToken));
             FinalizeCalls++;
+            if (ReadHomeState is not null) FinalizeHomeStates.Add(await ReadHomeState());
             var receipt = _receipt ??= new TenantSessionSelectionReceipt(
                 ReceiptTenantId ?? TenantId,
                 DocumentOwnerVersion: 2,
