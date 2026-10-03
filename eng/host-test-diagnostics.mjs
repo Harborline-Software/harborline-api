@@ -2,6 +2,7 @@
 import {readdirSync, lstatSync, openSync, readSync, closeSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import path from 'node:path'
+import {StringDecoder} from 'node:string_decoder'
 
 export function diagnosticReader(directory) {
   const files = new Map(), pids = new Set()
@@ -16,8 +17,8 @@ export function diagnosticReader(directory) {
         if (!stat.isFile() || stat.isSymbolicLink()) continue
         available = true
         if (!files.has(name) && files.size >= 16) {caughtUp = false; continue}
-        const state = files.get(name) ?? {offset: 0, tail: ''}
-        if (stat.size < state.offset) {state.offset = 0; state.tail = ''}
+        const state = files.get(name) ?? {offset: 0, tail: '', decoder: new StringDecoder('utf8')}
+        if (stat.size < state.offset) {state.offset = 0; state.tail = ''; state.decoder = new StringDecoder('utf8')}
         const length = Math.min(stat.size - state.offset, 1024 * 1024)
         if (length > 0) {
           lastTraceActivityAt = now
@@ -25,10 +26,11 @@ export function diagnosticReader(directory) {
           let count
           try {count = readSync(fd, buffer, 0, length, state.offset)} finally {closeSync(fd)}
           state.offset += count
-          const lines = (state.tail + buffer.subarray(0, count).toString('utf8')).split('\n')
+          const lines = (state.tail + state.decoder.write(buffer.subarray(0, count))).split('\n')
           state.tail = lines.pop().slice(-4096)
           for (const line of lines) {
-            const pid = /^TpTrace (?:Verbose|Info|Warning|Error): (\d{1,10}),/.exec(line)
+            // .NET TraceSource includes event id before process id; Information is the real Info level.
+            const pid = /^TpTrace (?:Verbose|Information|Info|Warning|Error): (?:\d{1,10} : )?(\d{1,10}),/.exec(line)
             if (pid && pids.size < 16 && Number(pid[1]) > 0) pids.add(Number(pid[1]))
             if (/BlameCollector\.EventsTestCaseStart: Test Case Start\s*$/.test(line)) {starts++; lastTestActivityAt = now}
             if (/BlameCollector\.EventsTestCaseEnd: Test Case End\s*$/.test(line)) {ends++; lastTestActivityAt = now}

@@ -6,6 +6,55 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {diagnosticReader, sampleCpu} from '../host-test-diagnostics.mjs'
 
+test('actual VSTest TraceSource headers supply PIDs to the Windows CPU probe', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'host-vstest-prefix-')); t.after(() => rmSync(root, {recursive: true, force: true}))
+  // Format source: microsoft/vstest issue3127 diagnostic output; event id 0 precedes PID.
+  writeFileSync(path.join(root, 'vstest.log'), [
+    'TpTrace Information: 0 : 1152, 7, time, BlameCollector.EventsTestCaseStart: Test Case Start',
+    'TpTrace Verbose: 0 : 2233, 7, time, tracing',
+    'TpTrace Warning: 0 : 3344, 7, time, tracing',
+    'TpTrace Error: 0 : 4455, 7, time, tracing',
+    'TpTrace Information: 0 : 1152, 7, time, BlameCollector.EventsTestCaseEnd: Test Case End',
+    'TpTrace Information: 0 : 0, 7, time, invalid zero PID',
+  ].join('\n') + '\n')
+  const result = diagnosticReader(root)(100)
+  assert.deepEqual(result.traceWriterPids, [1152, 2233, 3344, 4455])
+  assert.equal(result.testStarts, 1); assert.equal(result.testEnds, 1)
+  const cpu = sampleCpu(result.traceWriterPids, {platform: 'win32', execute: (command, args) => {
+    assert.match(args.at(-1), /Get-Process -Id 1152,2233,3344,4455 /)
+    return {status: 0, stdout: '{"pid":1152,"cpuMs":321}'}
+  }})
+  assert.deepEqual(cpu, {available: true, processes: [{pid: 1152, cpuMs: 321}]})
+})
+
+test('split multibyte whitespace preserves an event across the bounded read boundary', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'host-utf8-boundary-')); t.after(() => rmSync(root, {recursive: true, force: true}))
+  const marker = Buffer.from('BlameCollector.EventsTestCaseStart: Test Case Start')
+  const bytes = Buffer.alloc(1024 * 1024 + 2, 0x20)
+  marker.copy(bytes, 1024 * 1024 - 1 - marker.length)
+  bytes[1024 * 1024 - 1] = 0xc2; bytes[1024 * 1024] = 0xa0; bytes[1024 * 1024 + 1] = 0x0a
+  writeFileSync(path.join(root, 'vstest.log'), bytes)
+  const observe = diagnosticReader(root)
+  assert.equal(observe(100).caughtUp, false)
+  const complete = observe(200)
+  assert.equal(complete.testStarts, 1, 'literal event plus valid UTF-8 NBSP is one start')
+  assert.equal(complete.lastTestActivityAt, 200)
+  assert.equal(complete.caughtUp, true)
+})
+
+test('truncation resets partial UTF-8 and partial line before reading a new trace', t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'host-utf8-truncate-')); t.after(() => rmSync(root, {recursive: true, force: true}))
+  const file = path.join(root, 'vstest.log'), observe = diagnosticReader(root)
+  writeFileSync(file, Buffer.concat([Buffer.from('old partial line '.repeat(20)), Buffer.from([0xc2])]))
+  assert.equal(observe(100).testStarts, 0)
+  writeFileSync(file, 'TpTrace Information: 0 : 999, 1, time, BlameCollector.EventsTestCaseEnd: Test Case End\n')
+  const fresh = observe(200)
+  assert.equal(fresh.testStarts, 0)
+  assert.equal(fresh.testEnds, 1)
+  assert.deepEqual(fresh.traceWriterPids, [999], 'a pending old byte cannot corrupt the new PID prefix')
+  assert.equal(fresh.lastTestActivityAt, 200)
+})
+
 test('VSTest Info event counts persist without raw data and distinguish trace activity from test progress', t => {
   const root = mkdtempSync(path.join(tmpdir(), 'host-observation-')); t.after(() => rmSync(root, {recursive: true, force: true}))
   const file = path.join(root, 'vstest.datacollector.log'), observe = diagnosticReader(root)
@@ -39,7 +88,7 @@ test('negative hang control retains advancing heartbeat with stationary test eve
   const root = mkdtempSync(path.join(tmpdir(), 'host-hang-')); t.after(() => rmSync(root, {recursive: true, force: true}))
   const journal = path.join(root, 'journal.jsonl'), trace = path.join(root, 'vstest.log'), fixture = path.join(root, 'fixture.mjs')
   writeFileSync(fixture, `import {observedSpawnSync} from ${JSON.stringify(new URL('../exact-clone-progress.mjs', import.meta.url).href)};
-    observedSpawnSync('dotnet-host-tests', process.execPath, ['-e', ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(trace)}, 'TpTrace Info: '+process.pid+', 1, time, BlameCollector.EventsTestCaseStart: Test Case Start\\n');setInterval(()=>{},1000)`)}],
+    observedSpawnSync('dotnet-host-tests', process.execPath, ['-e', ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(trace)}, 'TpTrace Information: 0 : '+process.pid+', 1, time, BlameCollector.EventsTestCaseStart: Test Case Start\\n');setInterval(()=>{},1000)`)}],
       {encoding:'utf8'}, {file:${JSON.stringify(journal)},diagnosticDirectory:${JSON.stringify(root)},intervalMs:50});`)
   const parent = spawn(process.execPath, [fixture], {stdio: 'ignore'})
   let lines = [], deadline = Date.now() + 10000
