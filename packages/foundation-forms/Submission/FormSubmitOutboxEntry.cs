@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 
 namespace Harborline.Api.Foundation.Forms.Submission;
@@ -33,6 +34,7 @@ namespace Harborline.Api.Foundation.Forms.Submission;
 /// <param name="State">The row's lifecycle state.</param>
 /// <param name="Attempts">How many times the projection has been attempted (diagnosis / backoff input).</param>
 /// <param name="LastError">The most recent failure message, when <see cref="State"/> is Failed.</param>
+/// <param name="ProjectionDefinition">The exact projection definition pinned at mint time, when applicable.</param>
 public sealed record FormSubmitOutboxEntry(
     string Id,
     string Form,
@@ -44,7 +46,8 @@ public sealed record FormSubmitOutboxEntry(
     string? CaseRef,
     FormSubmitOutboxState State,
     int Attempts,
-    string? LastError)
+    string? LastError,
+    DefinitionCoordinates? ProjectionDefinition = null)
 {
     /// <summary>
     /// Rebuilds the <see cref="FormSubmitContext"/> a reconcile sweep re-runs — re-parsing the stored
@@ -58,7 +61,8 @@ public sealed record FormSubmitOutboxEntry(
         Actor: new ActorId(Actor),
         SubmittedAt: SubmittedAt,
         SubmittedValues: JsonDocument.Parse(SubmittedValuesJson),
-        CaseRef: CaseRef);
+        CaseRef: CaseRef,
+        ProjectionDefinition: ProjectionDefinition);
 
     /// <summary>Captures the durable enqueue snapshot of a just-persisted submission (state Pending).</summary>
     public static FormSubmitOutboxEntry FromContext(FormSubmitContext context)
@@ -75,6 +79,7 @@ public sealed record FormSubmitOutboxEntry(
             CaseRef: context.CaseRef,
             State: FormSubmitOutboxState.Pending,
             Attempts: 0,
-            LastError: null);
+            LastError: null,
+            ProjectionDefinition: context.ProjectionDefinition);
     }
 }

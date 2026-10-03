@@ -91,7 +91,8 @@ public sealed class ProjectingFormEngine : IFormEngine
             Actor: token.Subject,
             SubmittedAt: receipt.SubmittedAt,
             SubmittedValues: candidate,
-            CaseRef: caseRef);
+            CaseRef: caseRef,
+            ProjectionDefinition: receipt.ProjectionDefinition);
 
         IReadOnlyList<FormSubmitProjectionSkip> skips;
         try

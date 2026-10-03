@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Assets.Entities;
 
@@ -11,10 +12,12 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 /// <param name="EngineVersion">The evaluator version in force at mint time.</param>
 /// <param name="LocaleChain">The ordered locale-preference chain in force at mint time.</param>
 /// <param name="SubmittedAt">The UTC instant at which the entity was submitted.</param>
+/// <param name="ProjectionDefinition">The exact definition coordinates selected for submission projection, when applicable.</param>
 public sealed record EntityBinding(
     SchemaId SchemaRef,
     string DefinitionId,
     string DefinitionVersion,
     string EngineVersion,
     IReadOnlyList<string> LocaleChain,
-    DateTimeOffset SubmittedAt);
+    DateTimeOffset SubmittedAt,
+    DefinitionCoordinates? ProjectionDefinition = null);
