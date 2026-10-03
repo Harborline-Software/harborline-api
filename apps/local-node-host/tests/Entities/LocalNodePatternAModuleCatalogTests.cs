@@ -44,6 +44,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20260806010037_WidenSpatialFrameGovernedColumns",
         "20260818083559_AddFormSubmitOutbox",
         "20260925011629_AddLayoutDenialOutbox",
+        "20261002162649_SpatialFramesMapAuditOutbox",
     ];
 
     [Fact]

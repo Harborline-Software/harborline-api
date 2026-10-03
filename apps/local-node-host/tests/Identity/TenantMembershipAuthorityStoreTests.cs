@@ -433,6 +433,144 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
         Assert.Null(await database.Store.GetAsync(AuthorityKey, CancellationToken.None));
     }
 
+    /// <summary>
+    /// T-1009: each envelope identity bound admits the value exactly at its limit. Paired with the
+    /// refusal theory below, this kills the off-by-one (<c>&gt;</c> to <c>&gt;=</c>, <c>&lt;=</c> to
+    /// <c>&lt;</c>) mutants in <c>ValidateEnvelopeIdentity</c>. Oracle: the literal limits.
+    /// </summary>
+    [Theory]
+    [Trait("Holds", "kernel-core-ck-4")]
+    [InlineData("correlation id of 128 characters")]
+    [InlineData("command fingerprint of 128 characters")]
+    [InlineData("account id of 64 characters")]
+    [InlineData("actor account id of 64 characters")]
+    [InlineData("evidence digest of 64 characters")]
+    [InlineData("canonical principal id of 256 characters")]
+    [InlineData("grant id of 128 characters")]
+    [InlineData("expected grant owner version 1")]
+    [InlineData("resulting grant owner version 1")]
+    [InlineData("authorization epoch 1")]
+    [InlineData("resulting authorization epoch 1")]
+    [InlineData("expected membership owner version 0")]
+    public async Task An_envelope_exactly_at_an_identity_bound_is_prepared(string edit)
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var tenantId = Guid.NewGuid().ToString("D");
+        var authority = Authority(database.Store, tenantId);
+        var envelope = EnvelopeEdits[edit](BaseEnvelope(tenantId));
+
+        await PrepareAsync(authority, envelope);
+
+        Assert.Equal(TenantMembershipIntentState.Prepared,
+            await authority.GetIntentStateAsync(envelope.CorrelationId, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// T-1009: each envelope identity bound refuses a blank value and the value one past its limit
+    /// with <see cref="ArgumentException"/>, before anything is written. Kills the guard-removal and
+    /// <c>||</c> to <c>&amp;&amp;</c> mutants in <c>ValidateEnvelopeIdentity</c>: each case trips one
+    /// clause alone. Oracle: the literal limits.
+    /// </summary>
+    [Theory]
+    [Trait("Holds", "kernel-core-ck-4")]
+    [InlineData("blank correlation id")]
+    [InlineData("correlation id of 129 characters")]
+    [InlineData("blank command fingerprint")]
+    [InlineData("command fingerprint of 129 characters")]
+    [InlineData("blank account id")]
+    [InlineData("account id of 65 characters")]
+    [InlineData("blank actor account id")]
+    [InlineData("actor account id of 65 characters")]
+    [InlineData("blank evidence digest of 64 characters")]
+    [InlineData("evidence digest of 63 characters")]
+    [InlineData("evidence digest of 65 characters")]
+    [InlineData("blank canonical principal id")]
+    [InlineData("canonical principal id of 257 characters")]
+    [InlineData("blank grant id")]
+    [InlineData("grant id of 129 characters")]
+    [InlineData("undefined target status")]
+    [InlineData("expected grant owner version 0")]
+    [InlineData("resulting grant owner version 0")]
+    [InlineData("authorization epoch 0")]
+    [InlineData("resulting authorization epoch 0")]
+    [InlineData("expected membership owner version -1")]
+    public async Task An_envelope_past_an_identity_bound_is_refused_before_it_is_written(string edit)
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var tenantId = Guid.NewGuid().ToString("D");
+        var authority = Authority(database.Store, tenantId);
+        var envelope = EnvelopeEdits[edit](BaseEnvelope(tenantId));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => PrepareAsync(authority, envelope));
+
+        Assert.Null(await database.Store.GetAsync(AuthorityKey, CancellationToken.None));
+    }
+
+    private sealed record Envelope(
+        string CorrelationId,
+        string CommandFingerprint,
+        string AccountId,
+        string ActorAccountId,
+        string EvidenceDigest,
+        TenantMembershipMutation Mutation);
+
+    private static Envelope BaseEnvelope(string tenantId) =>
+        new("command-1", "fingerprint-1", "account-1", ActorAccountId, AuthorityEvidenceDigest, Mutation(tenantId));
+
+    private static Task PrepareAsync(EncryptedTenantMembershipAuthorityStore authority, Envelope envelope) =>
+        authority.PrepareAsync(
+            envelope.CorrelationId, envelope.CommandFingerprint, envelope.AccountId, envelope.ActorAccountId,
+            envelope.EvidenceDigest, envelope.Mutation, FixedNow, CancellationToken.None);
+
+    private static readonly IReadOnlyDictionary<string, Func<Envelope, Envelope>> EnvelopeEdits =
+        new Dictionary<string, Func<Envelope, Envelope>>
+        {
+            ["correlation id of 128 characters"] = e => e with { CorrelationId = new string('c', 128) },
+            ["correlation id of 129 characters"] = e => e with { CorrelationId = new string('c', 129) },
+            ["blank correlation id"] = e => e with { CorrelationId = " " },
+            ["command fingerprint of 128 characters"] = e => e with { CommandFingerprint = new string('f', 128) },
+            ["command fingerprint of 129 characters"] = e => e with { CommandFingerprint = new string('f', 129) },
+            ["blank command fingerprint"] = e => e with { CommandFingerprint = " " },
+            ["account id of 64 characters"] = e => e with { AccountId = new string('a', 64) },
+            ["account id of 65 characters"] = e => e with { AccountId = new string('a', 65) },
+            ["blank account id"] = e => e with { AccountId = " " },
+            ["actor account id of 64 characters"] = e => e with { ActorAccountId = new string('r', 64) },
+            ["actor account id of 65 characters"] = e => e with { ActorAccountId = new string('r', 65) },
+            ["blank actor account id"] = e => e with { ActorAccountId = " " },
+            ["evidence digest of 64 characters"] = e => e with { EvidenceDigest = new string('B', 64) },
+            ["evidence digest of 63 characters"] = e => e with { EvidenceDigest = new string('B', 63) },
+            ["evidence digest of 65 characters"] = e => e with { EvidenceDigest = new string('B', 65) },
+            // 64 spaces: a shorter blank would be refused by the length check alone, hiding the blank guard.
+            ["blank evidence digest of 64 characters"] = e => e with { EvidenceDigest = new string(' ', 64) },
+            ["canonical principal id of 256 characters"] =
+                e => e with { Mutation = e.Mutation with { CanonicalPrincipalId = new string('p', 256) } },
+            ["canonical principal id of 257 characters"] =
+                e => e with { Mutation = e.Mutation with { CanonicalPrincipalId = new string('p', 257) } },
+            ["blank canonical principal id"] =
+                e => e with { Mutation = e.Mutation with { CanonicalPrincipalId = " " } },
+            ["grant id of 128 characters"] = e => e with { Mutation = e.Mutation with { GrantId = new string('g', 128) } },
+            ["grant id of 129 characters"] = e => e with { Mutation = e.Mutation with { GrantId = new string('g', 129) } },
+            ["blank grant id"] = e => e with { Mutation = e.Mutation with { GrantId = " " } },
+            ["undefined target status"] =
+                e => e with { Mutation = e.Mutation with { TargetStatus = (TenantMembershipStatus)2 } },
+            ["expected grant owner version 1"] = e => e with { Mutation = e.Mutation with { ExpectedGrantOwnerVersion = 1 } },
+            ["expected grant owner version 0"] = e => e with { Mutation = e.Mutation with { ExpectedGrantOwnerVersion = 0 } },
+            ["resulting grant owner version 1"] =
+                e => e with { Mutation = e.Mutation with { ResultingGrantOwnerVersion = 1 } },
+            ["resulting grant owner version 0"] =
+                e => e with { Mutation = e.Mutation with { ResultingGrantOwnerVersion = 0 } },
+            ["authorization epoch 1"] = e => e with { Mutation = e.Mutation with { AuthorizationEpoch = 1 } },
+            ["authorization epoch 0"] = e => e with { Mutation = e.Mutation with { AuthorizationEpoch = 0 } },
+            ["resulting authorization epoch 1"] =
+                e => e with { Mutation = e.Mutation with { ResultingAuthorizationEpoch = 1 } },
+            ["resulting authorization epoch 0"] =
+                e => e with { Mutation = e.Mutation with { ResultingAuthorizationEpoch = 0 } },
+            ["expected membership owner version 0"] =
+                e => e with { Mutation = e.Mutation with { ExpectedMembershipOwnerVersion = 0 } },
+            ["expected membership owner version -1"] =
+                e => e with { Mutation = e.Mutation with { ExpectedMembershipOwnerVersion = -1 } },
+        };
+
     [Fact]
     public async Task Representative_Growth_Remains_Bounded_Well_Below_The_Four_Mib_Ceiling()
     {
