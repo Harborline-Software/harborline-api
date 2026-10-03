@@ -227,8 +227,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
 
         /// <summary>ATOMIC apply (S-7): the seed layer, watermark and re-attached overrides commit all-or-nothing.</summary>
-        protected override ValueTask CommitAsync(InstallSealed validated, CancellationToken ct)
+        protected override async ValueTask CommitAsync(InstallSealed validated, CancellationToken ct)
         {
+            foreach (var entry in validated.Transaction.Audit!.Entries)
+                await installer._audit.PrepareAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
             try { installer._mutations.Commit(validated.Transaction); }
             catch (Exception exception) when (exception is PackInstallWatermarkChangedException or PackInstallStateChangedException)
             {
@@ -242,20 +244,19 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     },
                 }));
             }
-            return ValueTask.CompletedTask;
         }
 
-        protected override ValueTask<PackInstallOutcome> ReactAsync(InstallSealed validated, CancellationToken ct)
+        protected override async ValueTask<PackInstallOutcome> ReactAsync(InstallSealed validated, CancellationToken ct)
         {
             var plan = validated.Plan;
             var preview = plan.Preview;
             // The same entry instances the commit carried: a store that staged them is delivering them already.
             foreach (var entry in validated.Transaction.Audit!.Entries)
-                installer._audit.AppendAuthorized(entry, decision);
+                await installer._audit.AppendAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
 
-            return ValueTask.FromResult(new PackInstallOutcome(
+            return new PackInstallOutcome(
                 true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview,
-                validated.BrokeGlass, decision));
+                validated.BrokeGlass, decision);
         }
 
         /// <summary>The break-glass ceremony is a DISTINCT, loud entry (S-8), recorded first.</summary>
@@ -581,11 +582,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             return ValueTask.FromResult(mutation);
         }
 
-        protected override ValueTask CommitAsync(ActivationBound validated, CancellationToken ct)
+        protected override async ValueTask CommitAsync(ActivationBound validated, CancellationToken ct)
         {
             var authority = new PackProjectionAuthority(decision, packKey, version, tenant, new ActorId(principal), now);
             activated = new PackInstallAuditEntry(tenant, PackInstallAuditAction.Activated, packKey, version, now, null, null,
                 "pack.install.activated", ActingPrincipal: principal);
+            await installer._audit.PrepareAuthorizedAsync(activated, decision, ct).ConfigureAwait(false);
             PackProjectionTransaction? transaction = null;
             try
             {
@@ -642,7 +644,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             }
             finally { authority.Retire(); }
             observers = transaction is null ? null : transaction.ReactAsync;
-            return ValueTask.CompletedTask;
         }
 
         protected override async ValueTask<PackActivationOutcome> ReactAsync(ActivationBound validated, CancellationToken ct)
@@ -651,10 +652,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             // A notification failure cannot turn a committed activation into a reported rollback.
             try
             {
-                installer._audit.AppendAuthorized(outcome.Activated
+                await installer._audit.AppendAuthorizedAsync(outcome.Activated
                     ? activated
                     : new PackInstallAuditEntry(tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
-                        outcome.Error ?? "pack.install.activated", ActingPrincipal: principal), decision);
+                        outcome.Error ?? "pack.install.activated", ActingPrincipal: principal), decision, ct).ConfigureAwait(false);
             }
             catch (Exception exception) when (outcome.Activated)
             {
@@ -745,8 +746,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             return ValueTask.FromResult(mutation);
         }
 
-        protected override ValueTask CommitAsync(DeactivationBound validated, CancellationToken ct)
+        protected override async ValueTask CommitAsync(DeactivationBound validated, CancellationToken ct)
         {
+            var entry = new PackInstallAuditEntry(
+                tenant, PackInstallAuditAction.Deactivated, packKey, version, now, null, null,
+                "pack.install.deactivated", ActingPrincipal: principal);
+            await installer._audit.PrepareAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
             // The dependents check and the pointer flip share one read lease, which excludes every activation's
             // write lease: no dependent can activate over this pack between the check and the flip (D4).
             using (PackProjectionActivationBarrier.Read(ct))
@@ -759,9 +764,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     {
                         var candidate = new PackProjectionAuthority(
                             decision, packKey, version, tenant, new ActorId(principal), now);
-                        var entry = new PackInstallAuditEntry(
-                            tenant, PackInstallAuditAction.Deactivated, packKey, version, now, null, null,
-                            "pack.install.deactivated", ActingPrincipal: principal);
                         installer.ProjectionStore().DeactivateAndRecordProjectionAdmission(
                             tenant, packKey, version, Admission(candidate) with { Audit = new PackCommitAudit([entry], decision) });
                         projectionAuthority = candidate;
@@ -773,7 +775,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     }
                 }
             }
-            return ValueTask.CompletedTask;
         }
 
         protected override async ValueTask<PackDeactivationOutcome> ReactAsync(DeactivationBound validated, CancellationToken ct)
@@ -784,7 +785,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     tenant, packKey, version, now, principal, refusal, decision, dependents);
             }
 
-            installer._audit.AppendAuthorized(deactivated!, decision);
+            await installer._audit.AppendAuthorizedAsync(deactivated!, decision, ct).ConfigureAwait(false);
             var outcome = new PackDeactivationOutcome(true, packKey, version, null, Decision: decision);
             return await installer.ProjectAsync(outcome, projectionAuthority!).ConfigureAwait(false);
         }
