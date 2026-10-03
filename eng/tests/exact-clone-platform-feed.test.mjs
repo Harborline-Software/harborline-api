@@ -121,7 +121,8 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
     assert.match(steps[2].tail, /selection evidence/)
     assert.deepEqual(calls[0], {executable: process.execPath,
       args: ['--test', 'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
-        'eng/tests/validation-github-shadow.test.mjs'], cwd: '/clone'})
+        'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
+        'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], cwd: '/clone'})
     assert.deepEqual(calls[1], {executable: process.execPath,
       args: ['eng/exact-clone-platform-feed.mjs', '/source', '/scratch'], cwd: '/clone'})
   }
