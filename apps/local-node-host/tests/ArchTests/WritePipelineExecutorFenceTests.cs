@@ -540,6 +540,63 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.Equal(!alternateOverload, RunsExecutorInsideAtomicCallback(declaration, model));
     }
 
+    [Theory]
+    [InlineData("constructor")]
+    [InlineData("instance initializer")]
+    [InlineData("static initializer")]
+    public void ExemptionRejectsDeferredExecutorEffectsInTheReviewedWriterConstruction(string effect)
+    {
+        const string parameters = "NodeHierarchyCompositeCoordinator coordinator, IReadOnlyList<EntityId> oldEntities, "
+            + "SchemaId newSchema, JsonDocument newBody, CreateOptions newOptions, string justification, "
+            + "ActorId actor, TenantId tenant, DateTimeOffset at";
+        const string bases = "KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>";
+        const string stages = """
+            protected override ValueTask AuthorizeAsync(CancellationToken ct) => ValueTask.CompletedTask;
+            protected override ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) => ValueTask.FromResult<IReadOnlyList<EntityEdge>?>([]);
+            protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) => ValueTask.FromResult<CreateOptions>(default!);
+            protected override ValueTask<ValidatedRecordBody> ValidateAsync(IReadOnlyList<EntityEdge> bound, CreateOptions mutation, CancellationToken ct) => ValueTask.FromResult<ValidatedRecordBody>(default!);
+            protected override ValueTask CommitAsync(ValidatedRecordBody validated, CancellationToken ct) => ValueTask.CompletedTask;
+            protected override ValueTask<MergeResult> ReactAsync(ValidatedRecordBody validated, CancellationToken ct) => ValueTask.FromResult<MergeResult>(default!);
+            """;
+        var construction = effect == "constructor"
+            ? "private sealed class Merge : " + bases + " { public Merge(" + parameters + ") { _ = Leak(); }"
+            : "private sealed class Merge(" + parameters + ") : " + bases + " { "
+                + "private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions); "
+                + "private CompositeAuthorization authorization = null!; private IReadOnlyList<EntityEdge> displaced = []; "
+                + "private MergeResult result = null!; private "
+                + (effect == "static initializer" ? "static readonly" : "readonly") + " Task leaked = Leak();";
+        var source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Text.Json;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Harborline.Api.Foundation.Assets.Common;
+            using Harborline.Api.Foundation.Assets.Entities;
+            using Harborline.Api.Foundation.Assets.Hierarchy;
+            using Harborline.Api.Kernel.Runtime;
+            namespace Harborline.Api.LocalNodeHost.Data.Entities;
+            class NodeHierarchyCompositeCoordinator {
+                private sealed class CompositeAuthorization { }
+                private static Task Leak() => Task.Run(async () => {
+                    await Task.Delay(10);
+                    await WritePipeline.RunAsync(new DetachedWrite(), null, default);
+                });
+                async Task<MergeResult> MergeAsync(IHierarchyCompositeUnitOfWork unit, IReadOnlyList<EntityId> oldEntities,
+                    SchemaId newSchema, JsonDocument newBody, CreateOptions newOptions, string justification,
+                    ActorId actor, TenantId tenant, DateTimeOffset at, IWritePipelineObserver observer) {
+                    return (await unit.ExecuteAtomicAsync(async ct => (await WritePipeline.RunAsync(
+                        new Merge(this, oldEntities, newSchema, newBody, newOptions, justification, actor, tenant, at), observer, ct))!))!;
+                }
+            """ + construction + stages + " } private sealed class DetachedWrite : " + bases + " { " + stages + " } }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
     private static string BoundaryFixture(string body) => """
         using System;
         using System.Threading;
@@ -714,8 +771,81 @@ public sealed class WritePipelineExecutorFenceTests
             && SymbolEqualityComparer.Default.Equals(constructor.ContainingType.ContainingType, owner)
             && constructor.Parameters.Select(parameter => parameter.Name).SequenceEqual(
                 new[] { "coordinator", "oldEntities", "newSchema", "newBody", "newOptions", "justification", "actor", "tenant", "at" },
-                StringComparer.Ordinal);
+                StringComparer.Ordinal)
+            && HasReviewedWriterConstructionSource(constructor.ContainingType, model);
     }
+
+    private static bool HasReviewedWriterConstructionSource(INamedTypeSymbol writer, SemanticModel model)
+    {
+        // Closed construction template: primary-parameter capture, four reviewed field initializers,
+        // the existing id calculation, and an implicit empty base constructor. This is not a proof
+        // of arbitrary constructors or helper purity. Any constructor/initializer change needs review.
+        if (writer.DeclaringSyntaxReferences.Length != 1
+            || writer.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax declaration
+            || declaration.Members.Any(member => member is not FieldDeclarationSyntax and not MethodDeclarationSyntax)) return false;
+        var expected = CSharpSyntaxTree.ParseText("""
+            private sealed class Merge(NodeHierarchyCompositeCoordinator coordinator, IReadOnlyList<EntityId> oldEntities,
+                SchemaId newSchema, JsonDocument newBody, CreateOptions newOptions, string justification,
+                ActorId actor, TenantId tenant, DateTimeOffset at)
+                : KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>
+            {
+                private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions);
+                private CompositeAuthorization authorization = null!;
+                private IReadOnlyList<EntityEdge> displaced = [];
+                private MergeResult result = null!;
+            }
+            """).GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Single();
+        var surface = declaration.WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(
+            declaration.Members.OfType<FieldDeclarationSyntax>()));
+        if (!HasSameReviewedTokens(surface, expected)) return false;
+        var derive = declaration.Members.OfType<FieldDeclarationSyntax>()
+            .SelectMany(field => field.DescendantNodes().OfType<InvocationExpressionSyntax>()).Single();
+        if (model.GetSymbolInfo(derive).Symbol is not IMethodSymbol { IsStatic: true, Arity: 0, Parameters.Length: 2 } calculation
+            || calculation.Name != nameof(InMemoryEntityStore.DeriveEntityId)
+            || calculation.ContainingType.ToDisplayString() != typeof(InMemoryEntityStore).FullName
+            || calculation.ContainingAssembly.Identity.ToString() != typeof(InMemoryEntityStore).Assembly.FullName
+            || writer.BaseType is not { } basis
+            || !SymbolEqualityComparer.Default.Equals(basis.OriginalDefinition,
+                model.Compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!))) return false;
+        var root = RepositoryRoot();
+        var baseDeclaration = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
+                "packages/kernel-runtime/WritePipelineStage.cs"))).GetRoot().DescendantNodes()
+            .OfType<ClassDeclarationSyntax>().Single(type => type.Identifier.ValueText == "KernelWrite");
+        // No base primary constructor, explicit/static constructor, or instance/static initializers.
+        if (baseDeclaration.ParameterList is not null || baseDeclaration.BaseList is not null
+            || baseDeclaration.AttributeLists.Count != 0
+            || baseDeclaration.Members.Count != 6
+            || baseDeclaration.Members.Any(member => member is not MethodDeclarationSyntax
+                { Body: null, ExpressionBody: null } method
+                || !method.Modifiers.Any(SyntaxKind.AbstractKeyword)
+                || method.Modifiers.Any(SyntaxKind.StaticKeyword))) return false;
+        var actualCalculation = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
+                "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))).GetRoot().DescendantNodes()
+            .OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == "DeriveEntityId");
+        var reviewedCalculation = SyntaxFactory.ParseMemberDeclaration("""
+            public static EntityId DeriveEntityId(SchemaId schema, CreateOptions options)
+            {
+                if (options.ExplicitLocalPart is { Length: > 0 } explicitLocal)
+                {
+                    if (explicitLocal.Length == 26 &&
+                        explicitLocal.All(c => c is >= 'a' and <= 'z' or >= '2' and <= '7') &&
+                        "aeimquy4".Contains(explicitLocal[25], StringComparison.Ordinal))
+                        throw new ArgumentException("Explicit local part is reserved for schema-derived IDs.", nameof(options));
+                    return new EntityId(options.Scheme, options.Authority, explicitLocal);
+                }
+                var input = Encoding.UTF8.GetBytes($"{schema.Value}|{options.Authority}|{options.Nonce}|{options.Issuer.Value}");
+                Span<byte> digest = stackalloc byte[32];
+                SHA256.HashData(input, digest);
+                var local = Base32Lower.Encode(digest[..16]);
+                return new EntityId(options.Scheme, options.Authority, local);
+            }
+            """);
+        return reviewedCalculation is not null && HasSameReviewedTokens(actualCalculation, reviewedCalculation);
+    }
+
+    private static bool HasSameReviewedTokens(SyntaxNode actual, SyntaxNode expected) =>
+        actual.DescendantTokens().Select(token => (token.RawKind, token.Text)).SequenceEqual(
+            expected.DescendantTokens().Select(token => (token.RawKind, token.Text)));
 
     private static bool HasReviewedOuterBody(MethodDeclarationSyntax method, InvocationExpressionSyntax atomic,
         AnonymousFunctionExpressionSyntax callback, SemanticModel model)
