@@ -411,14 +411,14 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             [],
             PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(_signer.Signer.IssuerId.ToBase64Url())));
-        Assert.True(_installer.Install(platform, context).Installed);
+        Assert.True((await _installer.InstallAsync(platform, context)).Installed);
 
         // The request comes from the shipped export document. Removing its platform dependency is
         // the mutation that turns this test red: this otherwise inactive platform fixture no longer
         // invokes the declared-dependency activation refusal.
         var access = await ExportAsync(AccessAdministrationPreloadHostedService.ReadExportRequest(
             _signer.Signer.IssuerId.ToBase64Url()));
-        Assert.True(_installer.Install(access, context).Installed);
+        Assert.True((await _installer.InstallAsync(access, context)).Installed);
 
         var activation = _installer.Activate(
             context,
@@ -532,7 +532,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        var installed = _installer.Install(bytes, context);
+        var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, previousVersion);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
@@ -579,7 +579,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        var installed = _installer.Install(bytes, context);
+        var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, "1.1.5");
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
@@ -621,7 +621,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("Literal", legacyAuthor.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         Assert.Equal("Literal", legacyDetail.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         var legacyBytes = await ExportAsync(legacy);
-        Assert.True(_installer.Install(legacyBytes, context).Installed);
+        Assert.True((await _installer.InstallAsync(legacyBytes, context)).Installed);
         var activation = _installer.Activate(context, legacy.Key, legacy.Version);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
         var installedLegacy = _store.GetVersion(Tenant, legacy.Key, legacy.Version)!;

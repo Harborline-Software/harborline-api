@@ -65,7 +65,7 @@ public sealed class PackDependencyPresenceInstallTests : IDisposable
         var dependent = await ExportAsync(
             "test.dependent", "1.0.0", new PackDependencyRef("test.dependency", "1.0.0"));
 
-        var outcome = _installer.Install(dependent, _context);
+        var outcome = await _installer.InstallAsync(dependent, _context);
 
         Assert.False(outcome.Installed);
         Assert.Contains(PackInstallCodes.RefusedUnmetDependency, outcome.RefusalCodes);
@@ -80,11 +80,11 @@ public sealed class PackDependencyPresenceInstallTests : IDisposable
     public async Task Install_With_Below_Pin_Dependency_Is_Refused()
     {
         var dependency = await ExportAsync("test.dependency", "1.0.0");
-        Assert.True(_installer.Install(dependency, _context).Installed);
+        Assert.True((await _installer.InstallAsync(dependency, _context)).Installed);
 
         var dependent = await ExportAsync(
             "test.dependent", "1.0.0", new PackDependencyRef("test.dependency", "2.0.0"));
-        var outcome = _installer.Install(dependent, _context);
+        var outcome = await _installer.InstallAsync(dependent, _context);
 
         Assert.False(outcome.Installed);
         Assert.Contains(PackInstallCodes.RefusedUnmetDependency, outcome.RefusalCodes);
@@ -98,12 +98,12 @@ public sealed class PackDependencyPresenceInstallTests : IDisposable
     public async Task Install_With_PreRelease_Dependency_Below_Pin_Is_Refused()
     {
         var dependency = await ExportAsync("test.dependency", "1.0.0-alpha.9");
-        Assert.True(_installer.Install(dependency, _context).Installed);
+        Assert.True((await _installer.InstallAsync(dependency, _context)).Installed);
 
         // Ordinal comparison ranks "alpha.9" ABOVE "alpha.10" — the fail-open this pins closed.
         var dependent = await ExportAsync(
             "test.dependent", "1.0.0", new PackDependencyRef("test.dependency", "1.0.0-alpha.10"));
-        var outcome = _installer.Install(dependent, _context);
+        var outcome = await _installer.InstallAsync(dependent, _context);
 
         Assert.False(outcome.Installed);
         Assert.Contains(PackInstallCodes.RefusedUnmetDependency, outcome.RefusalCodes);
@@ -117,14 +117,14 @@ public sealed class PackDependencyPresenceInstallTests : IDisposable
     public async Task Install_With_Malformed_Dependency_Pin_Is_Refused()
     {
         var dependency = await ExportAsync("test.dependency", "1.0.0");
-        Assert.True(_installer.Install(dependency, _context).Installed);
+        Assert.True((await _installer.InstallAsync(dependency, _context)).Installed);
 
         // The pin passes the exporter's pinned-version regex but overflows the comparator's integer
         // segments, so pre-fix it degraded to 0.0.0 and ANY installed version satisfied it (fail-open
         // on a restrict — ADR 0038). Now it refuses with its own code, unread.
         var dependent = await ExportAsync(
             "test.dependent", "1.0.0", new PackDependencyRef("test.dependency", "99999999999999999999.0.0"));
-        var outcome = _installer.Install(dependent, _context);
+        var outcome = await _installer.InstallAsync(dependent, _context);
 
         Assert.False(outcome.Installed);
         Assert.Contains(PackInstallCodes.RefusedMalformedDependencyPin, outcome.RefusalCodes);
@@ -138,12 +138,12 @@ public sealed class PackDependencyPresenceInstallTests : IDisposable
     public async Task Install_With_Present_Dependency_Proceeds()
     {
         var dependency = await ExportAsync("test.dependency", "1.5.0");
-        Assert.True(_installer.Install(dependency, _context).Installed);
+        Assert.True((await _installer.InstallAsync(dependency, _context)).Installed);
 
         // Pin 1.0.0 — a NEWER installed version satisfies (S-8 monotonic installs).
         var dependent = await ExportAsync(
             "test.dependent", "1.0.0", new PackDependencyRef("test.dependency", "1.0.0"));
-        var outcome = _installer.Install(dependent, _context);
+        var outcome = await _installer.InstallAsync(dependent, _context);
 
         Assert.True(outcome.Installed, string.Join("; ", outcome.RefusalCodes));
         Assert.Empty(outcome.Preview.UnmetDependencies);

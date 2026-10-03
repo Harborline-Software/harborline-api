@@ -79,7 +79,7 @@ public sealed class PackConformanceCorpusTests
         foreach (var testCase in activate)
         {
             var exported = await ExportAsync(exporter, testCase.PackPath, keyPair);
-            var installed = installer.Install(exported, context);
+            var installed = await installer.InstallAsync(exported, context);
             Assert.True(installed.Installed,
                 $"Must-activate pack '{testCase.PackPath}' was refused: {string.Join(", ", installed.RefusalCodes)}");
             var activation = installer.Activate(Tenant, installed.PackKey, installed.Version, Now, "conformance-corpus");
@@ -104,10 +104,10 @@ public sealed class PackConformanceCorpusTests
                     Dcp: DomainComplianceProfile.General("conformance-corpus"),
                     Exposes: setup.Exposes, InterfaceVersion: setup.InterfaceVersion), new Ed25519Signer(keyPair));
                 Assert.True(provider.Succeeded, string.Join(",", provider.Validation.Errors.Select(error => error.Code)));
-                var providerInstalled = installer.Install(provider.FileBytes!, context);
+                var providerInstalled = await installer.InstallAsync(provider.FileBytes!, context);
                 Assert.True(providerInstalled.Installed, string.Join(",", providerInstalled.RefusalCodes));
                 Assert.True(installer.Activate(Tenant, providerInstalled.PackKey, providerInstalled.Version, Now, "conformance-corpus").Activated);
-                var consumerInstalled = installer.Install(exported, context);
+                var consumerInstalled = await installer.InstallAsync(exported, context);
                 Assert.True(consumerInstalled.Installed, $"Must-refuse activation pack '{testCase.PackPath}' did not install.");
                 var activation = installer.Activate(Tenant, consumerInstalled.PackKey, consumerInstalled.Version, Now, "conformance-corpus");
                 Assert.False(activation.Activated, $"Must-refuse activation pack '{testCase.PackPath}' activated.");
@@ -115,7 +115,7 @@ public sealed class PackConformanceCorpusTests
                 AssertExpectedRefusal(testCase, Assert.IsType<PackInstallRefusal>(activation.Refusal));
                 continue;
             }
-            var outcome = installer.Install(exported, context);
+            var outcome = await installer.InstallAsync(exported, context);
             Assert.False(outcome.Installed, $"Must-refuse pack '{testCase.PackPath}' installed.");
             var actual = Assert.Single(outcome.RefusalCodes);
             Assert.Equal(testCase.ExpectedReason, actual);

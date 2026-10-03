@@ -106,8 +106,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 actor, tenant, at, ct).ConfigureAwait(false);
 
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = await coordinator.ReadAffectedChildrenAsync(
-                [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, ct).ConfigureAwait(false);
+            displaced = await coordinator.ReadChildrenNotEndedAsync(
+                [oldEntity], at, ct, edge => childReassignments.ContainsKey(edge.From)).ConfigureAwait(false);
 
         protected override ValueTask<IReadOnlyList<SplitTarget>> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
             ValueTask.FromResult<IReadOnlyList<SplitTarget>>(
@@ -119,6 +119,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
             IReadOnlyList<EntityEdge> bound, IReadOnlyList<SplitTarget> mutation, CancellationToken ct)
         {
             ValidateTargetTenants(mutation, tenant);
+            await RefuseInvalidReassignmentsAsync(newEntities, childReassignments, ct).ConfigureAwait(false);
             var admitted = new List<(ValidatedRecordBody, CreateOptions)>(mutation.Count);
             for (var index = 0; index < mutation.Count; index++)
             {
@@ -136,6 +137,21 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
         }
 
+        private async ValueTask RefuseInvalidReassignmentsAsync(
+            IReadOnlyList<SplitTarget> newEntities,
+            IReadOnlyDictionary<EntityId, EntityId> childReassignments, CancellationToken ct)
+        {
+            if (newEntities.Any(target => InMemoryEntityStore.DeriveEntityId(target.Schema, target.Options) == oldEntity))
+                throw new ArgumentException("A split replacement cannot be the entity being deleted.", nameof(newEntities));
+            if (childReassignments.Values.Contains(oldEntity))
+                throw new ArgumentException("A split child cannot retain the entity being deleted as parent.", nameof(childReassignments));
+            var proposed = displaced.Select(edge => new ProposedChildEdge(
+                edge.From, childReassignments[edge.From],
+                edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at, edge.Validity.ValidTo)).ToArray();
+            if (await coordinator.HasTemporalCycleAsync(proposed, displaced, ct).ConfigureAwait(false))
+                throw new ArgumentException("A split cannot place an entity under itself or its descendant.", nameof(childReassignments));
+        }
+
         protected override async ValueTask CommitAsync(
             IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)> validated, CancellationToken ct)
         {
@@ -143,10 +159,11 @@ public sealed class NodeHierarchyCompositeCoordinator(
             result = await store.ExecuteAtomicAsync(async transactionCt =>
             {
                 authorization.Require(oldEntity);
-                var current = await coordinator.ReadAffectedChildrenAsync(
-                    [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, transactionCt).ConfigureAwait(false);
+                var current = await coordinator.ReadChildrenNotEndedAsync(
+                    [oldEntity], at, transactionCt, edge => childReassignments.ContainsKey(edge.From)).ConfigureAwait(false);
                 if (!SameEdgeState(current, displaced))
                     throw new InvalidOperationException("The displaced edges changed between bind and commit.");
+                await RefuseInvalidReassignmentsAsync(newEntities, childReassignments, transactionCt).ConfigureAwait(false);
                 var minted = new List<EntityId>(validated.Count);
                 foreach (var (body, options) in validated)
                     minted.Add(await coordinator.Entities.CreateAsync(body, options, transactionCt).ConfigureAwait(false));
@@ -158,9 +175,12 @@ public sealed class NodeHierarchyCompositeCoordinator(
                     authorization.Require(edge.From);
                     authorization.Require(oldEntity);
                     authorization.Require(newParent);
-                    await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
+                    // Requested scheduled children are part of the split even before their edge starts.
+                    // Close the old edge at its start and retain that start and its original finite end.
+                    var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                    await store.InvalidateEdgeAsync(edge.Id, start, transactionCt).ConfigureAwait(false);
                     var replacementEdge = await store.AddEdgeAsync(
-                        edge.From, newParent, EdgeKind.ChildOf, at, null, transactionCt).ConfigureAwait(false);
+                        edge.From, newParent, EdgeKind.ChildOf, start, null, transactionCt).ConfigureAwait(false);
                     if (edge.Validity.ValidTo is { } validTo)
                         await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, transactionCt).ConfigureAwait(false);
                     reassigned.Add(edge.From);
@@ -388,33 +408,9 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// </summary>
         private async ValueTask RefuseCycleAsync(EntityId newParent, DateTimeOffset? validTo, CancellationToken ct)
         {
-            if (newParent == child)
-                throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
-            await foreach (var ancestor in coordinator.Store.GetAncestorsAsync(newParent, at, ct).ConfigureAwait(false))
-            {
-                if (ancestor.Ancestor == child)
-                    throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
-            }
-            // A later-admitted opposing move may already be committed but invisible at this act's instant.
-            // Follow child edges over overlapping intervals, so the new edge cannot form a cycle later either.
-            var pending = new Stack<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
-            var visited = new HashSet<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
-            pending.Push((child, at, validTo));
-            while (pending.TryPop(out var interval))
-            {
-                if (!visited.Add(interval)) continue;
-                await foreach (var edge in coordinator.Store.GetChildrenNotEndedAsync(interval.Parent, interval.From, ct)
-                    .ConfigureAwait(false))
-                {
-                    var from = edge.Validity.ValidFrom > interval.From ? edge.Validity.ValidFrom : interval.From;
-                    var to = interval.To;
-                    if (edge.Validity.ValidTo is { } edgeEnd && (to is null || edgeEnd < to.Value)) to = edgeEnd;
-                    if (to is { } end && from >= end) continue;
-                    if (edge.From == newParent)
-                        throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
-                    pending.Push((edge.From, from, to));
-                }
-            }
+            if (await coordinator.HasTemporalCycleAsync(
+                [new ProposedChildEdge(child, newParent, at, validTo)], displaced, ct).ConfigureAwait(false))
+                throw new ArgumentException("An entity cannot be placed under itself or its descendant.", nameof(newParent));
         }
 
         protected override async ValueTask CommitAsync(DateTimeOffset? validated, CancellationToken ct)
@@ -482,6 +478,41 @@ public sealed class NodeHierarchyCompositeCoordinator(
         return new CompositeAuthorization(decisions);
     }
 
+    private sealed record ProposedChildEdge(EntityId Child, EntityId Parent, DateTimeOffset From, DateTimeOffset? To);
+
+    // Validate the prospective graph as a whole: displaced edges close at the replacement start,
+    // and every replacement participates in traversal, including cycles introduced jointly by a split.
+    private async ValueTask<bool> HasTemporalCycleAsync(
+        IReadOnlyList<ProposedChildEdge> proposed, IReadOnlyList<EntityEdge> displaced, CancellationToken ct)
+    {
+        var removed = displaced.Select(edge => edge.Id).ToHashSet();
+        foreach (var candidate in proposed)
+        {
+            var pending = new Stack<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            var visited = new HashSet<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            pending.Push((candidate.Child, candidate.From, candidate.To));
+            while (pending.TryPop(out var interval))
+            {
+                if (interval.To is { } end && interval.From >= end) continue;
+                if (!visited.Add(interval)) continue;
+                if (interval.Parent == candidate.Parent) return true;
+                var children = new List<ProposedChildEdge>();
+                await foreach (var edge in Store.GetChildrenNotEndedAsync(interval.Parent, interval.From, ct).ConfigureAwait(false))
+                    if (!removed.Contains(edge.Id))
+                        children.Add(new(edge.From, edge.To, edge.Validity.ValidFrom, edge.Validity.ValidTo));
+                children.AddRange(proposed.Where(edge => edge.Parent == interval.Parent));
+                foreach (var edge in children)
+                {
+                    var from = edge.From > interval.From ? edge.From : interval.From;
+                    var to = interval.To;
+                    if (edge.To is { } edgeEnd && (to is null || edgeEnd < to.Value)) to = edgeEnd;
+                    pending.Push((edge.Child, from, to));
+                }
+            }
+        }
+        return false;
+    }
+
     // Invalidation retains an edge id but changes its interval. A later-admitted competing move can
     // therefore remain visible at this act's earlier instant: id equality alone is not a concurrency check.
     private static bool SameEdgeState(IReadOnlyList<EntityEdge> current, IReadOnlyList<EntityEdge> bound) =>
@@ -506,12 +537,14 @@ public sealed class NodeHierarchyCompositeCoordinator(
     private async Task<IReadOnlyList<EntityEdge>> ReadChildrenNotEndedAsync(
         IEnumerable<EntityId> parents,
         DateTimeOffset asOf,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<EntityEdge, bool>? include = null)
     {
         var edges = new List<EntityEdge>();
         foreach (var parent in parents.Distinct())
         await foreach (var edge in unitOfWork.GetChildrenNotEndedAsync(parent, asOf, ct).ConfigureAwait(false))
-            edges.Add(edge);
+            if (include is null || include(edge))
+                edges.Add(edge);
         return edges;
     }
 

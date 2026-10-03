@@ -186,7 +186,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
                 return;
             }
 
-            var installed = _installer.Install(exported.FileBytes, context);
+            var installed = await _installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
             if (!installed.Installed)
             {
                 _logger.LogError(
@@ -219,7 +219,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             // leaves the version installed-and-INACTIVE — the pending state the installed-pack listing
             // shows an operator, and the state the next boot retries from.
             var reason = string.Join(",", refusals.Select(r => $"{r.ContentKey}={r.Code}@{r.Pointer}"));
-            var reversed = _installer.Deactivate(context, PackKey, PackVersion);
+            var reversed = await _installer.DeactivateAsync(context, PackKey, PackVersion, CancellationToken.None).ConfigureAwait(false);
             _logger.LogError(
                 "AccessAdministrationPreloadHostedService: {PackKey} v{Version} was NOT preloaded — {Count} "
                 + "definition(s) were refused by projection [{Refusals}]; activation reversed (deactivated "

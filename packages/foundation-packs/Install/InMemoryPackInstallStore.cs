@@ -141,6 +141,13 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         lock (_gate)
         {
             // COPY-ON-WRITE: build the whole next state off to the side; publish only at the very end.
+            transaction.RequireCurrentWatermark(
+                _byTenant.TryGetValue(transaction.Tenant, out var observed)
+                    && observed.Watermarks.TryGetValue(pack.PackKey, out var watermark) ? watermark : null);
+            transaction.RequireCurrentInstalledState(observed is null ? [] : observed.Versions.Values);
+            transaction.RequireCurrentAdmissionState(
+                observed is not null && observed.Overrides.TryGetValue(pack.PackKey, out var overrides) ? overrides : [],
+                observed?.KeyOwnership ?? new Dictionary<string, string>(StringComparer.Ordinal));
             var next = _byTenant.TryGetValue(transaction.Tenant, out var current)
                 ? current.Clone()
                 : new TenantState();

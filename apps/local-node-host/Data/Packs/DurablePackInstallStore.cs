@@ -238,6 +238,18 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
             // (the durable analogue of the in-memory single reference-swap).
             using var tx = ctx.Database.BeginTransaction();
 
+            var observedWatermark = ctx.Watermarks.Find(t, pack.PackKey);
+            transaction.RequireCurrentWatermark(observedWatermark is null ? null : new PackInstallWatermark(
+                pack.PackKey, observedWatermark.Version,
+                JsonSerializer.Deserialize<Dictionary<string, int>>(observedWatermark.FloorsJson, Json)!));
+            transaction.RequireCurrentInstalledState(ctx.InstalledVersions.AsNoTracking()
+                .Where(row => row.Tenant == t).ToList().Select(Materialize));
+            transaction.RequireCurrentAdmissionState(
+                ctx.Overrides.AsNoTracking().Where(row => row.Tenant == t && row.PackKey == pack.PackKey)
+                    .ToList().Select(row => new PackTenantOverride(row.ContentKey, ParseOverlay(row.ContentKey, row.OverlayJson))).ToList(),
+                ctx.KeyOwnership.AsNoTracking().Where(row => row.Tenant == t).ToList()
+                    .ToDictionary(row => row.ContentKey, row => row.OwningPackKey, StringComparer.Ordinal));
+
             // (1) Upsert the new immutable seed-layer version row (committed in the pack's own lifecycle — Draft
             //     at install; activation is a separate pointer flip). The payload is the FULL InstalledPack JSON.
             var versionRow = ctx.InstalledVersions.Find(t, pack.PackKey, pack.Version);

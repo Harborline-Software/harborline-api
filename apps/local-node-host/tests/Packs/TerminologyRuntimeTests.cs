@@ -129,7 +129,7 @@ public sealed class TerminologyRuntimeTests
         Assert.Null(await fixture.Catalogue.GetAsync(Tenant, PackContentKind.TerminologyOverride, row.Id, "9.0.0"));
         Assert.Null(fixture.Projection.Resolve(OtherTenant, row.Id, "fr"));
         Assert.Empty((await fixture.Catalogue.ListAsync(OtherTenant, PackContentKind.TerminologyOverride)).Entries);
-        Assert.True(fixture.Installer!.Deactivate(Tenant, "terminology.test", "1.0.0", TestAuthorization.At, "operator").Deactivated);
+        Assert.True((await fixture.Installer!.DeactivateAsync(Tenant, "terminology.test", "1.0.0", TestAuthorization.At, "operator")).Deactivated);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Empty(fixture.Projection.List(Tenant));
         Assert.Null(fixture.Projection.Resolve(Tenant, row.Id, "fr"));
@@ -236,7 +236,7 @@ public sealed class TerminologyRuntimeTests
             Installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), Packs,
                 new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), terminology: Projection), new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
             var trust = new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, signing.PrincipalId, 1, TrustRootStatus.Current)]);
-            var result = Installer.Install(export.FileBytes!, new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
+            var result = await Installer.InstallAsync(export.FileBytes!, new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
                 TestAuthorization.At, TimeSpan.FromDays(30), Principal: "operator"));
             Assert.True(result.Installed == expectInstalled, string.Join("; ", result.RefusalCodes));
             return result;

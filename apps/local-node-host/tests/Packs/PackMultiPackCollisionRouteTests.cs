@@ -213,7 +213,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
         Assert.Equal("Equipment A", before.GetProperty("displayName").GetString());
 
         var tenant = NodeTenantFor();
-        var deactivated = _installer.Deactivate(tenant, "pack.b", "1.0.0", DateTimeOffset.UnixEpoch, "test-operator");
+        var deactivated = await _installer.DeactivateAsync(tenant, "pack.b", "1.0.0", DateTimeOffset.UnixEpoch, "test-operator");
         Assert.True(deactivated.Deactivated);
         Assert.Equal(
             PackLifecycleState.Inactive,

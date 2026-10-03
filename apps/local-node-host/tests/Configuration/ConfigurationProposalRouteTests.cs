@@ -415,7 +415,13 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         var errors = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+        catch (OperationCanceledException exception) when (timeout.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new TimeoutException(
+                $"Configuration example exceeded its 30-second deadline. stdout: {await output}\nstderr: {await errors}", exception);
+        }
         Assert.True(process.ExitCode == 0, await errors);
         using var result = JsonDocument.Parse(await output);
         Assert.Equal("Proposal", result.RootElement.GetProperty("mode").GetString());

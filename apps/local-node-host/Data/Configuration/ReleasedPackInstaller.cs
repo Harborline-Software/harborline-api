@@ -222,7 +222,8 @@ public sealed class ReleasedPackInstaller
         var narrowed = new List<string>();
         foreach (var (edit, patch, decision) in narrowings)
         {
-            var result = _installer.Narrow(context, edit.PackageKey, edit.DefinitionKey, patch, decision);
+            var result = await _installer.NarrowAsync(
+                context, edit.PackageKey, edit.DefinitionKey, patch, decision, CancellationToken.None).ConfigureAwait(false);
             if (!result.Recorded)
                 return outcome with
                 {
@@ -247,7 +248,7 @@ public sealed class ReleasedPackInstaller
                 [.. exported.Validation.Errors.Select(error =>
                     new ReleasedPackRefusal(error.Code, error.Target ?? "releasedPackage", error.Message))]);
 
-        var installed = _installer.Install(exported.FileBytes, context);
+        var installed = await _installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
         if (!installed.Installed)
             return new(false, releasedDigest, request.Key, request.Version,
                 [.. installed.RefusalCodes.Select(code =>

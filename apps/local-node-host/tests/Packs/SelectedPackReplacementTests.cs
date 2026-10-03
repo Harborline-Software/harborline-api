@@ -55,11 +55,11 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
         public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
-        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => throw denied;
+        public Task<PackInstallOutcome> InstallAsync(ReadOnlyMemory<byte> bytes, PackInstallContext context, CancellationToken cancellationToken = default) => throw denied;
         public Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Activation must not run after denial.");
-        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => throw new NotSupportedException();
-        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
-            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => throw new NotSupportedException();
+        public Task<PackDeactivationOutcome> DeactivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<PackNarrowingOutcome> NarrowAsync(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     [Fact]
@@ -136,15 +136,15 @@ public sealed partial class AccessAdministrationPreloadTests
         public PackActivationOutcome? Activated { get; private set; }
         public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
         public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
-        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => Installed = inner.Install(bytes, context);
+        public async Task<PackInstallOutcome> InstallAsync(ReadOnlyMemory<byte> bytes, PackInstallContext context, CancellationToken cancellationToken = default) => Installed = await inner.InstallAsync(bytes, context, cancellationToken).ConfigureAwait(false);
         public async Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default)
         {
             Activated = await inner.ActivateAsync(context, key, version, cancellationToken).ConfigureAwait(false);
             return Activated with { Detail = "Activation committed; observer diagnostic" };
         }
-        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => inner.Deactivate(context, key, version);
-        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
-            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => inner.Narrow(context, key, contentKey, patch, decision);
+        public Task<PackDeactivationOutcome> DeactivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => inner.DeactivateAsync(context, key, version, cancellationToken);
+        public Task<PackNarrowingOutcome> NarrowAsync(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision, CancellationToken cancellationToken = default) => inner.NarrowAsync(context, key, contentKey, patch, decision, cancellationToken);
     }
 
     [Fact]
@@ -226,12 +226,12 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
         public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
-        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Install(bytes, context);
+        public Task<PackInstallOutcome> InstallAsync(ReadOnlyMemory<byte> bytes, PackInstallContext context, CancellationToken cancellationToken = default) => inner.InstallAsync(bytes, context, cancellationToken);
         public Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => Task.FromResult(new PackActivationOutcome(false, key, version,
             "pack.projection.refused", Refusal: new("pack.view-definition.malformed", "/contents/6/contentBase64")));
-        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => throw new NotSupportedException();
-        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
-            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => throw new NotSupportedException();
+        public Task<PackDeactivationOutcome> DeactivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<PackNarrowingOutcome> NarrowAsync(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     [Fact]

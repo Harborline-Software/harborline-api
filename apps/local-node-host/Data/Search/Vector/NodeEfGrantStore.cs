@@ -115,22 +115,43 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
     public Task<AccessGrant?> ChangeValidityAsync(TenantId tenantId, GrantId grantId, GrantValidity validity, ActorId changedBy, GrantReason reason, CancellationToken ct = default) =>
         MutateAsync(tenantId, grantId, g => g.Status == GrantStatus.Revoked
             ? throw new InvalidOperationException("A revoked grant's validity is immutable.")
-            : g with { Validity = validity, ValidityChange = new GrantValidityChangeEvidence(changedBy, reason) }, ct);
+            : g with { Validity = validity, ValidityChange = new GrantValidityChangeEvidence(changedBy, reason) }, stage: null, ct);
     public Task<AccessGrant?> RecordReviewAsync(TenantId tenantId, GrantId grantId, DateTimeOffset reviewedAt, ActorId reviewedBy, CancellationToken ct = default) =>
+        RecordReviewAsync(tenantId, grantId, reviewedAt, reviewedBy, stage: null, ct);
+
+    /// <summary>T-1048: as <see cref="RecordReviewAsync(TenantId, GrantId, DateTimeOffset, ActorId, CancellationToken)"/>, with <paramref name="stage"/> run in the commit (see <see cref="MutateAsync"/>).</summary>
+    internal Task<AccessGrant?> RecordReviewAsync(TenantId tenantId, GrantId grantId, DateTimeOffset reviewedAt, ActorId reviewedBy,
+        Action<NodeLocalSearchDbContext>? stage, CancellationToken ct) =>
         MutateAsync(tenantId, grantId, g => g.Status == GrantStatus.Revoked
             ? throw new InvalidOperationException("A revoked grant cannot be reviewed.")
-            : g with { LastReviewedAt = reviewedAt, LastReviewedBy = reviewedBy }, ct);
+            : g with { LastReviewedAt = reviewedAt, LastReviewedBy = reviewedBy }, stage, ct);
+
+    // The public revoke calls MutateAsync itself, not the staging overload: every RevokeAsync call site is a reviewed
+    // raw grant revocation (RawMutationPortSymbolInventoryTests), and this one is not a caller.
     public Task<AccessGrant?> RevokeAsync(TenantId tenantId, GrantId grantId, GrantRevocation revocation, CancellationToken ct = default) =>
-        MutateAsync(tenantId, grantId, g => g.Status != GrantStatus.Revoked
-            ? g with { Status = GrantStatus.Revoked, Revocation = revocation }
-            : g.Revocation == revocation
-                ? g
-                : throw new InvalidOperationException("A revoked grant cannot replace its revocation evidence."), ct);
+        MutateAsync(tenantId, grantId, Revoke(revocation), stage: null, ct);
+
+    /// <summary>T-1048: as <see cref="RevokeAsync(TenantId, GrantId, GrantRevocation, CancellationToken)"/>, with <paramref name="stage"/> run in the commit (see <see cref="MutateAsync"/>).</summary>
+    internal Task<AccessGrant?> RevokeAsync(TenantId tenantId, GrantId grantId, GrantRevocation revocation,
+        Action<NodeLocalSearchDbContext>? stage, CancellationToken ct) =>
+        MutateAsync(tenantId, grantId, Revoke(revocation), stage, ct);
+
+    private static Func<AccessGrant, AccessGrant> Revoke(GrantRevocation revocation) => g => g.Status != GrantStatus.Revoked
+        ? g with { Status = GrantStatus.Revoked, Revocation = revocation }
+        : g.Revocation == revocation
+            ? g
+            : throw new InvalidOperationException("A revoked grant cannot replace its revocation evidence.");
 
     /// <inheritdoc />
-    public async Task<GrantScopeNarrowing?> NarrowScopeAsync(
+    public Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenantId, GrantId currentGrantId, ScopeExpression narrowed, GrantId successorId,
-        GrantRevocation revocation, CancellationToken ct = default)
+        GrantRevocation revocation, CancellationToken ct = default) =>
+        NarrowScopeAsync(tenantId, currentGrantId, narrowed, successorId, revocation, stage: null, ct);
+
+    /// <summary>T-1048: the narrowing, with <paramref name="stage"/> run in its commit (see <see cref="MutateAsync"/>).</summary>
+    internal async Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenantId, GrantId currentGrantId, ScopeExpression narrowed, GrantId successorId,
+        GrantRevocation revocation, Action<NodeLocalSearchDbContext>? stage, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         GrantScopeNarrowing? result = null;
@@ -147,6 +168,7 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
             ctx.Grants.Add(ToRow(replacement.Reissued, sourceReference: null));
             ctx.Entry(row).CurrentValues.SetValues(ToRow(replacement.Revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
             await AdvanceEpochAsync(ctx, tenantId, current.Subject, ct).ConfigureAwait(false);
+            stage?.Invoke(ctx);
             try
             {
                 await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -164,9 +186,15 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
     }
 
     /// <inheritdoc />
-    public async Task<AdministratorHandover?> HandoverAdministratorAsync(
+    public Task<AdministratorHandover?> HandoverAdministratorAsync(
         TenantId tenantId, GrantId currentGrantId, AccessGrant successor, GrantRevocation revocation,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        HandoverAdministratorAsync(tenantId, currentGrantId, successor, revocation, stage: null, ct);
+
+    /// <summary>T-1048: the handover, with <paramref name="stage"/> run in its commit (see <see cref="MutateAsync"/>).</summary>
+    internal async Task<AdministratorHandover?> HandoverAdministratorAsync(
+        TenantId tenantId, GrantId currentGrantId, AccessGrant successor, GrantRevocation revocation,
+        Action<NodeLocalSearchDbContext>? stage, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(successor);
         ArgumentNullException.ThrowIfNull(revocation);
@@ -199,13 +227,19 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
             ctx.Entry(row).CurrentValues.SetValues(
                 ToRow(revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
             await AdvanceEpochAsync(ctx, revoked.TenantId, revoked.Subject, ct).ConfigureAwait(false);
+            stage?.Invoke(ctx);
             await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
             result = new AdministratorHandover(successor, revoked);
         }, ct).ConfigureAwait(false);
         return result;
     }
 
-    private async Task<AccessGrant?> MutateAsync(TenantId tenantId, GrantId grantId, Func<AccessGrant, AccessGrant> change, CancellationToken ct)
+    /// <remarks>
+    /// T-1048 (DES-0029 ck-6): <paramref name="stage"/> adds the act's audit entries to the context just before its one
+    /// save, so the change and its audit commit together or not at all. A no-op change saves nothing and stages nothing.
+    /// </remarks>
+    private async Task<AccessGrant?> MutateAsync(TenantId tenantId, GrantId grantId, Func<AccessGrant, AccessGrant> change,
+        Action<NodeLocalSearchDbContext>? stage, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         AccessGrant? result = null;
@@ -228,6 +262,7 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
             var nextOwnerVersion = checked(row.OwnerVersion + 1);
             ctx.Entry(row).CurrentValues.SetValues(ToRow(changed, row.SourceReference, nextOwnerVersion));
             await AdvanceEpochAsync(ctx, changed.TenantId, changed.Subject, ct).ConfigureAwait(false);
+            stage?.Invoke(ctx);
             await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         }, ct).ConfigureAwait(false);
         return result;

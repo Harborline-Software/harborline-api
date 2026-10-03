@@ -202,7 +202,7 @@ internal static class PackInstallRoutes
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge, breakGlass,
                 Principal: authority.Principal.Value);
-            var outcome = installer.Install(bytes, context);
+            var outcome = await installer.InstallAsync(bytes, context, CancellationToken.None).ConfigureAwait(false);
 
             logger.LogInformation(
                 "Pack INSTALL (tenant {Tenant}, pack {Key} v{Version}) → installed={Installed} action={Action} "
@@ -355,7 +355,7 @@ internal static class PackInstallRoutes
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
                 Principal: authority.Principal.Value);
-            var outcome = installer.Deactivate(context, request.PackKey, request.Version);
+            var outcome = await installer.DeactivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
             logger.LogInformation(
                 "Pack DEACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → deactivated={Deactivated} [{Error}].",
                 tenant, request.PackKey, request.Version, outcome.Deactivated, outcome.Error);

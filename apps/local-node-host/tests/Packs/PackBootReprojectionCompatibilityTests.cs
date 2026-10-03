@@ -355,7 +355,7 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
     {
         public void AttachProjector(IPackProjectionDispatcher projector) { }
 
-        public void ReconcilePending(CancellationToken cancellationToken = default) =>
+        public Task ReconcilePendingAsync(CancellationToken cancellationToken = default) =>
             throw new IOException("Simulated refused startup projection.");
     }
 }

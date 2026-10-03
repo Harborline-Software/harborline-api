@@ -230,7 +230,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var exported = await _exporter.ExportAsync(claiming, _signer.Signer, CancellationToken.None);
         Assert.True(exported.Succeeded, string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
 
-        var outcome = _installer.Install(exported.FileBytes!, PackContext());
+        var outcome = await _installer.InstallAsync(exported.FileBytes!, PackContext());
 
         Assert.False(outcome.Installed);
         Assert.Equal([KernelBootstrapErrors.CompiledShapeReplacement], outcome.RefusalCodes);
@@ -270,7 +270,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Deactivated_Platform_Seed_Does_Not_Expose_Sealed_Catalogue_Types()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var deactivated = _installer.Deactivate(
+        var deactivated = await _installer.DeactivateAsync(
             PackContext(),
             PlatformPackPreloadHostedService.PackKey,
             PlatformPackPreloadHostedService.PackVersion);

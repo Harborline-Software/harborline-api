@@ -461,6 +461,281 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal(KidB, Assert.Single(await h.ParentEdges(OldB, At.AddDays(2))).To);
     }
 
+    [Fact]
+    public async Task FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(2));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(4));
+        var second = await h.Hierarchy.AddEdgeAsync(KidC, KidB, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(second.Id, At.AddDays(3));
+        var third = await h.Hierarchy.AddEdgeAsync(OldB, KidC, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(third.Id, At.AddHours(36));
+
+        // Oracle: [day2,day4), [day1,day3), [day1,day1.5) have no common instant.
+        // Replacing the inherited day2 start with day1 would falsely admit a descendant path.
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "inherited-start", Actor, Tenant, At);
+
+        var replacement = Assert.Single(await h.ParentEdges(KidA, At));
+        Assert.Equal((OldB, At, (DateTimeOffset?)null),
+            (replacement.To, replacement.Validity.ValidFrom, replacement.Validity.ValidTo));
+        var firstAfter = Assert.Single(await h.ParentEdges(KidB, At.AddDays(2)));
+        Assert.Equal((KidA, At.AddDays(2), (DateTimeOffset?)At.AddDays(4)),
+            (firstAfter.To, firstAfter.Validity.ValidFrom, firstAfter.Validity.ValidTo));
+        var secondAfter = Assert.Single(await h.ParentEdges(KidC, At.AddDays(2)));
+        Assert.Equal((KidB, At.AddDays(1), (DateTimeOffset?)At.AddDays(3)),
+            (secondAfter.To, secondAfter.Validity.ValidFrom, secondAfter.Validity.ValidTo));
+        var thirdAfter = Assert.Single(await h.ParentEdges(OldB, At.AddDays(1)));
+        Assert.Equal((KidC, At.AddDays(1), (DateTimeOffset?)At.AddHours(36)),
+            (thirdAfter.To, thirdAfter.Validity.ValidFrom, thirdAfter.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(OldB, At.AddHours(36)));
+        Assert.Equal("inherited-start", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Fact]
+    public async Task FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg()
+    {
+        var h = await Harness.CreateAsync();
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At.AddDays(3));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidB, EdgeKind.ChildOf, At.AddDays(2));
+
+        // Oracle: the candidate [day0,day3) must be clipped to [day1,day2) on the first leg.
+        // The next leg starts exactly at day2, so the half-open intersection is empty.
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "finite-path-end", Actor, Tenant, At);
+
+        var replacement = Assert.Single(await h.ParentEdges(KidA, At));
+        Assert.Equal((OldB, At, (DateTimeOffset?)At.AddDays(3)),
+            (replacement.To, replacement.Validity.ValidFrom, replacement.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(KidA, At.AddDays(3)));
+        var firstAfter = Assert.Single(await h.ParentEdges(KidB, At.AddDays(1)));
+        Assert.Equal((KidA, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
+            (firstAfter.To, firstAfter.Validity.ValidFrom, firstAfter.Validity.ValidTo));
+        Assert.Empty(await h.ParentEdges(KidB, At.AddDays(2)));
+        var secondAfter = Assert.Single(await h.ParentEdges(OldB, At.AddDays(2)));
+        Assert.Equal((KidB, At.AddDays(2), (DateTimeOffset?)null),
+            (secondAfter.To, secondAfter.Validity.ValidFrom, secondAfter.Validity.ValidTo));
+        Assert.Equal("finite-path-end", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Split_ReassignsRequestedFutureChild_PreservesScheduledInterval(bool finite)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var scheduled = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        if (finite) await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(KidB, Original, EdgeKind.ChildOf, At.AddDays(3));
+        h.Hierarchy.Invalidated.Clear();
+
+        var result = await h.Coordinator.SplitAsync(Original, [Target("east")],
+            new Dictionary<EntityId, EntityId> { [KidA] = East }, "scheduled-split", Actor, Tenant, At);
+
+        // Oracle: move only the requested child, beginning at day1 and retaining its day2/open end.
+        Assert.Empty(await h.ParentEdges(KidA, At));
+        var moved = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal((East, At.AddDays(1), finite ? (DateTimeOffset?)At.AddDays(2) : null),
+            (moved.To, moved.Validity.ValidFrom, moved.Validity.ValidTo));
+        if (finite) Assert.Empty(await h.ParentEdges(KidA, At.AddDays(2)));
+        else Assert.Equal(East, Assert.Single(await h.ParentEdges(KidA, At.AddDays(2))).To);
+        Assert.Contains((scheduled.Id, At.AddDays(1)), h.Hierarchy.Invalidated);
+        Assert.Equal(finite ? 2 : 1, h.Hierarchy.Invalidated.Count);
+        Assert.Equal(Original, Assert.Single(await h.ParentEdges(KidB, At.AddDays(3))).To);
+        Assert.Equal([KidA], result.ReassignedChildren);
+        Assert.Equal([East], result.NewEntities);
+        Assert.Null(await h.Entities.GetAsync(Original));
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        var row = Assert.Single(await h.AuditRows());
+        Assert.Equal((Original, Op.Split, Actor, Tenant, At, "scheduled-split"),
+            (row.EntityId, row.Op, row.Actor, row.Tenant, row.At, row.Justification));
+        Assert.Equal([KidA.ToString()], Strings(row.Payload.RootElement, "reassigned"));
+        Assert.Equal([East.ToString()], Strings(row.Payload.RootElement, "newIds"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Split_ChangedFutureChildSnapshot_RefusesBeforeMinting(bool addEdge)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var scheduled = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(4));
+        h.Hierarchy.BeforeAtomic = async () =>
+        {
+            if (addEdge) await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(2));
+            else await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(2));
+            h.Hierarchy.Added.Clear();
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Coordinator.SplitAsync(
+            Original, [Target("east")], new Dictionary<EntityId, EntityId> { [KidA] = East },
+            "stale-scheduled-split", Actor, Tenant, At));
+
+        // Oracle: the intervening future write survives; stale split creates/deletes/audits nothing.
+        await h.AssertNothingWrittenAsync([Original], East);
+        var winner = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal((Original, At.AddDays(1), addEdge ? At.AddDays(4) : At.AddDays(2)),
+            (winner.To, winner.Validity.ValidFrom, winner.Validity.ValidTo!.Value));
+        Assert.Equal(addEdge ? 2 : 0, (await h.ParentEdges(KidA, At.AddDays(2))).Count);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task Split_ScheduledDescendant_RefusesOverlappingPathBeforeAnyWrite(bool race, bool overlap)
+    {
+        var h = await Harness.CreateAsync(Original, East, KidA, OldB);
+        var scheduled = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(2));
+        if (race)
+        {
+            await h.Hierarchy.AddEdgeAsync(East, OldB, EdgeKind.ChildOf, At);
+            h.Hierarchy.BeforeAtomic = async () =>
+            {
+                await h.CoordinatorOver(h.Entities, At.AddDays(1)).ReparentAsync(
+                    East, OldB, KidA, "winning-path", Actor, Tenant, At.AddDays(1));
+            };
+        }
+        else
+            await h.Hierarchy.AddEdgeAsync(East, KidA, EdgeKind.ChildOf, At.AddDays(overlap ? 1 : 2));
+        var addedBefore = h.Hierarchy.Added.Count;
+        h.Hierarchy.Invalidated.Clear();
+
+        Task<SplitResult> Split() => h.Coordinator.SplitAsync(Original, [Target("east")],
+            new Dictionary<EntityId, EntityId> { [KidA] = East }, "scheduled-cycle", Actor, Tenant, At);
+        if (overlap)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(Split);
+            Assert.NotNull(await h.Entities.GetAsync(Original));
+            var unchanged = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+            Assert.Equal((Original, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
+                (unchanged.To, unchanged.Validity.ValidFrom, unchanged.Validity.ValidTo));
+            Assert.Equal(race ? 2 : 0, h.Hierarchy.AtomicCalls);
+            Assert.Equal(addedBefore + (race ? 1 : 0), h.Hierarchy.Added.Count);
+            Assert.Equal(race ? 1 : 0, h.Hierarchy.Invalidated.Count);
+        }
+        else
+        {
+            await Split();
+            Assert.Null(await h.Entities.GetAsync(Original));
+            var replacement = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+            Assert.Equal((East, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
+                (replacement.To, replacement.Validity.ValidFrom, replacement.Validity.ValidTo));
+            Assert.Empty(await h.ParentEdges(KidA, At.AddDays(2)));
+        }
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        var reverse = Assert.Single(await h.ParentEdges(East, At.AddDays(overlap ? 1 : 2)));
+        Assert.Equal((KidA, At.AddDays(overlap ? 1 : 2), (DateTimeOffset?)null),
+            (reverse.To, reverse.Validity.ValidFrom, reverse.Validity.ValidTo));
+        var audits = await h.AuditRows();
+        if (race) Assert.Equal("winning-path", Assert.Single(audits).Justification);
+        else if (overlap) Assert.Empty(audits);
+        else Assert.Equal("scheduled-cycle", Assert.Single(audits).Justification);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Split_JointReassignments_CheckProspectiveTemporalGraph(bool overlap)
+    {
+        var h = await Harness.CreateAsync(Original, KidA, KidB);
+        var first = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(2));
+        var second = await h.Hierarchy.AddEdgeAsync(KidB, Original, EdgeKind.ChildOf, At.AddDays(overlap ? 1 : 2));
+        await h.Hierarchy.InvalidateEdgeAsync(second.Id, At.AddDays(3));
+        var addedBefore = h.Hierarchy.Added.Count;
+        h.Hierarchy.Invalidated.Clear();
+        Task<SplitResult> Split() => h.Coordinator.SplitAsync(Original, [Target("kid-a"), Target("kid-b")],
+            new Dictionary<EntityId, EntityId> { [KidA] = KidB, [KidB] = KidA }, "joint-split", Actor, Tenant, At);
+        if (overlap)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(Split);
+            Assert.NotNull(await h.Entities.GetAsync(Original));
+            Assert.Equal(0, h.Hierarchy.AtomicCalls);
+            Assert.Equal(addedBefore, h.Hierarchy.Added.Count);
+            Assert.Empty(h.Hierarchy.Invalidated);
+            Assert.Empty(await h.AuditRows());
+        }
+        else
+        {
+            await Split();
+            Assert.Null(await h.Entities.GetAsync(Original));
+            Assert.Equal((KidB, At.AddDays(1), (DateTimeOffset?)At.AddDays(2)),
+                ParentTuple(Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)))));
+            Assert.Equal((KidA, At.AddDays(2), (DateTimeOffset?)At.AddDays(3)),
+                ParentTuple(Assert.Single(await h.ParentEdges(KidB, At.AddDays(2)))));
+            Assert.Empty(await h.ParentEdges(KidA, At.AddDays(2)));
+            Assert.Empty(await h.ParentEdges(KidB, At.AddDays(3)));
+            Assert.Equal("joint-split", Assert.Single(await h.AuditRows()).Justification);
+        }
+        Assert.NotNull(await h.Entities.GetAsync(KidA));
+        Assert.NotNull(await h.Entities.GetAsync(KidB));
+    }
+
+    [Theory]
+    [InlineData("original", false)]
+    [InlineData("east", true)]
+    [InlineData("kid-a", false)]
+    public async Task Split_DeletedOrSelfTarget_RefusesBeforeAnyWrite(string target, bool retainOldParent)
+    {
+        var h = await Harness.CreateAsync(Original, East, KidA);
+        await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        var addedBefore = h.Hierarchy.Added.Count;
+        var parent = retainOldParent ? Original : target == "original" ? East : Id(target);
+        await Assert.ThrowsAsync<ArgumentException>(() => h.Coordinator.SplitAsync(Original,
+            target == "original" ? [Target(target), Target("east")] : [Target(target)],
+            new Dictionary<EntityId, EntityId> { [KidA] = parent }, "invalid-target", Actor, Tenant, At));
+        Assert.NotNull(await h.Entities.GetAsync(Original));
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        Assert.NotNull(await h.Entities.GetAsync(KidA));
+        Assert.Equal(0, h.Hierarchy.AtomicCalls);
+        Assert.Equal(addedBefore, h.Hierarchy.Added.Count);
+        Assert.Empty(h.Hierarchy.Invalidated);
+        Assert.Empty(await h.AuditRows());
+        Assert.Equal((Original, At.AddDays(1), (DateTimeOffset?)null),
+            ParentTuple(Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)))));
+    }
+
+    [Fact]
+    public async Task Split_ActiveChild_IgnoresAnEndedHistoricalReversePath()
+    {
+        var h = await Harness.CreateAsync(Original, East, KidA);
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(-3));
+        var historical = await h.Hierarchy.AddEdgeAsync(East, KidA, EdgeKind.ChildOf, At.AddDays(-2));
+        await h.Hierarchy.InvalidateEdgeAsync(historical.Id, At.AddDays(-1));
+        h.Hierarchy.Invalidated.Clear();
+
+        var result = await h.Coordinator.SplitAsync(Original, [Target("east")],
+            new Dictionary<EntityId, EntityId> { [KidA] = East }, "active-split", Actor, Tenant, At);
+
+        Assert.Null(await h.Entities.GetAsync(Original));
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        Assert.Equal(new[] { East }, result.NewEntities);
+        Assert.Equal(new[] { KidA }, result.ReassignedChildren);
+        Assert.Equal((East, At, (DateTimeOffset?)null),
+            ParentTuple(Assert.Single(await h.ParentEdges(KidA, At))));
+        Assert.Equal((Original, At.AddDays(-3), (DateTimeOffset?)At),
+            ParentTuple(Assert.Single(await h.ParentEdges(KidA, At.AddDays(-1)))));
+        Assert.Equal((KidA, At.AddDays(-2), (DateTimeOffset?)At.AddDays(-1)),
+            ParentTuple(Assert.Single(await h.ParentEdges(East, At.AddDays(-2)))));
+        Assert.Empty(await h.ParentEdges(East, At));
+        Assert.Equal((displaced.Id, At), Assert.Single(h.Hierarchy.Invalidated));
+        Assert.Equal(1, h.Hierarchy.AtomicCalls);
+        var audit = Assert.Single(await h.AuditRows());
+        Assert.Equal((Original, Op.Split, Actor, Tenant, At, "active-split"),
+            (audit.EntityId, audit.Op, audit.Actor, audit.Tenant, audit.At, audit.Justification));
+        Assert.Equal(new[] { East.ToString() }, Strings(audit.Payload.RootElement, "newIds"));
+        Assert.Equal(new[] { KidA.ToString() }, Strings(audit.Payload.RootElement, "reassigned"));
+    }
+
+    private static (EntityId, DateTimeOffset, DateTimeOffset?) ParentTuple(EntityEdge edge) =>
+        (edge.To, edge.Validity.ValidFrom, edge.Validity.ValidTo);
+
     private static CreateOptions Options(string localPart, TenantId tenant) =>
         new("entity", "test", localPart, Actor, tenant, At, ExplicitLocalPart: localPart);
 
@@ -544,10 +819,13 @@ public sealed class HierarchyCompositeWriteEffectsTests
     private sealed class RecordingHierarchy(InMemoryHierarchyService inner) : IHierarchyCompositeUnitOfWork
     {
         public List<EntityEdge> Added { get; } = [];
+        public List<(long EdgeId, DateTimeOffset ValidTo)> Invalidated { get; } = [];
         public Func<Task>? BeforeAtomic { get; set; }
+        public int AtomicCalls { get; private set; }
 
         public async Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default)
         {
+            AtomicCalls++;
             var beforeAtomic = BeforeAtomic;
             BeforeAtomic = null;
             if (beforeAtomic is not null) await beforeAtomic();
@@ -563,8 +841,11 @@ public sealed class HierarchyCompositeWriteEffectsTests
             return edge;
         }
 
-        public Task InvalidateEdgeAsync(long edgeId, DateTimeOffset validTo, CancellationToken ct = default) =>
-            inner.InvalidateEdgeAsync(edgeId, validTo, ct);
+        public async Task InvalidateEdgeAsync(long edgeId, DateTimeOffset validTo, CancellationToken ct = default)
+        {
+            await inner.InvalidateEdgeAsync(edgeId, validTo, ct);
+            Invalidated.Add((edgeId, validTo));
+        }
 
         public IAsyncEnumerable<EntityEdge> GetChildrenAsync(EntityId parent, DateTimeOffset? asOf = null, CancellationToken ct = default) =>
             inner.GetChildrenAsync(parent, asOf, ct);

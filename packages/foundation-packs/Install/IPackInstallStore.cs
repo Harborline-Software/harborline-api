@@ -136,4 +136,65 @@ public sealed record PackInstallTransaction(
     TenantId Tenant,
     InstalledPack InstalledPack,
     PackInstallWatermark Watermark,
-    IReadOnlyList<PackTenantOverride> ReattachedOverrides);
+    IReadOnlyList<PackTenantOverride> ReattachedOverrides)
+{
+    /// <summary>Compare the planning watermark at the store's atomic commit boundary.</summary>
+    public bool CompareWatermark { get; init; }
+    /// <summary>The watermark read by bind; null means no watermark existed.</summary>
+    public PackInstallWatermark? ExpectedWatermark { get; init; }
+
+    /// <summary>The tenant-wide installed snapshot used by admission; null disables comparison for raw callers.</summary>
+    public IReadOnlyList<InstalledPack>? ExpectedInstalledState { get; init; }
+
+    /// <summary>The target's override snapshot used by reattachment; null disables comparison for raw callers.</summary>
+    public IReadOnlyList<PackTenantOverride>? ExpectedOverrides { get; init; }
+
+    /// <summary>The tenant ownership choices used by collision admission; null disables comparison for raw callers.</summary>
+    public IReadOnlyDictionary<string, string>? ExpectedKeyOwnership { get; init; }
+
+    /// <summary>Checks mutable admission inputs inside the store's atomic write boundary.</summary>
+    public void RequireCurrentAdmissionState(
+        IReadOnlyList<PackTenantOverride> overrides, IReadOnlyDictionary<string, string> ownership)
+    {
+        if (ExpectedOverrides is not null
+            && (overrides.Count != ExpectedOverrides.Count || ExpectedOverrides.Any(expected =>
+                !overrides.Any(current => current.ContentKey == expected.ContentKey
+                    && System.Text.Json.Nodes.JsonNode.DeepEquals(current.OverlayPatch, expected.OverlayPatch)))))
+            throw new PackInstallStateChangedException();
+        if (ExpectedKeyOwnership is not null
+            && (ownership.Count != ExpectedKeyOwnership.Count || ExpectedKeyOwnership.Any(expected =>
+                !ownership.TryGetValue(expected.Key, out var value) || value != expected.Value)))
+            throw new PackInstallStateChangedException();
+    }
+
+    /// <summary>Checks every installed-state premise under the same serialization boundary as the write.</summary>
+    public void RequireCurrentInstalledState(IEnumerable<InstalledPack> current)
+    {
+        if (ExpectedInstalledState is null) return;
+        static string[] Snapshot(IEnumerable<InstalledPack> packs) => packs
+            .OrderBy(pack => pack.PackKey, StringComparer.Ordinal).ThenBy(pack => pack.Version, StringComparer.Ordinal)
+            .Select(pack => System.Text.Json.JsonSerializer.Serialize(pack)).ToArray();
+        if (!Snapshot(current).SequenceEqual(Snapshot(ExpectedInstalledState), StringComparer.Ordinal))
+            throw new PackInstallStateChangedException();
+    }
+
+    /// <summary>Refuses a stale install plan before any part of it is persisted.</summary>
+    public void RequireCurrentWatermark(PackInstallWatermark? current)
+    {
+        if (!CompareWatermark) return;
+        var expected = ExpectedWatermark;
+        if (current is null && expected is null) return;
+        if (current is not null && expected is not null
+            && current.Version == expected.Version && current.Floors.Count == expected.Floors.Count
+            && expected.Floors.All(pair => current.Floors.TryGetValue(pair.Key, out var value) && value == pair.Value)) return;
+        throw new PackInstallWatermarkChangedException();
+    }
+}
+
+/// <summary>A concurrent install changed the planning watermark; retry must bind fresh state.</summary>
+public sealed class PackInstallWatermarkChangedException()
+    : InvalidOperationException("The pack install watermark changed before commit.");
+
+/// <summary>A concurrent write changed tenant-wide installed premises; retry must bind fresh state.</summary>
+public sealed class PackInstallStateChangedException()
+    : InvalidOperationException("The tenant installed pack state changed before commit.");
