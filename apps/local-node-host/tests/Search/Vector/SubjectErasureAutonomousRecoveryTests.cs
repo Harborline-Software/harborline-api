@@ -326,6 +326,39 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
             throw new NotSupportedException();
     }
 
+    [Fact(DisplayName = "T-1048: a cancellation that is not the pass's own defers its row like any fault, so it cannot end the pass or starve a newer row; the pass's own cancellation ends it without a deferral")]
+    public async Task ForeignCancellation_IsDeferred_ButThePassOwnCancellationEndsIt()
+    {
+        var clock = new MutableClock();
+        var propagator = new ScriptedPropagator { FailAll = true };
+        var service = Service(_store, new NodeEfSubjectTombstoneStore(_store.Factory), new InMemoryAuditTrail(),
+            new Ed25519Signer(KeyPair.Generate()), propagator, clock);
+        var canceling = new SubjectId("subject-canceling");
+        var newer = new SubjectId("subject-newer");
+        await Assert.ThrowsAnyAsync<Exception>(() => service.EraseAsync(Request(canceling)));
+        clock.At = Now.AddSeconds(1);
+        await Assert.ThrowsAnyAsync<Exception>(() => service.EraseAsync(Request(newer)));
+
+        propagator.FailAll = false;
+        propagator.Canceling.Add(canceling.Value);
+        clock.At = Now.AddMinutes(1);
+
+        // The pass's own token is cancelled while the row runs: the pass ends and defers nothing.
+        using (var pass = new CancellationTokenSource())
+        {
+            propagator.CancelPass = pass;
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.RecoverInterruptedAsync(32, pass.Token));
+            propagator.CancelPass = null;
+        }
+        Assert.Equal(0, (await RowAsync(canceling)).RecoveryAttempts);
+
+        // A foreign cancellation is a fault of that row: deferred, and the newer row still completes in the same pass.
+        Assert.Equal(1, await service.RecoverInterruptedAsync(32));
+        Assert.Equal(1, (await RowAsync(canceling)).RecoveryAttempts);
+        Assert.Null((await RowAsync(canceling)).CompletedAtUnixMs);
+        await AssertEvidenceClearedAsync(newer);
+    }
+
     private async Task<int> CountAsync(string table)
     {
         await using var db = _store.CreateContext();
@@ -370,10 +403,25 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
 
         public HashSet<string> Failing { get; } = new(StringComparer.Ordinal);
 
-        public Task PropagateErasureAsync(TenantId tenant, SubjectId subject, CancellationToken ct) =>
-            FailAll || Failing.Contains(subject.Value)
-                ? throw new InvalidOperationException("T-1048 injected purge fault")
-                : Task.CompletedTask;
+        public HashSet<string> Canceling { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>When set, a canceling subject first cancels this source: the pass's own cancellation.</summary>
+        public CancellationTokenSource? CancelPass { get; set; }
+
+        public Task PropagateErasureAsync(TenantId tenant, SubjectId subject, CancellationToken ct)
+        {
+            if (Canceling.Contains(subject.Value) && CancelPass is { } pass)
+            {
+                pass.Cancel();
+                throw new OperationCanceledException(pass.Token);
+            }
+
+            return Canceling.Contains(subject.Value)
+                ? throw new OperationCanceledException("T-1048 injected cancellation not tied to the pass")
+                : FailAll || Failing.Contains(subject.Value)
+                    ? throw new InvalidOperationException("T-1048 injected purge fault")
+                    : Task.CompletedTask;
+        }
     }
 }
 

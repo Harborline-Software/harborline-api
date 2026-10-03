@@ -184,9 +184,9 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
                 await FinishAsync(due.Tenant, due.Subject, due.Evidence, ct).ConfigureAwait(false);
                 completed++;
             }
-#pragma warning disable CA1031 // Any fault defers the row; one failing erasure must not stall or end the pass.
-            catch (Exception) when (!ct.IsCancellationRequested)
-#pragma warning restore CA1031
+            // Any fault defers the row, an OperationCanceledException included unless it is this pass's own cancellation:
+            // one failing erasure must not stall or end the pass.
+            catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 // Never abandoned: the evidence stays, and the row is retried once its backoff elapses, so a row
                 // that keeps failing does not hold back newer rows.
