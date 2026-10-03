@@ -701,6 +701,38 @@ public sealed class HierarchyCompositeWriteEffectsTests
             ParentTuple(Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)))));
     }
 
+    [Fact]
+    public async Task Split_ActiveChild_IgnoresAnEndedHistoricalReversePath()
+    {
+        var h = await Harness.CreateAsync(Original, East, KidA);
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(-3));
+        var historical = await h.Hierarchy.AddEdgeAsync(East, KidA, EdgeKind.ChildOf, At.AddDays(-2));
+        await h.Hierarchy.InvalidateEdgeAsync(historical.Id, At.AddDays(-1));
+        h.Hierarchy.Invalidated.Clear();
+
+        var result = await h.Coordinator.SplitAsync(Original, [Target("east")],
+            new Dictionary<EntityId, EntityId> { [KidA] = East }, "active-split", Actor, Tenant, At);
+
+        Assert.Null(await h.Entities.GetAsync(Original));
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        Assert.Equal(new[] { East }, result.NewEntities);
+        Assert.Equal(new[] { KidA }, result.ReassignedChildren);
+        Assert.Equal((East, At, (DateTimeOffset?)null),
+            ParentTuple(Assert.Single(await h.ParentEdges(KidA, At))));
+        Assert.Equal((Original, At.AddDays(-3), (DateTimeOffset?)At),
+            ParentTuple(Assert.Single(await h.ParentEdges(KidA, At.AddDays(-1)))));
+        Assert.Equal((KidA, At.AddDays(-2), (DateTimeOffset?)At.AddDays(-1)),
+            ParentTuple(Assert.Single(await h.ParentEdges(East, At.AddDays(-2)))));
+        Assert.Empty(await h.ParentEdges(East, At));
+        Assert.Equal((displaced.Id, At), Assert.Single(h.Hierarchy.Invalidated));
+        Assert.Equal(1, h.Hierarchy.AtomicCalls);
+        var audit = Assert.Single(await h.AuditRows());
+        Assert.Equal((Original, Op.Split, Actor, Tenant, At, "active-split"),
+            (audit.EntityId, audit.Op, audit.Actor, audit.Tenant, audit.At, audit.Justification));
+        Assert.Equal(new[] { East.ToString() }, Strings(audit.Payload.RootElement, "newIds"));
+        Assert.Equal(new[] { KidA.ToString() }, Strings(audit.Payload.RootElement, "reassigned"));
+    }
+
     private static (EntityId, DateTimeOffset, DateTimeOffset?) ParentTuple(EntityEdge edge) =>
         (edge.To, edge.Validity.ValidFrom, edge.Validity.ValidTo);
 
