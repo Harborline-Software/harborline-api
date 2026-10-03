@@ -10,6 +10,7 @@ import {verifyConsumedFeed} from './platform-feed-consumption.mjs'
 import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {buildEnvironment} from './platform-feed-environment.mjs'
 import {crashSignatures, diagnosticContainerRun} from './platform-feed-crash-diagnostics.mjs'
+import {probePidOneRestore} from './platform-feed-pid1-probe.mjs'
 
 export function safeFailure(error) {
   const result = {kind: Number.isInteger(error?.status) ? 'command-exit' : 'validation-or-spawn'}
@@ -50,6 +51,15 @@ export function qualify(platform) {
   let currentDetails = {}
   const stage = (name, details = {}) => {currentStage = name; currentDetails = details; record('operation-started', {operation: name, ...details})}
   const containerRun = diagnosticContainerRun({observe: state => record('container-resource-state', {operation: currentStage, ...currentDetails, state})})
+  let failedRestore
+  const observedRun = (command, args, options) => {
+    try {return containerRun(command, args, options)} catch (error) {
+      const index = args.indexOf(profile.image)
+      if (command === 'docker' && args[0] === 'run' && index >= 0 && args[index + 1] === 'dotnet' && args[index + 2] === 'restore')
+        failedRestore = {args}
+      throw error
+    }
+  }
   let prepared
   try {
     record('started')
@@ -60,7 +70,7 @@ export function qualify(platform) {
     stage('isolated-api-clone')
     execute('git', ['clone', '--quiet', '--no-hardlinks', root, clone])
     let started = Date.now()
-    prepared = prepareContainer({apiRoot: root, platform, pin, observe: stage, run: containerRun})
+    prepared = prepareContainer({apiRoot: root, platform, pin, observe: stage, run: observedRun})
     record('independent-platform-restore', {durationMs: Date.now() - started})
     started = Date.now()
     const files = prepared.pack(), raw = createBundle(files, prepared.input, pin)
@@ -116,7 +126,14 @@ export function qualify(platform) {
     record('complete', {productionBuilderQualified: true, trustedCrossRunHit: false})
     return evidence
   } catch (error) {
-    record('failed', {qualificationPassed: false, operation: currentStage, failure: safeFailure(error)})
+    const failure = safeFailure(error)
+    record('failed', {qualificationPassed: false, operation: currentStage, failure})
+    if (failedRestore && failure.exitCode === 139 && failure.observedSignatures?.includes('runtime-fail-fast')) {
+      record('pid1-probe-started', {pairs: 3, productionQualificationPassed: false})
+      try {probePidOneRestore({args: failedRestore.args, image: profile.image, commit: pin.commit,
+        classifyFailure: safeFailure, observe: record})}
+      catch {record('pid1-probe-unavailable', {productionQualificationPassed: false})}
+    }
     throw new Error('platform feed qualification failed; see bounded stage evidence')
   } finally {
     rmSync(directory, {recursive: true, force: true})

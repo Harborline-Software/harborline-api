@@ -111,6 +111,21 @@ configured limit alone cannot prove resource exhaustion. Current Docker/Node24
 qualification failed at LayoutRuntime restore (index 7/36) with exit 139, whose
 cause is unproven pending this additional evidence.
 
+A runtime fail-fast with exit 139 during a platform restore triggers one bounded
+PID1 diagnostic experiment, while qualification remains failed. Three interleaved
+pairs restore the same project from separately cloned committed source and fresh
+package caches, with and without Docker `--init`. Workload arguments, UID, image,
+network, security settings and resource limits are unchanged. Only init and owned
+input mount roots differ; each diagnostic restore has a three-minute bound.
+Fixed signatures distinguish internal CLR errors, child-reaping failures and
+thread-creation frames; raw stacks remain private. This tests RC1's PID1-specific
+child-reaping path, which can call `Environment.FailFast` on unexpected wait errors
+([RC1 native signal handler](https://github.com/dotnet/runtime/blob/v11.0.0-rc.1.26425.128/src/native/libs/System.Native/pal_signal.c),
+[RC1 child waiter](https://github.com/dotnet/runtime/blob/v11.0.0-rc.1.26425.128/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessWaitState.Unix.cs)).
+It is a hypothesis: one successful case, configured limits, or a generic fail-fast
+label cannot establish the cause. The experiment grants no production verdict and
+does not enable init in the producer.
+
 After reviewed definitions land, the protected-main producer must create a
 successful artifact. A coordinator-authorized consumer run must authenticate
 that artifact, prove matching independent inputs and consumed bytes, and finish

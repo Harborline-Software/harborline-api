@@ -19,6 +19,11 @@ export function crashSignatures(text) {
     ['disk-full', /\bNo space left on device\b|\bENOSPC\b/i],
     ['stack-overflow', /\bStack overflow\b|\bSystem\.StackOverflowException\b/i],
     ['runtime-fail-fast', /\b(?:Environment\.)?FailFast\b|\bFatal error\. Internal CLR error\b/],
+    ['internal-clr-error', /\bFatal error\. Internal CLR error\.\s*\(0x80131506\)/i],
+    ['child-process-reap-failure', /\bError while reaping child\. errno = \d{1,3}\b/],
+    ['child-process-wait-failure', /\bError while checking for terminated children\. errno = \d{1,3}\b/],
+    ['child-process-wait-frame', /\bSystem\.Diagnostics\.ProcessWaitState\.(?:TryReapChild|CheckChildren)\b/],
+    ['thread-creation-frame', /\bSystem\.Threading\.Thread\.StartCore\b|\bPortableThreadPool[.+]WorkerThread\.CreateWorkerThread\b/],
     ['runtime-assertion', /\bAssertion failed\b|\bAssert failure\b/i],
     ['access-denied', /\bPermission denied\b|\bOperation not permitted\b|\bUnauthorizedAccessException\b/i],
   ]

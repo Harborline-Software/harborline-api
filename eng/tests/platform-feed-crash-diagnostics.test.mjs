@@ -40,6 +40,12 @@ test('crash classification emits fixed observed signatures without inferring a c
     ['access-violation', 'allocation-hresult'])
   assert.deepEqual(crashSignatures('0x80070008'), ['allocation-hresult'])
   assert.deepEqual(crashSignatures('secret0x8007000Esecret'), [])
+  assert.deepEqual(crashSignatures('Fatal error. Internal CLR error. (0x80131506)'), ['runtime-fail-fast', 'internal-clr-error'])
+  assert.deepEqual(crashSignatures('Error while checking for terminated children. errno = 10\n'
+    + 'System.Environment.FailFast\nSystem.Diagnostics.ProcessWaitState.CheckChildren'),
+    ['runtime-fail-fast', 'child-process-wait-failure', 'child-process-wait-frame'])
+  assert.deepEqual(crashSignatures('System.Threading.Thread.StartCore\nResource temporarily unavailable'),
+    ['thread-or-process-resource-unavailable', 'thread-creation-frame'])
 })
 
 const workload = ['run', '--rm', '--platform=linux/amd64', '--read-only', '--cap-drop=ALL',
