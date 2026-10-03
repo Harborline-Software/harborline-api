@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
@@ -10,6 +13,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -518,6 +522,236 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Equal(predecessor.RevokedAtUnixMs, successor.ValidityFromUnixMs);
     }
 
+    [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the revocation commits delivers its one audit from the outbox on restart")]
+    public async Task Crash_after_the_revocation_commit_delivers_its_audit_once_on_restart()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
+            fixture.Handle, TenantId, WebGrantId,
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+
+        var legs = await RestartAndDrainTwiceAsync(fixture);
+        var revoked = Assert.Single(legs);
+        Assert.Equal("CapabilityRevoked", revoked.EventType.Value);
+        Assert.Equal(WebGrantId, revoked.Target!.Value.RecordId);
+        Assert.Equal(Now, revoked.OccurredAt);
+        Assert.Equal(new ActorId("principal-admin"), revoked.Actor);
+        Assert.NotNull(revoked.AuthoritySnapshot);
+    }
+
+    [Fact]
+    public async Task A_revoke_retry_before_the_outbox_drain_returns_the_original_committed_receipt()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+        var correlation = Guid.Parse("34900000-0000-4000-8000-000000000002");
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        { CorrelationId = correlation };
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, authority));
+
+        Guid owedId;
+        long committedVersion;
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            var owed = await db.AuditOutbox.SingleAsync();
+            owedId = Guid.Parse(owed.AuditId);
+            Assert.Equal("CapabilityRevoked", owed.EventType);
+            Assert.Null(owed.PublishedAtUnixMs);
+            var grant = await db.Grants.SingleAsync(row => row.GrantId == WebGrantId);
+            Assert.Equal((int)GrantStatus.Revoked, grant.Status);
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), grant.RevokedAtUnixMs);
+            committedVersion = grant.OwnerVersion;
+        }
+
+        var replay = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            authority with { At = Now.AddMinutes(1) });
+        Assert.NotNull(replay);
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, replay.Status);
+        Assert.Equal(owedId, replay.AuditId);
+        Assert.Equal(correlation, replay.CorrelationId);
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            Assert.Equal(1, await db.AuditOutbox.CountAsync());
+            var grant = await db.Grants.SingleAsync(row => row.GrantId == WebGrantId);
+            Assert.Equal(committedVersion, grant.OwnerVersion);
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), grant.RevokedAtUnixMs);
+        }
+        var delivered = Assert.Single(await RestartAndDrainTwiceAsync(fixture));
+        Assert.Equal("CapabilityRevoked", delivered.EventType.Value);
+        Assert.Equal(owedId, delivered.AuditId);
+    }
+
+    [Fact]
+    public async Task A_signing_failure_leaves_the_roster_membership_and_grant_unchanged()
+    {
+        var roster = new StatefulRosterWriter();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin,
+            grantSigner: new FailingOperationSigner(), memberRevocations: roster);
+        await using var db = fixture.GrantFactory.CreateDbContext();
+        var before = await db.Grants.AsNoTracking().SingleAsync(row => row.GrantId == WebGrantId);
+
+        await Assert.ThrowsAsync<SigningFailedException>(() => fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId));
+
+        Assert.Equal("principal-web", Assert.Single(roster.Members));
+        Assert.Equal(0, roster.RevocationCount);
+        var after = await db.Grants.AsNoTracking().SingleAsync(row => row.GrantId == WebGrantId);
+        Assert.Equal((int)GrantStatus.Active, after.Status);
+        Assert.Null(after.RevokedAtUnixMs);
+        Assert.Equal(before.OwnerVersion, after.OwnerVersion);
+        Assert.Equal(0, await db.AuditOutbox.CountAsync());
+    }
+
+    private sealed class SigningFailedException() : Exception("The grant audit signer failed.");
+
+    private sealed class FailingOperationSigner : IOperationSigner
+    {
+        public PrincipalId IssuerId => throw new NotSupportedException();
+        public ValueTask<SignedOperation<T>> SignAsync<T>(T payload, DateTimeOffset issuedAt, Guid nonce,
+            CancellationToken ct = default) => throw new SigningFailedException();
+    }
+
+    private sealed class StatefulRosterWriter : INodeRosterMemberRevocationAuthority
+    {
+        public HashSet<string> Members { get; } = new(StringComparer.Ordinal) { "principal-web" };
+        public int RevocationCount { get; private set; }
+        public ValueTask<CompromisedDeviceRevocation?> RevokeAsync(TenantId tenant, string decisionTargetId,
+            string revokedPartyId, string revokedByPartyId, string reason, string? correlationId,
+            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+        {
+            RevocationCount++;
+            Members.Remove(revokedPartyId);
+            return ValueTask.FromResult<CompromisedDeviceRevocation?>(null);
+        }
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the handover commits delivers both legs once from the outbox on restart")]
+    public async Task Crash_after_the_handover_commit_delivers_both_legs_once_on_restart()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, successorPrincipalId: "principal-admin"));
+
+        var legs = await RestartAndDrainTwiceAsync(fixture);
+        // Both legs share the decided instant, so the trail's order between them is not part of the contract.
+        Assert.Equal(
+            new[] { "CapabilityDelegated", "CapabilityRevoked" },
+            legs.Select(record => record.EventType.Value).Order(StringComparer.Ordinal).ToArray());
+        Assert.All(legs, record => Assert.Equal(WebGrantId, record.Target!.Value.RecordId));
+        Assert.Single(legs.Select(record => record.Payload.Payload.Body["correlation_id"]).Distinct());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_review_retry_before_the_outbox_drain_reuses_its_committed_receipt(bool deliverBetweenReads)
+    {
+        var crashing = new CrashingAuditTrail();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: crashing);
+        var correlation = Guid.Parse("34900000-0000-4000-8000-000000000001");
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        { CorrelationId = correlation };
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.ReviewGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, authority));
+
+        string owedId;
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            owedId = (await db.AuditOutbox.SingleAsync()).AuditId;
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), (await db.Grants.SingleAsync(row => row.GrantId == WebGrantId)).LastReviewedAtUnixMs);
+        }
+        if (deliverBetweenReads)
+            crashing.OnQuery = async () => { await RestartAndDrainTwiceAsync(fixture); };
+        var replay = await fixture.Authority.ReviewGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            authority with { At = Now.AddMinutes(1) });
+        Assert.NotNull(replay);
+        Assert.Equal(Guid.Parse(owedId), replay.AuditId);
+        Assert.Equal(correlation, replay.CorrelationId);
+        Assert.Equal(Now, replay.ReviewedAt);
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            Assert.Equal(1, await db.AuditOutbox.CountAsync());
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), (await db.Grants.SingleAsync(row => row.GrantId == WebGrantId)).LastReviewedAtUnixMs);
+        }
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => fixture.Authority.ReviewGrantAsync(
+            fixture.Handle, TenantId, ThirdGrantId, authority));
+        var delivered = Assert.Single(await RestartAndDrainTwiceAsync(fixture));
+        Assert.Equal(new AuditEventType("GrantReviewRecorded"), delivered.EventType);
+        Assert.Equal(Guid.Parse(owedId), delivered.AuditId);
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 grant: a revocation the store refuses at commit stages no audit entry")]
+    public async Task A_revocation_refused_at_commit_stages_no_audit_entry()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+        var tenant = new TenantId(TenantId);
+        var admin = new ActorId("principal-admin");
+        var decision = TestAuthorization.AllowedDecision(
+            tenant, WebGrantId, "members", TeamRolePermissions.MembersManage, "principal-admin", Now);
+        var target = new AuthorizationWriteContext(admin, tenant, Now)
+            .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", WebGrantId);
+        var signed = await new Ed25519Signer(KeyPair.Generate()).SignAsync(
+            new AuditPayload(new Dictionary<string, object?> { ["grant_id"] = WebGrantId }), Now, Guid.NewGuid());
+        var audit = new AuditRecord(Guid.NewGuid(), tenant, AuditEventType.CapabilityRevoked, Now, signed,
+            ImmutableArray<AttestingSignature>.Empty, Actor: admin, Target: target.Target, Act: target.Act);
+
+        // The only Administrator in force: the store's own guard refuses inside the commit transaction.
+        await Assert.ThrowsAsync<LastAdministratorRefusedException>(() =>
+            new AuthorizedGrantRevocationWriter(new NodeEfGrantStore(fixture.GrantFactory), fixture.GrantFactory).RevokeAsync(
+                tenant, new GrantId(Guid.Parse(WebGrantId)),
+                new GrantRevocation(admin, Now, new GrantReason(GrantReasonCodes.RevocationOffboarding, WebGrantId)),
+                decision, audit: [audit]));
+
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        Assert.Equal(0, await grants.AuditOutbox.CountAsync());
+        Assert.Null((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
+    }
+
+    /// <summary>The process is gone: a new trail and outbox open the same grant file, drain at startup, and drain again.</summary>
+    private static async Task<List<AuditRecord>> RestartAndDrainTwiceAsync(Fixture fixture)
+    {
+        var trail = new AuthorityCapturingAuditTrail(new NodeAuditTrailStore(fixture.GrantFactory));
+        using var outbox = new NodeAuditOutbox(fixture.GrantFactory, trail, trail, new Ed25519Signer(KeyPair.Generate()),
+            TimeProvider.System, NullLogger<NodeAuditOutbox>.Instance);
+        await outbox.DrainAsync();
+        await outbox.DrainAsync();
+        await using (var grants = fixture.GrantFactory.CreateDbContext())
+            Assert.Equal(0, await grants.AuditOutbox.CountAsync(row => row.PublishedAtUnixMs == null));
+        var records = new List<AuditRecord>();
+        await foreach (var record in trail.QueryAsync(new AuditQuery(new TenantId(TenantId))))
+            records.Add(record);
+        return records;
+    }
+
+    private sealed class ProcessCrashedException() : Exception("The process stopped after the grant commit.");
+
+    /// <summary>A trail whose first append never happens: the process stops between the commit and the audit.</summary>
+    private sealed class CrashingAuditTrail : IAuthorizedAuditTrail
+    {
+        public Func<Task>? OnQuery { get; set; }
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => throw new ProcessCrashedException();
+
+        public ValueTask AppendAuthorizedAsync(
+            AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
+            SeparationOfDutyDecision? approval = null) => throw new ProcessCrashedException();
+
+        public async IAsyncEnumerable<AuditRecord> QueryAsync(
+            AuditQuery query,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            if (OnQuery is { } callback)
+            {
+                OnQuery = null;
+                await callback();
+            }
+            yield break;
+        }
+    }
+
     private static async Task PromoteToAdministratorAsync(Fixture fixture, string grantId)
     {
         await using var grants = fixture.GrantFactory.CreateDbContext();
@@ -689,7 +923,10 @@ public sealed class AdminTeamAccessAuthorityTests
             PermissionSet? successorPermissions = null,
             bool ejectSuccessor = false,
             AuthorizationRefusalAudit? refusalAudit = null,
-            PermissionSet? memberRoleSet = null)
+            PermissionSet? memberRoleSet = null,
+            IAuthorizedAuditTrail? grantAudit = null,
+            IOperationSigner? grantSigner = null,
+            INodeRosterMemberRevocationAuthority? memberRevocations = null)
         {
             var identityPath = TempPath("identity");
             var sessionPath = TempPath("session");
@@ -812,7 +1049,7 @@ public sealed class AdminTeamAccessAuthorityTests
                 new FixedRosterReader(roster), store, grantDerivedGate, new FixedTimeProvider(Now));
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
-            IAuthorizedAuditTrail grantAudit = new InMemoryAuditTrail();
+            grantAudit ??= new InMemoryAuditTrail();
             if (captures is not null)
             {
                 grantWriter = new CapturingGrantWriter(grantWriter, captures.GrantWriterDecisions);
@@ -824,8 +1061,8 @@ public sealed class AdminTeamAccessAuthorityTests
                 new FixedRosterReader(roster), store, issuer,
                 grantStore, grantWriter, new GrantDerivedClosure(grantStore, memberRoleSet),
                 grantDerivedGate, timeProvider ?? new FixedTimeProvider(Now),
-                rosterWriter, grantAudit,
-                new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
+                memberRevocations ?? rosterWriter, grantAudit,
+                grantSigner ?? new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
             return new Fixture(
                 [identityPath, sessionPath, grantPath], identityFactory, sessionFactory, grantFactory,
                 handle, authority);
@@ -1022,20 +1259,20 @@ public sealed class AdminTeamAccessAuthorityTests
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
         public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+            AuthorizationDecision admittedDecision, IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken);
+            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, audit, cancellationToken);
         }
 
         public Task<GrantScopeNarrowing?> NarrowScopeAsync(
             TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
             GrantRevocation revocation, AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
             return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
-                admittedDecision, cancellationToken);
+                admittedDecision, audit, cancellationToken);
         }
 
         public Task<AccessGrant?> RevokeAsync(
@@ -1043,10 +1280,10 @@ public sealed class AdminTeamAccessAuthorityTests
             GrantId grant,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, cancellationToken);
+            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, audit, cancellationToken);
         }
 
         public Task<AdministratorHandover?> HandoverAsync(
@@ -1055,10 +1292,10 @@ public sealed class AdminTeamAccessAuthorityTests
             AccessGrant successor,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, cancellationToken);
+            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, audit, cancellationToken);
         }
 
         // Ticket 362 - the narrowing's single store transaction, under the same admitted decision.
