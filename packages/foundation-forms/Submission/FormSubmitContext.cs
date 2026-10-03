@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 
 namespace Harborline.Api.Foundation.Forms.Submission;
@@ -38,6 +39,7 @@ namespace Harborline.Api.Foundation.Forms.Submission;
 /// The optional visit / case reference the submission is pinned to (used by a projection whose
 /// entity-ref source is the visit case). Null when the submit path does not carry a case.
 /// </param>
+/// <param name="ProjectionDefinition">The exact projection definition pinned at mint time, when applicable.</param>
 public sealed record FormSubmitContext(
     FormDefinitionId Form,
     EntityId InstanceId,
@@ -45,4 +47,5 @@ public sealed record FormSubmitContext(
     ActorId Actor,
     DateTimeOffset SubmittedAt,
     JsonDocument SubmittedValues,
-    string? CaseRef = null);
+    string? CaseRef = null,
+    DefinitionCoordinates? ProjectionDefinition = null);

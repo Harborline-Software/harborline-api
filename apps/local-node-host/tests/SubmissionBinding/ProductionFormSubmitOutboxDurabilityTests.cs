@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 
@@ -59,7 +60,8 @@ public sealed class ProductionFormSubmitOutboxDurabilityTests
                 Actor: new ActorId("ticket-016-actor"),
                 SubmittedAt: submittedAt,
                 SubmittedValues: submittedValues,
-                CaseRef: "case-016"));
+                CaseRef: "case-016",
+                ProjectionDefinition: new DefinitionCoordinates(new TenantId("ticket-016-tenant"), "access.privileged-grant-review", "1.0.1")));
 
             await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
             started = false;
@@ -84,6 +86,11 @@ public sealed class ProductionFormSubmitOutboxDurabilityTests
             Assert.Equal(entry.SubmittedAt, restored.SubmittedAt);
             Assert.Equal(entry.SubmittedValuesJson, restored.SubmittedValuesJson);
             Assert.Equal(entry.CaseRef, restored.CaseRef);
+            Assert.Equal(new TenantId("ticket-016-tenant"), restored.ProjectionDefinition!.Value.Address.Tenant);
+            Assert.Equal("access.privileged-grant-review", restored.ProjectionDefinition.Value.Address.Identity.Value);
+            Assert.Equal("1.0.1", restored.ProjectionDefinition.Value.Version.ToString());
+            var recovered = restored.RebuildContext();
+            using (recovered.SubmittedValues) Assert.Equal(restored.ProjectionDefinition, recovered.ProjectionDefinition);
         }
         finally
         {

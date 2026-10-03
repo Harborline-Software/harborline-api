@@ -58,8 +58,12 @@ internal sealed class AccessGrantFormSubmissionProjection(
     {
         if (context.Form.Value != FormId) return [];
         var request = ReadRequest(context);
+        var existing = await workflowStore.LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(context.InstanceId.ToString()), cancellationToken).ConfigureAwait(false);
+        var workflowVersion = existing?.DefinitionVersion
+            ?? await ResolveSubmittedWorkflowVersionAsync(context, cancellationToken).ConfigureAwait(false);
         var instanceId = await instances.StartAccessGrantIssuanceAsync(
-            context.Tenant, context.InstanceId.ToString(), request, context.SubmittedAt, cancellationToken)
+            context.Tenant, context.InstanceId.ToString(), request, workflowVersion, context.SubmittedAt, cancellationToken)
             .ConfigureAwait(false);
 
         await dispatcher.DispatchAsync(
@@ -67,6 +71,16 @@ internal sealed class AccessGrantFormSubmissionProjection(
                 context.SubmittedAt, "{\"decision\":\"approve\"}"),
             cancellationToken).ConfigureAwait(false);
         return [];
+    }
+
+    private static Task<string> ResolveSubmittedWorkflowVersionAsync(FormSubmitContext context, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (context.ProjectionDefinition is not { } coordinate
+            || coordinate.Address.Tenant != context.Tenant
+            || coordinate.Address.Identity.Value != GrantIssuanceSteps.DefinitionKey)
+            throw new InvalidOperationException("Access recovery requires the submission's persisted workflow coordinate; legacy unpinned submissions cannot guess a current revision.");
+        return Task.FromResult(coordinate.Version.ToString());
     }
 
     private static GrantIssuanceRequest ReadRequest(FormSubmitContext context)

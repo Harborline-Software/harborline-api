@@ -116,6 +116,9 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
             });
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
+        builder.Services.AddSingleton<Harborline.Api.Foundation.Forms.Submission.IFormSubmissionBindingResolver>(sp =>
+            new Harborline.Api.LocalNodeHost.Data.Workflow.AccessGrantSubmissionBindingResolver(
+                _store, sp.GetRequiredService<IWorkflowDefinitionExecutionStore>()));
         _app = builder.Build();
 
         // The node's own signing identity: the export is signed by it and the trust store recognises it as
