@@ -159,7 +159,15 @@ try {
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedHandoff = process.env.HARBORLINE_PLATFORM_FEED_HANDOFF_PATH || process.env.HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256
+  if (feedHandoff) {
+    process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
+    mkdirSync(process.env.NUGET_PACKAGES)
+  }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  if (feedHandoff && !run('platform-feed-consumption', process.execPath,
+    ['eng/platform-feed-consumption.mjs', clone, process.env.NUGET_PACKAGES], clone).passed)
+    throw new Error('Verified dependency bytes were not consumed; see stage evidence')
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
   // invocation. Directory.Build.targets expands the project name per compiler
   // invocation, so the single solution build cannot overwrite one global log.

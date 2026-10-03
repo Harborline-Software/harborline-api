@@ -1,6 +1,9 @@
 name: Pinned platform feed
 description: Build and validate the local NuGet source before restoring API projects
 inputs:
+  cross-run-reuse:
+    description: Attempt verified Linux dependency artifact reuse, otherwise build freshly
+    default: 'false'
   same-job-handoff:
     description: Explicitly prepare complete dependency bytes for this job's fresh exact-clone consumer
     default: 'false'
@@ -20,10 +23,12 @@ runs:
         repository: Harborline-Software/harborline-platform
         ref: ${{ steps.platform_pin.outputs.commit }}
         path: .platform
+        fetch-depth: ${{ inputs.cross-run-reuse == 'true' && '0' || '1' }}
+        persist-credentials: false
     - name: Test the feed contract
       shell: bash
       run: |
-        if ! node --test eng/tests/platform-feed.test.mjs; then
+        if ! node --test eng/tests/platform-feed.test.mjs eng/tests/platform-feed-reuse.test.mjs; then
           echo "::error title=platform-feed test failed::eng/tests/platform-feed.test.mjs failed; the feed build did not run"
           exit 1
         fi
@@ -32,12 +37,23 @@ runs:
       env:
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
         SAME_JOB_HANDOFF: ${{ inputs.same-job-handoff }}
+        CROSS_RUN_REUSE: ${{ inputs.cross-run-reuse }}
+        GH_TOKEN: ${{ github.token }}
       run: |
-        if [[ "$SAME_JOB_HANDOFF" == 'true' ]]; then
-          node eng/same-job-platform-feed.mjs build "$HARBORLINE_PLATFORM_REPO"
-        elif [[ "$SAME_JOB_HANDOFF" == 'false' ]]; then
-          node eng/build-local-feed.mjs
-        else
+        if [[ "$SAME_JOB_HANDOFF" != 'true' && "$SAME_JOB_HANDOFF" != 'false' ]]; then
           echo '::error::same-job-handoff must be true or false'
           exit 1
+        fi
+        if [[ "$CROSS_RUN_REUSE" == 'true' ]]; then
+          if node eng/platform-feed-reuse.mjs consume "$HARBORLINE_PLATFORM_REPO"; then
+            exit 0 # only feed preparation completed; the subsequent API gate still runs
+          fi
+        elif [[ "$CROSS_RUN_REUSE" != 'false' ]]; then
+          echo '::error::cross-run-reuse must be true or false'
+          exit 1
+        fi
+        if [[ "$SAME_JOB_HANDOFF" == 'true' ]]; then
+          node eng/same-job-platform-feed.mjs build "$HARBORLINE_PLATFORM_REPO"
+        else
+          node eng/build-local-feed.mjs
         fi

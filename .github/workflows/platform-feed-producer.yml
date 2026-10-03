@@ -1,0 +1,67 @@
+name: platform-feed-producer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/platform-feed-producer.yml'
+      - '.github/actions/platform-feed/action.yml'
+      - 'eng/platform-feed-*.mjs'
+      - 'eng/platform-feed-profile.json'
+      - 'eng/platform-pin.json'
+      - 'eng/build-local-feed.mjs'
+      - 'eng/same-job-platform-feed.mjs'
+      - 'eng/exact-clone-platform-feed.mjs'
+      - 'eng/run-exact-clone.mjs'
+      - 'global.json'
+      - 'nuget.config'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-feed-producer-main
+  cancel-in-progress: false
+
+jobs:
+  produce-linux:
+    if: github.repository == 'Harborline-Software/harborline-api' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      # Definition and tools come from this protected-main workflow, never a PR checkout.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read reviewed platform pin
+        id: pin
+        run: echo "commit=$(node -p "JSON.parse(require('fs').readFileSync('eng/platform-pin.json')).commit")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.pin.outputs.commit }}
+          path: .platform
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Feed contracts
+        run: node --test eng/tests/platform-feed-reuse.test.mjs eng/tests/same-job-platform-feed.test.mjs
+      - name: Build isolated feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node eng/platform-feed-reuse.mjs produce "$GITHUB_WORKSPACE/.platform"
+      - name: Dependency artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-feed-linux-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: error
+          include-hidden-files: true # only the explicit bundle file is selected
+          path: .claude/platform-feed-producer/feed-bundle.json

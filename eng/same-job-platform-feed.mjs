@@ -186,6 +186,22 @@ export function restoreSameJobFeed(platform, env = process.env) {
   return {restored: true, packages: files.length - 1, digest}
 }
 
+// The caller has independently authenticated cross-run package bytes. This converts only
+// those dependency bytes to the existing same-job transfer; it reuses no API test verdict.
+export function publishVerifiedSameJobFeed(files, platform, env = process.env) {
+  assertCommittedProducer()
+  const pin = readPin(), identity = currentIdentity(platform, pin, env)
+  const raw = createBundle(files, identity, pin)
+  materializeFeed(files, path.join(root, '.feed'))
+  const directory = mkdtempSync(path.join(env.RUNNER_TEMP ?? tmpdir(), 'api-platform-feed-job-'))
+  const transfer = path.join(directory, 'feed-bundle.json')
+  writeFileSync(transfer, raw, {flag: 'wx'})
+  const handoff = {path: transfer, sha256: sha256(raw), session: identity.session}
+  if (env.GITHUB_ENV) writeFileSync(env.GITHUB_ENV,
+    `HARBORLINE_PLATFORM_FEED_HANDOFF_PATH=${transfer}\nHARBORLINE_PLATFORM_FEED_HANDOFF_SHA256=${handoff.sha256}\n`, {flag: 'a'})
+  return handoff
+}
+
 if (import.meta.main) {
   const [command, platformArg] = process.argv.slice(2)
   if (command !== 'build' || !platformArg) throw new Error('usage: same-job-platform-feed.mjs build <pinned-platform>')

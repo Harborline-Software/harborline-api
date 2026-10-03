@@ -376,6 +376,9 @@ jobs:
           version: 11.1.3
 
       - uses: ./.github/actions/platform-feed
+        with:
+          cross-run-reuse: 'true'
+          same-job-handoff: 'true'
 
       - name: Use pinned platform
         run: |

@@ -122,6 +122,33 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
   }
 })
 
+test('composed exact-clone handoff isolates restore and refuses consumption failure before compilation', () => {
+  const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
+  const runBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
+  const route = source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
+  for (const proofExit of [0, 1]) {
+    const steps = [], calls = [], directories = []
+    const environment = {HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: '/verified-transfer.json', NUGET_PACKAGES: '/old-global-cache'}
+    const fakeProcess = {env: environment, execPath: process.execPath}
+    const execute = () => new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi',
+      'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled',
+      runBlock + '\n' + route)(steps, (executable, args) => ({executable, args}),
+      (id, executable, args, options) => {
+        calls.push({id, executable, args, cache: environment.NUGET_PACKAGES})
+        return {status: id === 'platform-feed-consumption' ? proofExit : 0, stdout: 'controlled step evidence'}
+      }, '/progress.jsonl', text => text, text => text, fakeProcess, '/scratch/clone', '/source', '/scratch', [], path,
+      () => {}, directory => directories.push(directory), false)
+    if (proofExit === 0) execute()
+    else assert.throws(execute, /Verified dependency bytes were not consumed/)
+    assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore', 'platform-feed-consumption'])
+    assert.equal(steps[3].passed, proofExit === 0)
+    assert.equal(calls[1].cache, path.join('/scratch', 'nuget-packages'))
+    assert.equal(calls[2].cache, path.join('/scratch', 'nuget-packages'))
+    assert.deepEqual(calls[2].args, ['eng/platform-feed-consumption.mjs', '/scratch/clone', path.join('/scratch', 'nuget-packages')])
+    assert.deepEqual(directories, [path.join('/scratch', 'nuget-packages')])
+  }
+})
+
 test('feed CLI invokes the builder inside the clone with the selected checkout and preserves failure', t => {
   const f = fixture(t)
   const clone = path.join(f.scratch, 'clone')

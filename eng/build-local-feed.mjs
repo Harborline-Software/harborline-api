@@ -58,7 +58,8 @@ async function main() {
   // the pinned platform has no targets file. An explicit path also honors one if a future pin adds it.
   const commands = manifest.map(({project}) => ['pack', path.join(platform, project), '-c', 'Release', '--output', feed,
     `-p:DirectoryBuildTargetsPath=${path.resolve(platform, 'Directory.Build.targets')}`,
-    `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6'])
+    `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6',
+    ...(process.env.HARBORLINE_FEED_NO_RESTORE === '1' ? ['--no-restore'] : [])])
   if (dryRun) {
     console.log(JSON.stringify({packedVersion, producers: assertProducers(manifest, pin), commands}, null, 2))
     return
