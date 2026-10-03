@@ -306,6 +306,66 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.True((await immediate.InstallAsync(candidate, Context())).Installed);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task A_concurrent_admission_input_change_refuses_install_without_losing_the_write(bool durable, bool ownership)
+    {
+        await using var database = durable ? await PacksTestStore.CreateAsync() : null;
+        IPackInstallStore store = durable ? new DurablePackInstallStore(database!.Factory) : new InMemoryPackInstallStore();
+        var mutations = (IPackInstallMutationStore)store;
+        PlatformPackTestPreload.Activate(mutations, Tenant);
+        var audit = new InMemoryPackInstallAudit();
+        var verifier = new PackVerifier(new Ed25519Verifier(), _codec);
+        var immediate = new PackInstaller(verifier, store, new WorkflowRefusingPackContentAdmission(), audit,
+            TestAuthorization.Gate(_ => true));
+        Assert.True((await immediate.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        Assert.True((await immediate.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delayed = new PackInstaller(verifier, store,
+            new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.Gate(_ => true),
+            pipelineObserver: new PausedCommitObserver(entered, release));
+        var candidate = await PackAsync("2.0.0");
+        var pending = Task.Run(() => delayed.InstallAsync(candidate, Context()));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            if (ownership) mutations.RecordKeyOwnership(Tenant, "s5c-form", PackKey);
+            else
+            {
+                var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now);
+                Assert.True((await immediate.NarrowAsync(Context(), PackKey, "s5c-form",
+                    new JsonObject { ["title"] = null }, decision)).Recorded);
+            }
+        }
+        finally { release.Set(); }
+        var refused = await pending.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.False(refused.Installed);
+        Assert.False(refused.BrokeGlass);
+        Assert.Equal(["pack.install.refused.installed_state_changed"], refused.RefusalCodes);
+        Assert.Null(store.GetVersion(Tenant, PackKey, "2.0.0"));
+        Assert.Equal("1.0.0", store.GetWatermark(Tenant, PackKey)!.Version);
+        if (ownership) Assert.Equal("test.s5c", store.GetKeyOwnership(Tenant)["s5c-form"]);
+        else Assert.Equal("{\"title\":null}", Assert.Single(store.GetOverrides(Tenant, PackKey)).OverlayPatch.ToJsonString());
+        Assert.DoesNotContain(audit.Query(Tenant), row => row.Version == "2.0.0"
+            && row.Action is PackInstallAuditAction.Upgraded or PackInstallAuditAction.BreakGlassOverride);
+        Assert.True((await immediate.InstallAsync(candidate, Context())).Installed);
+        if (!ownership) Assert.Equal("{\"title\":null}", Assert.Single(store.GetOverrides(Tenant, PackKey)).OverlayPatch.ToJsonString());
+    }
+
+    private sealed class PausedCommitObserver(TaskCompletionSource entered, ManualResetEventSlim release) : IWritePipelineObserver
+    {
+        public void OnStage(WritePipelineStage stage)
+        {
+            if (stage != Commit) return;
+            entered.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException("The concurrent admission write did not release commit.");
+        }
+    }
+
     private sealed class PausedVerifier(IPackVerifier inner, TaskCompletionSource entered, ManualResetEventSlim release) : IPackVerifier
     {
         public PackVerificationResult Verify(ReadOnlySpan<byte> bytes, IPackTrustStore trustStore)
