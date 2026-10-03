@@ -144,6 +144,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
             transaction.RequireCurrentWatermark(
                 _byTenant.TryGetValue(transaction.Tenant, out var observed)
                     && observed.Watermarks.TryGetValue(pack.PackKey, out var watermark) ? watermark : null);
+            transaction.RequireCurrentInstalledState(observed is null ? [] : observed.Versions.Values);
             var next = _byTenant.TryGetValue(transaction.Tenant, out var current)
                 ? current.Clone()
                 : new TenantState();

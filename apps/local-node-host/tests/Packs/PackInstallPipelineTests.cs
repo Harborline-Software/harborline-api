@@ -267,6 +267,45 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.DoesNotContain(audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.BreakGlassOverride);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_different_key_install_invalidates_tenant_admission_snapshot_before_commit(bool durable)
+    {
+        await using var database = durable ? await PacksTestStore.CreateAsync() : null;
+        IPackInstallStore store = durable ? new DurablePackInstallStore(database!.Factory) : new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate((IPackInstallMutationStore)store, Tenant);
+        var audit = new InMemoryPackInstallAudit();
+        var verifier = new PackVerifier(new Ed25519Verifier(), _codec);
+        var immediate = new PackInstaller(verifier, store, new WorkflowRefusingPackContentAdmission(), audit,
+            TestAuthorization.Gate(_ => true));
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delayed = new PackInstaller(new PausedVerifier(verifier, entered, release), store,
+            new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.Gate(_ => true));
+        var candidate = await PackAsync("1.0.0");
+        var other = await PackAsync("1.0.0", "test.other", "other-form");
+        var pending = Task.Run(() => delayed.InstallAsync(candidate, Context()));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.True((await immediate.InstallAsync(other, Context())).Installed);
+        }
+        finally { release.Set(); }
+        var refused = await pending.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.False(refused.Installed);
+        Assert.False(refused.BrokeGlass);
+        Assert.Equal(["pack.install.refused.installed_state_changed"], refused.RefusalCodes);
+        Assert.Null(store.GetVersion(Tenant, "test.s5c", "1.0.0"));
+        Assert.Null(store.GetWatermark(Tenant, "test.s5c"));
+        Assert.NotNull(store.GetVersion(Tenant, "test.other", "1.0.0"));
+        Assert.Equal("1.0.0", store.GetWatermark(Tenant, "test.other")!.Version);
+        Assert.DoesNotContain(audit.Query(Tenant), row => row.PackKey == "test.s5c"
+            && row.Action == PackInstallAuditAction.Installed);
+        // A fresh bind against the unchanged new state remains admissible: refusal requires retry, not break-glass.
+        Assert.True((await immediate.InstallAsync(candidate, Context())).Installed);
+    }
+
     private sealed class PausedVerifier(IPackVerifier inner, TaskCompletionSource entered, ManualResetEventSlim release) : IPackVerifier
     {
         public PackVerificationResult Verify(ReadOnlySpan<byte> bytes, IPackTrustStore trustStore)
@@ -458,7 +497,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, _keys.PrincipalId, 1, TrustRootStatus.Current)]),
         PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "test-operator");
 
-    private async Task<byte[]> PackAsync(string version)
+    private async Task<byte[]> PackAsync(string version, string packKey = PackKey, string contentKey = "s5c-form")
     {
         var exporter = new PackExporter(
             new PackContentCanonicalizer(),
@@ -468,9 +507,9 @@ public sealed class PackInstallPipelineTests : IDisposable
             _codec,
             TimeProvider.System);
         var export = await exporter.ExportAsync(new PackExportRequest(
-            PackKey, version, "S5c install pipeline", "Install pipeline fixture",
+            packKey, version, "S5c install pipeline", "Install pipeline fixture",
             PackScopeTier.Horizontal,
-            [new PackContentSource("s5c-form", PackContentKind.FormDefinition, version, new JsonObject { ["title"] = "s5c" })],
+            [new PackContentSource(contentKey, PackContentKind.FormDefinition, version, new JsonObject { ["title"] = "s5c" })],
             Array.Empty<PackDependencyRef>(),
             Array.Empty<string>(),
             1,

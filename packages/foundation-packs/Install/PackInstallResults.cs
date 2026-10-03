@@ -105,6 +105,8 @@ public static class PackInstallCodes
 
     /// <summary>A concurrent commit invalidated the watermark snapshot; retry binds fresh state.</summary>
     public const string RefusedWatermarkChanged = "pack.install.refused.watermark_changed";
+    /// <summary>A concurrent commit invalidated tenant-wide installed premises; retry binds fresh state.</summary>
+    public const string RefusedInstalledStateChanged = "pack.install.refused.installed_state_changed";
 
     /// <summary>Activation refused: the version is not installed (Draft/Inactive → Active on a missing
     /// version).</summary>
