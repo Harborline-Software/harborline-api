@@ -403,7 +403,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         foreach (var authority in _projector.Authorities)
         {
             var replayed = Assert.Throws<PackProjectionAuthorityException>(authority.EnsureUsable);
-            Assert.Equal(PackProjectionAuthorityCodes.Replayed, replayed.Code);
+            Assert.Equal("pack.projection.authority.replayed", replayed.Code);
         }
     }
 
