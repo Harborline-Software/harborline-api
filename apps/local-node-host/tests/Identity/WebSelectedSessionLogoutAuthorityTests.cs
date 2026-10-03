@@ -139,7 +139,9 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         var home = await identity.Coordinators.AsNoTracking().SingleAsync();
         Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
         var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
-        Assert.Equal(home.CorrelationId, envelope.CorrelationId);
+        // Literal SHA-256 of length-prefixed UTF-8 ("WebSelectedSessionLogout", "selected-session").
+        Assert.Equal("18C1EAEC19A1626478ED41B54AEAF6037A99F8C133E0C5F339735148C64AFEC6", home.CorrelationId);
+        Assert.Equal("18C1EAEC19A1626478ED41B54AEAF6037A99F8C133E0C5F339735148C64AFEC6", envelope.CorrelationId);
         Assert.Equal(Now.AddMinutes(1), envelope.OccurredAtUtc);
     }
 

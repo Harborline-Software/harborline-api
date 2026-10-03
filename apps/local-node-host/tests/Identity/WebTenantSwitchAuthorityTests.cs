@@ -312,7 +312,9 @@ public sealed class WebTenantSwitchAuthorityTests
             var home = await identity.Coordinators.AsNoTracking().SingleAsync();
             Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
             var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
-            Assert.Equal(home.CorrelationId, envelope.CorrelationId);
+            // Literal SHA-256 of length-prefixed UTF-8 ("WebTenantSwitch", "old-session", target tenant).
+            Assert.Equal("7574DD83F1A5643411788477722B67B961A1E485D097B2DCB7E515D437E25704", home.CorrelationId);
+            Assert.Equal("7574DD83F1A5643411788477722B67B961A1E485D097B2DCB7E515D437E25704", envelope.CorrelationId);
             Assert.Equal(Now, envelope.OccurredAtUtc);
         }
         var store = new WebSelectedSessionStore(fixture.SessionFactory);

@@ -122,6 +122,10 @@ internal sealed class WebSelectedSessionLogoutAuthority
 
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased logout home no longer exists.");
+            ValidateStoredLogout(home);
+            if (home.State == InstallationIdentityCoordinatorState.Aborted) return false;
             if (home.State == InstallationIdentityCoordinatorState.Completed)
             {
                 var completedReceipt = DeserializeReceipt(home.FinalReceiptsJson);
@@ -243,6 +247,10 @@ internal sealed class WebSelectedSessionLogoutAuthority
         }
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased logout home no longer exists.");
+            ValidateStoredLogout(home);
+            payload = JsonSerializer.Deserialize<LogoutPayload>(home.IntentPayloadJson, Json)!;
             if (home.State == InstallationIdentityCoordinatorState.Preparing)
             {
                 await RequireMatchingRevocationAsync(

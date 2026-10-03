@@ -171,6 +171,10 @@ internal sealed class WebTenantSwitchAuthority
 
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased switch home no longer exists.");
+            payload = ValidateStoredSwitch(home);
+            if (home.State == InstallationIdentityCoordinatorState.Aborted) return null;
             if (home.State == InstallationIdentityCoordinatorState.Completed)
             {
                 var completedReceipts = DeserializeReceipts(home.FinalReceiptsJson);
@@ -286,6 +290,9 @@ internal sealed class WebTenantSwitchAuthority
         }
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased switch home no longer exists.");
+            payload = ValidateStoredSwitch(home);
             await RollCommittedForwardAsync(partitions, home, payload, cancellationToken)
                 .ConfigureAwait(false);
         }

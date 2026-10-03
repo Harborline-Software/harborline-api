@@ -315,7 +315,8 @@ public sealed class WebTenantSelectionAuthorityTests
             var home = await identity.Coordinators.AsNoTracking().SingleAsync();
             Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
             var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
-            Assert.Equal(home.CorrelationId, envelope.CorrelationId);
+            Assert.Equal("34600000000040008000000000000001", home.CorrelationId);
+            Assert.Equal("34600000000040008000000000000001", envelope.CorrelationId);
             Assert.Equal(Now, envelope.OccurredAtUtc);
         }
         await using (var sessions = fixture.SessionFactory.CreateDbContext())
@@ -347,6 +348,36 @@ public sealed class WebTenantSelectionAuthorityTests
         Assert.Equal(
             InstallationIdentityCoordinatorState.Committing,
             (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Selection_and_recovery_reload_the_home_after_the_competing_lease_holder_completes(bool liveWaits)
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        var (restarted, recovery) = fixture.Restart();
+        if (liveWaits)
+        {
+            leases.BeforeAcquire = async () => { await recovery.RecoverPendingAsync(); };
+            Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        }
+        else
+        {
+            leases.BeforeAcquire = async () =>
+                Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+            await recovery.RecoverPendingAsync();
+        }
+        // One interrupted finalize and one completion; a stale snapshot must not finalize again.
+        Assert.Equal(2, fixture.Store.FinalizeCalls);
+        var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        Assert.Equal("34600000000040008000000000000001", envelope.CorrelationId);
+        await using var sessions = fixture.SessionFactory.CreateDbContext();
+        Assert.Single(await sessions.UserSessions.AsNoTracking().ToListAsync());
     }
 
     private static async Task<InstallationAuditEnvelopeRecord[]> CompletedEnvelopesAsync(
@@ -447,7 +478,7 @@ public sealed class WebTenantSelectionAuthorityTests
                 homeRecoveries: [authority]));
         }
 
-        public static async Task<SelectionFixture> CreateAsync()
+        public static async Task<SelectionFixture> CreateAsync(ILeaseCoordinator? leases = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"tenant-select-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -490,7 +521,7 @@ public sealed class WebTenantSelectionAuthorityTests
                     AccountId: account.AccountId,
                     AccountSecurityVersion: account.SecurityVersion,
                     HandleDigest: Digest(challengeHandle),
-                    CoordinationCorrelationId: Guid.NewGuid().ToString("N"),
+                    CoordinationCorrelationId: "34600000000040008000000000000001",
                     IssuedAtUtc: Now,
                     AbsoluteExpiresAtUtc: Now.AddMinutes(5),
                     ConsumedAtUtc: null,
@@ -515,7 +546,7 @@ public sealed class WebTenantSelectionAuthorityTests
             var unusableStore = new RecordingMembershipStore(
                 unusableTenantId, membership, sessionFactory, returnsMembership: false);
             var resolver = new FixedPartitionResolver(
-                new TenantIdentityAuthorityPartition(tenantId, store, new AlwaysLeaseCoordinator()),
+                new TenantIdentityAuthorityPartition(tenantId, store, leases ?? new AlwaysLeaseCoordinator()),
                 new TenantIdentityAuthorityPartition(unusableTenantId, unusableStore, new AlwaysLeaseCoordinator()));
             var coordinator = new InstallationIdentityCoordinatorService(
                 identityFactory,
@@ -773,12 +804,16 @@ public sealed class WebTenantSelectionAuthorityTests
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
-        public Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
+        public Func<Task>? BeforeAcquire { get; set; }
+        public async Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
         {
+            var before = BeforeAcquire;
+            BeforeAcquire = null;
+            if (before is not null) await before();
             var lease = new Lease(
                 Guid.NewGuid().ToString("N"), resourceId, "test", Now, Now + duration, []);
             _held[lease.LeaseId] = lease;
-            return Task.FromResult<Lease?>(lease);
+            return lease;
         }
         public Task ReleaseAsync(Lease lease, CancellationToken ct)
         {

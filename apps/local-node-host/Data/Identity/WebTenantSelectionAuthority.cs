@@ -169,6 +169,9 @@ internal sealed class WebTenantSelectionAuthority
 
         try
         {
+            home = await ReloadHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false);
+            ValidateStoredSelection(home);
+            if (home.State == InstallationIdentityCoordinatorState.Aborted) return null;
             if (home.State == InstallationIdentityCoordinatorState.Completed)
             {
                 var completedReceipt = DeserializeReceipt(home.FinalReceiptsJson);
@@ -274,6 +277,8 @@ internal sealed class WebTenantSelectionAuthority
         }
         try
         {
+            home = await ReloadHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false);
+            ValidateStoredSelection(home);
             await RollCommittedForwardAsync(home, partition, tenantId, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -288,6 +293,13 @@ internal sealed class WebTenantSelectionAuthority
                 // The bounded lease expires fail-safe; recovery must reacquire before another write.
             }
         }
+    }
+
+    private async Task<InstallationIdentityCoordinatorRecord> ReloadHomeAsync(string correlationId, CancellationToken ct)
+    {
+        await using var identity = await _identityFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return await identity.Coordinators.AsNoTracking().SingleAsync(row => row.CorrelationId == correlationId, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Committing, then Finalizing, then Completed with its envelope; each step idempotent.</summary>
