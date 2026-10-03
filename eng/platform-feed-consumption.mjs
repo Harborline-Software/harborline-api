@@ -1,5 +1,5 @@
 // Prove fresh restore consumed the verified dependency bytes before API build.
-import {readFileSync, readdirSync, lstatSync, realpathSync, writeFileSync, mkdirSync} from 'node:fs'
+import {readFileSync, readdirSync, lstatSync, realpathSync, writeFileSync, mkdirSync, existsSync} from 'node:fs'
 import path from 'node:path'
 import {inflateRawSync} from 'node:zlib'
 import {sha256, packageMetadata, verifyFeed} from './same-job-platform-feed.mjs'
@@ -42,6 +42,8 @@ export function verifyConsumedFeed({clone, packages, bundlePath, bundleDigest, p
   if (raw.length > 64 * 1024 * 1024 || typeof bundleDigest !== 'string' || !/^[a-f0-9]{64}$/.test(bundleDigest)
     || sha256(raw) !== bundleDigest) throw new Error('verified handoff digest differs')
   const bundle = JSON.parse(raw)
+  if (bundle.identity?.platform?.repository !== pin.repository || bundle.identity?.platform?.commit !== pin.commit)
+    throw new Error('verified handoff platform pin differs from current consumer pin')
   if (!Array.isArray(bundle.files)) throw new Error('verified handoff inventory absent')
   const files = bundle.files.map(file => {
     if (!safeRelative(file.name) || typeof file.base64 !== 'string') throw new Error('invalid verified handoff file')
@@ -68,17 +70,40 @@ export function verifyConsumedFeed({clone, packages, bundlePath, bundleDigest, p
   visit(clone)
   if (!assets.length) throw new Error('restored project assets absent')
   const consumed = new Map()
+  const producerIds = new Set(Object.keys(pin.producers).map(id => id.toLowerCase()))
   for (const asset of assets) {
     const roots = Object.keys(asset.packageFolders ?? {})
     if (roots.length !== 1 || path.relative(packages, roots[0]) !== '') throw new Error('restore assets use a different cache')
     for (const [identity, library] of Object.entries(asset.libraries ?? {})) {
       if (!/^Harborline\./i.test(identity)) continue
+      const id = identity.split('/')[0]
+      if (library.type === 'project' && !producerIds.has(id.toLowerCase())) {
+        // Project references compile fresh API source, rather than consume feed archives.
+        const owner = asset.project?.restore?.projectPath
+        if (typeof owner !== 'string' || !path.isAbsolute(owner) || !owner.endsWith('.csproj')
+          || typeof library.path !== 'string' || library.msbuildProject !== library.path)
+          throw new Error('API project reference identity incomplete')
+        approvedFile(clone, path.relative(clone, owner).replaceAll('\\', '/'))
+        const referenced = path.resolve(path.dirname(owner), library.path)
+        const source = approvedFile(clone, path.relative(clone, referenced).replaceAll('\\', '/')).toString('utf8')
+          .replace(/<!--[\s\S]*?-->/g, '')
+        const packageIds = [...source.matchAll(/<PackageId>([^<]+)<\/PackageId>/g)].map(match => match[1])
+        const assemblyIds = [...source.matchAll(/<AssemblyName>([^<]+)<\/AssemblyName>/g)].map(match => match[1])
+        const declared = packageIds.length === 1 ? packageIds[0] : packageIds.length === 0 && assemblyIds.length === 1
+          ? assemblyIds[0] : packageIds.length === 0 && assemblyIds.length === 0 ? path.basename(referenced, '.csproj') : null
+        if (!referenced.endsWith('.csproj') || declared?.toLowerCase() !== id.toLowerCase())
+          throw new Error('API project reference differs from source identity')
+        continue
+      }
       const item = expected.get(identity.toLowerCase())
       if (!item || library.type !== 'package' || library.path !== identity.toLowerCase()) throw new Error('first-party restored identity differs')
       const archiveName = `${item.metadata.id}.${item.metadata.version}.nupkg`.toLowerCase()
       const archive = approvedFile(packages, `${library.path}/${archiveName}`)
       if (!archive.equals(item.bytes)) throw new Error('NuGet consumed a different package archive')
       for (const {name, bytes} of item.entries.values()) {
+        // SDK images may use NUGET_XMLDOC_MODE=skip. Unused lib documentation
+        // need not be extracted; a target selecting it still requires its bytes below.
+        if (/^lib\/[^/]+\/[^/]+\.xml$/i.test(name) && !existsSync(path.join(packages, library.path, name))) continue
         if (/^(lib|ref|analyzers|build|buildmultitargeting|buildtransitive|runtimes|content|contentfiles)\//i.test(name)
           && !approvedFile(packages, `${library.path}/${name}`).equals(bytes))
           throw new Error('extracted dependency bytes differ from verified archive')

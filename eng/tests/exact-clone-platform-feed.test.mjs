@@ -4,6 +4,7 @@ import {execFileSync, spawnSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {handoffRestored} from '../exact-clone-platform-feed.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const publicUrl = 'https://github.com/Harborline-Software/harborline-platform.git'
@@ -106,13 +107,13 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
   for (const qualityEnabled of [false, true]) for (const exitCode of [0, 1]) {
     const steps = []
     const calls = []
-    new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled',
+    new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled', 'handoffRestored',
       runBlock + '\n' + route)(steps, (executable, args) => ({executable, args}),
       (_id, executable, args, options) => {
         calls.push({executable, args, cwd: options.cwd})
         return {status: args[0] === 'eng/exact-clone-platform-feed.mjs' ? exitCode : 0, stdout: 'selection evidence'}
       }, '/progress-fixture.jsonl', text => text, text => text, process, '/clone', '/source', '/scratch', [], path,
-      () => {}, () => {}, qualityEnabled)
+      () => {}, () => {}, qualityEnabled, handoffRestored)
     assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore'])
     assert.equal(steps[1].passed, exitCode === 0)
     assert.equal(steps[1].exitCode, exitCode)
@@ -126,21 +127,28 @@ test('composed exact-clone handoff isolates restore and refuses consumption fail
   const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
   const runBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
   const route = source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
-  for (const proofExit of [0, 1]) {
+  for (const [restored, proofExit] of [[true, 0], [true, 1], [false, 0]]) {
     const steps = [], calls = [], directories = []
-    const environment = {HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: '/verified-transfer.json', NUGET_PACKAGES: '/old-global-cache'}
+    const environment = {HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: '/verified-transfer.json',
+      HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: 'a'.repeat(64), NUGET_PACKAGES: '/old-global-cache'}
     const fakeProcess = {env: environment, execPath: process.execPath}
     const execute = () => new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi',
-      'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled',
+      'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled', 'handoffRestored',
       runBlock + '\n' + route)(steps, (executable, args) => ({executable, args}),
       (id, executable, args, options) => {
         calls.push({id, executable, args, cache: environment.NUGET_PACKAGES})
-        return {status: id === 'platform-feed-consumption' ? proofExit : 0, stdout: 'controlled step evidence'}
+        return {status: id === 'platform-feed-consumption' ? proofExit : 0, stdout: id === 'platform-feed'
+          ? `platform-feed-handoff-result:${JSON.stringify({restored, digest: 'a'.repeat(64)})}\n` : 'controlled step evidence'}
       }, '/progress.jsonl', text => text, text => text, fakeProcess, '/scratch/clone', '/source', '/scratch', [], path,
-      () => {}, directory => directories.push(directory), false)
+      () => {}, directory => directories.push(directory), false, handoffRestored)
     if (proofExit === 0) execute()
     else assert.throws(execute, /Verified dependency bytes were not consumed/)
-    assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore', 'platform-feed-consumption'])
+    assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore', ...(restored ? ['platform-feed-consumption'] : [])])
+    if (!restored) {
+      assert.equal(environment.NUGET_PACKAGES, '/old-global-cache')
+      assert.deepEqual(directories, [])
+      continue
+    }
     assert.equal(steps[3].passed, proofExit === 0)
     assert.equal(calls[1].cache, path.join('/scratch', 'nuget-packages'))
     assert.equal(calls[2].cache, path.join('/scratch', 'nuget-packages'))
@@ -149,26 +157,52 @@ test('composed exact-clone handoff isolates restore and refuses consumption fail
   }
 })
 
+test('handoff result matrix distinguishes unavailable fallback from restored and refuses ambiguous claims', () => {
+  const digest = 'a'.repeat(64), env = {HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: '/transfer.json', HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: digest}
+  const step = outcome => ({passed: true, fullOutput: `platform-feed-handoff-result:${JSON.stringify(outcome)}\n`})
+  assert.equal(handoffRestored(step({restored: false, reason: 'handoff-unavailable'}), env), false)
+  assert.equal(handoffRestored(step({restored: true, digest}), env), true)
+  assert.equal(handoffRestored({passed: false, fullOutput: ''}, env), false)
+  assert.equal(handoffRestored({passed: true, fullOutput: ''}, {}), false)
+  for (const invalid of [step({restored: 'true', digest}), step({restored: true, digest: 'b'.repeat(64)}),
+    step({restored: true, digest: [digest]}), {passed: true, fullOutput: ''},
+    {passed: true, fullOutput: 'platform-feed-handoff-result:malformed\n'},
+    {passed: true, fullOutput: step({restored: true, digest}).fullOutput.repeat(2)}])
+    assert.throws(() => handoffRestored(invalid, env))
+})
+
 test('feed CLI invokes the builder inside the clone with the selected checkout and preserves failure', t => {
   const f = fixture(t)
   const clone = path.join(f.scratch, 'clone')
   mkdirSync(path.join(clone, 'eng'), {recursive: true})
   copyFileSync(path.join(root, 'eng/exact-clone-platform-feed.mjs'), path.join(clone, 'eng/exact-clone-platform-feed.mjs'))
+  copyFileSync(path.join(root, 'eng/platform-feed-environment.mjs'), path.join(clone, 'eng/platform-feed-environment.mjs'))
+  copyFileSync(path.join(root, 'eng/same-job-platform-feed.mjs'), path.join(clone, 'eng/same-job-platform-feed.mjs'))
   writeFileSync(path.join(clone, 'eng/build-local-feed.mjs'), `
     import {writeFileSync} from 'node:fs'
     import {fileURLToPath} from 'node:url'
     export const readPin = () => (${JSON.stringify(f.pin)})
+    export const assertProducers = () => {throw new Error('unavailable handoff must not inspect a bundle')}
     if (process.argv[1] === fileURLToPath(import.meta.url)) {
       writeFileSync('builder-call.json', JSON.stringify({cwd: process.cwd(), platform: process.env.HARBORLINE_PLATFORM_REPO}))
       console.error('pack diagnostic\\n'.repeat(20))
       process.exit(Number(process.env.TEST_PACK_EXIT))
     }
   `)
-  for (const exitCode of [0, 1]) {
+  for (const exitCode of [0, 1]) for (const stale of [false, true]) {
     const result = spawnSync(process.execPath, [path.join(clone, 'eng/exact-clone-platform-feed.mjs'), f.apiRoot, f.scratch], {
-      cwd: f.apiRoot, encoding: 'utf8', env: {...f.env, TEST_PACK_EXIT: String(exitCode)},
+      cwd: f.apiRoot, encoding: 'utf8', env: {...f.env, TEST_PACK_EXIT: String(exitCode), ...(stale ? {
+        HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: path.join(f.directory, 'missing-transfer.json'),
+        HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: 'a'.repeat(64),
+        HARBORLINE_FEED_PILOT_SESSION: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        HARBORLINE_FEED_PILOT_OWNER: String(process.pid)} : {})},
     })
     assert.equal(result.status, exitCode, result.stderr)
+    if (exitCode === 0) {
+      const matches = [...result.stdout.matchAll(/^platform-feed-handoff-result:(.*)$/gm)]
+      assert.equal(matches.length, 1)
+      assert.deepEqual(JSON.parse(matches[0][1]), {restored: false, reason: stale ? 'handoff-unavailable' : 'not-requested'})
+    }
     assert.deepEqual(JSON.parse(readFileSync(path.join(clone, 'builder-call.json'), 'utf8')), {cwd: clone, platform: f.platform})
     const tail = (result.stdout + result.stderr).trimEnd().split('\n').slice(-14).join('\n')
     assert.match(tail, /platform-feed: used sibling .* \(clean checkout\)/)

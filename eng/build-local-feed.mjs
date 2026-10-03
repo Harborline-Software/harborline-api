@@ -6,6 +6,7 @@ import {mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {inflateRawSync} from 'node:zlib'
+import {buildEnvironment} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 export function readPin(file = path.join(root, 'eng/platform-pin.json')) {
@@ -53,7 +54,9 @@ async function main() {
   assertProducers(manifest, pin) // Reject duplicates before dotnet can overwrite one nupkg with another.
   const {computePackageVersion} = await import(pathToFileURL(path.join(platform, 'tooling/package-version.mjs')).href)
   const packedVersion = computePackageVersion(platform)
-  const feed = path.join(root, '.feed')
+  // Container output is an owned child of a writable mount, never the mount root.
+  const feed = process.env.HARBORLINE_FEED_OUTPUT_ROOT ?? path.join(root, '.feed')
+  if (!path.isAbsolute(feed) || path.basename(feed) !== '.feed') throw new Error('feed output must be an absolute .feed directory')
   // Stop MSBuild's upward targets search at the platform boundary. The API's targets add MinVer;
   // the pinned platform has no targets file. An explicit path also honors one if a future pin adds it.
   const commands = manifest.map(({project}) => ['pack', path.join(platform, project), '-c', 'Release', '--output', feed,
@@ -66,7 +69,7 @@ async function main() {
   }
   rmSync(feed, {recursive: true, force: true})
   mkdirSync(feed, {recursive: true})
-  for (const args of commands) execFileSync('dotnet', args, {cwd: platform, stdio: 'inherit'})
+  for (const args of commands) execFileSync('dotnet', args, {cwd: platform, stdio: 'inherit', env: buildEnvironment()})
   const packed = readdirSync(feed).filter(name => name.endsWith('.nupkg'))
   const packages = packed.map(name => readNuspec(path.join(feed, name)))
   const producers = assertProducers(packages, pin)

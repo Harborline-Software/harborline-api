@@ -52,6 +52,8 @@ runs:
           echo '::error::cross-run-reuse must be true or false'
           exit 1
         fi
+        # Metadata authentication ends here; build tasks receive no broker token.
+        unset GH_TOKEN GITHUB_TOKEN
         if [[ "$SAME_JOB_HANDOFF" == 'true' ]]; then
           node eng/same-job-platform-feed.mjs build "$HARBORLINE_PLATFORM_REPO"
         else

@@ -7,6 +7,7 @@ import {release, tmpdir} from 'node:os'
 import path from 'node:path'
 import {inflateRawSync} from 'node:zlib'
 import {readPin, assertProducers} from './build-local-feed.mjs'
+import {buildEnvironment} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -58,14 +59,14 @@ export function jobSession(env = process.env) {
 function currentIdentity(platform, pin, env = process.env) {
   // The existing builder independently checks commit, clean checkout, producer inventory and version.
   const plan = JSON.parse(execFileSync(process.execPath, ['eng/build-local-feed.mjs', '--dry-run'], {
-    cwd: root, encoding: 'utf8', env: {...env, HARBORLINE_PLATFORM_REPO: platform},
+    cwd: root, encoding: 'utf8', env: {...buildEnvironment(env), HARBORLINE_PLATFORM_REPO: platform},
   }))
   const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8'}).trim()
   const scripts = Object.fromEntries(producerInputs.map(file => [file, sha256(readFileSync(path.join(root, file)))]))
   return feedIdentity({pin, platformTree, plan,
     apiCommit: git(root, 'rev-parse', 'HEAD'), apiTree: git(root, 'rev-parse', 'HEAD^{tree}'), session: jobSession(env),
-    sdk: execFileSync('dotnet', ['--version'], {cwd: root, encoding: 'utf8'}).trim(), node: process.version,
-    platformSdk: execFileSync('dotnet', ['--version'], {cwd: platform, encoding: 'utf8'}).trim(),
+    sdk: execFileSync('dotnet', ['--version'], {cwd: root, encoding: 'utf8', env: buildEnvironment(env)}).trim(), node: process.version,
+    platformSdk: execFileSync('dotnet', ['--version'], {cwd: platform, encoding: 'utf8', env: buildEnvironment(env)}).trim(),
     os: process.platform, osRelease: release(), arch: process.arch, imageOS: env.ImageOS ?? null, imageVersion: env.ImageVersion ?? null,
     scripts, globalJson: sha256(readFileSync(path.join(root, 'global.json')))})
 }
@@ -208,7 +209,7 @@ if (import.meta.main) {
   assertCommittedProducer()
   const platform = path.resolve(platformArg), pin = readPin(), before = currentIdentity(platform, pin)
   execFileSync(process.execPath, ['eng/build-local-feed.mjs'], {cwd: root, stdio: 'inherit',
-    env: {...process.env, HARBORLINE_PLATFORM_REPO: platform}})
+    env: {...buildEnvironment(), HARBORLINE_PLATFORM_REPO: platform}})
   assertCommittedProducer()
   const identity = currentIdentity(platform, pin)
   if (canonical(before) !== canonical(identity)) throw new Error('producer inputs changed during canonical build')

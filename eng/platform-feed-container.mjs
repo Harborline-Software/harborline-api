@@ -4,19 +4,21 @@ import {copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSyn
 import {tmpdir, release} from 'node:os'
 import path from 'node:path'
 import {hash, canonical, inputProblems} from './platform-feed-reuse-policy.mjs'
+import {buildEnvironment} from './platform-feed-environment.mjs'
 
 export const producerPaths = ['.github/workflows/platform-feed-producer.yml', '.github/workflows/verify.yml',
   '.github/actions/platform-feed/action.yml', 'eng/platform-feed-container.mjs', 'eng/platform-feed-reuse.mjs',
   'eng/platform-feed-reuse-policy.mjs', 'eng/platform-feed-profile.json', 'eng/build-local-feed.mjs',
   'eng/same-job-platform-feed.mjs', 'eng/exact-clone-platform-feed.mjs', 'eng/platform-feed-consumption.mjs',
-  'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
+  'eng/platform-feed-environment.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
 const git = (root, ...args) => execFileSync('git', ['-c', `safe.directory=${root}`, '-C', root, ...args],
   {encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024}).trim()
 
-export function fileClosure(root, prefix = '') {
+export function fileClosure(root, prefix = '', excluded = new Set()) {
   const files = []
   const visit = (directory, relative) => {
     for (const entry of readdirSync(directory, {withFileTypes: true})) {
+      if (excluded.has(entry.name)) continue
       const name = path.posix.join(relative, entry.name), absolute = path.join(directory, entry.name)
       if (entry.isSymbolicLink()) throw new Error('symlink in restored byte closure')
       if (entry.isDirectory()) visit(absolute, name)
@@ -59,9 +61,9 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
     {encoding: 'utf8', timeout: 30000, stdio: 'pipe'})
   git(platform, 'checkout', '--quiet', '--detach', pin.commit)
   if (canonical(platformIdentity(platform, pin)) !== canonical(platformBefore)) throw new Error('isolated platform clone differs')
-  const tools = path.join(directory, 'tools'), packages = path.join(directory, 'packages'), feed = path.join(directory, '.feed')
-  for (const folder of [tools, packages, feed]) mkdirSync(folder)
-  mkdirSync(path.join(tools, '.feed'))
+  const tools = path.join(directory, 'tools'), packages = path.join(directory, 'packages'), output = path.join(directory, 'output')
+  const feed = path.join(output, '.feed')
+  for (const folder of [tools, packages, output]) mkdirSync(folder)
   for (const name of producerPaths) {
     const destination = path.join(tools, name)
     mkdirSync(path.dirname(destination), {recursive: true})
@@ -70,7 +72,7 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
   const node = realpathSync(process.execPath)
   copyFileSync(node, path.join(tools, 'node'))
   const producer = producerPaths.map(name => ({name, sha256: hash(readFileSync(path.join(tools, name)))}))
-  const docker = args => run('docker', args, {encoding: 'utf8', timeout: 20 * 60000, maxBuffer: 64 * 1024 * 1024, stdio: 'pipe'})
+  const docker = args => run('docker', args, {encoding: 'utf8', timeout: 20 * 60000, maxBuffer: 64 * 1024 * 1024, stdio: 'pipe', env: buildEnvironment()})
   const containerRuntime = JSON.parse(docker(['version', '--format', '{{json .Server}}']))
   docker(['pull', '--platform=linux/amd64', profile.image])
   if (docker(['image', 'inspect', profile.image, '--format', '{{.Os}}/{{.Architecture}}']).trim() !== 'linux/amd64')
@@ -81,10 +83,11 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
     '-e', 'DOTNET_CLI_TELEMETRY_OPTOUT=1', '-e', 'DOTNET_NOLOGO=1', '-e', 'NUGET_PACKAGES=/packages',
     '-e', 'GIT_CONFIG_COUNT=1', '-e', 'GIT_CONFIG_KEY_0=safe.directory', '-e', 'GIT_CONFIG_VALUE_0=/platform',
     '-e', 'HARBORLINE_PLATFORM_REPO=/platform', '-e', 'HARBORLINE_FEED_NO_RESTORE=1',
+    '-e', 'HARBORLINE_FEED_OUTPUT_ROOT=/output/.feed',
     '--mount', `type=bind,source=${platform},target=/platform`,
     '--mount', `type=bind,source=${tools},target=/tool,readonly`,
     '--mount', `type=bind,source=${packages},target=/packages`,
-    '--mount', `type=bind,source=${feed},target=/tool/.feed`]
+    '--mount', `type=bind,source=${output},target=/output`]
   const invoke = (args, network = 'none', cwd = '/platform') => docker([...common, '--network', network, '--workdir', cwd, profile.image, ...args])
   const sdk = invoke(['dotnet', '--version']).trim()
   if (sdk !== profile.sdk) throw new Error('container SDK differs from policy')
@@ -98,6 +101,9 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
       '-p:Configuration=Release', ...command.filter(arg => typeof arg === 'string' && arg.startsWith('-p:')),
       '-nodeReuse:false', '-maxcpucount:4'], 'bridge')
   }
+  // Bind every file visible after independent restore, including arbitrary
+  // SDK/package targets' outputs. Later pack outputs are not restore inputs.
+  const restoredPlatformNames = fileClosure(platform, 'platform', new Set(['.git'])).map(file => file.name)
   const capture = () => {
     const assets = []
     const restoredProjects = new Set()
@@ -125,7 +131,13 @@ export function prepareContainer({apiRoot, platform: sourcePlatform, pin, run = 
       platform: {...currentPlatform, version: plan.packedVersion}, packageGraph: {packedVersion: plan.packedVersion},
       toolchain: {image: profile.image, sdk, architecture: profile.architecture, node: hash(readFileSync(path.join(tools, 'node'))),
         kernel: host.kernel, containerRuntime},
-      producer, restore: [...assets, ...fileClosure(packages, 'packages')].sort((a, b) => a.name.localeCompare(b.name)),
+      producer, restore: [...restoredPlatformNames.map(name => {
+        const file = path.join(platform, name.slice('platform/'.length))
+        const physical = path.relative(realpathSync(platform), realpathSync(file))
+        if (lstatSync(file).isSymbolicLink() || !lstatSync(file).isFile() || physical.startsWith(`..${path.sep}`)
+          || physical === '..' || path.isAbsolute(physical)) throw new Error('restored platform input escaped its root')
+        return {name, sha256: hash(readFileSync(file))}
+      }), ...fileClosure(packages, 'packages')].sort((a, b) => a.name.localeCompare(b.name)),
       pack: {configuration: 'Release', network: 'none', restore: false, apiCodeExecuted: false}}
     if (inputProblems(input).length) throw new Error('container feed inputs incomplete')
     return input
