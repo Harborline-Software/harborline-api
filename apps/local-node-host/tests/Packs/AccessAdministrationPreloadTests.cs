@@ -828,13 +828,15 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     [Fact(DisplayName = "T-664: a signed legacy pack with a hint on a value-domain field is admitted; render and export use the runtime's editor")]
     public async Task Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime()
     {
-        // The released access-administration content carries controlHint "select" on `reason` and
+        // The preserved released 1.1.3 content carries controlHint "select" on `reason` and
         // `residency`, both option fields. The owner's compatibility split (T-664, Q19): signed content
         // stays admissible, the authoring route refuses the shape, and the runtime's editor is what ships.
-        await PreloadPlatformThenAccessAsync();
+        await InstallReleased113Async();
         var form = await _forms.GetCurrentPublishedAsync(
             new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
         Assert.NotNull(form);
+        Assert.Equal("1.1.3", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.1", form!.Version.ToString());
         Assert.Equal("select", form!.Overlay.Fields["reason"].ControlHint);
         Assert.Equal("select", form.Overlay.Fields["residency"].ControlHint);
 
@@ -862,12 +864,17 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     [Fact(DisplayName = "T-752: the catalogue render plan carries the runtime's editor over a signed legacy hint")]
     public async Task Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field()
     {
-        // The released access-administration pack carries controlHint "select" on `reason` and `residency`
+        // The preserved released 1.1.3 pack carries controlHint "select" on `reason` and `residency`
         // (option fields). The render plan is what both app lanes' workshop screens read, so ruling 64's
         // "the runtime's choice wins on render" has to hold here too, not only on the Forms wire.
-        await PreloadPlatformThenAccessAsync();
+        await InstallReleased113Async();
         var form = await _forms.GetCurrentPublishedAsync(
             new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.NotNull(form);
+        Assert.Equal("1.1.3", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.1", form!.Version.ToString());
+        Assert.Equal("select", form.Overlay.Fields["reason"].ControlHint);
+        Assert.Equal("select", form.Overlay.Fields["residency"].ControlHint);
         var plan = _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "access.grant-a-role", form!.Version.ToString());
         Assert.NotNull(plan);
         var fields = plan!.Bindings.GetProperty("fields");
