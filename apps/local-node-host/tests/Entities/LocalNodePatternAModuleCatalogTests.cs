@@ -20,6 +20,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "harborline.blocks.financial-periods",
         "harborline.blocks.people-foundation",
         "harborline.local-node.audit",
+        "harborline.local-node.bank-account-create-keys",
         "harborline.local-node.form-submit-outbox",
         "harborline.local-node.home-epoch",
         "harborline.local-node.layout-denial-outbox",
@@ -45,6 +46,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20260818083559_AddFormSubmitOutbox",
         "20260925011629_AddLayoutDenialOutbox",
         "20261002162649_SpatialFramesMapAuditOutbox",
+        "20261002221104_AddBankAccountCreateKeys",
     ];
 
     [Fact]

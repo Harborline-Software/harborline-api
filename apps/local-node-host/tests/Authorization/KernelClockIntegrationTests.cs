@@ -235,7 +235,9 @@ public sealed class KernelClockIntegrationTests
     // T-1000: the MemberRevoked entry is staged in the roster save, so its fault rolls the revocation back.
     [InlineData("roster-audit", true, true, 0, 0)]
     [InlineData("grant-store", false, true, 1, 0)]
-    [InlineData("grant-audit", false, false, 1, 0)]
+    // T-1048: the CapabilityRevoked entry is staged in the grant revocation's commit, so a fault at its post-commit
+    // append no longer loses it: the drain delivers the owed entry (1, was 0), and the retry adds no second one.
+    [InlineData("grant-audit", false, false, 1, 1)]
     public async Task ProductionComposition_AdminRevocation_IsPrefixSafeAndResumable_AfterEveryBoundary(
         string faultStep,
         bool expectedTrustLive,
