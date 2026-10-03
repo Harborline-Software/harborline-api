@@ -142,6 +142,13 @@ public sealed class SearchTestStore : IAsyncDisposable
                 sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
                     Data.Roster.NodeLocalRosterDbContext.MigrationsHistoryTableName)).Options);
 
+    /// <summary>A main-store context over this same encrypted file, composed of <paramref name="modules"/>.</summary>
+    public Data.LocalNodeDbContext CreateLocalNodeContext(
+        IEnumerable<Harborline.Api.Foundation.Persistence.IHarborlineEntityModule> modules) => new(
+        new DbContextOptionsBuilder<Data.LocalNodeDbContext>()
+            .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true).Options,
+        modules);
+
     public Data.Packs.NodeLocalPacksDbContext CreatePacksContext() => new(
         new DbContextOptionsBuilder<Data.Packs.NodeLocalPacksDbContext>()
             .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true,

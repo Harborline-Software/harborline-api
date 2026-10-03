@@ -721,7 +721,10 @@ public sealed class RecordWriteValidationJudgeTests
                 .Select(parameter => parameter.ParameterType)
                 .Where(type => type is { IsClass: true, IsAbstract: false, IsGenericType: false }
                     && type.Assembly == typeof(NodeEntityWriter).Assembly
-                    && type.GetConstructors().Length == 1)
+                    && type.GetConstructors().Length == 1
+                    // T-1048: the audit outbox needs the durable store this graph substitutes; without it the
+                    // writer keeps its post-commit receipt, which is what the judge composed before.
+                    && type != typeof(Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox))
                 .Distinct()
                 .ToArray();
 

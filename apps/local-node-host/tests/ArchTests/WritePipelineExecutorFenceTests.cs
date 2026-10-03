@@ -2,6 +2,7 @@ using System.Reflection;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Assets.Hierarchy;
 using Harborline.Api.Kernel.Runtime;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
@@ -24,22 +25,10 @@ public sealed class WritePipelineExecutorFenceTests
     /// <summary>Admitted write paths that commit outside the executor: path | caller, and the slice that moves it.</summary>
     private static readonly (string Key, string Slice)[] NotYetOnTheExecutor =
     [
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator+<>c__DisplayClass_0.<ReparentAsync>b__0",
-            "S3 hierarchy reparent"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ApplyMergeAsync",
-            "S3 hierarchy merge"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ApplySplitAsync",
-            "S3 hierarchy split"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync",
-            "S3 hierarchy merge"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ReparentAsync",
-            "S3 hierarchy reparent"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.SplitAsync",
-            "S3 hierarchy split"),
+            "S6 exemption candidate: merge runs its whole pipeline inside the unit it opens, because the displaced set it decides is read there (ticket 216, review round 7); its writes are Merge.CommitAsync"),
         ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 workflow definition lifecycle"),
-        ("packages/foundation-forms-engine/IAuthorizedFormEntityWriter.cs|Harborline.Api.Foundation.Forms.Engine.AuthorizedFormEntityWriter.CreateAsync",
-            "S3 form submit record"),
         ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 form definition lifecycle"),
         ("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs|Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync",
@@ -122,7 +111,13 @@ public sealed class WritePipelineExecutorFenceTests
     public void PlantedBypassIsCaught()
     {
         var planted = new[] { typeof(PlantedBypass).Assembly };
-        bool Planted(Type type) => type == typeof(PlantedBypass) || type.DeclaringType == typeof(PlantedBypass);
+        static bool Planted(Type type)
+        {
+            // An async lambda compiles to a state machine nested inside its closure class, two levels down.
+            for (var current = type; current is not null; current = current.DeclaringType)
+                if (current == typeof(PlantedBypass)) return true;
+            return false;
+        }
 
         var getter = typeof(WritePipeline).GetProperty(nameof(WritePipeline.Order))!.GetMethod!;
         Assert.NotEmpty(RawMutationPortSymbolInventoryTests.DiscoverCalls(planted, target => target == getter, Planted));
@@ -132,6 +127,8 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.Contains(off, key => key.EndsWith(".CommitsAroundThePipeline", StringComparison.Ordinal));
         Assert.Contains(off, key => key.EndsWith(".WritesARecordAroundThePipeline", StringComparison.Ordinal));
         Assert.Contains(onExecutor, key => key.EndsWith("+StagedWrite.CommitAsync", StringComparison.Ordinal));
+        // A closure lifted from a KernelWrite method other than CommitAsync is not a commit stage.
+        Assert.Contains(off, key => key.Contains("<WritesInsideAScopeOutsideCommit>", StringComparison.Ordinal));
     }
 
     private static (string[] OnExecutor, string[] Off) Classify(Assembly[] assemblies, Func<Type, bool>? typeFilter = null)
@@ -145,11 +142,15 @@ public sealed class WritePipelineExecutorFenceTests
             [.. sites.Where(site => !commitStages.Contains(site.Symbol)).Select(Key).Distinct().Order(StringComparer.Ordinal)]);
     }
 
+    /// <summary>
+    /// The commit stages, and the closures the compiler lifts out of them: a write inside a lambda written in a
+    /// <c>CommitAsync</c> body (the unit of work it opens, for one) is lexically that commit stage.
+    /// </summary>
     private static HashSet<string> CommitStages(Assembly[] assemblies) =>
         assemblies.SelectMany(Types)
-            .Where(IsKernelWrite)
-            .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-            .Where(method => method.Name == "CommitAsync")
+            .Where(type => IsKernelWrite(type) || (type.DeclaringType is { } declaring && IsKernelWrite(declaring)))
+            .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            .Where(method => method.Name == "CommitAsync" || method.Name.StartsWith("<CommitAsync>", StringComparison.Ordinal))
             .Select(MethodSignatureSymbol.Format)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -212,6 +213,13 @@ public sealed class WritePipelineExecutorFenceTests
                 throw new NotSupportedException();
             protected override ValueTask CommitAsync(ValidatedAuthorizationConfigurationWrite validated, CancellationToken ct) =>
                 store.CommitAsync(validated, ct);
+
+            public Task<bool> WritesInsideAScopeOutsideCommit(IHierarchyCompositeUnitOfWork unit) =>
+                unit.ExecuteAtomicAsync(async ct =>
+                {
+                    await unit.InvalidateEdgeAsync(1, DateTimeOffset.UnixEpoch, ct);
+                    return true;
+                });
             protected override ValueTask<string> ReactAsync(ValidatedAuthorizationConfigurationWrite validated, CancellationToken ct) =>
                 ValueTask.FromResult("");
         }
