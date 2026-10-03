@@ -108,6 +108,8 @@ public interface IFormEngine
     /// carries no case ref is byte-for-byte identical to before. It is an UNTRUSTED projection hint — the
     /// projector fail-closes on a non-existent / cross-tenant target, so the route never authorizes on it.
     /// </param>
+    /// <param name="newSubmissionPreflight">Optional admission check after live authorization and authenticated replay,
+    /// before a new instance is protected or persisted. A replay retains its original admitted values.</param>
     Task<FormSubmitReceipt> SaveWithReceiptAsync(
         FormDefinitionId form,
         JsonDocument candidate,
@@ -115,5 +117,6 @@ public interface IFormEngine
         AuthorizationWriteContext authority,
         CancellationToken ct = default,
         string? idempotencyKey = null,
-        string? caseRef = null);
+        string? caseRef = null,
+        Func<CancellationToken, Task>? newSubmissionPreflight = null);
 }
