@@ -76,3 +76,28 @@ The same whole-file native scoped command above then completed in 274 seconds, e
 | Displaced-state refusal | 5985, line 435, remove refusal | Killed | `ChangedDisplacedEdges_RefuseCommitAndWriteNothing` |
 
 The three NoCoverage mutations remain the visited-interval continue at line 408 and missing-decision throw at line 530. Residual survivors, timeouts and compile errors are disclosed by the archived raw report; no blanket equivalence, survivor clearance, policy waiver or required-gate replacement is claimed. Earlier report IDs and outcomes remain historical evidence only.
+
+## Complete split prospective-graph follow-up at 37fa5a35
+
+Source/test head `37fa5a35da30534c5cf4a77dee07e1f34893a94d` refuses split cycles against the complete prospective temporal graph, including cycles introduced jointly by multiple reassignments. The shared Split/Reparent traversal excludes displaced edges, overlays every proposed replacement, and intersects path intervals. Split checks at Validate and repeats inside its atomic unit after snapshot comparison and before minting. Replacement IDs and reassignment parents cannot name the original that will be deleted. Scheduled finite starts and ends remain intact.
+
+Six cases failed against the previous production implementation, while two nonoverlap controls passed. The restored broader hierarchy/authorization/fence suite passed 149 tests, zero skipped. Independent regressions assert exact literal endpoints/intervals, preservation of the winning intervening path and its audit, refusal without composite writes, and successful touching/nonoverlapping intervals. Transaction-entry counts additionally pin admission-time refusal before opening the unit: removing that check produced five red cases. Changing the deleted-target check from Any to All produced one red multi-target case. Restored production passed 149 tests after both stronger oracles.
+
+The initial prospective-graph report at `34291401e4df3e166c90a27ff2d9dca9aacfa56c` had 107 Killed, 79 Survived, zero Timeout, 3 NoCoverage, 20 CompileError and 30 Ignored, 186 tested, 136 embedded tests, 280 seconds. Archive `e170f09a540a6fa48e223f9eaf6f85d7822586ae` on `archive/pr331-scoped-34291401-20261003`, raw SHA-256 `073E8498AF331817D44AFF629E11155755B51C7C77E9012BEA16BB12AF313D86`. Its admission-check removal survivor prompted the transaction-entry oracle.
+
+The intermediate admission-oracle report at `f5e7c2bbfd417f57fe78c95dd2a3819fa45c9dc8` had 103 Killed, 6 Timeout, 77 Survived, 3 NoCoverage, 20 CompileError and 30 Ignored, 186 tested, 136 tests, 293 seconds. Archive `cfbc06a98a1423e49e70fc7e8531b91c50639b61` on `archive/pr331-scoped-f5e7c2bb-20261003`, raw SHA-256 `7846128A1E31006672A69137D43645213F7760EC092A30F1A223DDC292C7C83A`. Its Any-to-All survivor prompted the multi-target deletion oracle. These two reports are historical, not substitutes for current outcomes.
+
+The final same-command whole-file scoped run completed in 271 seconds at `37fa5a35`: **110 Killed, 76 Survived, zero Timeout, 3 NoCoverage, 20 CompileError, 30 Ignored**, 186 tested, reported score 58.20. It embeds 136 tests. Raw report, configuration and manifest are archived at `ecded48243aff08a4c1b98140fce9d6bc3a96607` on `archive/pr331-scoped-37fa5a35-20261003`, under `docs/evidence/raw/pr331-37fa5a35/`. Report size 12,686,255 bytes; SHA-256 `539252C260CFD38AE1CCF36F500709E2BE43C33F216E58BBA592310DA28395BD`. Configuration SHA-256 `B283F7E65EC840A721863339CE662F34504B609FAD8958DF40A1A332122DC46F`; manifest SHA-256 `289A87D663254BDCDA110B27F45F087FF53555B0372947E0F51DCFCF0920C813`. Tested production file SHA-256 `CD2E2E2D8D9A07A5E32F1C83D3F59099F01385E2AE4646A2D0AF6780610935DB`.
+
+| Obligation | Final mutation | Status | Recorded killing test |
+| --- | --- | --- | --- |
+| Refuse at admission before opening a unit | 5821, line 122, remove check | Killed | `Split_ScheduledDescendant_RefusesOverlappingPathBeforeAnyWrite` |
+| Check every replacement ID | 5839, line 144, Any to All | Killed | `Split_DeletedOrSelfTarget_RefusesBeforeAnyWrite` |
+| Preserve deleted-replacement refusal | 5841, line 145, remove throw | Killed | `Split_DeletedOrSelfTarget_RefusesBeforeAnyWrite` |
+| Preserve deleted-parent refusal | 5844, line 147, remove throw | Killed | `Split_DeletedOrSelfTarget_RefusesBeforeAnyWrite` |
+| Repeat graph check inside atomic unit | 5861, line 166, remove check | Killed | `Split_ScheduledDescendant_RefusesOverlappingPathBeforeAnyWrite` |
+| Include all proposed replacements | 6016, line 503, remove overlay | Killed | `Split_JointReassignments_CheckProspectiveTemporalGraph` |
+| Preserve inherited start | 6019, line 506, force edge start | Killed | `FutureMultihopDescendant_DoesNotWidenAnInheritedStartBackward` |
+| Clip finite inherited end | 6028, line 508, reverse comparison | Killed | `FutureMultihopDescendant_ClipsAFiniteInheritedEndBeforeTheNextLeg` |
+
+This final report supersedes prior current-source mutation evidence. The visited-interval continue at line 497 and missing-decision throw at line 558 remain NoCoverage. Residual survivors include exception text, cancellation/task wrapper booleans, and equal-value clipping comparisons; no blanket equivalence or survivor clearance is claimed. CompileError remains separate from assertion kills. No gate, deadline, baseline, policy waiver or owner contract was changed.
