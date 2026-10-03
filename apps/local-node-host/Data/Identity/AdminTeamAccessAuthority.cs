@@ -512,8 +512,11 @@ internal sealed partial class AdminTeamAccessAuthority(
 
         if (!revokeMembership)
         {
-            _ = await CorrelatedGrantReplayAsync(decision, MemberRevocationReasons.Offboarding,
+            var correlatedReplay = await CorrelatedGrantReplayAsync(decision, MemberRevocationReasons.Offboarding,
                 AuditEventType.CapabilityRevoked, cancellationToken).ConfigureAwait(false);
+            if (correlatedReplay is not null)
+                return new(AdminRevokeMemberStatus.Revoked)
+                { AuditId = correlatedReplay.AuditId, CorrelationId = AuditCorrelation(correlatedReplay) };
             if (existing.Status == GrantStatus.Revoked && await OriginalGrantAuditAsync(decision,
                 AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding, cancellationToken).ConfigureAwait(false) is { } replay)
                 return new(AdminRevokeMemberStatus.Revoked) { AuditId = replay.AuditId, CorrelationId = AuditCorrelation(replay) };
@@ -558,7 +561,12 @@ internal sealed partial class AdminTeamAccessAuthority(
             ? await _partyReader.ResolveAsync(tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
                 .ConfigureAwait(false)
             : null;
-        // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
+        var correlationId = authority.CorrelationId ?? Guid.NewGuid();
+        var audit = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
+                correlationId, successorGrant: null, cancellationToken)
+            .ConfigureAwait(false);
+        // Prepare the signed evidence before either durable effect. A missing party never blocks the grant leg.
         if (revokedParty is not null)
         {
             // Ticket 294 slice 2a — the roster edge is keyed by the principal, so the signed removal names it.
@@ -570,15 +578,11 @@ internal sealed partial class AdminTeamAccessAuthority(
         if (existing.Status is not GrantStatus.Revoked)
         {
             var revoked = await _grantRevocations.RevokeAsync(tenant, target, revocation,
-                    decision, cancellationToken)
+                    decision, [audit], cancellationToken)
                 .ConfigureAwait(false);
             if (revoked is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
         }
-        var correlationId = authority.CorrelationId ?? Guid.NewGuid();
-        var auditId = await AppendGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
-                correlationId, successorGrant: null, cancellationToken)
-            .ConfigureAwait(false);
+        var auditId = await DeliverGrantAuditAsync(audit, decision, cancellationToken).ConfigureAwait(false);
         return new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked) { AuditId = auditId, CorrelationId = correlationId };
     }
 
@@ -631,13 +635,15 @@ internal sealed partial class AdminTeamAccessAuthority(
         var correlation = authority.CorrelationId ?? Guid.NewGuid();
         var revocation = new GrantRevocation(authority.Principal, authority.At,
             new GrantReason(GrantReasonCodes.RevocationReview, correlation.ToString("D")));
+        var revokedLeg = await PrepareGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityRevoked,
+            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
+        var delegatedLeg = await PrepareGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityDelegated,
+            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
         var narrowed = await _grantRevocations.NarrowScopeAsync(tenant, target, narrowedScope, successorId,
-            revocation, context.Decision, cancellationToken).ConfigureAwait(false);
+            revocation, context.Decision, [revokedLeg, delegatedLeg], cancellationToken).ConfigureAwait(false);
         if (narrowed is null) return new(AdminNarrowMemberGrantStatus.NotFound);
-        await AppendGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityRevoked,
-            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
-        var auditId = await AppendGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityDelegated,
-            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
+        await DeliverGrantAuditAsync(revokedLeg, context.Decision, cancellationToken).ConfigureAwait(false);
+        var auditId = await DeliverGrantAuditAsync(delegatedLeg, context.Decision, cancellationToken).ConfigureAwait(false);
         return new(AdminNarrowMemberGrantStatus.Narrowed, narrowed.Reissued.GrantId.ToString())
         { AuditId = auditId, CorrelationId = correlation };
     }
@@ -821,8 +827,19 @@ internal sealed partial class AdminTeamAccessAuthority(
                 granter),
             at);
 
+        // Both legs are audited against the act's OWN target -- the grant the decision admitted -- so the
+        // carried decision is never re-pointed at a record it did not permit; the successor's grant id
+        // travels in the payload. They commit with the handover and are appended after the roster leg.
+        var delegatedLeg = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityDelegated, HandoverReason, correlationId,
+                successor.GrantId, cancellationToken)
+            .ConfigureAwait(false);
+        var revokedLeg = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityRevoked, HandoverReason, correlationId,
+                successor.GrantId, cancellationToken)
+            .ConfigureAwait(false);
         var handover = await _grantRevocations
-            .HandoverAsync(tenant, target, successor, revocation, decision, cancellationToken)
+            .HandoverAsync(tenant, target, successor, revocation, decision, [delegatedLeg, revokedLeg], cancellationToken)
             .ConfigureAwait(false);
         if (handover is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
 
@@ -833,17 +850,8 @@ internal sealed partial class AdminTeamAccessAuthority(
                     MemberRevocationReasons.Offboarding, correlationId.ToString("D"), decision, cancellationToken)
                 .ConfigureAwait(false);
         }
-        // Both legs are audited against the act's OWN target -- the grant the decision admitted -- so the
-        // carried decision is never re-pointed at a record it did not permit; the successor's grant id
-        // travels in the payload.
-        await AppendGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityDelegated, HandoverReason, correlationId,
-                handover.Successor.GrantId, cancellationToken)
-            .ConfigureAwait(false);
-        await AppendGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityRevoked, HandoverReason, correlationId,
-                handover.Successor.GrantId, cancellationToken)
-            .ConfigureAwait(false);
+        await DeliverGrantAuditAsync(delegatedLeg, decision, cancellationToken).ConfigureAwait(false);
+        await DeliverGrantAuditAsync(revokedLeg, decision, cancellationToken).ConfigureAwait(false);
         return new AdminRevokeMemberResult(
             AdminRevokeMemberStatus.HandedOver, handover.Successor.GrantId.ToString());
     }
@@ -860,41 +868,81 @@ internal sealed partial class AdminTeamAccessAuthority(
         string reason,
         Guid correlationId,
         GrantId? successorGrant,
+        CancellationToken cancellationToken) =>
+        await DeliverGrantAuditAsync(
+            await PrepareGrantAuditAsync(tenant, grantId, admittedDecision, eventType, reason, correlationId,
+                successorGrant, cancellationToken).ConfigureAwait(false),
+            admittedDecision, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// T-1048 (DES-0029 ck-6): signs one leg's audit record before the grant write, so the write can stage it in
+    /// its own commit (<see cref="IAuthorizedGrantRevocationWriter"/>) and <see cref="DeliverGrantAuditAsync"/> can
+    /// append the identical record after it.
+    /// </summary>
+    private async ValueTask<AuditRecord> PrepareGrantAuditAsync(
+        TenantId tenant,
+        GrantId grantId,
+        AuthorizationDecision admittedDecision,
+        AuditEventType eventType,
+        string reason,
+        Guid correlationId,
+        GrantId? successorGrant,
         CancellationToken cancellationToken)
+    {
+        var recordId = grantId.Value.ToString("D");
+        var operation = AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
+        var reaction = new AuthorizationWriteContext(
+            admittedDecision.Request.Principal, tenant, admittedDecision.DecidedAt)
+            .Request(operation, "members", recordId);
+        admittedDecision.RequireAllowedReaction(
+            operation, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);
+        var payload = await _signer.SignAsync(new AuditPayload(new Dictionary<string, object?>
+        {
+            ["grant_id"] = recordId,
+            ["reason"] = reason,
+            ["correlation_id"] = correlationId.ToString("D"),
+            ["successor_grant_id"] = successorGrant?.Value.ToString("D"),
+        }), admittedDecision.DecidedAt, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
+        return new AuditRecord(
+            Guid.NewGuid(), tenant, eventType,
+            admittedDecision.DecidedAt, payload,
+            ImmutableArray<AttestingSignature>.Empty, Actor: admittedDecision.Request.Principal,
+            Target: reaction.Target, Act: reaction.Act);
+    }
+
+    /// <summary>
+    /// Appends <paramref name="record"/> unless this act on this grant is already recorded: in the trail, or owed
+    /// by an earlier commit's staged entry the drain has not delivered yet. A record this act staged itself is
+    /// appended now under its staged id, so the drain finds it held and only marks it.
+    /// </summary>
+    private async ValueTask<Guid> DeliverGrantAuditAsync(
+        AuditRecord record, AuthorizationDecision admittedDecision, CancellationToken cancellationToken)
     {
         await _grantAuditGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var recordId = grantId.Value.ToString("D");
-            var operation = AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
-            var reaction = new AuthorizationWriteContext(
-                admittedDecision.Request.Principal, tenant, admittedDecision.DecidedAt)
-                .Request(operation, "members", recordId);
-            admittedDecision.RequireAllowedReaction(
-                operation, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);
-            if (eventType != RevocationRefused && eventType != GrantReviewRecorded)
+            var target = record.Target!.Value;
+            if (record.EventType != RevocationRefused && record.EventType != GrantReviewRecorded)
             {
                 await foreach (var existing in _audit.QueryAsync(
-                                   new AuditQuery(tenant, eventType), cancellationToken)
+                                   new AuditQuery(record.TenantId, record.EventType), cancellationToken)
                                    .ConfigureAwait(false))
                 {
-                    if (existing.Target == reaction.Target) return existing.AuditId;
+                    if (existing.Target == target) return existing.AuditId;
                 }
+                await using var db = await _grantFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                var ownId = record.AuditId.ToString("D");
+                var owed = await db.AuditOutbox.AsNoTracking()
+                    .Where(row => row.PublishedAtUnixMs == null && row.AuditId != ownId
+                        && row.TenantId == record.TenantId.Value && row.EventType == record.EventType.Value
+                        && row.TargetKind == target.RecordKind && row.TargetId == target.RecordId
+                        && row.TargetScope == target.Scope.Value)
+                    .Select(row => row.AuditId)
+                    .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                if (owed is not null) return Guid.Parse(owed);
             }
-            var payload = await _signer.SignAsync(new AuditPayload(new Dictionary<string, object?>
-            {
-                ["grant_id"] = recordId,
-                ["reason"] = reason,
-                ["correlation_id"] = correlationId.ToString("D"),
-                ["successor_grant_id"] = successorGrant?.Value.ToString("D"),
-            }), admittedDecision.DecidedAt, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
-            var auditId = Guid.NewGuid();
-            await _audit.AppendAuthorizedAsync(new AuditRecord(
-                auditId, tenant, eventType,
-                admittedDecision.DecidedAt, payload,
-                ImmutableArray<AttestingSignature>.Empty, Actor: admittedDecision.Request.Principal,
-                Target: reaction.Target, Act: reaction.Act), admittedDecision, cancellationToken).ConfigureAwait(false);
-            return auditId;
+            await _audit.AppendAuthorizedAsync(record, admittedDecision, cancellationToken).ConfigureAwait(false);
+            return record.AuditId;
         }
         finally
         {
