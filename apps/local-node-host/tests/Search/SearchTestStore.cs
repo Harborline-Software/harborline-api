@@ -158,6 +158,13 @@ public sealed class SearchTestStore : IAsyncDisposable
                 sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
                     Data.Roster.NodeLocalRosterDbContext.MigrationsHistoryTableName)).Options);
 
+    /// <summary>A main-store context over this same encrypted file, composed of <paramref name="modules"/>.</summary>
+    public Data.LocalNodeDbContext CreateLocalNodeContext(
+        IEnumerable<Harborline.Api.Foundation.Persistence.IHarborlineEntityModule> modules) => new(
+        new DbContextOptionsBuilder<Data.LocalNodeDbContext>()
+            .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true).Options,
+        modules);
+
     public Data.Packs.NodeLocalPacksDbContext CreatePacksContext() => new(
         new DbContextOptionsBuilder<Data.Packs.NodeLocalPacksDbContext>()
             .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true,
@@ -165,6 +172,23 @@ public sealed class SearchTestStore : IAsyncDisposable
                     Data.Packs.NodeLocalPacksDbContext.MigrationsHistoryTableName)).Options);
 
     public IDbContextFactory<Data.Packs.NodeLocalPacksDbContext> PacksFactory => new PacksHarnessFactory(this);
+
+    /// <summary>
+    /// The main <see cref="Data.LocalNodeDbContext"/> over the same encrypted file, with the full Pattern-A catalog,
+    /// as production composes it.
+    /// </summary>
+    public Data.LocalNodeDbContext CreateLocalNodeContext() => new(
+        new DbContextOptionsBuilder<Data.LocalNodeDbContext>()
+            .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true).Options,
+        Data.LocalNodePatternAModuleCatalog.CreateModules());
+
+    /// <summary>A main-context factory over the same encrypted file as <see cref="Factory"/>.</summary>
+    public IDbContextFactory<Data.LocalNodeDbContext> LocalNodeFactory => new LocalNodeHarnessFactory(this);
+
+    private sealed class LocalNodeHarnessFactory(SearchTestStore store) : IDbContextFactory<Data.LocalNodeDbContext>
+    {
+        public Data.LocalNodeDbContext CreateDbContext() => store.CreateLocalNodeContext();
+    }
 
     /// <summary>A roster-context factory over the same encrypted file as <see cref="Factory"/>.</summary>
     public IDbContextFactory<Data.Roster.NodeLocalRosterDbContext> RosterFactory => new RosterHarnessFactory(this);

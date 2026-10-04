@@ -18,6 +18,35 @@ public sealed class WebTenantSelectionAuthorityTests
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// T-1009: the selection authority validates its session options at construction, so a
+    /// non-positive absolute lifetime cannot reach a minted session. No database is opened.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void Selection_authority_refuses_session_options_with_a_non_positive_lifetime()
+    {
+        var identityFactory = new IdentityContextFactory(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+            Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var resolver = new FixedPartitionResolver();
+        var time = new FixedTimeProvider(Now);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new WebTenantSelectionAuthority(
+            identityFactory,
+            sessionFactory,
+            new FixedCandidateLocator(),
+            new InstallationIdentityCoordinatorService(
+                identityFactory, resolver, new AcceptingAdmission(), time, TestAuthorization.Gate(true)),
+            resolver,
+            new FixedPartyReader(Guid.NewGuid().ToString("D")),
+            new InstallationIdentityCutoverOrchestrator(identityFactory, time),
+            Options.Create(new SessionOptions { AbsoluteLifetime = TimeSpan.Zero }),
+            time));
+
+        Assert.Equal("AbsoluteLifetime", exception.ParamName);
+    }
+
     [Fact]
     [Trait("PlanCard", "MTW-2")]
     public async Task Selection_Completes_Both_Audit_Heads_Before_Mint_And_Consumes_Exactly_Once()
@@ -290,6 +319,120 @@ public sealed class WebTenantSelectionAuthorityTests
         Assert.StartsWith("identity.session_selection_payload_invalid:", exception.Message);
     }
 
+    /// <summary>
+    /// T-1048 (ck-6): the process stops after the tenant selection head commits and before the home
+    /// records its receipt. A fresh authority over the same files, driven only by the startup recovery
+    /// drain, writes exactly one Completed envelope; a second drain and the client's later retry add
+    /// none. Recovery mints no session: the retry does.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_crash_after_tenant_finalization_owes_one_envelope_that_the_recovery_drain_writes()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        var (restarted, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        await recovery.RecoverPendingAsync();
+
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
+            var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+            Assert.Equal("34600000000040008000000000000001", home.CorrelationId);
+            Assert.Equal("34600000000040008000000000000001", envelope.CorrelationId);
+            Assert.Equal(Now, envelope.OccurredAtUtc);
+        }
+        await using (var sessions = fixture.SessionFactory.CreateDbContext())
+        {
+            Assert.Empty(await sessions.UserSessions.AsNoTracking().ToArrayAsync());
+        }
+
+        Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    /// <summary>
+    /// T-1048 (ck-6): a selection refused at commit (the tenant receipt names another tenant) owes no
+    /// envelope, and the recovery drain does not invent one.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_selection_refused_at_commit_gets_no_envelope_from_the_recovery_drain()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        fixture.Store.ReceiptTenantId = fixture.UnusableTenantId;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+
+        await fixture.Restart().Recovery.RecoverPendingAsync();
+
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        Assert.Equal(
+            InstallationIdentityCoordinatorState.Committing,
+            (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Selection_and_recovery_reload_the_home_after_the_competing_lease_holder_completes(bool liveWaits)
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ReadHomeState = async () =>
+        {
+            await using var identity = fixture.IdentityFactory.CreateDbContext();
+            return (await identity.Coordinators.AsNoTracking().SingleAsync()).State;
+        };
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        var (restarted, recovery) = fixture.Restart();
+        if (liveWaits)
+        {
+            leases.BeforeAcquire = async () => { await recovery.RecoverPendingAsync(); };
+            Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        }
+        else
+        {
+            leases.BeforeAcquire = async () =>
+                Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+            await recovery.RecoverPendingAsync();
+        }
+        // Two commit-phase calls: response loss, then replay. Finalizing verifies the durable receipt;
+        // a live Completed retry verifies it again before minting. Recovery must not replay Completed.
+        Assert.Equal(2, fixture.Store.FinalizeHomeStates.Count(state => state == InstallationIdentityCoordinatorState.Committing));
+        var expectedStates = new List<InstallationIdentityCoordinatorState>
+        {
+            InstallationIdentityCoordinatorState.Committing,
+            InstallationIdentityCoordinatorState.Committing,
+            InstallationIdentityCoordinatorState.Finalizing,
+        };
+        if (liveWaits) expectedStates.Add(InstallationIdentityCoordinatorState.Completed);
+        Assert.Equal(expectedStates, fixture.Store.FinalizeHomeStates);
+        Assert.Equal(expectedStates.Count, fixture.Store.FinalizeCalls);
+        var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        Assert.Equal("34600000000040008000000000000001", envelope.CorrelationId);
+        await using var sessions = fixture.SessionFactory.CreateDbContext();
+        Assert.Single(await sessions.UserSessions.AsNoTracking().ToListAsync());
+    }
+
+    private static async Task<InstallationAuditEnvelopeRecord[]> CompletedEnvelopesAsync(
+        IDbContextFactory<NodeLocalInstallationIdentityDbContext> factory)
+    {
+        await using var identity = factory.CreateDbContext();
+        return await identity.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "WebTenantSelectionCompleted")
+            .ToArrayAsync();
+    }
+
     private sealed class SelectionFixture : IAsyncDisposable
     {
         private readonly string _directory;
@@ -343,7 +486,43 @@ public sealed class WebTenantSelectionAuthorityTests
 
         public WebTenantSelectionAuthority Authority { get; }
 
-        public static async Task<SelectionFixture> CreateAsync()
+        /// <summary>
+        /// A fresh host over the same identity and session files. The recording tenant stores stand
+        /// in for the tenant files, so they carry over as the durable tenant state.
+        /// </summary>
+        public (WebTenantSelectionAuthority Authority, InstallationIdentityCoordinatorRecoveryService Recovery)
+            Restart()
+        {
+            var identityFactory = new IdentityContextFactory(Path.Combine(_directory, "identity.db"));
+            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+                Path.Combine(_directory, "session.db"));
+            var coordinator = new InstallationIdentityCoordinatorService(
+                identityFactory,
+                Resolver,
+                new AcceptingAdmission(),
+                new FixedTimeProvider(Now),
+                TestAuthorization.Gate(true));
+            var authority = new WebTenantSelectionAuthority(
+                identityFactory,
+                sessionFactory,
+                Candidates,
+                coordinator,
+                Resolver,
+                Parties,
+                new InstallationIdentityCutoverOrchestrator(
+                    identityFactory,
+                    new FixedTimeProvider(Now),
+                    Harborline.Api.LocalNodeHost.Data.Identity.InstallationAuthorityVersionRegistry
+                        .CreateDefault([new TestSignInPath("test-successor")])),
+                Options.Create(new SessionOptions()),
+                new FixedTimeProvider(Now));
+            return (authority, new InstallationIdentityCoordinatorRecoveryService(
+                identityFactory,
+                coordinator,
+                homeRecoveries: [authority]));
+        }
+
+        public static async Task<SelectionFixture> CreateAsync(ILeaseCoordinator? leases = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"tenant-select-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -386,7 +565,7 @@ public sealed class WebTenantSelectionAuthorityTests
                     AccountId: account.AccountId,
                     AccountSecurityVersion: account.SecurityVersion,
                     HandleDigest: Digest(challengeHandle),
-                    CoordinationCorrelationId: Guid.NewGuid().ToString("N"),
+                    CoordinationCorrelationId: "34600000000040008000000000000001",
                     IssuedAtUtc: Now,
                     AbsoluteExpiresAtUtc: Now.AddMinutes(5),
                     ConsumedAtUtc: null,
@@ -411,7 +590,7 @@ public sealed class WebTenantSelectionAuthorityTests
             var unusableStore = new RecordingMembershipStore(
                 unusableTenantId, membership, sessionFactory, returnsMembership: false);
             var resolver = new FixedPartitionResolver(
-                new TenantIdentityAuthorityPartition(tenantId, store, new AlwaysLeaseCoordinator()),
+                new TenantIdentityAuthorityPartition(tenantId, store, leases ?? new AlwaysLeaseCoordinator()),
                 new TenantIdentityAuthorityPartition(unusableTenantId, unusableStore, new AlwaysLeaseCoordinator()));
             var coordinator = new InstallationIdentityCoordinatorService(
                 identityFactory,
@@ -493,6 +672,8 @@ public sealed class WebTenantSelectionAuthorityTests
         public bool ThrowAfterFinalizeOnce { get; set; }
         public string? ReceiptTenantId { get; set; }
         public int FinalizeCalls { get; private set; }
+        public Func<Task<InstallationIdentityCoordinatorState>>? ReadHomeState { get; set; }
+        public List<InstallationIdentityCoordinatorState> FinalizeHomeStates { get; } = [];
         public List<int> SessionCountsObservedDuringFinalize { get; } = [];
         public int ReadCalls { get; private set; }
         public int WriteCalls { get; private set; }
@@ -548,6 +729,7 @@ public sealed class WebTenantSelectionAuthorityTests
             await using var sessions = await sessionFactory.CreateDbContextAsync(cancellationToken);
             SessionCountsObservedDuringFinalize.Add(await sessions.UserSessions.CountAsync(cancellationToken));
             FinalizeCalls++;
+            if (ReadHomeState is not null) FinalizeHomeStates.Add(await ReadHomeState());
             var receipt = _receipt ??= new TenantSessionSelectionReceipt(
                 ReceiptTenantId ?? TenantId,
                 DocumentOwnerVersion: 2,
@@ -666,18 +848,102 @@ public sealed class WebTenantSelectionAuthorityTests
             CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
+    [Fact]
+    public async Task Recovery_release_failure_does_not_undo_completion_or_duplicate_its_audit()
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+        leases.ReleaseFailure = new IOException("injected recovery lease release failure");
+        var (authority, _) = fixture.Restart();
+        var releases = leases.ReleaseCalls;
+        await ((IInstallationIdentityHomeRecovery)authority).RecoverAsync(home, CancellationToken.None);
+        Assert.Equal(releases + 1, leases.ReleaseCalls);
+        Assert.Equal(CancellationToken.None, leases.LastReleaseToken);
+        await using (var completed = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await completed.Coordinators.AsNoTracking().SingleAsync()).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        leases.ReleaseFailure = null;
+        var (_, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Recovery_release_failure_preserves_the_primary_exception_and_durable_retry(bool cancel)
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+        using var cancellation = new CancellationTokenSource();
+        Exception primary = cancel
+            ? new OperationCanceledException("primary recovery cancellation", cancellation.Token)
+            : new InvalidOperationException("primary recovery finalization failure");
+        fixture.Store.ReadHomeState = () =>
+        {
+            if (cancel) cancellation.Cancel();
+            return Task.FromException<InstallationIdentityCoordinatorState>(primary);
+        };
+        leases.ReleaseFailure = new IOException("injected recovery lease release failure");
+        var (authority, _) = fixture.Restart();
+        var releases = leases.ReleaseCalls;
+        var observed = await Record.ExceptionAsync(() =>
+            ((IInstallationIdentityHomeRecovery)authority).RecoverAsync(home, cancellation.Token));
+        Assert.Same(primary, observed);
+        Assert.Equal(releases + 1, leases.ReleaseCalls);
+        Assert.Equal(CancellationToken.None, leases.LastReleaseToken);
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using (var unfinished = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Committing,
+                (await unfinished.Coordinators.AsNoTracking().SingleAsync()).State);
+        var retainedLease = Assert.Single(leases.HeldLeases);
+        Assert.Equal(Now.AddSeconds(30), retainedLease.ExpiresAt);
+        var acquires = leases.AcquireCalls;
+        fixture.Store.ReadHomeState = null;
+        leases.ReleaseFailure = null;
+        var (_, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        Assert.True(leases.AcquireCalls > acquires);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await recovery.RecoverPendingAsync();
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
-        public Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
+        public Func<Task>? BeforeAcquire { get; set; }
+        public Exception? ReleaseFailure { get; set; }
+        public CancellationToken LastReleaseToken { get; private set; }
+        public int AcquireCalls { get; private set; }
+        public int ReleaseCalls { get; private set; }
+        public async Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
         {
+            AcquireCalls++;
+            var before = BeforeAcquire;
+            BeforeAcquire = null;
+            if (before is not null) await before();
             var lease = new Lease(
                 Guid.NewGuid().ToString("N"), resourceId, "test", Now, Now + duration, []);
             _held[lease.LeaseId] = lease;
-            return Task.FromResult<Lease?>(lease);
+            return lease;
         }
         public Task ReleaseAsync(Lease lease, CancellationToken ct)
         {
+            ReleaseCalls++;
+            LastReleaseToken = ct;
+            if (ReleaseFailure is not null) return Task.FromException(ReleaseFailure);
             _held.TryRemove(lease.LeaseId, out _);
             return Task.CompletedTask;
         }

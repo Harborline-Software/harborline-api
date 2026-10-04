@@ -1,0 +1,25 @@
+<Project>
+  <!-- Observation only: ProvideCommandLineArgs does not suppress compiler execution. -->
+  <PropertyGroup Condition="'$(HarborlineValidationInputCapture)' == '1'">
+    <ProvideCommandLineArgs>true</ProvideCommandLineArgs>
+    <HarborlineValidationSourceRoot Condition="'$(HarborlineValidationSourceRoot)' == ''">$(MSBuildThisFileDirectory)..</HarborlineValidationSourceRoot>
+  </PropertyGroup>
+  <Target Name="HarborlineBeginCompilerObservation" BeforeTargets="CoreCompile"
+          DependsOnTargets="AddGlobalAnalyzerConfigForPackage_MicrosoftCodeAnalysisNetAnalyzers"
+          Condition="'$(HarborlineValidationInputCapture)' == '1' And '$(MSBuildProjectExtension)' == '.csproj' And '$(EnableNETAnalyzers)' == 'true'">
+    <Delete Files="$(IntermediateOutputPath)validation-compiler.args;$(IntermediateOutputPath)validation-compiler.context;$(IntermediateOutputPath)validation-compiler.snapshot;$(IntermediateOutputPath)validation-compiler.before" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)validation-compiler.inputs"
+                      Lines="$(MSBuildProjectFullPath);@(Compile->'%(FullPath)');@(ReferencePath->'%(FullPath)');@(Analyzer->'%(FullPath)');@(AdditionalFiles->'%(FullPath)');@(EditorConfigFiles->'%(FullPath)');@(_CoreCompileResourceInputs->'%(FullPath)')"
+                      Overwrite="true" Encoding="UTF-8" />
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)validation-compiler-capture.mjs&quot; before &quot;$(MSBuildProjectDirectory)/$(IntermediateOutputPath)validation-compiler.args&quot; &quot;$(HarborlineValidationSourceRoot)&quot; &quot;$(HarborlineValidationCaptureSession)&quot;" EnvironmentVariables="NUGET_PACKAGES=$(NuGetPackageRoot);DOTNET_ROOT=$(NetCoreRoot)" />
+  </Target>
+  <Target Name="HarborlineObserveCompilerArguments" AfterTargets="CoreCompile"
+          Condition="'$(HarborlineValidationInputCapture)' == '1' And '$(MSBuildProjectExtension)' == '.csproj' And '$(EnableNETAnalyzers)' == 'true'">
+    <WriteLinesToFile File="$(IntermediateOutputPath)validation-compiler.args"
+                      Lines="@(CscCommandLineArgs)" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)validation-compiler.context"
+                      Lines="project=$(MSBuildProjectFullPath);framework=$(TargetFramework);configuration=$(Configuration);skipCompilerExecution=$(SkipCompilerExecution);designTimeBuild=$(DesignTimeBuild)"
+                      Overwrite="true" Encoding="UTF-8" />
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)validation-compiler-capture.mjs&quot; after &quot;$(MSBuildProjectDirectory)/$(IntermediateOutputPath)validation-compiler.args&quot; &quot;$(HarborlineValidationSourceRoot)&quot; &quot;$(HarborlineValidationCaptureSession)&quot;" EnvironmentVariables="NUGET_PACKAGES=$(NuGetPackageRoot);DOTNET_ROOT=$(NetCoreRoot)" />
+  </Target>
+</Project>

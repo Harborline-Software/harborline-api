@@ -21,13 +21,13 @@ internal static class PackInstallerTestExtensions
         string? actingPrincipal = null) => installer.Activate(
         Context(tenant, now, actingPrincipal), packKey, version);
 
-    internal static PackDeactivationOutcome Deactivate(
+    internal static Task<PackDeactivationOutcome> DeactivateAsync(
         this IPackInstaller installer,
         TenantId tenant,
         string packKey,
         string version,
         DateTimeOffset now,
-        string? actingPrincipal = null) => installer.Deactivate(
+        string? actingPrincipal = null) => installer.DeactivateAsync(
         Context(tenant, now, actingPrincipal), packKey, version);
 
     private static PackInstallContext Context(TenantId tenant, DateTimeOffset now, string? principal) => new(

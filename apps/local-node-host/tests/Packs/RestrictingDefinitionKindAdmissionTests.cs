@@ -67,7 +67,7 @@ public sealed class RestrictingDefinitionKindAdmissionTests
                 TestAuthorization.AllowGate(),
                 projector);
 
-            var outcome = installer.Install(fixture.Bytes, fixture.Context);
+            var outcome = await installer.InstallAsync(fixture.Bytes, fixture.Context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -181,7 +181,7 @@ public sealed class RestrictingDefinitionKindAdmissionTests
                 TestAuthorization.AllowGate(),
                 projector);
 
-            var outcome = installer.Install(bytes, fixture.Context);
+            var outcome = await installer.InstallAsync(bytes, fixture.Context);
 
             Assert.False(outcome.Installed);
             Assert.Equal([PackInstallCodes.RefusedUnknownContentKind], outcome.RefusalCodes);
@@ -194,7 +194,7 @@ public sealed class RestrictingDefinitionKindAdmissionTests
                 .Verify(System.Text.Encoding.UTF8.GetBytes("not json"), fixture.Context.TrustStore);
             Assert.Equal([PackVerificationCodes.Malformed], malformed.Details);
             Assert.Null(malformed.FailurePointer);
-            var notVerified = installer.Install(System.Text.Encoding.UTF8.GetBytes("not json"), fixture.Context);
+            var notVerified = await installer.InstallAsync(System.Text.Encoding.UTF8.GetBytes("not json"), fixture.Context);
             Assert.Equal([PackInstallCodes.RefusedNotVerified], notVerified.RefusalCodes);
             store.DidNotReceiveWithAnyArgs().Commit(default!);
             Assert.Equal(0, projector.ProjectCount);

@@ -7,7 +7,7 @@ dotnet run --project tooling/conformance/access-replacement -c Release -- /absol
 ```
 
 This updates the signed 1.1.4 replacement and 1.1.4-atomicity-probe.0 artifacts
-derived from the 1.1.3 seed, and the source/artifact hashes in their manifests.
+derived from the released 1.1.3 seed (`_shared/conformance/packs/access-replacement/access-administration-pack-1.1.3.export.json`, a byte copy of the shipped pack before T-1017 moved it to 1.1.6), and the source/artifact hashes in their manifests.
 The released 1.1.1 source and 1.1.2 artifacts remain immutable upgrade fixtures.
 Update the literal hash and issuer pins in `T433AccessReplacementProducerTests` after regeneration.
 The host tests compile the same generator source and require its output to equal the checked-in bytes.

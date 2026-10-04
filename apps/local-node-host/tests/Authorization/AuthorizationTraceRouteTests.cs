@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Contracts;
 using Harborline.Api.Foundation.Assets.Common;
@@ -19,6 +20,25 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 [Collection("Harborline process environment")]
 public sealed class AuthorizationTraceRouteTests
 {
+    [Fact]
+    public async Task Startup_and_cleanup_failures_preserve_both_causes()
+    {
+        var startup = new InvalidOperationException("startup failed");
+        var cleanup = new IOException("cleanup failed");
+        var failure = await Assert.ThrowsAsync<AggregateException>(() =>
+            CleanupAfterFailureAsync(startup, () => ValueTask.FromException(cleanup)));
+        Assert.Equal([startup, cleanup], failure.InnerExceptions);
+    }
+
+    private static async Task CleanupAfterFailureAsync(Exception primary, Func<ValueTask> cleanup)
+    {
+        try { await cleanup(); }
+        catch (Exception cleanupFailure)
+        {
+            throw new AggregateException("Host startup failed and its cleanup also failed.", primary, cleanupFailure);
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -292,7 +312,11 @@ public sealed class AuthorizationTraceRouteTests
                 await host.RestartAsync();
                 return host;
             }
-            catch { await host.DisposeAsync(); throw; }
+            catch (Exception primary)
+            {
+                await CleanupAfterFailureAsync(primary, host.DisposeAsync);
+                throw;
+            }
         }
         private async Task StartAsync()
         {
@@ -347,6 +371,10 @@ public sealed class AuthorizationTraceRouteTests
             Client?.Dispose();
             await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
             foreach (var (key, value) in environment) Environment.SetEnvironmentVariable(key, value);
+            // Host disposal releases contexts, but its default pooled SQLite handles survive that disposal.
+            // Release only this fixture's exact install-store pool, leaving every other test's pools alone.
+            using var ownedPool = new SqliteConnection($"Data Source={Path.Combine(directory, "local-node.db")};");
+            SqliteConnection.ClearPool(ownedPool);
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }

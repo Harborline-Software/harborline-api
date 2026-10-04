@@ -62,6 +62,7 @@ public sealed class SpatialFramePiiSealingTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IHarborlineEntityModule, HomeEpochEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, SpatialFrameEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, Harborline.Api.LocalNodeHost.Data.Audit.AuditOutboxEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
         _provider = services.BuildServiceProvider();
         _factory = _provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -69,6 +70,7 @@ public sealed class SpatialFramePiiSealingTests : IAsyncLifetime
         {
             await ctx.Database.EnsureCreatedAsync();
         }
+        await SpatialAuditOutboxSchema.ApplyAsync(connectionString);
 
         var rootSeed = new byte[32];
         Random.Shared.NextBytes(rootSeed);

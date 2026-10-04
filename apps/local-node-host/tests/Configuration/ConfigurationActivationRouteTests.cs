@@ -167,13 +167,22 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         var candidate = await ActivateCrashingPublicationAsync("intent-daemon", "acme.ext");
         Assert.Empty(await EvidenceAsync());
 
-        using var daemon = new ConfigurationEvidenceDrainDaemon(_evidence, TimeProvider.System, NullLogger<ConfigurationEvidenceDrainDaemon>.Instance);
+        // Observe the committed mark on the daemon's own context to avoid potential contention
+        // from keyed rollback-journal polling readers. The 30-second bound is shorter than its
+        // retry interval; keep that bound without competing database reads.
+        var observed = new PublicationObservingFactory(_db.Factory, "intent-daemon");
+        using var evidence = new ConfigurationEvidenceOutbox(observed, _trail, _trail,
+            new Ed25519Signer(KeyPair.Generate()), new FixedTime(Frozen), NullLogger<ConfigurationEvidenceOutbox>.Instance);
+        using var daemon = new ConfigurationEvidenceDrainDaemon(evidence, TimeProvider.System, NullLogger<ConfigurationEvidenceDrainDaemon>.Instance);
         await daemon.StartAsync(CancellationToken.None);
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        // Each poll opens a keyed connection to the rollback-journal test store and holds its shared lock, so a 20 ms
-        // poll starved the daemon's mark commit under a loaded runner (the entry was on the trail, the mark never landed).
-        while (Outbox().Single().PublishedAt is null && DateTime.UtcNow < deadline) await Task.Delay(250);
-        await daemon.StopAsync(CancellationToken.None);
+        try
+        {
+            await observed.Published.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            await daemon.StopAsync(CancellationToken.None);
+        }
 
         Assert.NotNull(Outbox().Single().PublishedAt);
         var delivered = Assert.Single(await EvidenceAsync());
@@ -538,6 +547,25 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         await foreach (var record in _trail.QueryAsync(new AuditQuery(_tenant, KernelAuditPackInstallAudit.PackInstallEventType)))
             entries.Add(record);
         return entries;
+    }
+
+    /// <summary>Signals only after SaveChanges commits the owed row's publication mark.</summary>
+    private sealed class PublicationObservingFactory(IDbContextFactory<NodeLocalPacksDbContext> inner, string intentId)
+        : IDbContextFactory<NodeLocalPacksDbContext>
+    {
+        public TaskCompletionSource Published { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public NodeLocalPacksDbContext CreateDbContext()
+        {
+            var context = inner.CreateDbContext();
+            context.SavedChanges += (_, _) =>
+            {
+                if (context.ChangeTracker.Entries<ConfigurationEvidenceOutboxRow>()
+                    .Any(entry => entry.Entity.IntentId == intentId && entry.Entity.PublishedAt is not null))
+                    Published.TrySetResult();
+            };
+            return context;
+        }
     }
 
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider

@@ -116,7 +116,7 @@ public sealed class FormsRouteTimeoutTests : IAsyncLifetime
         public Task<EntityId> SaveAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
             => throw new RuleEngineTimeoutException();
 
-        public Task<FormSubmitReceipt> SaveWithReceiptAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, AuthorizationWriteContext authority, CancellationToken ct, string? idempotencyKey = null, string? caseRef = null)
+        public Task<FormSubmitReceipt> SaveWithReceiptAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, AuthorizationWriteContext authority, CancellationToken ct, string? idempotencyKey = null, string? caseRef = null, Func<CancellationToken, Task>? newSubmissionPreflight = null)
             => throw new RuleEngineTimeoutException();
     }
 

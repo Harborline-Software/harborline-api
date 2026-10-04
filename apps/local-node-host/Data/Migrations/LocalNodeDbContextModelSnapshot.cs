@@ -15,7 +15,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260925011629_AddLayoutDenialOutbox";
+    public override string LastMigrationId => "20261003000000_AddFormSubmitProjectionDefinition";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -2369,6 +2369,49 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("node_audit_signature_epochs", (string)null);
             });
 
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Banking.BankAccountCreateKeyRow", b =>
+            {
+                b.Property<string>("TenantId")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Principal")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Key")
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("AccountId")
+                    .IsRequired()
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("CreatedAt")
+                    .IsRequired()
+                    .HasMaxLength(33)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ExpiresAt")
+                    .IsRequired()
+                    .HasMaxLength(33)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Fingerprint")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Response")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.HasKey("TenantId", "Principal", "Key");
+
+                b.ToTable("bank_account_create_keys", (string)null);
+            });
+
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow", b =>
             {
                 b.Property<long>("Sequence")
@@ -2404,6 +2447,9 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("LastError")
                     .HasMaxLength(4096)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ProjectionDefinitionJson")
                     .HasColumnType("TEXT");
 
                 b.Property<string>("State")
@@ -2540,6 +2586,101 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .HasDatabaseName("ix_layout_denial_outbox_state");
 
                 b.ToTable("layout_denial_outbox", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Search.AuditOutboxRow", b =>
+            {
+                b.Property<string>("AuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("audit_id");
+
+                b.Property<string>("Act")
+                    .HasMaxLength(1024)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("act");
+
+                b.Property<string>("Actor")
+                    .HasMaxLength(512)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("actor");
+
+                b.Property<int>("Attempts")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("attempts");
+
+                b.Property<string>("AuthoritySnapshotJson")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("authority_snapshot_json");
+
+                b.Property<string>("BodyJson")
+                    .IsRequired()
+                    .HasColumnType("TEXT")
+                    .HasColumnName("body_json");
+
+                b.Property<string>("EventType")
+                    .IsRequired()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("event_type");
+
+                b.Property<string>("LastError")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("last_error");
+
+                b.Property<string>("Nonce")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("nonce");
+
+                b.Property<DateTimeOffset>("OccurredAt")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("occurred_at");
+
+                b.Property<long?>("PublishedAtUnixMs")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("published_at_unix_ms");
+
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
+
+                b.Property<string>("SignedPayloadJson")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("signed_payload_json");
+
+                b.Property<string>("TargetId")
+                    .HasMaxLength(512)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("target_id");
+
+                b.Property<string>("TargetKind")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("target_kind");
+
+                b.Property<string>("TargetScope")
+                    .HasMaxLength(1024)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("target_scope");
+
+                b.Property<string>("TenantId")
+                    .IsRequired()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("tenant_id");
+
+                b.HasKey("AuditId");
+
+                b.HasIndex("PublishedAtUnixMs")
+                    .HasDatabaseName("ix_search_audit_outbox_published");
+
+                b.ToTable("search_audit_outbox", t =>
+                    {
+                        t.ExcludeFromMigrations();
+                    });
             });
 #pragma warning restore 612, 618
     }

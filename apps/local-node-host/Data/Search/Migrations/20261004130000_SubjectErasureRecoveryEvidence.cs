@@ -8,7 +8,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Search.Migrations;
 /// T-1048 (DES-0029 ck-6): the approval evidence a subject erasure's recovery pass needs, its completion instant,
 /// and its recovery backoff. A row marked before this migration has no evidence and stays retry-completed.
 /// </summary>
-public partial class _20261002190000_SubjectErasureRecoveryEvidence : Migration
+public partial class _20261004130000_SubjectErasureRecoveryEvidence : Migration
 {
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)

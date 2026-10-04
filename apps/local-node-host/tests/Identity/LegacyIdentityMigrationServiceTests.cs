@@ -645,6 +645,122 @@ public sealed class LegacyIdentityMigrationServiceTests
             .ToArrayAsync());
     }
 
+    [Fact]
+    public async Task Rename_ProcessStopAfterSourceCommit_ReopenedServiceRollsTheAuditForwardOnce()
+    {
+        // T-1048: the process stops after the source rename commits and before the audit transaction opens.
+        // A fresh service over the same two database files resumes from the committed checkpoint.
+        await using var database = await TestDatabase.CreateWithFounderAsync();
+        await using var source = await SqliteLegacyStore.CreateAsync(Snapshot(
+            "tenant-a",
+            21,
+            "21",
+            Row("account-a", "duplicate@example.test", 7, credentialed: true),
+            Row("account-b", "DUPLICATE@example.test", 11, credentialed: true)));
+        var command = new RenameLegacyWebAccountCommand(
+            new LegacyWebAccountCompositeKey(
+                LegacyWebIdentityInventoryReader.DatabaseSourceKind,
+                "tenant-a",
+                "account-a"),
+            "renamed@example.test",
+            "repair-process-stop",
+            7);
+        var crashing = new StopAfterRenameStore(source);
+        await Assert.ThrowsAsync<SimulatedInterruptionException>(() => new LegacyWebAccountRenameService(
+            new LegacyWebIdentityInventoryReader(crashing, new NodeWebClientOptions()),
+            crashing,
+            database.Factory,
+            new FakeRecoveryAuthority(database.RecoveryEvidence),
+            database.TimeProvider).ExecuteAsync(command));
+        await using (var crashed = new IdentityContextFactory(database.Path).CreateDbContext())
+        {
+            Assert.Empty(await crashed.AuditEnvelopes.AsNoTracking()
+                .Where(row => row.EventType == "LegacyWebAccountRenamed")
+                .ToArrayAsync());
+        }
+
+        LegacyWebAccountRenameService Restarted()
+        {
+            var reopened = source.Reopen();
+            return new LegacyWebAccountRenameService(
+                new LegacyWebIdentityInventoryReader(reopened, new NodeWebClientOptions()),
+                reopened,
+                new IdentityContextFactory(database.Path),
+                new FakeRecoveryAuthority(database.RecoveryEvidence),
+                database.TimeProvider);
+        }
+
+        var recovered = await Restarted().ExecuteAsync(command);
+        var secondRecovery = await Restarted().ExecuteAsync(command);
+
+        Assert.Equal(RenameLegacyWebAccountStatus.Renamed, recovered.Status);
+        Assert.Equal(RenameLegacyWebAccountStatus.IdempotentReplay, secondRecovery.Status);
+        await using var context = new IdentityContextFactory(database.Path).CreateDbContext();
+        var envelope = Assert.Single(await context.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "LegacyWebAccountRenamed")
+            .ToArrayAsync());
+        Assert.Equal("os-recovery-test", envelope.ActorId);
+        Assert.Equal(FixedNow, envelope.OccurredAtUtc);
+        Assert.True(InstallationAuditIntegrity.HasValidEnvelopeHash(envelope));
+        var collision = await context.MigrationCollisions.AsNoTracking().SingleAsync();
+        Assert.Equal(InstallationIdentityCollisionStatus.Renamed, collision.Status);
+        Assert.Equal(envelope.CorrelationId, collision.AuditCorrelationId);
+    }
+
+    [Fact]
+    public async Task Rename_RefusedAtSourceCommit_WritesNoAuditEnvelope()
+    {
+        await using var database = await TestDatabase.CreateWithFounderAsync();
+        var store = new FakeLegacyStore(Snapshot(
+            "tenant-a",
+            8,
+            "8",
+            Row("account-a", "duplicate@example.test", 4, credentialed: true),
+            Row("account-b", "DUPLICATE@example.test", 5, credentialed: true)));
+        store.ForceNextRenameStatus(LegacyWebIdentitySourceRenameStatus.SourceVersionStale);
+        var service = new LegacyWebAccountRenameService(
+            new LegacyWebIdentityInventoryReader(store, new NodeWebClientOptions()),
+            store,
+            database.Factory,
+            new FakeRecoveryAuthority(database.RecoveryEvidence),
+            database.TimeProvider);
+
+        var refused = await service.ExecuteAsync(new RenameLegacyWebAccountCommand(
+            new LegacyWebAccountCompositeKey(
+                LegacyWebIdentityInventoryReader.DatabaseSourceKind,
+                "tenant-a",
+                "account-a"),
+            "claimed@example.test",
+            "refused-at-source-commit",
+            4));
+
+        Assert.Equal(RenameLegacyWebAccountStatus.SourceVersionStale, refused.Status);
+        await using var context = database.Factory.CreateDbContext();
+        Assert.Empty(await context.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "LegacyWebAccountRenamed")
+            .ToArrayAsync());
+        var collision = await context.MigrationCollisions.AsNoTracking().SingleAsync();
+        Assert.Null(collision.AuditCorrelationId);
+        Assert.Null(collision.RepairIdempotencyKeyDigest);
+    }
+
+    private sealed class StopAfterRenameStore(IDbBackedLegacyWebIdentityStore inner) : IDbBackedLegacyWebIdentityStore
+    {
+        public Task<IReadOnlyList<DbBackedLegacyWebIdentitySnapshot>> ReadSnapshotsAsync(
+            CancellationToken cancellationToken) => inner.ReadSnapshotsAsync(cancellationToken);
+
+        public async Task<LegacyWebIdentitySourceRenameResult> RenameAsync(
+            LegacyWebAccountCompositeKey key,
+            string normalizedUsername,
+            long expectedOwnerVersion,
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            await inner.RenameAsync(key, normalizedUsername, expectedOwnerVersion, idempotencyKey, cancellationToken);
+            throw new SimulatedInterruptionException();
+        }
+    }
+
     private static DbBackedLegacyWebIdentitySnapshot Snapshot(
         string partition,
         long version,
@@ -1088,9 +1204,12 @@ public sealed class LegacyIdentityMigrationServiceTests
                 LegacyWebIdentitySourceRenameStatus.Renamed);
         }
 
+        /// <summary>A restart: a new store object over the same file. Only the original is disposed.</summary>
+        internal SqliteLegacyStore Reopen() => new(_path);
+
         public ValueTask DisposeAsync()
         {
-            SqliteConnection.ClearAllPools();
+            // Every connection owned by this helper has Pooling=false and is disposed by its caller.
             if (File.Exists(_path))
             {
                 File.Delete(_path);

@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Search.Migrations;
 
 [DbContext(typeof(NodeLocalSearchDbContext))]
-[Migration("20261002190000_SubjectErasureRecoveryEvidence")]
-partial class _20261002190000_SubjectErasureRecoveryEvidence
+[Migration("20261004130000_SubjectErasureRecoveryEvidence")]
+partial class _20261004130000_SubjectErasureRecoveryEvidence
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -392,6 +392,11 @@ partial class _20261002190000_SubjectErasureRecoveryEvidence
                 b.Property<long?>("PublishedAtUnixMs")
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
+
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
 
                 b.Property<string>("SignedPayloadJson")
                     .HasColumnType("TEXT")

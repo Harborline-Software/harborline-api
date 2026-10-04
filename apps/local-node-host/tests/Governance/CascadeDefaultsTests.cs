@@ -100,7 +100,7 @@ public sealed class CascadeDefaultsTests
             new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
         var exported = await exporter.ExportAsync(request, new Ed25519Signer(keys));
         Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
-        var installed = installer.Install(exported.FileBytes!, context);
+        var installed = await installer.InstallAsync(exported.FileBytes!, context);
         Assert.True(installed.Installed, string.Join(";", installed.RefusalCodes));
         Assert.Equal(canonical.ContentAddress, Assert.Single(store.GetVersion(Tenant, request.Key, request.Version)!.SeedItems,
             item => item.Kind == PackContentKind.CascadeDefaults).ContentAddress);
@@ -226,10 +226,10 @@ public sealed class CascadeDefaultsTests
             Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
             return exported.FileBytes!;
         }
-        Assert.True(installer.Install(await Export("1.0.0", Body), context).Installed);
+        Assert.True((await installer.InstallAsync(await Export("1.0.0", Body), context)).Installed);
         var prior = Assert.Single(store.ListInstalled(Tenant));
         var watermark = store.GetWatermark(Tenant, Package);
-        var refused = installer.Install(await Export("1.1.0", Body.Replace(before, after, StringComparison.Ordinal)), context);
+        var refused = await installer.InstallAsync(await Export("1.1.0", Body.Replace(before, after, StringComparison.Ordinal)), context);
         Assert.False(refused.Installed);
         Assert.Equal(code, Assert.Single(refused.Preview.AdmissionRefusals).Code);
         Assert.StartsWith("/contents/0", Assert.Single(refused.Preview.Refusals).Pointer);
@@ -300,9 +300,9 @@ public sealed class CascadeDefaultsTests
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
             TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
         var decision = TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate);
-        Assert.False(installer.Narrow(context, Package, "defaults", JsonNode.Parse("""{"schemaVersion":null}""")!, decision).Recorded);
+        Assert.False((await installer.NarrowAsync(context, Package, "defaults", JsonNode.Parse("""{"schemaVersion":null}""")!, decision)).Recorded);
         Assert.Empty(fixture.Packs.GetOverrides(Tenant, Package));
-        Assert.True(installer.Narrow(context, Package, "defaults", patch, decision).Recorded);
+        Assert.True((await installer.NarrowAsync(context, Package, "defaults", patch, decision)).Recorded);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Equal(2, fixture.Defaults.Resolve(Tenant, Package, "contact", "title").Values.Masking!.RevealLast);
         Assert.True(Assert.Single(fixture.Defaults.List(Tenant)).Source.TenantOverride);
@@ -394,7 +394,7 @@ public sealed class CascadeDefaultsTests
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]
-    public void Narrowing_cannot_remove_effective_publisher_restrictions(int removed)
+    public async Task Narrowing_cannot_remove_effective_publisher_restrictions(int removed)
     {
         const string restrictions = """
             {"schemaVersion":1,"title":"Restrictions","defaults":[
@@ -413,7 +413,7 @@ public sealed class CascadeDefaultsTests
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
             TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
         var before = Assert.Single(fixture.Packs.ListInstalled(Tenant));
-        var refusal = installer.Narrow(context, Package, "defaults", new JsonObject { ["defaults"] = declarations },
+        var refusal = await installer.NarrowAsync(context, Package, "defaults", new JsonObject { ["defaults"] = declarations },
             TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate));
         Assert.False(refusal.Recorded);
         Assert.Equal("pack.defaults.relax_forbidden", refusal.RefusalCode);
@@ -465,8 +465,8 @@ public sealed class CascadeDefaultsTests
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
             TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
-        Assert.True(installer.Narrow(context, Package, "field-defaults", JsonNode.Parse("""{"defaults":[]}""")!,
-            TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate)).Recorded);
+        Assert.True((await installer.NarrowAsync(context, Package, "field-defaults", JsonNode.Parse("""{"defaults":[]}""")!,
+            TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate))).Recorded);
         Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
         Assert.Equal(0, fixture.Defaults.Resolve(Tenant, Package, "contact", "title").Values.Masking!.RevealLast);
     }

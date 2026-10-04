@@ -200,6 +200,142 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedDeferralCommit_LaterFetchedErasureCompletes_AndFailedEvidenceSurvivesRestart(bool foreignCancellation)
+    {
+        var clock = new MutableClock();
+        var propagator = new ScriptedPropagator { FailAll = true };
+        var trail = new AuthorityCapturingAuditTrail(new NodeAuditTrailStore(_store.Factory));
+        var signer = new Ed25519Signer(KeyPair.Generate());
+        var service = Service(_store, new NodeEfSubjectTombstoneStore(_store.Factory), trail, signer, propagator, clock);
+        var newer = new SubjectId("subject-newer-deferral-failure");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EraseAsync(Request(Alice)));
+        clock.At = Now.AddSeconds(1);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EraseAsync(Request(newer)));
+        propagator.FailAll = false;
+        if (foreignCancellation) propagator.Canceling.Add(Alice.Value);
+        else propagator.Failing.Add(Alice.Value);
+        clock.At = Now.AddMinutes(1);
+        await ExecuteAsync("CREATE TRIGGER t1048_defer BEFORE UPDATE OF recovery_attempts ON search_subject_erasures WHEN OLD.subject_id = 'subject-alice' BEGIN SELECT RAISE(ABORT, 't1048 deferral commit'); END;");
+
+        Assert.Equal(1, await service.RecoverInterruptedAsync(2));
+        var failed = await RowAsync(Alice);
+        Assert.Equal("[\"captain\",\"officer\"]", failed.ApprovingActorsJson);
+        Assert.Equal("erasure-ticket", failed.LegalBasis);
+        Assert.Equal(Now.ToUnixTimeMilliseconds(), failed.ApprovedAtUnixMs);
+        Assert.Null(failed.CompletedAtUnixMs);
+        Assert.Equal(0, failed.RecoveryAttempts);
+        Assert.Null(failed.NextRecoveryAtUnixMs);
+        await AssertEvidenceClearedAsync(newer);
+        var audit = Assert.Single(await ErasedAuditsAsync(trail));
+        Assert.Equal(Now.AddSeconds(1), audit.OccurredAt);
+        Assert.Equal("SubjectErased", audit.EventType.Value);
+        Assert.Equal("14f86897d1a58c76cdc6bcbefb82eb550e6a8b58b43c1ff60f632147234edb4a", audit.Payload.Payload.Body["pseudonym"]);
+        Assert.Equal(new[] { "captain", "officer" }, Assert.IsType<string[]>(audit.Payload.Payload.Body["approving_actors"]));
+        Assert.Equal("erasure-ticket", audit.Payload.Payload.Body["legal_basis"]);
+
+        await ExecuteAsync("DROP TRIGGER t1048_defer;");
+        await using var restarted = SearchTestStore.Reopen(_store);
+        var restartedTrail = new AuthorityCapturingAuditTrail(new NodeAuditTrailStore(restarted.Factory));
+        var restartedService = Service(restarted, new NodeEfSubjectTombstoneStore(restarted.Factory), restartedTrail,
+            signer, new ScriptedPropagator(), clock);
+        Assert.Equal(1, await restartedService.RecoverInterruptedAsync(2));
+        Assert.Equal(0, await restartedService.RecoverInterruptedAsync(2));
+        using var outbox = new NodeAuditOutbox(restarted.Factory, restartedTrail, restartedTrail, signer,
+            TimeProvider.System, NullLogger<NodeAuditOutbox>.Instance);
+        await outbox.DrainAsync();
+        await outbox.DrainAsync();
+        await AssertEvidenceClearedAsync(Alice);
+        var audits = await ErasedAuditsAsync(restartedTrail);
+        Assert.Equal(2, audits.Count);
+        Assert.Single(audits, item => Equals(item.Payload.Payload.Body["pseudonym"], "7d75714985fb847758daa05d46ba162ddbc461eb60d784dd80bc0353b1dfb987"));
+        Assert.Single(audits, item => Equals(item.Payload.Payload.Body["pseudonym"], "14f86897d1a58c76cdc6bcbefb82eb550e6a8b58b43c1ff60f632147234edb4a"));
+        Assert.Equal(2, await CountAsync("search_audit_outbox"));
+    }
+
+    [Fact]
+    public async Task RecoveryEvidenceMigration_UpgradesMainPredecessorWithoutInventingLegacyApproval()
+    {
+        await using var historical = await SearchTestStore.CreateAtMigrationAsync("20261002190000_AuditOutboxPredecessor");
+        await using var db = historical.CreateContext();
+        await db.Database.ExecuteSqlRawAsync("INSERT INTO search_subject_erasures (tenant_id, subject_id, erased_at_unix_ms) VALUES ('legacy-tenant', 'legacy-subject', 1767225600000);");
+        await db.Database.MigrateAsync();
+        Assert.False(db.Database.HasPendingModelChanges());
+        Assert.Contains("20261002190000_AuditOutboxPredecessor", await db.Database.GetAppliedMigrationsAsync());
+        Assert.Contains("20261004130000_SubjectErasureRecoveryEvidence", await db.Database.GetAppliedMigrationsAsync());
+        var row = await db.SubjectErasures.AsNoTracking().SingleAsync();
+        Assert.Equal("legacy-tenant", row.TenantId);
+        Assert.Equal("legacy-subject", row.SubjectId);
+        Assert.Equal(1767225600000, row.ErasedAtUnixMs);
+        Assert.Null(row.ApprovingActorsJson);
+        Assert.Null(row.LegalBasis);
+        Assert.Null(row.ApprovedAtUnixMs);
+        Assert.Null(row.CompletedAtUnixMs);
+        Assert.Null(row.NextRecoveryAtUnixMs);
+        Assert.Equal(0, row.RecoveryAttempts);
+        Assert.Empty(await new NodeEfSubjectErasureRegistry(historical.Factory, TimeProvider.System).ListDueAsync(Now, 32));
+    }
+
+    [Fact]
+    public async Task RequestedCancellationDuringDeferral_PropagatesWithoutCompletingLaterRows()
+    {
+        var propagator = new ScriptedPropagator { FailAll = true };
+        var trail = new InMemoryAuditTrail();
+        var signer = new Ed25519Signer(KeyPair.Generate());
+        var clock = new MutableClock();
+        var seed = Service(_store, new NodeEfSubjectTombstoneStore(_store.Factory), trail, signer, propagator, clock);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => seed.EraseAsync(Request(Alice)));
+        var newer = new SubjectId("subject-newer-cancel-defer");
+        clock.At = Now.AddSeconds(1);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => seed.EraseAsync(Request(newer)));
+        propagator.FailAll = false;
+        propagator.Failing.Add(Alice.Value);
+        using var pass = new CancellationTokenSource();
+        var registry = new CancelOnDeferralRegistry(new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System), pass);
+        var service = new SubjectErasureService(registry, new NodeEfSubjectTombstoneStore(_store.Factory), trail, signer,
+            new NoopTenantKeyDestroyer(), clock, minimumWindow: TimeSpan.Zero, propagators: [propagator]);
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.RecoverInterruptedAsync(2, pass.Token));
+        Assert.Same(registry.Cancellation, exception);
+        Assert.Equal(pass.Token, exception.CancellationToken);
+        Assert.Equal(0, (await RowAsync(Alice)).RecoveryAttempts);
+        Assert.Null((await RowAsync(Alice)).NextRecoveryAtUnixMs);
+        Assert.Equal("erasure-ticket", (await RowAsync(Alice)).LegalBasis);
+        Assert.Null((await RowAsync(newer)).CompletedAtUnixMs);
+        Assert.Equal("erasure-ticket", (await RowAsync(newer)).LegalBasis);
+        Assert.Empty(await ErasedAuditsAsync(trail));
+        Assert.Equal(0, await CountAsync("search_audit_outbox"));
+    }
+
+    private sealed class CancelOnDeferralRegistry(ISubjectErasureRecoveryRegistry inner, CancellationTokenSource pass)
+        : ISubjectErasureRecoveryRegistry
+    {
+        public OperationCanceledException? Cancellation { get; private set; }
+
+        public ValueTask<bool> IsErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
+            => inner.IsErasedAsync(tenant, subject, ct);
+        public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
+            => inner.MarkErasedAsync(tenant, subject, ct);
+        public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct = default)
+            => inner.MarkErasedAsync(tenant, subject, evidence, ct);
+        public ValueTask<SubjectErasureEvidence?> FindEvidenceAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
+            => inner.FindEvidenceAsync(tenant, subject, ct);
+        public ValueTask<bool> IsCompletedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
+            => inner.IsCompletedAsync(tenant, subject, ct);
+        public ValueTask CompleteAsync(SubjectId subject, AuditRecord audit, CancellationToken ct = default)
+            => inner.CompleteAsync(subject, audit, ct);
+        public ValueTask<IReadOnlyList<InterruptedSubjectErasure>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken ct = default)
+            => inner.ListDueAsync(now, limit, ct);
+        public async ValueTask DeferAsync(TenantId tenant, SubjectId subject, DateTimeOffset now, CancellationToken ct = default)
+        {
+            pass.Cancel();
+            try { await inner.DeferAsync(tenant, subject, now, ct); }
+            catch (OperationCanceledException exception) { Cancellation = exception; throw; }
+        }
+    }
+
     internal static SubjectErasureService Service(
         SearchTestStore store,
         ISubjectTombstoneStore tombstones,

@@ -6,6 +6,9 @@ using Harborline.Api.Blocks.Assets.Registry.Audit;
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Model.Spatial;
 using Harborline.Api.Blocks.Assets.Registry.Services.Spatial;
+using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Kernel.Audit;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Health;
 // NodePersistenceConflict narrows the layer-3 catch to UNIQUE/PK violations only.
@@ -25,10 +28,12 @@ namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 /// on the in-flight context, and the single <c>SaveChangesAsync</c> — all under the held write lock.
 /// </summary>
 /// <remarks>
-/// <para><b>The audit append is host-owned and post-commit ([A13]/[A11]):</b> the registry audit
-/// substrate is not transaction-enlistable on <see cref="LocalNodeDbContext"/>, so on BOTH D2-A6
-/// paths the append follows the commit decision — never precedes it — and an append failure is
-/// surfaced, not swallowed. Every op's <c>Detail</c> carries ONLY the identity triple.</para>
+/// <para><b>The durable audit commits with the write (T-1048, DES-0029 ck-6):</b> every commit (the mint,
+/// the layer-2 quarantine, the layer-3 quarantine) stages its signed kernel audit entry through
+/// <see cref="NodeAuditOutbox.StageSignedAsync"/> on the context that commits it, so the two commit together
+/// and the outbox drain delivers the entry after a crash. The registry journal append that follows the commit
+/// ([A13]/[A11]) is the in-process registry view; it is not transaction-enlistable and is not the durable
+/// record. Every entry carries ONLY the identity triple and the minting device.</para>
 /// <para><b>Quarantine survives the rollback on both paths (0168 D2-A6):</b> the layer-2 conflict
 /// stages ONLY the quarantine row and COMMITS; the layer-3 PK backstop writes the quarantine in a
 /// SECOND committed transaction after the rollback. The typed rejection is raised AFTER
@@ -43,6 +48,7 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
     private readonly IRegistryAuditLog _audit;
     private readonly SpatialFramePiiFieldSealer _sealer;
     private readonly string _deviceId;
+    private readonly IOperationSigner _auditSigner;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -64,6 +70,7 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
         _sealer = sealer ?? throw new ArgumentNullException(nameof(sealer));
         ArgumentNullException.ThrowIfNull(nodeSigner);
         _deviceId = nodeSigner.NodePublicKey;
+        _auditSigner = nodeSigner.Signer;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
@@ -149,12 +156,15 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
                     // CP-4: the two governed fields are sealed at this storage boundary — the
                     // domain object (and the already-signed contentHash preimage) stay cleartext.
                     ctx.Add(await ToRowSealedAsync(staging.Descriptor, ct).ConfigureAwait(false));
+                    await StageAuditAsync(ctx, MintedEvent, staging.Descriptor.TenantId, staging.Descriptor.Anchor.Value,
+                        staging.Descriptor.FrameCode, staging.Descriptor.FrameEpoch, ct).ConfigureAwait(false);
                 }
                 else
                 {
                     // Layer-2 conflict: stage ONLY the quarantine row — the descriptor is never
                     // persisted; RunAsync COMMITS this artifact (0168 D2-A6). Same CP-4 cell.
                     ctx.Add(await ToRowSealedAsync(staging.Quarantine!, ct).ConfigureAwait(false));
+                    await StageConflictAuditAsync(ctx, staging.Quarantine!, ct).ConfigureAwait(false);
                 }
 
                 await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -174,6 +184,7 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
             await using (var quarantineCtx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
             {
                 quarantineCtx.Add(await ToRowSealedAsync(quarantine, ct).ConfigureAwait(false));
+                await StageConflictAuditAsync(quarantineCtx, quarantine, ct).ConfigureAwait(false);
                 await quarantineCtx.SaveChangesAsync(ct).ConfigureAwait(false);
             }
 
@@ -269,6 +280,28 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
             actorRef: _deviceId,
             // Identity triple ONLY — never originDescription, never georeference ordinates ([A11]).
             detail: TripleDetail(quarantine.Anchor.Value, quarantine.FrameCode, quarantine.AttemptedEpoch));
+
+    private static readonly AuditEventType MintedEvent = new("SpatialFrameDescriptorMinted");
+    private static readonly AuditEventType ConflictEvent = new("SpatialFrameDescriptorConflictDetected");
+
+    private Task StageConflictAuditAsync(DbContext write, SpatialFrameQuarantineRecord quarantine, CancellationToken ct) =>
+        StageAuditAsync(write, ConflictEvent, quarantine.TenantId, quarantine.Anchor.Value, quarantine.FrameCode,
+            quarantine.AttemptedEpoch, ct);
+
+    // Stages the signed entry on the context whose one save commits the row it records; nothing is saved here.
+    private async Task StageAuditAsync(
+        DbContext write, AuditEventType eventType, TenantId tenant, string anchorId, string frameCode, long frameEpoch,
+        CancellationToken ct) =>
+        await NodeAuditOutbox.StageSignedAsync(
+            write, _auditSigner, tenant, eventType, _clock.GetUtcNow(),
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["anchor"] = anchorId,
+                ["frameCode"] = frameCode,
+                ["frameEpoch"] = frameEpoch,
+                ["actor"] = _deviceId,
+            },
+            ct: ct).ConfigureAwait(false);
 
     private static string Subject(string anchorId, string frameCode) =>
         $"spatial-frame:{anchorId}:{frameCode}";

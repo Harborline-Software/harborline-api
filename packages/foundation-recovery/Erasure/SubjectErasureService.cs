@@ -188,9 +188,15 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
             // one failing erasure must not stall or end the pass.
             catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                // Never abandoned: the evidence stays, and the row is retried once its backoff elapses, so a row
-                // that keeps failing does not hold back newer rows.
-                await _recovery.DeferAsync(due.Tenant, due.Subject, now, ct).ConfigureAwait(false);
+                try
+                {
+                    await _recovery.DeferAsync(due.Tenant, due.Subject, now, ct).ConfigureAwait(false);
+                }
+                catch (Exception deferralException) when (deferralException is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    // A failed backoff commit leaves the original evidence owed. Continue the fetched batch;
+                    // the row remains due for a later pass. The pass's own cancellation still propagates.
+                }
             }
         }
 

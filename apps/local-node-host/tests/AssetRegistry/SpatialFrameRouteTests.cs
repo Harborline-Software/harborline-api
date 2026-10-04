@@ -102,6 +102,7 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
                 || _resolver.Holds(permission)));
         outer.AddSingleton<IHarborlineEntityModule, HomeEpochEntityModule>();
         outer.AddSingleton<IHarborlineEntityModule, SpatialFrameEntityModule>();
+        outer.AddSingleton<IHarborlineEntityModule, Harborline.Api.LocalNodeHost.Data.Audit.AuditOutboxEntityModule>();
         outer.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddNodeFinancialPosting();
@@ -110,6 +111,7 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
         _factory = _outer.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
         await using (var ctx = await _factory.CreateDbContextAsync())
             await ctx.Database.EnsureCreatedAsync();
+        await SpatialAuditOutboxSchema.ApplyAsync(connectionString);
 
         var rootSeed = new byte[32];
         Random.Shared.NextBytes(rootSeed);
