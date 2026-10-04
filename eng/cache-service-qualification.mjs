@@ -1,7 +1,7 @@
 // Test-only cache v2 protocol controls. No package caches, secrets, or release outputs.
 // Request schema: actions/toolkit packages/cache/src/generated/results/{api,entities}/v1.
 import {createHash, randomBytes} from 'node:crypto'
-import {appendFileSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {appendFileSync, mkdirSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 
 class QualificationFailure extends Error {}
@@ -12,7 +12,13 @@ const altered = 'Harborline synthetic candidate fixture v1\n'
 const version = createHash('sha256').update('api356-synthetic-cache-v1-linux-x64').digest('hex')
 const namespacePattern = /^api356-synthetic-[1-9][0-9]{0,19}-[a-f0-9]{32}$/
 
-export function qualificationContext(env, event) {
+export function validateSyntheticNamespace(namespace) {
+  if (typeof namespace !== 'string' || !namespacePattern.test(namespace))
+    throw new QualificationFailure('disposable synthetic namespace required')
+  return namespace
+}
+
+export function qualificationContext(env) {
   const mode = env.INPUT_MODE
   if (!['seed', 'read', 'attack', 'deny'].includes(mode) || env.GITHUB_REPOSITORY !== repository)
     throw new QualificationFailure('unsupported qualification context')
@@ -21,10 +27,8 @@ export function qualificationContext(env, event) {
   const pr = env.GITHUB_EVENT_NAME === 'pull_request' && /^refs\/pull\/[1-9][0-9]*\/merge$/.test(env.GITHUB_REF)
   if ((['seed', 'read'].includes(mode) && !main) || (['attack', 'deny'].includes(mode) && !pr))
     throw new QualificationFailure('qualification role does not match service namespace context')
-  const namespace = mode === 'seed' ? `api356-synthetic-${env.GITHUB_RUN_ID}-${randomBytes(16).toString('hex')}`
-    : mode === 'read' ? env.INPUT_NAMESPACE
-      : event.pull_request?.body?.match(/^Cache qualification namespace: (api356-synthetic-[0-9]+-[a-f0-9]+)$/m)?.[1]
-  if (!namespacePattern.test(namespace || '')) throw new QualificationFailure('disposable synthetic namespace required')
+  const namespace = validateSyntheticNamespace(mode === 'seed'
+    ? `api356-synthetic-${env.GITHUB_RUN_ID}-${randomBytes(16).toString('hex')}` : env.INPUT_NAMESPACE)
   return {mode, namespace, ref: env.GITHUB_REF}
 }
 
@@ -43,10 +47,28 @@ export function serviceClient(env, fetcher = fetch) {
       body: JSON.stringify(request)
     })
     const data = await response.json()
+    if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599
+      || typeof response.ok !== 'boolean' || response.ok !== (response.status >= 200 && response.status < 300)
+      || data === null || typeof data !== 'object' || Array.isArray(data)
+      || (Object.hasOwn(data, 'ok') && typeof data.ok !== 'boolean'))
+      throw new QualificationFailure('malformed cache service response')
+    const field = (snake, camel) => {
+      for (const name of [snake, camel]) if (Object.hasOwn(data, name) && typeof data[name] !== 'string')
+        throw new QualificationFailure('malformed cache service response')
+      if (Object.hasOwn(data, snake) && Object.hasOwn(data, camel) && data[snake] !== data[camel])
+        throw new QualificationFailure('conflicting cache service response aliases')
+      return data[snake] ?? data[camel]
+    }
+    const upload = field('signed_upload_url', 'signedUploadUrl')
+    const download = field('signed_download_url', 'signedDownloadUrl')
+    const matched = field('matched_key', 'matchedKey')
+    if (data.ok === true) {
+      if (!response.ok || (method === 'CreateCacheEntry' && !upload)
+        || (method === 'GetCacheEntryDownloadURL' && (!download || matched !== request.key)))
+        throw new QualificationFailure('incomplete or mismatched cache service success')
+    } else if (upload || download || matched) throw new QualificationFailure('cache service miss contains success fields')
     // Signed URLs remain private to the client, never included in evidence or errors.
-    return {status: response.status, ok: response.ok && data.ok === true,
-      upload: data.signed_upload_url ?? data.signedUploadUrl,
-      download: data.signed_download_url ?? data.signedDownloadUrl}
+    return {status: response.status, ok: response.ok && data.ok === true, upload, download}
   }
 }
 
@@ -97,7 +119,7 @@ export async function exercise(context, env, rpc, fetcher = fetch) {
     await write('shared', literal)
     await write('read-positive', literal)
   } else if (context.mode === 'read') {
-    if (await read(context.mode === 'deny' ? 'read-positive' : 'shared') !== literal) throw new QualificationFailure('main fixture changed or unavailable')
+    if (await read('shared') !== literal) throw new QualificationFailure('main fixture changed or unavailable')
     if (await read('pr-only') !== null || await read('override') !== null)
       throw new QualificationFailure('candidate entry visible to protected main')
   } else {
@@ -133,8 +155,7 @@ export async function exercise(context, env, rpc, fetcher = fetch) {
 if ((process.argv[1] || '').replaceAll('\\', '/').endsWith('/cache-service-qualification.mjs')) {
   try {
     const env = process.env
-    const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'))
-    const context = qualificationContext(env, event)
+    const context = qualificationContext(env)
     const result = await exercise(context, env, serviceClient(env))
     const directory = path.resolve('.claude/cache-service-qualification')
     mkdirSync(directory, {recursive: true})

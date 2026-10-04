@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import test from 'node:test'
 import {exercise, qualificationContext, serviceClient} from '../cache-service-qualification.mjs'
+import {probeWorkflow} from '../cache-service-probe.mjs'
 
 const namespace = 'api356-synthetic-123456-0123456789abcdef0123456789abcdef'
 const env = mode => ({INPUT_MODE: mode, INPUT_NAMESPACE: namespace, GITHUB_RUN_ID: '123456',
@@ -8,18 +10,35 @@ const env = mode => ({INPUT_MODE: mode, INPUT_NAMESPACE: namespace, GITHUB_RUN_I
   GITHUB_EVENT_NAME: ['seed', 'read'].includes(mode) ? 'workflow_dispatch' : 'pull_request',
   GITHUB_REF: ['seed', 'read'].includes(mode) ? 'refs/heads/main' : 'refs/pull/9/merge',
   GITHUB_WORKFLOW_REF: 'Harborline-Software/harborline-api/.github/workflows/cache-service-qualification.yml@refs/heads/main'})
-const event = {pull_request: {body: `Cache qualification namespace: ${namespace}`}}
 
 test('roles require real main or PR merge-ref context and disposable namespaces', () => {
-  assert.equal(qualificationContext(env('read'), {}).namespace, namespace)
-  assert.equal(qualificationContext(env('attack'), event).namespace, namespace)
-  assert.match(qualificationContext(env('seed'), {}).namespace, /^api356-synthetic-123456-[a-f0-9]{32}$/)
+  assert.equal(qualificationContext(env('read')).namespace, namespace)
+  assert.equal(qualificationContext(env('attack')).namespace, namespace)
+  assert.match(qualificationContext(env('seed')).namespace, /^api356-synthetic-123456-[a-f0-9]{32}$/)
   for (const change of [{GITHUB_REF: 'refs/heads/feature'}, {GITHUB_EVENT_NAME: 'pull_request_target'},
     {GITHUB_WORKFLOW_REF: 'attacker/workflow@refs/heads/main'}, {GITHUB_REPOSITORY: 'attacker/fork'},
     {INPUT_NAMESPACE: 'production-package-cache'}, {INPUT_NAMESPACE: `${namespace}\nforged=value`}])
-    assert.throws(() => qualificationContext({...env('read'), ...change}, {}))
-  assert.throws(() => qualificationContext({...env('attack'), GITHUB_REF: 'refs/heads/main'}, event))
-  assert.throws(() => qualificationContext(env('attack'), {pull_request: {body: 'namespace missing'}}))
+    assert.throws(() => qualificationContext({...env('read'), ...change}))
+  assert.throws(() => qualificationContext({...env('attack'), GITHUB_REF: 'refs/heads/main'}))
+  assert.throws(() => qualificationContext({...env('attack'), INPUT_NAMESPACE: ''},
+    {pull_request: {body: `Cache qualification namespace: ${namespace}`}}))
+})
+
+test('permanent workflow is main-dispatch only; disposable probe runs immutable main action without candidate code', () => {
+  const main = readFileSync(new URL('../../.github/workflows/cache-service-qualification.yml', import.meta.url), 'utf8')
+  assert.match(main, /^  workflow_dispatch:/m)
+  assert.doesNotMatch(main, /pull_request|github\.event\.pull_request\.body|mode: (attack|deny)/)
+  assert.equal((main.match(/ref: \$\{\{ github.workflow_sha \}\}/g) || []).length, 2)
+  const probe = probeWorkflow({trustedSha: 'a'.repeat(40), namespace})
+  assert.equal((probe.match(/uses: Harborline-Software\/harborline-api\/\.github\/actions\/cache-qualification@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/g) || []).length, 2)
+  assert.match(probe, /^  pull_request:/m)
+  assert.match(probe, /cache-mode: write/)
+  assert.match(probe, /cache-mode: read/)
+  assert.doesNotMatch(probe, /uses: actions\/checkout|uses: \.\/|\brun:|pull_request\.body/)
+  assert.doesNotMatch(probe, /permissions:\n\s+[^\n]*write/)
+  for (const change of [{trustedSha: 'main'}, {trustedSha: 'a'.repeat(39)}, {namespace: 'existing-package-cache'},
+    {trustedSha: 'a'.repeat(40) + '\n    run: unreviewed'}])
+    assert.throws(() => probeWorkflow({trustedSha: 'a'.repeat(40), namespace, ...change}))
 })
 
 function fixture({overrideMain = false, deniedStatus = 403} = {}) {
@@ -113,4 +132,39 @@ test('real protocol client bounds keys and methods and never returns token or re
   await assert.rejects(client('CreateCacheEntry', {...request, key: 'trusted-production-key'}), /outside synthetic/)
   await assert.rejects(client('DeleteCacheEntry', request), /outside synthetic/)
   assert.throws(() => serviceClient({ACTIONS_RESULTS_URL: 'https://attacker.example', ACTIONS_RUNTIME_TOKEN: 'x'}), /unavailable/)
+})
+
+async function mainReadResponse(missResponse) {
+  const client = serviceClient({ACTIONS_RESULTS_URL: 'https://results.actions.githubusercontent.com/',
+    ACTIONS_RUNTIME_TOKEN: 'synthetic-test-token'}, async (_url, options) => {
+    const request = JSON.parse(options.body)
+    const data = request.key.endsWith('-shared') ? {ok: true,
+      signed_download_url: 'https://fixture.blob.core.windows.net/original', matched_key: request.key} : missResponse
+    return {status: 200, ok: true, json: async () => data}
+  })
+  const fetcher = async () => ({ok: true, body: (async function* () {
+    yield Buffer.from('Harborline synthetic main fixture v1\n')
+  })()})
+  return exercise({mode: 'read', namespace}, env('read'), client, fetcher)
+}
+
+test('composed main read rejects malformed ok and response bodies instead of passing their lookups as misses', async () => {
+  for (const ok of ['true', 'false', 0, 1, null, {}, []])
+    await assert.rejects(mainReadResponse({ok}), /malformed cache service response/)
+  for (const data of [null, [], 'not a response', 0])
+    await assert.rejects(mainReadResponse(data), /malformed cache service response/)
+})
+
+test('composed main read preserves explicit false and omitted proto3 defaults as legitimate misses', async () => {
+  for (const data of [{ok: false}, {}, {signed_download_url: '', matched_key: ''},
+    {ok: false, signedDownloadUrl: '', matchedKey: ''}])
+    assert.equal((await mainReadResponse(data)).completed, true)
+})
+
+test('composed main read rejects conflicting, untyped or mismatched lookup success fields', async () => {
+  for (const data of [{ok: true}, {ok: true, signed_download_url: 123},
+    {ok: false, signed_download_url: 'https://fixture.blob.core.windows.net/changed'},
+    {ok: false, signed_download_url: '', signedDownloadUrl: 'different'},
+    {ok: true, signed_download_url: 'https://fixture.blob.core.windows.net/changed', matched_key: 'wrong-key'}])
+    await assert.rejects(mainReadResponse(data), /cache service/)
 })
