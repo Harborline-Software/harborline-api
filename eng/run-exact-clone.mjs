@@ -24,6 +24,7 @@ import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx,
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
+import {persistInputShadow} from './validation-inputs.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -110,10 +111,10 @@ const redactEvidence = text => {
 // by design because each carries permitted, name-pinned failures; gating on the exit code would
 // make this gate unpassable while the baselines are honest. For those steps the baseline
 // comparison below is the authority, and the exit code is recorded for the record only.
-const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
+const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
-  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile})
+  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile, diagnosticDirectory})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
   // Error messages, executable paths and spawn arguments can contain credentials.
   // Retain only bounded OS codes and numeric errno, plus the termination signal.
@@ -158,6 +159,9 @@ try {
   const artifacts = tracked.filter(file => /(^|\/)(node_modules|obj|bin)\//.test(file))
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
+  run('validation-reuse-contracts', process.execPath, ['--test',
+    'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
+    'eng/tests/validation-github-shadow.test.mjs'], clone)
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
@@ -274,7 +278,10 @@ try {
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--filter', 'Lane!=perf',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
-      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
+      // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
+      '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
@@ -563,6 +570,10 @@ try {
     recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), steps,
   }
 } finally {
+  // Observe the dependency/native closure while scratch still exists. Shadow data never
+  // authorizes skipping work and a collection failure cannot change the gate verdict.
+  persistInputShadow({apiRoot, clone, hostBaseline: BASELINES.host,
+    coverage: collectCoverage, quality: qualityEnabled})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
