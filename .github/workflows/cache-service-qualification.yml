@@ -1,0 +1,103 @@
+name: cache-service-qualification
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Seed a fresh synthetic namespace or check it from a fresh main reader
+        type: choice
+        options: [seed, read]
+        required: true
+      namespace:
+        description: Namespace returned by seed; only used by read
+        type: string
+        default: ''
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+permissions:
+  contents: read
+concurrency:
+  group: cache-service-qualification-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  seed:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'seed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: write-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/cache-qualification
+        with:
+          mode: seed
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-seed-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  read:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'read'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/cache-qualification
+        with:
+          mode: read
+          namespace: ${{ inputs.namespace }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-read-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  candidate:
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Deliberately request write. The service must still keep this token in its PR merge-ref namespace.
+    cache-mode: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/cache-qualification
+        with:
+          mode: attack
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-candidate-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  readonly:
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/cache-qualification
+        with:
+          mode: deny
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-denied-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
