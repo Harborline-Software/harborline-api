@@ -285,3 +285,21 @@ test('shared preflight cannot claim host-mode execution', () => {
 test('a completion failure propagates through the existing preflight CLI wrapper', () => {
   assert.throws(() => runVerificationPreflight({prerequisites: () => ({lane: 'host'}), focusedModes: () => { throw new Error('mode failed') }}), /mode failed/)
 })
+
+test('the owned durable-write architecture inventory retains mandatory OFF and ON', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'apps/local-node-host/tests/ArchTests/durable-write-classification.tsv'}])
+  assert.equal(plan.selection, 'focused')
+  assert.equal(plan.changes[0].kind, 'build-artifact')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).id, 'compiled-write-fences-v1')
+})
+
+for (const file of [
+  'apps/local-node-host/tests/ArchTests/another-inventory.tsv',
+  'apps/local-node-host/tests/Identity/durable-write-classification.tsv',
+  'docs/durable-write-classification.tsv',
+]) test(`unowned inventory stays unsupported: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
+})
