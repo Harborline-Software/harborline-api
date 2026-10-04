@@ -6,6 +6,7 @@ import {probeWorkflow} from '../cache-service-probe.mjs'
 
 const namespace = 'api356-synthetic-123456-0123456789abcdef0123456789abcdef'
 const env = mode => ({INPUT_MODE: mode, INPUT_NAMESPACE: namespace, GITHUB_RUN_ID: '123456',
+  ACTIONS_CACHE_MODE: ['read', 'deny'].includes(mode) ? 'read' : 'write',
   GITHUB_REPOSITORY: 'Harborline-Software/harborline-api', GITHUB_REPOSITORY_ID: '123',
   GITHUB_EVENT_NAME: ['seed', 'read'].includes(mode) ? 'workflow_dispatch' : 'pull_request',
   GITHUB_REF: ['seed', 'read'].includes(mode) ? 'refs/heads/main' : 'refs/pull/9/merge',
@@ -41,7 +42,7 @@ test('permanent workflow is main-dispatch only; disposable probe runs immutable 
     assert.throws(() => probeWorkflow({trustedSha: 'a'.repeat(40), namespace, ...change}))
 })
 
-function fixture({overrideMain = false, deniedStatus = 403} = {}) {
+function fixture({overrideMain = false, deniedStatus = 200} = {}) {
   const stores = new Map([['main', new Map()], ['pr', new Map()]])
   const pending = new Map()
   let sequence = 0
@@ -53,7 +54,7 @@ function fixture({overrideMain = false, deniedStatus = 403} = {}) {
       const id = String(++sequence); pending.set(id, {bytes})
       return {status: 200, ok: true, download: `https://fixture.blob.core.windows.net/${id}`}
     }
-    if (readOnly) return {status: deniedStatus, ok: false}
+    if (readOnly) return {status: deniedStatus, ok: false, writeDenied: true}
     if (method === 'CreateCacheEntry') {
       const id = String(++sequence); pending.set(id, {target, key: request.key})
       return {status: 200, ok: true, upload: `https://fixture.blob.core.windows.net/${id}`}
@@ -127,7 +128,7 @@ test('real protocol client bounds keys and methods and never returns token or re
     return f.client('main')(method, body)
   }, f.fetcher)
   const result = await client('CreateCacheEntry', request)
-  assert.deepEqual(result, {status: 403, ok: false, upload: undefined, download: undefined})
+  assert.deepEqual(result, {status: 403, ok: false, upload: undefined, download: undefined, writeDenied: false})
   assert.equal(requests[0].options.headers.Authorization, 'Bearer synthetic-test-token')
   await assert.rejects(client('CreateCacheEntry', {...request, key: 'trusted-production-key'}), /outside synthetic/)
   await assert.rejects(client('DeleteCacheEntry', request), /outside synthetic/)
@@ -167,4 +168,70 @@ test('composed main read rejects conflicting, untyped or mismatched lookup succe
     {ok: false, signed_download_url: '', signedDownloadUrl: 'different'},
     {ok: true, signed_download_url: 'https://fixture.blob.core.windows.net/changed', matched_key: 'wrong-key'}])
     await assert.rejects(mainReadResponse(data), /cache service/)
+})
+
+async function denialResponse({data = {ok: false, message: 'cache write denied: synthetic private detail'},
+  status = 200, before = false, after = false, positive = true, throws = false, mode = 'read'} = {}) {
+  let attempted = false
+  const requests = []
+  const client = serviceClient({ACTIONS_RESULTS_URL: 'https://results.actions.githubusercontent.com/',
+    ACTIONS_RUNTIME_TOKEN: 'synthetic-test-token'}, async (url, options) => {
+    const request = JSON.parse(options.body)
+    const create = String(url).endsWith('/CreateCacheEntry')
+    requests.push([create ? 'create' : 'read', request.key.endsWith('-read-positive') ? 'positive' : 'denied'])
+    if (create) {
+      attempted = true
+      if (throws) throw new Error('synthetic transport failure')
+      return {status, ok: status >= 200 && status < 300, json: async () => data}
+    }
+    const found = request.key.endsWith('-read-positive') ? positive : attempted ? after : before
+    return {status: 200, ok: true, json: async () => found ? {ok: true,
+      signed_download_url: 'https://fixture.blob.core.windows.net/original', matched_key: request.key} : {}}
+  })
+  const fetcher = async () => ({ok: true, body: (async function* () {
+    yield Buffer.from('Harborline synthetic main fixture v1\n')
+  })()})
+  const evidence = await exercise({mode: 'deny', namespace}, {...env('deny'), ACTIONS_CACHE_MODE: mode}, client, fetcher)
+  return {evidence, requests}
+}
+
+test('composed denial requires official policy refusal, positive read and absence before and after; evidence stays private', async () => {
+  // External oracle: actions/toolkit saveCacheV2 recognizes the literal cache write denied: prefix.
+  for (const data of [{ok: false, message: 'cache write denied: synthetic private detail'},
+    {message: 'cache write denied: synthetic private detail'}]) {
+    const {evidence, requests} = await denialResponse({data})
+    assert.equal(evidence.writeDenialEstablished, true)
+    assert.equal(evidence.reuseAuthorized, false)
+    assert.deepEqual(requests, [['read', 'positive'], ['read', 'denied'], ['create', 'denied'], ['read', 'denied']])
+    assert.deepEqual(evidence.operations[2], {method: 'CreateCacheEntry', suffix: 'denied', status: 200,
+      ok: false, refusal: 'write-denied'})
+    assert.doesNotMatch(JSON.stringify(evidence), /synthetic private detail|synthetic-test-token|blob\.core/)
+  }
+})
+
+test('allowed writes, collisions, generic false and transport errors cannot pass the denial control', async () => {
+  for (const data of [{ok: true, signed_upload_url: 'https://fixture.blob.core.windows.net/allowed'},
+    {ok: false}, {}, {ok: false, message: 'already exists'}, {ok: false, message: 'rate limited'},
+    {ok: false, message: 'unavailable'}, {ok: false, message: 'prefix cache write denied: misleading'},
+    {ok: true, signed_upload_url: 'https://fixture.blob.core.windows.net/allowed', message: 'cache write denied:'}])
+    await assert.rejects(denialResponse({data}), /not established|cache service success/)
+  for (const status of [400, 403, 408, 409, 429, 500, 503])
+    await assert.rejects(denialResponse({status}), /not established/)
+  await assert.rejects(denialResponse({throws: true}), /transport failure/)
+  await assert.rejects(denialResponse({positive: false}), /positive control failed/)
+  await assert.rejects(denialResponse({before: true}), /collision control failed/)
+  await assert.rejects(denialResponse({after: true}), /became visible/)
+  await assert.rejects(denialResponse({mode: 'write'}), /read-only service mode required/)
+})
+
+test('composed denial rejects malformed raw booleans, error bodies and response messages', async () => {
+  for (const ok of ['false', 'true', null, 0, 1, {}, []])
+    await assert.rejects(denialResponse({data: {ok, message: 'cache write denied:'}}), /malformed/)
+  for (const message of [null, 1, {}, [], 'x'.repeat(4097)])
+    await assert.rejects(denialResponse({data: {ok: false, message}}), /malformed/)
+  for (const data of [null, [], {ok: false, message: 'cache write denied:', code: 'resource_exhausted'},
+    {ok: false, message: 'cache write denied:', signed_upload_url: 'https://fixture.blob.core.windows.net/allowed'}])
+    await assert.rejects(denialResponse({data}), /malformed|success fields/)
+  for (const data of [{ok: false, message: 'cache read denied: unavailable'}, {code: 'internal', msg: 'unavailable'}])
+    await assert.rejects(mainReadResponse(data), /error/)
 })
