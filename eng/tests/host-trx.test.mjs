@@ -157,11 +157,12 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-runner-'))
   try {
     let invocation
-    new Function('path', 'clone', 'run', 'collectCoverage', hostBlock)(path, dir, (...args) => { invocation = args; return {} }, false)
+    new Function('path', 'clone', 'run', 'collectCoverage', 'scratch', hostBlock)(path, dir, (...args) => { invocation = args; return {} }, false, dir)
     assert.equal(invocation[0], 'dotnet-host-tests')
     // Q38: the host suite excludes the perf lane; verify-perf runs it on mac16.
     assert.deepEqual(invocation[2], ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
-      '--filter', 'Lane!=perf', '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', path.join(dir, 'TestResults', 'host')])
+      '--filter', 'Lane!=perf', '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', path.join(dir, 'TestResults', 'host'),
+      '--blame', '--diag', `${path.join(dir, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`])
     assert.doesNotMatch(hostBlock, /console;verbosity|hostBaseline/)
     // T-724 ruling 119: every baseline is identity-based now, so host counts always come from TRX,
     // never from the console summary regex (that route remains only for capability's text tail).

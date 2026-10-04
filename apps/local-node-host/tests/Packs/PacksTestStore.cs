@@ -73,7 +73,7 @@ public sealed class PacksTestStore : IAsyncDisposable
     /// <see cref="SqliteConnection"/> is opened and keyed via <c>PRAGMA key</c> BEFORE EF touches it (the most
     /// robust SQLCipher+EF pattern), then handed to EF as an already-open connection the context owns + disposes.
     /// </summary>
-    public NodeLocalPacksDbContext CreateContext()
+    public NodeLocalPacksDbContext CreateContext(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
     {
         var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
         connection.Open();
@@ -89,6 +89,7 @@ public sealed class PacksTestStore : IAsyncDisposable
                 contextOwnsConnection: true,
                 sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
                     NodeLocalPacksDbContext.MigrationsHistoryTableName))
+            .AddInterceptors(interceptors)
             .ConfigureWarnings(w =>
                 w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
             .Options;
