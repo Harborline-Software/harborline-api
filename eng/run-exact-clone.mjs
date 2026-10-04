@@ -19,12 +19,14 @@ import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {randomUUID} from 'node:crypto'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
+import {observeNuGetRoot} from './validation-nuget-root.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -146,6 +148,7 @@ const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory
 
 let report
 let persisted
+let packageRootResolution = {status: 'unavailable'}
 try {
   if (collectCoverage) {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
@@ -153,6 +156,12 @@ try {
   }
   const cloneStep = run('git-clone', 'git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], apiRoot)
   if (!cloneStep.passed) throw new Error('Exact-clone git clone failed; see stage evidence')
+  // Resolve once before restore/build. Keep approval as parent-owned state even
+  // when a failed query leaves an inherited override available to the build.
+  packageRootResolution = observeNuGetRoot({cwd: clone})
+  if (packageRootResolution.status !== 'resolved') {
+    console.error('compiler package root unavailable; input observation remains incomplete')
+  }
 
   // Sanity: the clone must carry no build or dependency artifacts. If it does, the .gitignore is
   // wrong and this gate would be testing the same ambient state it exists to exclude.
@@ -162,7 +171,8 @@ try {
 
   run('validation-reuse-contracts', process.execPath, ['--test',
     'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
-    'eng/tests/validation-github-shadow.test.mjs'], clone)
+    'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
+    'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
@@ -173,6 +183,9 @@ try {
   const archDirectory = path.join(qualityDirectory, 'arch')
   const eslintDirectory = path.join(qualityDirectory, 'eslint')
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
+  buildArgs.push('-p:HarborlineValidationInputCapture=1')
+  process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION = randomUUID()
+  buildArgs.push(`-p:HarborlineValidationCaptureSession=${process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION}`)
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
     rmSync(archDirectory, {recursive: true, force: true})
@@ -574,7 +587,7 @@ try {
   // Observe the dependency/native closure while scratch still exists. Shadow data never
   // authorizes skipping work and a collection failure cannot change the gate verdict.
   persistInputShadow({apiRoot, clone, hostBaseline: BASELINES.host,
-    coverage: collectCoverage, quality: qualityEnabled})
+    coverage: collectCoverage, quality: qualityEnabled, packageRootResolution})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})

@@ -5,6 +5,9 @@ import path from 'node:path'
 import {platform, arch, release} from 'node:os'
 import {digest, fingerprint} from './validation-reuse.mjs'
 import {resolveCommand} from './lib/resolve-command.mjs'
+import {readCompilerObservation} from './validation-compiler-inputs.mjs'
+import {compilerRoots} from './validation-compiler-capture.mjs'
+import {nuGetRootApproved} from './validation-nuget-root.mjs'
 
 const git = (root, ...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8', stdio: 'pipe'}).trim()
 const filesUnder = root => {
@@ -20,7 +23,7 @@ const filesUnder = root => {
   if (existsSync(root)) visit(root)
   return files.sort()
 }
-export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, env = process.env,
+export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, packageRootResolution, env = process.env,
   commandVersion = command => {
     const resolved = resolveCommand(command, ['--version'])
     return execFileSync(resolved.executable, resolved.args, {encoding: 'utf8', timeout: 10000}).trim()
@@ -29,6 +32,22 @@ export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, 
     'runner image is not an immutable toolchain image digest']
   const normalized = text => text.replaceAll('\\', '/').replaceAll(clone.replaceAll('\\', '/'), '<clone>')
     .replaceAll(apiRoot.replaceAll('\\', '/'), '<api>')
+  // Normalize decoded values, not serialized JSON (Windows JSON escape pairs otherwise
+  // become doubled separators and can leave checkout paths inside the fingerprint).
+  const normalizeValue = value => {
+    if (typeof value === 'string') return normalized(value)
+    if (Array.isArray(value)) return value.map(normalizeValue)
+    if (value && typeof value === 'object') {
+      const result = {}
+      for (const [key, item] of Object.entries(value)) {
+        const name = normalized(key)
+        if (Object.hasOwn(result, name)) throw new Error('normalization identity collision')
+        Object.defineProperty(result, name, {value: normalizeValue(item), enumerable: true})
+      }
+      return result
+    }
+    return value
+  }
   const external = (name, variable, pinPath) => {
     if (!env[variable]) return {applicable: false}
     try {
@@ -48,13 +67,33 @@ export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, 
   const evaluated = assetFiles.map(file => {
     const assets = JSON.parse(readFileSync(file, 'utf8'))
     return {project: path.relative(clone, file).replaceAll('\\', '/'),
-      targets: JSON.parse(normalized(JSON.stringify(assets.targets))),
-      libraries: JSON.parse(normalized(JSON.stringify(assets.libraries))),
-      frameworks: JSON.parse(normalized(JSON.stringify(assets.project?.frameworks ?? {})))}
+      targets: normalizeValue(assets.targets),
+      libraries: normalizeValue(assets.libraries),
+      frameworks: normalizeValue(assets.project?.frameworks ?? {})}
   })
   const native = allFiles.filter(file => /(?:e_sqlcipher|e_sqlite3|sqlite3|y_crdt)\.(?:dll|so|dylib)$/i.test(file))
     .map(file => ({file: path.relative(clone, file).replaceAll('\\', '/'), sha256: digest(readFileSync(file))}))
   if (!native.length) unknownInputs.push('native provider binaries not observed')
+  const compilerInputs = []
+  const packageRootApproved = nuGetRootApproved(packageRootResolution, env)
+  if (!packageRootApproved) unknownInputs.push('NuGet package root not independently resolved or differs from parent observation')
+  const roots = compilerRoots(clone, env).filter(root => root.name !== 'packages' || packageRootApproved)
+  for (const argsFile of allFiles.filter(file => file.endsWith(`${path.sep}validation-compiler.args`))) {
+    try {
+      const observed = readCompilerObservation({argsFile, roots, expectedCaptureSession: env.HARBORLINE_VALIDATION_CAPTURE_SESSION})
+      if (!packageRootApproved) {
+        observed.completeCompilerObservation = false
+        observed.problems.push('NuGet package root not independently resolved or differs from parent observation')
+      }
+      compilerInputs.push(observed)
+    }
+    catch { unknownInputs.push('compiler observation could not be read') }
+  }
+  if (!compilerInputs.length) unknownInputs.push('no executed compiler command-line observations')
+  for (const observation of compilerInputs)
+    unknownInputs.push(...observation.problems.map(problem => `compiler ${observation.project}: ${problem}`))
+  // Actual command lines are now observed, but arbitrary build tasks and candidate-produced
+  // observations are not a trusted hermetic closure. Do not remove the existing blocker yet.
   const tools = {}
   for (const tool of ['dotnet', 'npm', 'pnpm']) {
     try { tools[tool] = commandVersion(tool) }
@@ -68,7 +107,7 @@ export function collectInputs({apiRoot, clone, hostBaseline, coverage, quality, 
     || /(?:lock|\.props$|\.targets$|global\.json$|\.csproj$|NuGet\.Config$)/i.test(file))
   const manifest = {schemaVersion: 1, repository: 'Harborline-Software/harborline-api',
     candidateTree: git(apiRoot, 'rev-parse', 'HEAD^{tree}'), lane: 'host',
-    dependencies: {evaluated, native, restoredLocks}, producer: {files: inputFiles.map(file => ({file,
+    dependencies: {evaluated, native, restoredLocks, compilerInputs: normalizeValue(compilerInputs)}, producer: {files: inputFiles.map(file => ({file,
       sha256: digest(readFileSync(path.join(apiRoot, file)))}))},
     toolchain: {tools, node: process.versions, sdkPolicy: JSON.parse(readFileSync(path.join(apiRoot, 'global.json'), 'utf8'))},
     platform: {os: platform(), architecture: arch(), release: release(), image: env.ImageOS ?? null,

@@ -95,6 +95,56 @@ than assumed stable because the workflow checks out control `main`.
 
 ## Smallest next reviewed implementation
 
+The dependent producer-shadow phase adds a read-only `workflow_run` consumer
+loaded from its own default-branch workflow commit, with no persisted checkout
+credential and no candidate checkout or artifact execution. It independently
+resolves main and compares producer/verifier/workflow/action definitions using
+GitHub tree blob identities, rejecting changed or truncated definitions. It also
+checks whether producer source is already on protected-main ancestry; same-repo
+successful PR artifacts do not establish that trust. Reports bind candidate SHA,
+tree, input fingerprint and expected coverage profile and require all three host
+lanes to agree on the candidate.
+
+An opt-in MSBuild hook observes `CscCommandLineArgs` after actual CoreCompile and
+captures project/framework/configuration/execution context. The reader hashes
+sources, references, analyzers and other explicit compiler file inputs, refusing
+unknown switches, unapproved paths, missing files, nested responses and
+design-time/skipped execution. This is not a hermetic build attestation: arbitrary
+MSBuild tasks, generated-input timing, ambient runtime dependencies and candidate
+execution can still influence observations. Native execution was exercised under
+the coordinated Windows slot in a minimal Release library: fresh capture observed
+193 files, changed source invalidated the stored snapshot, a fresh rebuild produced
+a valid capture, an unchanged incremental build emitted no compiler arguments and
+was refused, and capture-off compilation passed. The reader requires the collector's
+independent build-session identifier and matching argument/context and pre/post
+file hashes; timestamps alone prove nothing. Reference aliases and resource
+name/access metadata remain in the fingerprint. Named host lanes are bound to
+expected OS, architecture, baseline and host scope as well as coverage/quality.
+Projects with NET analyzers disabled remain unobserved rather than invoking a
+missing SDK analyzer preparation target.
+
+The exact-clone parent queries `dotnet nuget locals global-packages --list
+--force-english-output` in the checkout before restore/build, then shares that
+resolved `NUGET_PACKAGES` root with its children and collector. Snapshot metadata
+records the child root but never grants a new approved root; a mismatch refuses
+completeness. Missing, relative or ambiguous native query output remains
+unobserved. Bounded native proofs exercised both an initially unset override
+(NuGet's actual default) and an explicit isolated override; both parent/child
+roots matched independent native queries and both fresh captures contained 193
+files. Package-file root/hash mismatches also have independent Node fixtures.
+The standard `macos-15` profile is ARM64, with its macOS host baseline.
+Resolution approval remains parent-owned state passed directly to collection.
+An inherited override remains available to the build after a failed query, but
+cannot approve capture: every compiler observation is explicitly incomplete and
+the manifest records an unresolved-root blocker. Missing approval, changed
+environment values or mismatched roots have the same result.
+
+No signer or check-writing token was added. The consumer publishes a shadow
+artifact using the existing Actions runtime mechanism and cannot skip gates or
+write required candidate check verdicts. Promoting it to an authoritative required
+wrapper is a later explicit reviewed workflow/policy change; a `checks:write`
+capability, if chosen for that design, must be approved before activation.
+
 Keep the shadow observer running, inspect real comparison reports and resolve
 the unknown input dimensions. Add a default-branch, independently reviewed
 producer/broker job that obtains GitHub run/job/artifact metadata itself and

@@ -151,7 +151,7 @@ test('runner reporting exceptions retain redacted failed command output before s
     let cleaned = false
     const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
       'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
-      'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; try { throw new Error("private-scratch/clone/missing.trx")\n' +
+      'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("private-scratch/clone/missing.trx")\n' +
       handler + '\nreturn {report, persisted}')(
       [{id: 'dotnet-build', passed: false, exitCode: 1, fullOutput: output, rawOutput: 'RAW PRIVATE OUTPUT'}],
       'fixture-head', {}, root, 'private-scratch', text => text.replaceAll('private-scratch/clone', '<exact-clone>'),
@@ -195,7 +195,7 @@ test('actual tolerated-exit commands retain their output when reports are missin
         let cleaned = false
         const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
           'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
-          'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; try { throw new Error("private-scratch/clone/missing-report")\n' +
+          'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("private-scratch/clone/missing-report")\n' +
           handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, 'private-scratch', redact,
           persistStepEvidence, () => {
             assert.equal(readFileSync(path.join(root, '.claude', 'gate-evidence',
@@ -273,7 +273,7 @@ test('real empty-output spawn failures retain safe cause metadata and logs befor
       let cleaned = false
       const persisted = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
         'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
-        'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; try { throw new Error("missing report")\n' +
+        'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("missing report")\n' +
         handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, root, redact, persistStepEvidence, () => {
           const log = readFileSync(path.join(root, '.claude', 'gate-evidence',
             'exact-clone-fixture-head-dotnet-host-tests.log'), 'utf8')

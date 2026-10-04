@@ -110,7 +110,8 @@ export async function observeRun({runId, api, unpack = readArchive}) {
       if (!belongs || commit.commit.tree.sha !== contents.observation.inputs?.candidateTree
         || contents.receipt.baseHead !== sha || contents.receipt.testedTree !== commit.commit.tree.sha
         || contents.receipt.lane !== 'host') throw new Error('candidate tree or host receipt binding mismatch')
-      result.push({lane, event: run.event, transportVerified: true, runId: String(run.id), runAttempt: run.run_attempt,
+      result.push({lane, transportVerified: true, runId: String(run.id), runAttempt: run.run_attempt,
+        event: run.event, sourceHeadSha: run.head_sha,
         jobId: job.id, artifactId: artifact.id, artifactDigest: artifact.digest, observation: contents.observation,
         producerTrustedForReuse: false})
     } catch { result.push({lane, transportVerified: true, producerTrustedForReuse: false,
