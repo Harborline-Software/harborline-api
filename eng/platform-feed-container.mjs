@@ -10,7 +10,7 @@ export const producerPaths = ['.github/workflows/platform-feed-producer.yml', '.
   '.github/actions/platform-feed/action.yml', 'eng/platform-feed-container.mjs', 'eng/platform-feed-reuse.mjs',
   'eng/platform-feed-reuse-policy.mjs', 'eng/platform-feed-profile.json', 'eng/build-local-feed.mjs',
   'eng/same-job-platform-feed.mjs', 'eng/exact-clone-platform-feed.mjs', 'eng/platform-feed-consumption.mjs',
-  'eng/platform-feed-environment.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
+  'eng/platform-feed-environment.mjs', 'eng/platform-feed-consumer-launch.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
 const git = (root, ...args) => execFileSync('git', ['-c', `safe.directory=${root}`, '-C', root, ...args],
   {encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024, env: buildEnvironment()}).trim()
 

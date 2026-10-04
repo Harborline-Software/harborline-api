@@ -21,7 +21,7 @@ const definitions = ['.github/workflows/platform-feed-producer.yml', '.github/wo
   '.github/actions/platform-feed/action.yml', 'eng/platform-feed-container.mjs', 'eng/platform-feed-reuse.mjs',
   'eng/platform-feed-reuse-policy.mjs', 'eng/platform-feed-profile.json', 'eng/build-local-feed.mjs',
   'eng/same-job-platform-feed.mjs', 'eng/exact-clone-platform-feed.mjs', 'eng/platform-feed-consumption.mjs',
-  'eng/platform-feed-environment.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
+  'eng/platform-feed-environment.mjs', 'eng/platform-feed-consumer-launch.mjs', 'eng/run-exact-clone.mjs', 'eng/platform-pin.json', 'global.json', 'nuget.config']
 const tree = () => ({truncated: false, tree: definitions.map(name => ({path: name, sha: 'b'.repeat(40), mode: '100644', type: 'blob'}))})
 const identity = () => ({schemaVersion: 1, profile: 'linux-x64-container-feed',
   platform: {...pin, tree: 'b'.repeat(40), history: 'c'.repeat(64), version}, packageGraph: {packedVersion: version},
@@ -423,7 +423,9 @@ test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer 
   const action = readFileSync(path.join(root, '.github/actions/platform-feed/action.yml'), 'utf8')
   assert.ok(action.indexOf('id: feed_tools') < action.indexOf('name: Test the feed contract'))
   assert.match(action, /HARBORLINE_FEED_PYTHON: \$\{\{ steps\.feed_tools\.outputs\.python \}\}/)
-  assert.match(action, /if "\$FEED_NODE" eng\/platform-feed-reuse\.mjs consume/)
+  assert.match(action, /eng\/platform-feed-consumer-launch\.mjs/)
+  assert.ok(action.indexOf('id: feed_reuse') < action.indexOf('name: Test the feed contract'))
+  assert.equal(action.slice(action.indexOf('name: Build the local package feed')).includes('GH_TOKEN: ${{ github.token }}'), false)
   assert.match(action, /"\$FEED_NODE" eng\/build-local-feed\.mjs/)
   assert.match(action, /"\$FEED_NODE" eng\/same-job-platform-feed\.mjs build/)
   const verify = readFileSync(path.join(root, '.github/workflows/verify.yml'), 'utf8')
@@ -443,11 +445,11 @@ test('composed action executes fresh fallback and propagates its failure; artifa
   const cases = [
     {cross: 'false', same: 'false', reuse: 2, fresh: 0, status: 0, calls: ['eng/build-local-feed.mjs']},
     {cross: 'false', same: 'true', reuse: 2, fresh: 0, status: 0, calls: ['eng/same-job-platform-feed.mjs build /fixture/platform']},
-    {cross: 'true', same: 'true', reuse: 0, fresh: 1, status: 0, calls: ['eng/platform-feed-reuse.mjs consume /fixture/platform']},
+    {cross: 'true', same: 'true', reuse: 0, fresh: 1, status: 0, calls: []},
     {cross: 'true', same: 'true', reuse: 2, fresh: 0, status: 0,
-      calls: ['eng/platform-feed-reuse.mjs consume /fixture/platform', 'eng/same-job-platform-feed.mjs build /fixture/platform']},
+      calls: ['eng/same-job-platform-feed.mjs build /fixture/platform']},
     {cross: 'true', same: 'false', reuse: 2, fresh: 1, status: 1,
-      calls: ['eng/platform-feed-reuse.mjs consume /fixture/platform', 'eng/build-local-feed.mjs']},
+      calls: ['eng/build-local-feed.mjs']},
     {cross: 'invalid', same: 'true', reuse: 0, fresh: 0, status: 1, calls: []},
     {cross: 'true', same: 'invalid', reuse: 0, fresh: 0, status: 1, calls: []},
   ]
@@ -455,7 +457,7 @@ test('composed action executes fresh fallback and propagates its failure; artifa
     const record = path.join(directory, 'calls.txt'); writeFileSync(record, '')
     const harness = 'set -eo pipefail\nnode() { printf "%s\\n" "$*" >> "$TEST_FEED_RECORD"; if [[ "$1" = eng/platform-feed-reuse.mjs ]]; then [[ -n "${GH_TOKEN:-}" ]] || return 88; return "$TEST_REUSE_STATUS"; else [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${GH_ENTERPRISE_TOKEN:-}${GITHUB_ENTERPRISE_TOKEN:-}${ACTIONS_RUNTIME_TOKEN:-}${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] || return 91; return "$TEST_FRESH_STATUS"; fi; }\n'
     const result = spawnSync(bash, ['-c', harness + run], {encoding: 'utf8', timeout: 10000, env: {...process.env,
-      FEED_NODE: 'node', CROSS_RUN_REUSE: fixture.cross, SAME_JOB_HANDOFF: fixture.same, HARBORLINE_PLATFORM_REPO: '/fixture/platform',
+      FEED_NODE: 'node', FEED_REUSED: fixture.reuse === 0 ? 'true' : 'false', CROSS_RUN_REUSE: fixture.cross, SAME_JOB_HANDOFF: fixture.same, HARBORLINE_PLATFORM_REPO: '/fixture/platform',
       GH_TOKEN: 'synthetic-metadata-only', GITHUB_TOKEN: 'synthetic-build-forbidden',
       GH_ENTERPRISE_TOKEN: 'synthetic-enterprise-one', GITHUB_ENTERPRISE_TOKEN: 'synthetic-enterprise-two',
       ACTIONS_RUNTIME_TOKEN: 'synthetic-runtime', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-identity',
@@ -481,7 +483,7 @@ test('composed reuse launches pinned Node after candidate PATH and function shad
   const result = spawnSync(bash, ['-c', 'set -eo pipefail\nexport PATH="$TEST_SHADOW:$PATH"\nnode() { printf "attacker-function\\n" >> "$TEST_RECORD"; }\n' + run],
     {encoding: 'utf8', timeout: 10000, env: {...process.env, FEED_NODE: trusted.replaceAll('\\', '/'),
       TEST_RECORD: marker.replaceAll('\\', '/'), TEST_SHADOW: directory.replaceAll('\\', '/'),
-      CROSS_RUN_REUSE: 'true', SAME_JOB_HANDOFF: 'true', HARBORLINE_PLATFORM_REPO: '/fixture/platform'}})
+      CROSS_RUN_REUSE: 'false', SAME_JOB_HANDOFF: 'false', HARBORLINE_PLATFORM_REPO: '/fixture/platform'}})
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(readFileSync(marker, 'utf8'), 'trusted:eng/platform-feed-reuse.mjs consume /fixture/platform\n')
+  assert.equal(readFileSync(marker, 'utf8'), 'trusted:eng/build-local-feed.mjs\n')
 })

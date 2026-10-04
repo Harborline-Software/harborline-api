@@ -39,6 +39,22 @@ runs:
         path: .platform
         fetch-depth: ${{ inputs.cross-run-reuse == 'true' && '0' || '1' }}
         persist-credentials: false
+    # Complete authentication before candidate tests can modify runner environment.
+    - name: Prepare authenticated dependency reuse before candidate code
+      id: feed_reuse
+      if: inputs.cross-run-reuse == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        FEED_NODE: ${{ steps.feed_tools.outputs.node }}
+        HARBORLINE_FEED_PYTHON: ${{ steps.feed_tools.outputs.python }}
+        HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+      run: |
+        if "$FEED_NODE" eng/platform-feed-consumer-launch.mjs "$HARBORLINE_PLATFORM_REPO"; then
+          echo 'reused=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'reused=false' >> "$GITHUB_OUTPUT"
+        fi
     - name: Test the feed contract
       shell: bash
       env:
@@ -54,16 +70,15 @@ runs:
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
         SAME_JOB_HANDOFF: ${{ inputs.same-job-handoff }}
         CROSS_RUN_REUSE: ${{ inputs.cross-run-reuse }}
-        GH_TOKEN: ${{ github.token }}
         FEED_NODE: ${{ steps.feed_tools.outputs.node }}
-        HARBORLINE_FEED_PYTHON: ${{ steps.feed_tools.outputs.python }}
+        FEED_REUSED: ${{ steps.feed_reuse.outputs.reused }}
       run: |
         if [[ "$SAME_JOB_HANDOFF" != 'true' && "$SAME_JOB_HANDOFF" != 'false' ]]; then
           echo '::error::same-job-handoff must be true or false'
           exit 1
         fi
         if [[ "$CROSS_RUN_REUSE" == 'true' ]]; then
-          if "$FEED_NODE" eng/platform-feed-reuse.mjs consume "$HARBORLINE_PLATFORM_REPO"; then
+          if [[ "$FEED_REUSED" == 'true' ]]; then
             exit 0 # only feed preparation completed; the subsequent API gate still runs
           fi
         elif [[ "$CROSS_RUN_REUSE" != 'false' ]]; then
