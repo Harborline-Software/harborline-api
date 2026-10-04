@@ -848,12 +848,89 @@ public sealed class WebTenantSelectionAuthorityTests
             CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
+    [Fact]
+    public async Task Recovery_release_failure_does_not_undo_completion_or_duplicate_its_audit()
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+        leases.ReleaseFailure = new IOException("injected recovery lease release failure");
+        var (authority, _) = fixture.Restart();
+        var releases = leases.ReleaseCalls;
+        await ((IInstallationIdentityHomeRecovery)authority).RecoverAsync(home, CancellationToken.None);
+        Assert.Equal(releases + 1, leases.ReleaseCalls);
+        Assert.Equal(CancellationToken.None, leases.LastReleaseToken);
+        await using (var completed = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await completed.Coordinators.AsNoTracking().SingleAsync()).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        leases.ReleaseFailure = null;
+        var (_, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Recovery_release_failure_preserves_the_primary_exception_and_durable_retry(bool cancel)
+    {
+        var leases = new AlwaysLeaseCoordinator();
+        await using var fixture = await SelectionFixture.CreateAsync(leases);
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+        using var cancellation = new CancellationTokenSource();
+        Exception primary = cancel
+            ? new OperationCanceledException("primary recovery cancellation", cancellation.Token)
+            : new InvalidOperationException("primary recovery finalization failure");
+        fixture.Store.ReadHomeState = () =>
+        {
+            if (cancel) cancellation.Cancel();
+            return Task.FromException<InstallationIdentityCoordinatorState>(primary);
+        };
+        leases.ReleaseFailure = new IOException("injected recovery lease release failure");
+        var (authority, _) = fixture.Restart();
+        var releases = leases.ReleaseCalls;
+        var observed = await Record.ExceptionAsync(() =>
+            ((IInstallationIdentityHomeRecovery)authority).RecoverAsync(home, cancellation.Token));
+        Assert.Same(primary, observed);
+        Assert.Equal(releases + 1, leases.ReleaseCalls);
+        Assert.Equal(CancellationToken.None, leases.LastReleaseToken);
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using (var unfinished = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Committing,
+                (await unfinished.Coordinators.AsNoTracking().SingleAsync()).State);
+        var retainedLease = Assert.Single(leases.HeldLeases);
+        Assert.Equal(Now.AddSeconds(30), retainedLease.ExpiresAt);
+        var acquires = leases.AcquireCalls;
+        fixture.Store.ReadHomeState = null;
+        leases.ReleaseFailure = null;
+        var (_, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        Assert.True(leases.AcquireCalls > acquires);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await recovery.RecoverPendingAsync();
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
         public Func<Task>? BeforeAcquire { get; set; }
+        public Exception? ReleaseFailure { get; set; }
+        public CancellationToken LastReleaseToken { get; private set; }
+        public int AcquireCalls { get; private set; }
+        public int ReleaseCalls { get; private set; }
         public async Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
         {
+            AcquireCalls++;
             var before = BeforeAcquire;
             BeforeAcquire = null;
             if (before is not null) await before();
@@ -864,6 +941,9 @@ public sealed class WebTenantSelectionAuthorityTests
         }
         public Task ReleaseAsync(Lease lease, CancellationToken ct)
         {
+            ReleaseCalls++;
+            LastReleaseToken = ct;
+            if (ReleaseFailure is not null) return Task.FromException(ReleaseFailure);
             _held.TryRemove(lease.LeaseId, out _);
             return Task.CompletedTask;
         }
