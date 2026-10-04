@@ -7,7 +7,7 @@ const allowed = [
   'PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'TMP', 'TEMP',
   'SystemRoot', 'WINDIR', 'USERPROFILE', 'PATHEXT',
   'RUNNER_TEMP', 'RUNNER_OS', 'RUNNER_ARCH', 'ImageOS', 'ImageVersion',
-  'GITHUB_WORKSPACE', 'GITHUB_ENV', 'GITHUB_REPOSITORY', 'GITHUB_JOB',
+  'GITHUB_ACTIONS', 'GITHUB_WORKSPACE', 'GITHUB_ENV', 'GITHUB_REPOSITORY', 'GITHUB_JOB',
   'GITHUB_REF', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT',
   'HARBORLINE_VERIFY_LANE', 'HARBORLINE_PLATFORM_REPO', 'HARBORLINE_FEED_PYTHON',
   'GH_TOKEN',
@@ -25,13 +25,14 @@ export function trustedConsumerEnvironment(beforeCandidate) {
   return Object.freeze(snapshot)
 }
 
-export function launchConsumer({platform, beforeCandidate = process.env, run = spawnSync}) {
+export function launchConsumer({platform, apiRoot, beforeCandidate = process.env, run = spawnSync}) {
   // Read once before launch; neither process startup nor authentication uses later env.
   const env = trustedConsumerEnvironment(beforeCandidate)
-  if (typeof platform !== 'string' || !path.isAbsolute(platform)) return 2
-  const result = run(process.execPath, [path.join(import.meta.dirname, 'platform-feed-reuse.mjs'), 'consume', platform],
+  if (typeof platform !== 'string' || !path.isAbsolute(platform)
+    || typeof apiRoot !== 'string' || !path.isAbsolute(apiRoot)) return 2
+  const result = run(process.execPath, [path.join(import.meta.dirname, 'platform-feed-reuse.mjs'), 'consume', platform, apiRoot],
     {env, stdio: 'inherit', timeout: 20 * 60 * 1000})
   return result.status === 0 ? 0 : 2
 }
 
-if (import.meta.main) process.exitCode = launchConsumer({platform: process.argv[2]})
+if (import.meta.main) process.exitCode = launchConsumer({platform: process.argv[2], apiRoot: process.argv[3]})

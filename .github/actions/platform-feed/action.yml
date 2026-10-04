@@ -46,11 +46,17 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        TRUSTED_FEED_ACTION_PATH: ${{ github.action_path }}
+        TRUSTED_FEED_ACTION_REPOSITORY: ${{ github.action_repository }}
+        TRUSTED_FEED_ACTION_REF: ${{ github.action_ref }}
         FEED_NODE: ${{ steps.feed_tools.outputs.node }}
         HARBORLINE_FEED_PYTHON: ${{ steps.feed_tools.outputs.python }}
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
       run: |
-        if "$FEED_NODE" eng/platform-feed-consumer-launch.mjs "$HARBORLINE_PLATFORM_REPO"; then
+        [[ "$TRUSTED_FEED_ACTION_REPOSITORY" == 'Harborline-Software/harborline-api' && "$TRUSTED_FEED_ACTION_REF" == 'main' ]] || exit 1
+        trusted_root=$(cd "$TRUSTED_FEED_ACTION_PATH/../../.." && pwd -P)
+        [[ "$trusted_root" != "$GITHUB_WORKSPACE" ]] || exit 1
+        if "$FEED_NODE" "$trusted_root/eng/platform-feed-consumer-launch.mjs" "$HARBORLINE_PLATFORM_REPO" "$GITHUB_WORKSPACE"; then
           echo 'reused=true' >> "$GITHUB_OUTPUT"
         else
           echo 'reused=false' >> "$GITHUB_OUTPUT"

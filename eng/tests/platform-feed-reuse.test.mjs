@@ -424,6 +424,8 @@ test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer 
   assert.ok(action.indexOf('id: feed_tools') < action.indexOf('name: Test the feed contract'))
   assert.match(action, /HARBORLINE_FEED_PYTHON: \$\{\{ steps\.feed_tools\.outputs\.python \}\}/)
   assert.match(action, /eng\/platform-feed-consumer-launch\.mjs/)
+  assert.match(action, /TRUSTED_FEED_ACTION_PATH: \$\{\{ github\.action_path \}\}/)
+  assert.match(action, /"\$trusted_root\/eng\/platform-feed-consumer-launch\.mjs"/)
   assert.ok(action.indexOf('id: feed_reuse') < action.indexOf('name: Test the feed contract'))
   assert.equal(action.slice(action.indexOf('name: Build the local package feed')).includes('GH_TOKEN: ${{ github.token }}'), false)
   assert.match(action, /"\$FEED_NODE" eng\/build-local-feed\.mjs/)
@@ -431,6 +433,8 @@ test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer 
   const verify = readFileSync(path.join(root, '.github/workflows/verify.yml'), 'utf8')
   assert.equal((verify.match(/cross-run-reuse: 'true'/g) ?? []).length, 1)
   assert.match(verify.slice(verify.indexOf('  verify-linux:'), verify.indexOf('  verify-windows:')), /cross-run-reuse: 'true'/)
+  assert.match(verify.slice(verify.indexOf('  verify-linux:'), verify.indexOf('  verify-windows:')),
+    /uses: Harborline-Software\/harborline-api\/\.github\/actions\/platform-feed@main/)
   assert.match(verify, /run: bash eng\/verify\.sh/)
 })
 

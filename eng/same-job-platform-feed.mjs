@@ -56,19 +56,19 @@ export function jobSession(env = process.env) {
   return {kind: 'local-pilot', nonce: env.HARBORLINE_FEED_PILOT_SESSION, owner: env.HARBORLINE_FEED_PILOT_OWNER}
 }
 
-function currentIdentity(platform, pin, env = process.env) {
+function currentIdentity(platform, pin, env = process.env, apiRoot = root) {
   // The existing builder independently checks commit, clean checkout, producer inventory and version.
   const plan = JSON.parse(execFileSync(process.execPath, ['eng/build-local-feed.mjs', '--dry-run'], {
     cwd: root, encoding: 'utf8', env: {...buildEnvironment(env), HARBORLINE_PLATFORM_REPO: platform},
   }))
   const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8', env: buildEnvironment(env)}).trim()
-  const scripts = Object.fromEntries(producerInputs.map(file => [file, sha256(readFileSync(path.join(root, file)))]))
+  const scripts = Object.fromEntries(producerInputs.map(file => [file, sha256(readFileSync(path.join(apiRoot, file)))]))
   return feedIdentity({pin, platformTree, plan,
-    apiCommit: git(root, 'rev-parse', 'HEAD'), apiTree: git(root, 'rev-parse', 'HEAD^{tree}'), session: jobSession(env),
-    sdk: execFileSync('dotnet', ['--version'], {cwd: root, encoding: 'utf8', env: buildEnvironment(env)}).trim(), node: process.version,
+    apiCommit: git(apiRoot, 'rev-parse', 'HEAD'), apiTree: git(apiRoot, 'rev-parse', 'HEAD^{tree}'), session: jobSession(env),
+    sdk: execFileSync('dotnet', ['--version'], {cwd: apiRoot, encoding: 'utf8', env: buildEnvironment(env)}).trim(), node: process.version,
     platformSdk: execFileSync('dotnet', ['--version'], {cwd: platform, encoding: 'utf8', env: buildEnvironment(env)}).trim(),
     os: process.platform, osRelease: release(), arch: process.arch, imageOS: env.ImageOS ?? null, imageVersion: env.ImageVersion ?? null,
-    scripts, globalJson: sha256(readFileSync(path.join(root, 'global.json')))})
+    scripts, globalJson: sha256(readFileSync(path.join(apiRoot, 'global.json')))})
 }
 
 // Fail closed on archive forms the existing dotnet pack path does not emit.
@@ -189,11 +189,11 @@ export function restoreSameJobFeed(platform, env = process.env) {
 
 // The caller has independently authenticated cross-run package bytes. This converts only
 // those dependency bytes to the existing same-job transfer; it reuses no API test verdict.
-export function publishVerifiedSameJobFeed(files, platform, env = process.env) {
-  assertCommittedProducer()
-  const pin = readPin(), identity = currentIdentity(platform, pin, env)
+export function publishVerifiedSameJobFeed(files, platform, env = process.env, apiRoot = root) {
+  assertCommittedProducer(apiRoot)
+  const pin = readPin(path.join(apiRoot, 'eng/platform-pin.json')), identity = currentIdentity(platform, pin, env, apiRoot)
   const raw = createBundle(files, identity, pin)
-  materializeFeed(files, path.join(root, '.feed'))
+  materializeFeed(files, path.join(apiRoot, '.feed'))
   const directory = mkdtempSync(path.join(env.RUNNER_TEMP ?? tmpdir(), 'api-platform-feed-job-'))
   const transfer = path.join(directory, 'feed-bundle.json')
   writeFileSync(transfer, raw, {flag: 'wx'})

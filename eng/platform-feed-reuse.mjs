@@ -137,7 +137,7 @@ export async function consumeFeed({api, platform, prepare = prepareContainer, pu
     const result = await findReusableFeed({api, trusted, expected: prepared.input, unpack, now, list})
     if (!result) return {reused: false, reason: 'no-verified-matching-feed', validationReuse: false}
     inspectionStage = 'same-job-publication'
-    const handoff = publish(result.files, platform, env)
+    const handoff = publish(result.files, platform, env, apiRoot)
     return {reused: true, ...result, files: undefined, handoff, validationReuse: false}
   } catch {
     return {reused: false, reason: 'feed-inspection-unavailable', inspectionStage, validationReuse: false}
@@ -148,12 +148,13 @@ export async function consumeFeed({api, platform, prepare = prepareContainer, pu
 }
 
 if (import.meta.main) {
-  const [command, platform] = process.argv.slice(2)
+  const [command, platform, candidateRoot] = process.argv.slice(2)
   const api = githubClient(process.env.GH_TOKEN)
   if (command === 'consume') {
-    const result = await consumeFeed({api, platform})
-    mkdirSync(path.join(root, '.claude/gate-evidence'), {recursive: true})
-    writeFileSync(path.join(root, '.claude/gate-evidence/platform-feed-reuse.json'), JSON.stringify(result, null, 2))
+    const apiRoot = candidateRoot && path.isAbsolute(candidateRoot) ? candidateRoot : root
+    const result = await consumeFeed({api, platform, apiRoot})
+    mkdirSync(path.join(apiRoot, '.claude/gate-evidence'), {recursive: true})
+    writeFileSync(path.join(apiRoot, '.claude/gate-evidence/platform-feed-reuse.json'), JSON.stringify(result, null, 2))
     console.log(result.reused ? 'platform-feed: verified dependency artifact; fresh API validation retained'
       : 'platform-feed: artifact unavailable or mismatched; fresh canonical pack required')
     // Exit 2 signals the existing builder fallback, never a green required-check shortcut.
