@@ -18,6 +18,10 @@ param(
     [string]$ReceiptId
 )
 $ErrorActionPreference = 'Stop'
+function Phase([string]$phase) {
+    if ($env:T463_EXAMPLE_DIAGNOSTICS -eq '1') { [Console]::Error.WriteLine("configuration-example: $phase") }
+}
+Phase 'script-started'
 if (-not $BaseUri.IsAbsoluteUri -or $BaseUri.Scheme -notin @('http', 'https')) {
     throw 'BaseUri must be an absolute HTTP(S) test-node URL.'
 }
@@ -32,7 +36,9 @@ function Request([string]$method, [string]$path, $body = $null) {
         $arguments.ContentType = 'application/json'
         $arguments.Body = $body | ConvertTo-Json -Depth 100 -Compress
     }
+    Phase "request-start $method $path"
     $response = Invoke-WebRequest @arguments
+    Phase "request-complete $method $path HTTP $($response.StatusCode)"
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
         # Preserve server refusal codes/targets/messages. Do not print authorization headers.
         throw "$method $path returned HTTP $($response.StatusCode): $($response.Content)"
@@ -42,6 +48,7 @@ function Request([string]$method, [string]$path, $body = $null) {
 function Required([string]$value, [string]$name) {
     if ([string]::IsNullOrWhiteSpace($value)) { throw "$name is required for $Mode." }
 }
+Phase 'inputs-validating'
 # Check all inputs before the first write.
 Required $PackageKey 'PackageKey'
 Required $DefinitionKey 'DefinitionKey'
@@ -60,6 +67,7 @@ if ($Mode -eq 'Proposal') {
     $suite = Get-Content -LiteralPath $SuiteFile -Raw
     $null = $suite | ConvertFrom-Json
 }
+Phase 'inputs-validated'
 if ($Mode -eq 'Proposal') {
     $id = [uri]::EscapeDataString($ProposalId)
     $started = Request 'POST' '/api/local-node/configuration/proposals' @{ proposalId = $ProposalId }
@@ -108,4 +116,5 @@ if ($Mode -eq 'Proposal') {
 }
 if ($effectiveDigest -ne $baselineDigest) { throw 'Effective generation changed during the example; inspect concurrent activity.' }
 $result.effectiveDigest = $effectiveDigest
+Phase 'workflow-complete'
 $result | ConvertTo-Json -Depth 100

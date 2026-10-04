@@ -31,6 +31,8 @@ public static class NodeSpatialFrameComposition
         // The Pattern-A entity module for the descriptor + quarantine tables (idempotent,
         // catalog-owned — the module must exist in the migration catalog too).
         services.AddLocalNodePatternAModule<SpatialFrameEntityModule>();
+        // T-1048: a mint or quarantine stages its audit in the outbox, which this module maps into the same context.
+        services.AddLocalNodePatternAModule<Audit.AuditOutboxEntityModule>();
 
         // CP-4 (Wave-5 precondition 3): the governed-field sealer the port REQUIRES — it seals
         // originDescription + georeference under the tenant DEK at the storage boundary, on both

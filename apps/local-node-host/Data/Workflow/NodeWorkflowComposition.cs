@@ -40,6 +40,8 @@ public static class NodeWorkflowComposition
     /// <summary>Wires the pack-declared Access grant submission projection to its typed workflow handler.</summary>
     public static IServiceCollection AddAccessGrantFormSubmission(this IServiceCollection services)
     {
+        services.AddSingleton<AccessGrantSubmissionBindingResolver>();
+        services.AddSingleton<IFormSubmissionBindingResolver>(sp => sp.GetRequiredService<AccessGrantSubmissionBindingResolver>());
         services.AddSingleton<AccessGrantFormSubmissionProjection>();
         services.AddSingleton<IFormSubmitProjection>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
         services.AddSingleton<Health.IFormSubmissionGate>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
@@ -206,11 +208,12 @@ public static class NodeWorkflowComposition
         // (an issued invoice → an invoice-approval Process; an Active RecurringInvoiceSchedule →
         // a recurring-generation Process the daemon then drives). Completes the engine end-to-end: the
         // handlers + dispatcher + daemon advance instances; THIS is what puts instances in the store. Depends
-        // only on the IWorkflowStore + the LocalNodeDbContext factory (both already registered).
+        // on the workflow store and context factory; Access issuance also resolves its active admitted definition.
         services.AddSingleton(sp =>
             new NodeWorkflowInstantiationService(
                 sp.GetRequiredService<IWorkflowStore>(),
-                sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>()));
+                sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(),
+                sp.GetService<IWorkflowDefinitionExecutionStore>()));
 
         // ── The invoice-issue cutover + the parked-task (Ask-bar Inbox) read model (ADR 0135 vertical flow) ──
         //

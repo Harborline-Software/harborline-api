@@ -56,6 +56,7 @@ bash "$repo_root/eng/tests/fixture-git-retry.test.sh" || exit 1
 # Ticket 421: the lane filter. A step that falls out of both lanes would stop running in CI silently.
 bash "$repo_root/eng/tests/verify-lane.test.sh" || exit 1
 node --test "$repo_root/eng/tests/verify-preflight.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/focused-mode-policy.test.mjs" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
 dotnet run --project "$repo_root/eng/test-isolation/test-isolation.csproj" -- "$repo_root" || exit 1
@@ -67,6 +68,7 @@ node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/reviewed-analyzer-suppressions.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
 # T-672: a main-module guard that is false through a junction makes a gate step exit 0 having
 # run nothing. This test invokes CLIs through a real link and bans the argv[1]/import.meta compare.

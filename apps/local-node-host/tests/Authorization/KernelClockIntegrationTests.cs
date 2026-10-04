@@ -61,6 +61,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 [Collection("Harborline process environment")]
 public sealed class KernelClockIntegrationTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper diagnosticOutput;
+
+    public KernelClockIntegrationTests(Xunit.Abstractions.ITestOutputHelper diagnosticOutput) =>
+        this.diagnosticOutput = diagnosticOutput;
+
     private static readonly DateTimeOffset FrozenAt = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("ticket-216");
     private static readonly ActorId Principal = new("operator");
@@ -202,6 +207,109 @@ public sealed class KernelClockIntegrationTests
         Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
     }
 
+    [Theory(DisplayName = "T-1017 L940: an omitted effective-from starts the grant at the admitted instant on the server clock")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    [InlineData("absent")]
+    [InlineData("blank")]
+    public async Task Access_grant_form_defaults_an_omitted_effective_from_to_the_admitted_instant(string omission)
+    {
+        // The host clock is frozen far from the wall clock and the client's captured_at is skewed 30 days,
+        // so a default read from either one lands on a different instant than the admitted FrozenAt.
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(
+            effectiveFrom: null, capturedAt: FrozenAt.AddDays(-30), omittedAs: omission);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        // Oracle: the shipped Access 1.1.6 pack publishes access.privileged-grant-review@1.0.3.
+        var workflow = await fixture.Services.GetRequiredService<IWorkflowStore>().LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(body.GetProperty("instanceId").GetString()!));
+        Assert.Equal("1.0.3", Assert.IsType<WorkflowInstanceRecord>(workflow).DefinitionVersion);
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+    }
+
+    [Theory]
+    [InlineData("absent", 0)]
+    [InlineData("absent", -1)]
+    [InlineData("blank", 0)]
+    [InlineData("blank", -1)]
+    public async Task Access_grant_form_refuses_an_end_not_after_its_defaulted_start_before_saving(string omission, int endOffsetMinutes)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, FrozenAt.AddDays(-30), omission,
+            effectiveTo: FrozenAt.AddMinutes(endOffsetMinutes));
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Theory]
+    [InlineData("not-a-date")]
+    [InlineData("   ")]
+    public async Task Access_grant_form_refuses_a_malformed_nonempty_end_before_saving(string endText)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, effectiveToText: endText);
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("access.grant.invalid-validity-interval", body.GetProperty("code").GetString());
+        Assert.Equal("effectiveTo", body.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Access_grant_form_admits_an_empty_or_omitted_end(bool omitted)
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var (status, body) = await fixture.AccessGrantSubmitAsync(null, null, omitEffectiveTo: omitted);
+        Assert.True(status == HttpStatusCode.Created, body.ToString());
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+        Assert.Null(grant.Validity.ValidTo);
+    }
+
+    [Fact]
+    public async Task Access_grant_form_retains_backdate_refusal_precedence_for_an_invalid_interval()
+    {
+        await using var fixture = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt));
+        await fixture.PrepareAsync("access-grant");
+        var before = await fixture.AccessSubmissionCountsAsync();
+        var (status, body) = await fixture.AccessGrantSubmitAsync(FrozenAt.AddMinutes(-1), null,
+            effectiveTo: FrozenAt.AddMinutes(-2));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        Assert.Equal(before, await fixture.AccessSubmissionCountsAsync());
+    }
+
+    [Fact(DisplayName = "T-1017: a future effective-from is still admitted as the client supplied it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Access_grant_form_admits_a_future_effective_from_as_supplied()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: FrozenAt.AddDays(7), capturedAt: null);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(new DateTimeOffset(2026, 7, 30, 2, 0, 0, TimeSpan.Zero), grant.Validity.ValidFrom);
+    }
+
     private const string AccessGrantRecipient = "principal-k3-recipient";
 
     [Fact]
@@ -245,24 +353,27 @@ public sealed class KernelClockIntegrationTests
         int expectedMemberAudits,
         int expectedCapabilityAudits)
     {
-        var clock = new MutableHostClock(FrozenAt);
-        await using var fixture = await ProductionFixture.CreateAsync(clock);
-        await fixture.PrepareAsync("identity-administration");
-        await fixture.InstallRevocationFaultAsync(faultStep);
+        await SqliteStartupLifecycleProbe.RunObservedAsync(async () =>
+        {
+            var clock = new MutableHostClock(FrozenAt);
+            await using var fixture = await ProductionFixture.CreateAsync(clock);
+            await fixture.PrepareAsync("identity-administration");
+            await fixture.InstallRevocationFaultAsync(faultStep);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
-        await fixture.RestartAsync();
-        // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await fixture.RestartAsync();
+            // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
 
-        await fixture.ClearRevocationFaultAsync(faultStep);
-        await fixture.IdentityAdministrationAsync();
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive: false, expectedGrantLive: false,
-            expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+            await fixture.ClearRevocationFaultAsync(faultStep);
+            await fixture.IdentityAdministrationAsync();
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive: false, expectedGrantLive: false,
+                expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+        }, diagnosticOutput.WriteLine);
     }
 
     [Theory]
@@ -302,6 +413,33 @@ public sealed class KernelClockIntegrationTests
             Assert.Equal(evidence.Select(item => item.RecordId), resumed.Select(item => item.RecordId));
             await fixture.AssertRosterRevocationPairInvariantAsync(distinctTargets);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionFixture_Startup_failure_restores_environment_and_releases_runtime_generation(bool cleanupFails)
+    {
+        string[] names = ["HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", "LocalNode__RootSeedHex",
+            "Logging__EventLog__LogLevel__Default", "LocalNode__WebClient__Enabled", "LocalNode__SchedulingDogfood__Enabled"];
+        var prior = names.Select(Environment.GetEnvironmentVariable).ToArray();
+        var fault = new InvalidOperationException("deterministic fixture startup fault");
+        var cleanupFault = new InvalidOperationException("deterministic fixture cleanup fault");
+        var observed = await Record.ExceptionAsync(() => ProductionFixture.CreateAsync(
+            new MutableHostClock(FrozenAt), _ => throw fault,
+            cleanupFails ? () => Task.FromException(cleanupFault) : null));
+        if (cleanupFails)
+        {
+            var aggregate = Assert.IsType<AggregateException>(observed);
+            Assert.Equal(new Exception[] { fault, cleanupFault }, aggregate.InnerExceptions);
+        }
+        else Assert.Same(fault, observed);
+        Assert.Equal(prior, names.Select(Environment.GetEnvironmentVariable).ToArray());
+        Assert.Null(LocalNodeHostRuntime.CurrentServices);
+        await using (var next = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt)))
+            Assert.NotNull(next.Services);
+        Assert.Equal(prior, names.Select(Environment.GetEnvironmentVariable).ToArray());
+        Assert.Null(LocalNodeHostRuntime.CurrentServices);
     }
 
     private sealed class ProductionFixture : IAsyncDisposable
@@ -354,7 +492,7 @@ public sealed class KernelClockIntegrationTests
         }
 
         internal IServiceProvider Services { get; private set; }
-        internal static async Task<ProductionFixture> CreateAsync(TimeProvider clock)
+        internal static async Task<ProductionFixture> CreateAsync(TimeProvider clock, Action<IServiceCollection>? finalServiceRegistration = null, Func<Task>? cleanupFault = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), "ticket-216-real-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
@@ -373,35 +511,53 @@ public sealed class KernelClockIntegrationTests
             // simply absent and the two scheduling cases cannot reach a handler at all.
             var priorSchedulingDogfood = Environment.GetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled");
             Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", "true");
-            var baseAddress = await LocalNodeHostRuntime.StartAsync(
-                "ticket-216-kernel-clock",
-                directory,
-                CancellationToken.None,
-                clock);
-            var provider = LocalNodeHostRuntime.CurrentServices
-                ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
-            Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
-            Assert.IsType<NodeEfJournalStore>(provider.GetRequiredService<IJournalStore>());
-            Assert.IsType<NodeEfWorkflowStore>(provider.GetRequiredService<IWorkflowStore>());
-            Assert.IsType<WorkflowTriggerDispatcher>(provider.GetRequiredService<IWorkflowTriggerDispatcher>());
-            Assert.IsType<AdminTeamAccessAuthority>(provider.GetRequiredService<IAdminTeamAccessAuthority>());
-            Assert.Same(
-                provider.GetRequiredService<NodeEfAuthorizationConfigurationStore>(),
-                provider.GetRequiredService<IAuthorizationConfigurationStore>());
-            var nodeFactory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
-            var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
-            return new(
-                directory,
-                priorInstallRoot,
-                priorRootSeed,
-                priorEventLogLevel,
-                priorWebClientEnabled,
-                priorSchedulingDogfood,
-                baseAddress,
-                provider,
-                nodeFactory,
-                searchFactory,
-                clock);
+            try
+            {
+                var baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    "ticket-216-kernel-clock",
+                    directory,
+                    CancellationToken.None,
+                    clock, SqliteStartupLifecycleProbe.Combine(finalServiceRegistration));
+                var provider = LocalNodeHostRuntime.CurrentServices
+                    ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
+                Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
+                Assert.IsType<NodeEfJournalStore>(provider.GetRequiredService<IJournalStore>());
+                Assert.IsType<NodeEfWorkflowStore>(provider.GetRequiredService<IWorkflowStore>());
+                Assert.IsType<WorkflowTriggerDispatcher>(provider.GetRequiredService<IWorkflowTriggerDispatcher>());
+                Assert.IsType<AdminTeamAccessAuthority>(provider.GetRequiredService<IAdminTeamAccessAuthority>());
+                Assert.Same(
+                    provider.GetRequiredService<NodeEfAuthorizationConfigurationStore>(),
+                    provider.GetRequiredService<IAuthorizationConfigurationStore>());
+                var nodeFactory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+                var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
+                return new(
+                    directory,
+                    priorInstallRoot,
+                    priorRootSeed,
+                    priorEventLogLevel,
+                    priorWebClientEnabled,
+                    priorSchedulingDogfood,
+                    baseAddress,
+                    provider,
+                    nodeFactory,
+                    searchFactory,
+                    clock);
+            }
+            catch (Exception startupFailure)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup", startupFailure);
+                try
+                {
+                    await CleanupAsync(directory, priorInstallRoot, priorRootSeed, priorEventLogLevel,
+                        priorWebClientEnabled, priorSchedulingDogfood, cleanupFault);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup-disposal", cleanupFailure);
+                    throw new AggregateException(startupFailure, cleanupFailure);
+                }
+                throw;
+            }
         }
 
         internal async Task PrepareAsync(string operation)
@@ -634,19 +790,24 @@ public sealed class KernelClockIntegrationTests
         }
 
         // K3: the preloaded Access pack's grant form, the one live route that takes a client effective-from.
+        // A null effectiveFrom is sent as omittedAs says: "absent" (no member), "null" (JSON null) or "blank".
+        // The form schema refuses a JSON null text value before any projection, so only absent and blank reach the default.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset effectiveFrom, DateTimeOffset? capturedAt)
+            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent", DateTimeOffset? effectiveTo = null,
+            string? effectiveToText = null, bool omitEffectiveTo = false)
         {
-            var candidate = new Dictionary<string, string>
+            var candidate = new Dictionary<string, string?>
             {
                 ["person"] = AccessGrantRecipient,
                 ["role"] = "administrator",
                 ["scope"] = "/",
                 ["residency"] = "cache",
-                ["effectiveFrom"] = effectiveFrom.ToString("O"),
-                ["effectiveTo"] = "",
+                ["effectiveTo"] = effectiveToText ?? effectiveTo?.ToString("O") ?? "",
                 ["reason"] = "manual",
             };
+            if (omitEffectiveTo) candidate.Remove("effectiveTo");
+            if (effectiveFrom is { } from) candidate["effectiveFrom"] = from.ToString("O");
+            else if (omittedAs != "absent") candidate["effectiveFrom"] = omittedAs == "null" ? null : "   ";
             if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");
             using var client = Client();
             using var response = await client.PostAsJsonAsync(
@@ -660,6 +821,17 @@ public sealed class KernelClockIntegrationTests
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var grants = await Services.GetRequiredService<IGrantStore>().SnapshotAsync(tenant);
             return grants.Where(grant => grant.Subject.Value == subject).ToList();
+        }
+
+        internal async Task<(int Entities, int Workflows, int Outbox)> AccessSubmissionCountsAsync()
+        {
+            var entities = 0;
+            await foreach (var entity in Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>()
+                .QueryAsync(new Harborline.Api.Foundation.Assets.Entities.EntityQuery(
+                    Tenant: Harborline.Api.Foundation.MultiTenancy.TenantSelection.All))) entities++;
+            await using var db = await _nodeFactory.CreateDbContextAsync();
+            return (entities, await db.Set<WorkflowInstanceRecord>().CountAsync(),
+                await db.Set<Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow>().CountAsync());
         }
 
         internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()
@@ -1392,9 +1564,22 @@ public sealed class KernelClockIntegrationTests
 
         internal async Task RestartAsync()
         {
-            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            _baseAddress = await LocalNodeHostRuntime.StartAsync(
-                "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock);
+            try { await LocalNodeHostRuntime.StopAsync(CancellationToken.None); }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-disposal", original);
+                throw;
+            }
+            try
+            {
+                _baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock, SqliteStartupLifecycleProbe.Combine(null));
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-startup", original);
+                throw;
+            }
             Services = LocalNodeHostRuntime.CurrentServices
                 ?? throw new InvalidOperationException("The restarted host did not expose its service provider.");
             _nodeFactory = Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -1482,15 +1667,35 @@ public sealed class KernelClockIntegrationTests
         private static string RawBase64Url(byte[] value) =>
             Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync() => CleanupAsync(_directory, _priorInstallRoot, _priorRootSeed,
+            _priorEventLogLevel, _priorWebClientEnabled, _priorSchedulingDogfood);
+
+        private static async ValueTask CleanupAsync(string directory, string? priorInstallRoot, string? priorRootSeed,
+            string? priorEventLogLevel, string? priorWebClientEnabled, string? priorSchedulingDogfood,
+            Func<Task>? cleanupFault = null)
         {
-            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            Environment.SetEnvironmentVariable("HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", _priorInstallRoot);
-            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", _priorRootSeed);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", _priorEventLogLevel);
-            Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", _priorWebClientEnabled);
-            Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", _priorSchedulingDogfood);
-            try { Directory.Delete(_directory, recursive: true); } catch { }
+            try
+            {
+                await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
+                if (cleanupFault is not null) await cleanupFault();
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("disposal", original);
+                throw;
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", priorInstallRoot);
+                Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", priorRootSeed);
+                Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", priorEventLogLevel);
+                Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", priorWebClientEnabled);
+                Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", priorSchedulingDogfood);
+                // Pooled SQLite handles may retain files after the host stops. Directory cleanup remains best effort.
+                try { Directory.Delete(directory, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
 
     }

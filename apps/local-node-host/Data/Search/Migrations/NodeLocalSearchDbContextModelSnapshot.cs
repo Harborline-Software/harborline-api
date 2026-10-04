@@ -15,7 +15,7 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260929170220_KernelAuditTrail";
+    public override string LastMigrationId => "20261004130000_SubjectErasureRecoveryEvidence";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -395,6 +395,11 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
 
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
+
                 b.Property<string>("SignedPayloadJson")
                     .HasColumnType("TEXT")
                     .HasColumnName("signed_payload_json");
@@ -733,9 +738,33 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("TEXT")
                     .HasColumnName("subject_id");
 
+                b.Property<long?>("ApprovedAtUnixMs")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("approved_at_unix_ms");
+
+                b.Property<string>("ApprovingActorsJson")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("approving_actors_json");
+
+                b.Property<long?>("CompletedAtUnixMs")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("completed_at_unix_ms");
+
                 b.Property<long>("ErasedAtUnixMs")
                     .HasColumnType("INTEGER")
                     .HasColumnName("erased_at_unix_ms");
+
+                b.Property<string>("LegalBasis")
+                    .HasColumnType("TEXT")
+                    .HasColumnName("legal_basis");
+
+                b.Property<long?>("NextRecoveryAtUnixMs")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("next_recovery_at_unix_ms");
+
+                b.Property<int>("RecoveryAttempts")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("recovery_attempts");
 
                 b.HasKey("TenantId", "SubjectId");
 

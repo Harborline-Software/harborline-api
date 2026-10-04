@@ -105,7 +105,8 @@ public static class NodeBankingWriteComposition
             Accounts(sp)));
         services.AddSingleton(sp => new NodeBankAccountWriter(
             Accounts(sp),
-            sp.GetRequiredService<AuthorizationGate>()));
+            sp.GetRequiredService<AuthorizationGate>(),
+            createKeys: Accounts(sp)));
         services.AddSingleton<IStatementLineRepository, NodeEfStatementLineRepository>();
         services.AddSingleton<IMatchLinkRepository, NodeEfMatchLinkRepository>();
         services.AddSingleton<IReconciliationRepository, NodeEfReconciliationRepository>();

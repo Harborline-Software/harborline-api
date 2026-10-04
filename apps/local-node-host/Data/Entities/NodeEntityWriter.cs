@@ -14,12 +14,16 @@ namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
 /// <summary>
 /// Ticket 331 slice 2 -- a persisted legal entity and the audit id of the decision that permitted the
-/// write, so the route can answer "why was this allowed?" with an addressable id. The id is null when no
-/// audit sink is composed or its append faulted; the write itself stands either way.
+/// write, so the route can answer "why was this allowed?" with an addressable id. With the audit outbox
+/// composed (T-1048) it identifies the committed entry only after actual trail delivery is confirmed. It is
+/// null while delivery is owed or cannot be confirmed, or when no audit sink is composed. The write stands.
 /// </summary>
 public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
 
-/// <summary>A generic persisted record and the accepted decision audit that authorized it.</summary>
+/// <summary>
+/// A generic record and its best-effort post-commit accepted-decision audit. The current generic store is
+/// volatile: it shares no transaction with the durable audit trail and has no restart-recovery guarantee.
+/// </summary>
 public sealed record EntityWritten(EntityId Entity, Guid? AuditId);
 
 public sealed record CreateLegalEntityCommand(
@@ -37,7 +41,8 @@ public sealed class NodeEntityWriter(
     AuthorizationGate gate,
     Health.AuthorizationRefusalAudit? refusals = null,
     Health.AuthorizedActAudit? accepted = null,
-    IWritePipelineObserver? pipelineObserver = null) : IEntityWriteCoordinator
+    IWritePipelineObserver? pipelineObserver = null,
+    Audit.NodeAuditOutbox? outbox = null) : IEntityWriteCoordinator
 {
     /// <summary>The event type an accepted record write is recorded under (ticket 331 slice 2).</summary>
     public static readonly Kernel.Audit.AuditEventType RecordWrittenEventType = new("RecordWritten");
@@ -47,9 +52,8 @@ public sealed class NodeEntityWriter(
 
     /// <summary>
     /// Records the accepted write against the ONE decision that permitted it and returns that entry's
-    /// audit id. Every accepted write on this coordinator goes through here, so no write path is
-    /// addressable while a sibling is silent. It carries the record's identity and schema and never a
-    /// member of its body.
+    /// audit id. Generic records use this best-effort post-commit path; legal entities use it only when
+    /// no durable outbox is composed. It carries the record's identity and schema and never its body.
     /// </summary>
     private ValueTask<Guid?> RecordAcceptedAsync(
         AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema, string recordId,
@@ -61,6 +65,45 @@ public sealed class NodeEntityWriter(
                 decision,
                 new Dictionary<string, object?> { ["recordId"] = recordId, ["schema"] = schema.Value },
                 ct);
+
+    /// <summary>
+    /// T-1048 (DES-0029 ck-6): stages the accepted act's audit on <paramref name="db"/>, so the save that commits
+    /// the change commits its audit too, and the outbox delivers it after a crash. Null when no outbox is
+    /// composed; react then falls back to <see cref="RecordAcceptedAsync"/>.
+    /// </summary>
+    private Guid? StageAccepted(
+        DbContext db, AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema, string recordId)
+        => outbox is null
+            ? null
+            : Audit.NodeAuditOutbox.StageAuthorized(db, eventType, decision,
+                new Dictionary<string, string?> { ["recordId"] = recordId, ["schema"] = schema.Value });
+
+    /// <summary>
+    /// React: delivers the audit commit staged now (the drain daemon delivers it if this delivery fails, and the
+    /// write stands either way) and returns its id only when the actual trail holds it; with no outbox composed,
+    /// records the act after commit.
+    /// </summary>
+    private async ValueTask<Guid?> DeliverAcceptedAsync(
+        Guid? staged, AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema,
+        string recordId, CancellationToken ct)
+    {
+        if (outbox is null)
+            return await RecordAcceptedAsync(decision, eventType, schema, recordId, ct).ConfigureAwait(false);
+        try
+        {
+            await outbox.DrainAsync(ct).ConfigureAwait(false);
+            return staged is { } auditId
+                && await outbox.IsDeliveredAsync(decision.Request.Tenant, auditId, ct).ConfigureAwait(false)
+                    ? auditId : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The entry is committed and owed; the drain daemon delivers it.
+            _ = exception;
+        }
+
+        return null;
+    }
     /// <summary>
     /// Stage two (ADR 0065 clause 4), with its refusal recorded where the decision trace reads it
     /// (ticket 151). Every record write on this coordinator goes through here so the trace entry cannot
@@ -222,6 +265,7 @@ public sealed class NodeEntityWriter(
         : KernelWrite<CreateLegalEntityCommand, LegalEntityDraft, LegalEntity, LegalEntityWritten>
     {
         private AuthorizationDecision decision = null!;
+        private Guid? staged;
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             decision = await writer.DecideAsync(authority, command.Id.Value, ct).ConfigureAwait(false);
@@ -269,12 +313,15 @@ public sealed class NodeEntityWriter(
         {
             await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
             context.Set<LegalEntity>().Add(validated);
+            staged = writer.StageAccepted(
+                context, decision, RecordWrittenEventType, Health.EntityRoutes.LegalEntitySchema, validated.Id.Value);
             await context.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
         protected override async ValueTask<LegalEntityWritten> ReactAsync(LegalEntity validated, CancellationToken ct) =>
-            new(validated, await writer.RecordAcceptedAsync(
-                decision, RecordWrittenEventType, Health.EntityRoutes.LegalEntitySchema, validated.Id.Value, ct).ConfigureAwait(false));
+            new(validated, await writer.DeliverAcceptedAsync(
+                staged, decision, RecordWrittenEventType, Health.EntityRoutes.LegalEntitySchema, validated.Id.Value, ct)
+                .ConfigureAwait(false));
 
         // Validate's local guard, kept as a method whose parameter it names (CA2208): the command is refused.
         private static (string LegalName, EntityKind Kind, TaxClassification Tax) RequireDerived(
@@ -340,6 +387,7 @@ public sealed class NodeEntityWriter(
             (await writer.AdmitAsync(decision, mutation.Schema, body, mutation.Options.Tenant, mutation.Options.Binding,
                 authority, ct).ConfigureAwait(false), mutation.Options);
 
+        // The volatile generic store has no durable transaction to enlist. T-616 owns that future boundary.
         protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
             created = await entities.CreateAsync(validated.Body, validated.Options, ct).ConfigureAwait(false);
 

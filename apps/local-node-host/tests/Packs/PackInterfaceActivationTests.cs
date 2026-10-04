@@ -50,10 +50,10 @@ public sealed class PackInterfaceActivationTests : IDisposable
     {
         var access = await ExportAsync("access", new JsonObject { ["title"] = "access parent" },
             PackContentKind.FormDefinition, exposes: ["access.definition"], interfaceVersion: 1);
-        InstallAndActivate(access);
+        await InstallAndActivateAsync(access);
         var consumer = await ExportAsync("consumer", Referencing("access@2"), PackContentKind.AssetTypeDefinition,
             dependencies: [new PackDependencyRef("access", "1.0.0")]);
-        var installed = _installer.Install(consumer, _context);
+        var installed = await _installer.InstallAsync(consumer, _context);
         Assert.True(installed.Installed, string.Join(",", installed.RefusalCodes));
         var before = CatalogueHash();
 
@@ -71,10 +71,10 @@ public sealed class PackInterfaceActivationTests : IDisposable
     {
         var access = await ExportAsync("access", new JsonObject { ["title"] = "access parent" },
             PackContentKind.FormDefinition, exposes: ["access.other"], interfaceVersion: 1);
-        InstallAndActivate(access);
+        await InstallAndActivateAsync(access);
         var consumer = await ExportAsync("consumer", Referencing("access@1"), PackContentKind.AssetTypeDefinition,
             dependencies: [new PackDependencyRef("access", "1.0.0")]);
-        Assert.True(_installer.Install(consumer, _context).Installed);
+        Assert.True((await _installer.InstallAsync(consumer, _context)).Installed);
         var before = CatalogueHash();
 
         var activation = _installer.Activate(_context, "consumer", "1.0.0");
@@ -90,7 +90,7 @@ public sealed class PackInterfaceActivationTests : IDisposable
     {
         var bytes = await ExportAsync("access", new JsonObject { ["title"] = "access parent" },
             PackContentKind.FormDefinition, exposes: ["access.definition"], interfaceVersion: 1);
-        InstallAndActivate(bytes);
+        await InstallAndActivateAsync(bytes);
 
         var active = Assert.Single(_store.ListInstalled(Tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
@@ -98,9 +98,9 @@ public sealed class PackInterfaceActivationTests : IDisposable
         Assert.Equal(1, active.InterfaceVersion);
     }
 
-    private void InstallAndActivate(byte[] bytes)
+    private async Task InstallAndActivateAsync(byte[] bytes)
     {
-        var installed = _installer.Install(bytes, _context);
+        var installed = await _installer.InstallAsync(bytes, _context);
         Assert.True(installed.Installed, string.Join(",", installed.RefusalCodes));
         Assert.True(_installer.Activate(_context, installed.PackKey, installed.Version).Activated);
     }

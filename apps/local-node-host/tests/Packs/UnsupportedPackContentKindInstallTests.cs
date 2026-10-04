@@ -45,7 +45,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(LoadConformanceFixtureKind("standards-catalog"));
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -82,7 +82,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.True(outcome.Installed);
             Assert.Equal(PackInstallVerdict.WouldInstall, outcome.Preview.Verdict);
@@ -117,7 +117,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
             Assert.False(outcome.Installed);
             Assert.Contains(PackInstallCodes.RefusedAdmission, outcome.RefusalCodes);
             Assert.Equal("pack.nav.item_label_key_required", Assert.Single(outcome.Preview.AdmissionRefusals).Code);
@@ -156,7 +156,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -180,7 +180,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, first, second);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -212,7 +212,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -254,7 +254,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -296,7 +296,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, documents, unspined);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -314,7 +314,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(LoadConformanceFixtureKind("cascade-defaults"));
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
@@ -332,7 +332,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             await CreateFixtureAsync(PackContentKind.TerminologyOverride);
         using (keyPair)
         {
-            var outcome = installer.Install(packBytes, context);
+            var outcome = await installer.InstallAsync(packBytes, context);
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);

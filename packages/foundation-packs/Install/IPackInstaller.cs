@@ -31,7 +31,8 @@ public interface IPackInstaller
     /// <see cref="PackLifecycleState.Draft"/>; call <see cref="ActivateAsync"/> to make it live. A watermark
     /// refusal (downgrade / floor-weakening) proceeds ONLY with a break-glass ceremony on the context.
     /// </summary>
-    PackInstallOutcome Install(ReadOnlySpan<byte> packBytes, PackInstallContext context);
+    Task<PackInstallOutcome> InstallAsync(
+        ReadOnlyMemory<byte> packBytes, PackInstallContext context, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Activates an installed version (ADR 0011 Draft/Inactive → Active pointer flip) + audits it. A prior Active
@@ -46,7 +47,8 @@ public interface IPackInstaller
     /// ownership choice, watermark, or tenant-authored data is deleted. Requires
     /// authority through the same compiled context as installation and activation.
     /// </summary>
-    PackDeactivationOutcome Deactivate(PackInstallContext context, string packKey, string version);
+    Task<PackDeactivationOutcome> DeactivateAsync(
+        PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records an administrator's NARROWING of one content key of the pack's Active version (ticket 208
@@ -58,7 +60,7 @@ public interface IPackInstaller
     /// The caller supplies its guard's decision for this pack, tenant, principal, and instant; the
     /// installer validates and carries that same object to the audit without re-deciding.
     /// </summary>
-    PackNarrowingOutcome Narrow(
+    Task<PackNarrowingOutcome> NarrowAsync(
         PackInstallContext context, string packKey, string contentKey, System.Text.Json.Nodes.JsonNode overlayPatch,
-        AuthorizationDecision decision);
+        AuthorizationDecision decision, CancellationToken cancellationToken = default);
 }

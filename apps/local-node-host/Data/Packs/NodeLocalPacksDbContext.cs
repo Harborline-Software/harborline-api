@@ -85,6 +85,15 @@ public sealed class NodeLocalPacksDbContext : DbContext
         ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
 
+        // T-1048 (DES-0029 ck-6): an install, activation or deactivation stages its audit entry in the SAME save as
+        // the pack change it records. The search context owns the outbox table and its migrations; this context only
+        // writes rows into it, and NodeAuditOutbox drains them.
+        modelBuilder.Entity<Search.AuditOutboxRow>(e =>
+        {
+            Search.AuditOutboxRow.Map(e);
+            e.ToTable("search_audit_outbox", table => table.ExcludeFromMigrations());
+        });
+
         modelBuilder.Entity<PackInstalledVersionRow>(e =>
         {
             e.ToTable("pack_installed_versions");

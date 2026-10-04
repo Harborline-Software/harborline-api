@@ -199,7 +199,10 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             // member's pins — the opposite of the live admission conferral, which must not, because there
             // the pins being bumped are the ones that authorized the admission itself (293 s4 fix 4).
             await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, existing.Subject, ct).ConfigureAwait(false);
-            stage?.Invoke(db);
+            if (stage is not null)
+            {
+                stage.Invoke(db);
+            }
             // The reissue's commit stage saves the revoked leg, the epoch and the staged audit with it, in this fence.
             var reissued = await AuthorizationDefinitionWriter.ConferAdmissionAsync(
                     new AdmissionConferral(tenant, id, existing.Subject.Value, revocation.RevokedBy.Value, narrowed,

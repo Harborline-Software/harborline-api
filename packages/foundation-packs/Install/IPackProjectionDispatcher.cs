@@ -30,5 +30,5 @@ public interface IPackProjectionRefusalReport
 public interface IPackProjectionReconciler
 {
     void AttachProjector(IPackProjectionDispatcher projector);
-    void ReconcilePending(CancellationToken cancellationToken = default);
+    Task ReconcilePendingAsync(CancellationToken cancellationToken = default);
 }

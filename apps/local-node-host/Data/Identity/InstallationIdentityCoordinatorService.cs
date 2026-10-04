@@ -1309,6 +1309,22 @@ internal sealed class InstallationIdentityCoordinatorService : IInvitationAccept
 }
 
 /// <summary>
+/// A web identity authority whose home decision owes a Completed installation audit envelope once
+/// its tenant effect is durable. The recovery drain rolls such a row forward without the client's
+/// handle, so a crash between the durable effect and the envelope loses no evidence (T-1048).
+/// </summary>
+internal interface IInstallationIdentityHomeRecovery
+{
+    string CommandType { get; }
+
+    /// <summary>
+    /// Rolls a committed home forward to Completed and its envelope, idempotently. A home with no
+    /// durable effect yet is left alone: nothing is owed for it.
+    /// </summary>
+    Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Bounded restart scanner for R3-H decisions. The live web host invokes this service through its
 /// hosted recovery daemon after canonical tenant admission exists; this service itself advertises no
 /// readiness and can recover every durable nonterminal row without desktop active-team state.
@@ -1316,13 +1332,49 @@ internal sealed class InstallationIdentityCoordinatorService : IInvitationAccept
 internal sealed class InstallationIdentityCoordinatorRecoveryService(
     IDbContextFactory<NodeLocalInstallationIdentityDbContext> homeFactory,
     InstallationIdentityCoordinatorService coordinator,
-    ILogger<InstallationIdentityCoordinatorRecoveryService>? logger = null)
+    ILogger<InstallationIdentityCoordinatorRecoveryService>? logger = null,
+    IEnumerable<IInstallationIdentityHomeRecovery>? homeRecoveries = null)
 {
     private readonly IDbContextFactory<NodeLocalInstallationIdentityDbContext> _homeFactory =
         homeFactory ?? throw new ArgumentNullException(nameof(homeFactory));
     private readonly InstallationIdentityCoordinatorService _coordinator =
         coordinator ?? throw new ArgumentNullException(nameof(coordinator));
     private readonly ILogger<InstallationIdentityCoordinatorRecoveryService>? _logger = logger;
+    private readonly Dictionary<string, IInstallationIdentityHomeRecovery> _homeRecoveries =
+        (homeRecoveries ?? []).ToDictionary(item => item.CommandType, StringComparer.Ordinal);
+    private sealed record RecoveryCursor(DateTimeOffset At, string CorrelationId);
+    private RecoveryCursor? _membershipCursor;
+    private RecoveryCursor? _membershipCycleEnd;
+    private RecoveryCursor? _webCursor;
+    private RecoveryCursor? _webCycleEnd;
+
+    private static async Task<(InstallationIdentityCoordinatorRecord[] Homes, RecoveryCursor? CycleEnd)> ReadRecoveryPageAsync(
+        IQueryable<InstallationIdentityCoordinatorRecord> eligible, RecoveryCursor? after,
+        RecoveryCursor? cycleEnd, int limit, CancellationToken ct)
+    {
+        // Freeze each cycle's upper bound so continuing arrivals cannot postpone an old home's retry.
+        cycleEnd ??= await eligible.OrderByDescending(item => item.CreatedAtUtc)
+            .ThenByDescending(item => EF.Functions.Collate(item.CorrelationId, "BINARY"))
+            .Select(item => new RecoveryCursor(item.CreatedAtUtc, item.CorrelationId))
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (cycleEnd is null)
+            return ([], null);
+        // EF translates these two-argument comparisons into SQL; no managed culture comparison runs.
+        // SQL ordering and both cursor bounds use SQLite BINARY. This is a provider contract,
+        // not a claim that every Unicode ordering equals .NET ordinal.
+#pragma warning disable CA1309 // reviewed-suppression: identity-recovery-sqlite-cursor
+        var remaining = eligible.Where(item =>
+            (item.CreatedAtUtc < cycleEnd.At || (item.CreatedAtUtc == cycleEnd.At
+                && string.Compare(EF.Functions.Collate(item.CorrelationId, "BINARY"), cycleEnd.CorrelationId) <= 0))
+            && (after == null || item.CreatedAtUtc > after.At || (item.CreatedAtUtc == after.At
+                && string.Compare(EF.Functions.Collate(item.CorrelationId, "BINARY"), after.CorrelationId) > 0)));
+#pragma warning restore CA1309
+        var page = await remaining.OrderBy(item => item.CreatedAtUtc).ThenBy(item => EF.Functions.Collate(item.CorrelationId, "BINARY"))
+            .Take(limit).ToArrayAsync(ct).ConfigureAwait(false);
+        // Any captured row may complete elsewhere between the bound and page queries.
+        // End even an empty first page; the next sweep starts a fresh bounded cycle.
+        return page.Length == 0 ? (page, null) : (page, cycleEnd);
+    }
 
     internal async Task<IReadOnlyList<InstallationIdentityCoordinationResult>> RecoverPendingAsync(
         int limit = 100,
@@ -1334,23 +1386,22 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
         }
         await using var context = await _homeFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
-        var correlationIds = await context.Coordinators.AsNoTracking()
+        var page = await ReadRecoveryPageAsync(context.Coordinators.AsNoTracking()
             .Where(item =>
                 item.CommandType == "TenantMembershipMutation" &&
                 (item.State == InstallationIdentityCoordinatorState.Preparing ||
                  item.State == InstallationIdentityCoordinatorState.Committing ||
                  item.State == InstallationIdentityCoordinatorState.Finalizing ||
-                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null)))
-            .OrderBy(item => item.CreatedAtUtc)
-            .ThenBy(item => item.CorrelationId)
-            .Select(item => item.CorrelationId)
-            .Take(limit)
-            .ToArrayAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var results = new List<InstallationIdentityCoordinationResult>(correlationIds.Length);
-        foreach (var correlationId in correlationIds)
+                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null))),
+            _membershipCursor, _membershipCycleEnd, limit, cancellationToken).ConfigureAwait(false);
+        _membershipCycleEnd = page.CycleEnd;
+        var homes = page.Homes;
+        var results = new List<InstallationIdentityCoordinationResult>(homes.Length);
+        foreach (var home in homes)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var correlationId = home.CorrelationId;
+            _membershipCursor = new(home.CreatedAtUtc, correlationId);
             try
             {
                 results.Add(await _coordinator.ResumeAsync(
@@ -1371,6 +1422,65 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
                     correlationId);
             }
         }
+        if (_membershipCycleEnd is null || _membershipCursor == _membershipCycleEnd)
+        {
+            _membershipCursor = null;
+            _membershipCycleEnd = null;
+        }
+        await RecoverWebHomesAsync(context, limit, cancellationToken).ConfigureAwait(false);
         return results;
+    }
+
+    private async Task RecoverWebHomesAsync(
+        NodeLocalInstallationIdentityDbContext context,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (_homeRecoveries.Count == 0)
+        {
+            return;
+        }
+        var commandTypes = _homeRecoveries.Keys.ToArray();
+        // Preparing is scanned only for logout: its revocation commits before the home leaves
+        // Preparing. A selection or switch in Preparing has no committed effect and owes nothing.
+        var page = await ReadRecoveryPageAsync(context.Coordinators.AsNoTracking()
+            .Where(item =>
+                commandTypes.Contains(item.CommandType) &&
+                (item.State == InstallationIdentityCoordinatorState.Committing ||
+                 item.State == InstallationIdentityCoordinatorState.Finalizing ||
+                 (item.State == InstallationIdentityCoordinatorState.Preparing &&
+                  item.CommandType == WebSelectedSessionLogoutAuthority.CommandType))),
+            _webCursor, _webCycleEnd, limit, cancellationToken).ConfigureAwait(false);
+        _webCycleEnd = page.CycleEnd;
+        foreach (var home in page.Homes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Advance past failures to reach later owed audits within this finite cycle.
+            // Completing the cycle revisits unfinished old homes even while new homes arrive.
+            _webCursor = new(home.CreatedAtUtc, home.CorrelationId);
+            try
+            {
+                await _homeRecoveries[home.CommandType].RecoverAsync(home, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // reviewed-suppression: identity-web-home-recovery
+            catch (Exception exception)
+            {
+                _logger?.LogError(
+                    exception,
+                    "Identity web home recovery row {CorrelationId} failed; continuing the drain.",
+                    home.CorrelationId);
+            }
+#pragma warning restore CA1031
+        }
+        if (_webCycleEnd is null || _webCursor == _webCycleEnd)
+        {
+            _webCursor = null;
+            _webCycleEnd = null;
+        }
     }
 }

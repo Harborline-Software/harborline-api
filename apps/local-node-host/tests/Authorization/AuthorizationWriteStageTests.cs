@@ -262,7 +262,9 @@ public sealed class AuthorizationWriteStageTests
             new SchemaId("schema"), oldBody, Options("merge-old", actor, tenant, at));
         var firstChild = new EntityId("entity", "test", "merge-child-a");
         var secondChild = new EntityId("entity", "test", "merge-child-b");
+        var otherParent = new EntityId("entity", "test", "merge-child-b-original-parent");
         await hierarchy.AddEdgeAsync(firstChild, oldId, EdgeKind.ChildOf, at);
+        await hierarchy.AddEdgeAsync(secondChild, otherParent, EdgeKind.ChildOf, at.AddDays(-1));
         var newOptions = Options("merge-new", actor, tenant, at);
         var newId = InMemoryEntityStore.DeriveEntityId(new SchemaId("schema"), newOptions);
 
@@ -271,12 +273,21 @@ public sealed class AuthorizationWriteStageTests
             [oldId], new SchemaId("schema"), newBody, newOptions, "merge", actor, tenant, at);
         await hierarchy.RaceWindow;
         // A concurrent act commits a child with a LATER instant while the merge is waiting.
-        var later = clock.GetUtcNow();
-        Assert.True(later > at);
-        await hierarchy.AddEdgeAsync(secondChild, oldId, EdgeKind.ChildOf, later);
+        await coordinator.ReparentAsync(secondChild, otherParent, oldId, "later reparent", actor, tenant, at);
+        var later = at.AddMinutes(1);
+        Assert.Equal(2, clock.ReadCount);
         hierarchy.Resume();
         await merge;
 
+        Assert.Equal(otherParent, Assert.Single(hierarchy.ActiveChildEdges(at),
+            edge => edge.From == secondChild).To);
+        Assert.All(hierarchy.AllEdges, edge =>
+            Assert.True(edge.Validity.ValidTo is null || edge.Validity.ValidTo >= edge.Validity.ValidFrom));
+        var displaced = Assert.Single(hierarchy.AllEdges, edge => edge.From == secondChild && edge.To == oldId);
+        Assert.Equal(later, displaced.Validity.ValidFrom);
+        Assert.Equal(later, displaced.Validity.ValidTo);
+        Assert.Equal(later, Assert.Single(hierarchy.AllEdges, edge =>
+            edge.From == secondChild && edge.To == newId).Validity.ValidFrom);
         var activeChildren = hierarchy.ActiveChildEdges(later);
         Assert.Equal(2, activeChildren.Count);
         Assert.All(activeChildren, edge => Assert.Equal(newId, edge.To));
@@ -912,12 +923,12 @@ public sealed class AuthorizationWriteStageTests
         // Activate/Deactivate decide in their cores; Narrow validates its caller's carried decision.
         // A new unreviewed local decision fails here.
         Assert.Equal(2, Count(source, "AuthorizeOrAudit(tenant"));
-        Assert.Contains("var decision = AuthorizeOrAudit(", source, StringComparison.Ordinal);
-        var narrow = source[source.IndexOf("public PackNarrowingOutcome Narrow", StringComparison.Ordinal)..];
+        Assert.Contains("installer.AuthorizeOrAudit(context.Tenant", source, StringComparison.Ordinal);
+        var narrow = source[source.IndexOf("private sealed class Narrowing(", StringComparison.Ordinal)..];
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_store.GetActive(");
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_mutations.SaveOverride(");
-        var install = source[source.IndexOf("public PackInstallOutcome Install", StringComparison.Ordinal)..];
-        AssertBefore(install, "var decision = AuthorizeOrAudit(", "_admission.Admit(");
+        var install = source[source.IndexOf("private sealed class Installation(", StringComparison.Ordinal)..];
+        AssertBefore(install, "installer.AuthorizeOrAudit(context.Tenant", "_admission.Admit(");
         AssertBefore(source, "AuthorizeOrAudit(tenant", "_store.GetVersion");
 
         var packBytes = await CreateValidSignedPackAsync();
@@ -936,15 +947,15 @@ public sealed class AuthorizationWriteStageTests
             TimeSpan.FromHours(1),
             Principal: "pack-operator");
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(packBytes, context)));
+            installer.InstallAsync(packBytes, context)));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
             installer.Activate(context, "pack", "1.0.0")));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Deactivate(context, "pack", "1.0.0")));
+            installer.DeactivateAsync(context, "pack", "1.0.0")));
         var deniedNarrowing = await TestAuthorization.Gate(false).DecideAsync(
             new AuthorizationWriteContext(new ActorId(context.Principal!), context.Tenant, context.Now)
                 .Request(AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "pack"));
-        Assert.Throws<AuthorizationDeniedException>(() => installer.Narrow(
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => installer.NarrowAsync(
             context, "pack", "content", new JsonObject(), deniedNarrowing));
         Assert.Equal(0, verifier.CallCount);
         Assert.Equal(0, store.CallCount);
@@ -988,7 +999,7 @@ public sealed class AuthorizationWriteStageTests
             Principal: "pack-operator");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(JsonSerializer.SerializeToUtf8Bytes(tampered), context)));
+            installer.InstallAsync(JsonSerializer.SerializeToUtf8Bytes(tampered), context)));
 
         Assert.NotNull(captured);
         Assert.Equal("pack", captured.Target.RecordId);
@@ -1043,7 +1054,7 @@ public sealed class AuthorizationWriteStageTests
             Principal: "pack-operator");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Install(duplicated, context)));
+            installer.InstallAsync(duplicated, context)));
 
         Assert.NotNull(captured);
         if (expectedTarget is not null)
@@ -1233,7 +1244,7 @@ public sealed class AuthorizationWriteStageTests
 
         await AssertRetiredAtBothLifecycles(leaked);
 
-        var deactivated = installer.Deactivate(context with { Now = at.AddMinutes(1) }, pack.PackKey, pack.Version);
+        var deactivated = await installer.DeactivateAsync(context with { Now = at.AddMinutes(1) }, pack.PackKey, pack.Version);
         Assert.True(deactivated.Deactivated);
         Assert.True(deactivated.Projected);
         var deactivationAuthority = dispatcher.Captured[1];
@@ -2298,6 +2309,11 @@ public sealed class AuthorizationWriteStageTests
 
         internal void Resume() => _resume.TrySetResult();
 
+        internal IReadOnlyList<EntityEdge> AllEdges
+        {
+            get { lock (_gate) return _edges.ToArray(); }
+        }
+
         internal IReadOnlyList<EntityEdge> ActiveChildEdges(DateTimeOffset at)
         {
             lock (_gate)
@@ -2409,10 +2425,15 @@ public sealed class AuthorizationWriteStageTests
             DateTimeOffset? asOf = null,
             CancellationToken ct = default) => throw new NotSupportedException();
 
-        public IAsyncEnumerable<ClosureEntry> GetAncestorsAsync(
+        public async IAsyncEnumerable<ClosureEntry> GetAncestorsAsync(
             EntityId descendant,
             DateTimeOffset? asOf = null,
-            CancellationToken ct = default) => throw new NotSupportedException();
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.CompletedTask;
+            yield break;
+        }
 
         public IAsyncEnumerable<ClosureEntry> GetDescendantsAsync(
             EntityId ancestor,

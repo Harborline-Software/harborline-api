@@ -68,13 +68,14 @@ public sealed class ProjectingFormEngine : IFormEngine
         AuthorizationWriteContext authority,
         CancellationToken ct = default,
         string? idempotencyKey = null,
-        string? caseRef = null)
+        string? caseRef = null,
+        Func<CancellationToken, Task>? newSubmissionPreflight = null)
     {
         // PRE-commit: validation / capability / not-found / idempotency-conflict all throw HERE and
         // propagate UNCHANGED — there is no committed submission to defer, so the caller keeps its
         // existing error semantics (F-ROUTE: do not blur the pre/post-commit boundary). caseRef is a
         // projection-only hint — it flows to the context below, never into what the inner engine persists.
-        var receipt = await _inner.SaveWithReceiptAsync(form, candidate, token, authority, ct, idempotencyKey, caseRef).ConfigureAwait(false);
+        var receipt = await _inner.SaveWithReceiptAsync(form, candidate, token, authority, ct, idempotencyKey, caseRef, newSubmissionPreflight).ConfigureAwait(false);
 
         // Post-submit projection: the engine already validated + authorized this submit and created
         // the instance. Keyed-by-binding projections turn the submission into their governed side
@@ -90,7 +91,8 @@ public sealed class ProjectingFormEngine : IFormEngine
             Actor: token.Subject,
             SubmittedAt: receipt.SubmittedAt,
             SubmittedValues: candidate,
-            CaseRef: caseRef);
+            CaseRef: caseRef,
+            ProjectionDefinition: receipt.ProjectionDefinition);
 
         IReadOnlyList<FormSubmitProjectionSkip> skips;
         try

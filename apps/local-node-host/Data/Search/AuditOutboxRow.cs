@@ -13,6 +13,9 @@ public sealed class AuditOutboxRow
     /// <summary>The audit entry id, fixed when the row is staged (the trail's idempotency key).</summary>
     public required string AuditId { get; set; }
 
+    /// <summary>An earlier audit in the same committed ceremony that must reach the trail first.</summary>
+    public string? PredecessorAuditId { get; set; }
+
     /// <summary>The tenant the audited act belongs to.</summary>
     public required string TenantId { get; set; }
 
@@ -71,6 +74,7 @@ public sealed class AuditOutboxRow
         e.ToTable("search_audit_outbox");
         e.HasKey(r => r.AuditId);
         e.Property(r => r.AuditId).HasColumnName("audit_id").HasMaxLength(64);
+        e.Property(r => r.PredecessorAuditId).HasColumnName("predecessor_audit_id").HasMaxLength(64);
         e.Property(r => r.TenantId).HasColumnName("tenant_id").HasMaxLength(256);
         e.Property(r => r.EventType).HasColumnName("event_type").HasMaxLength(256);
         e.Property(r => r.OccurredAt).HasColumnName("occurred_at");

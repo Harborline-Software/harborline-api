@@ -28,7 +28,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// (never a UI-only gate), that the member list unions signed-roster members with grant-anchored web
 /// members (Option A), and that revocation is grant revocation with a self-lockout guard.
 /// </summary>
-public sealed class AdminTeamAccessAuthorityTests
+public sealed partial class AdminTeamAccessAuthorityTests
 {
     private static readonly DateTimeOffset Now = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private const string TenantId = "11111111-1111-1111-1111-111111111111";
@@ -738,7 +738,7 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.NotNull((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original)).RevokedAtUnixMs);
         var reissued = (await grants.Grants.AsNoTracking()
             .SingleAsync(g => g.SubjectId == "principal-narrowed" && g.RevokedAtUnixMs == null)).GrantId;
-        var grantLegs = legs.Where(record => record.EventType != NodeEfAuthorizationConfigurationStore.AdmissionGrantConferredEventType).ToList();
+        var grantLegs = legs.Where(record => record.EventType.Value != "AuthorizationAdmissionGrantConferred").ToList();
         Assert.All(grantLegs, record =>
         {
             Assert.Equal(original, record.Target!.Value.RecordId);
@@ -755,9 +755,13 @@ public sealed class AdminTeamAccessAuthorityTests
         var original = await ConferNarrowableGrantAsync(fixture);
         await RestartAndDrainTwiceAsync(fixture);
         long ownerVersion;
+        long? subjectEpoch;
         await using (var grants = fixture.GrantFactory.CreateDbContext())
         {
             ownerVersion = (await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original)).OwnerVersion;
+            subjectEpoch = (await grants.GrantAuthorizationEpochs.AsNoTracking()
+                .Where(row => row.TenantId == TenantId && row.PrincipalId == "principal-narrowed")
+                .Select(row => (long?)row.AuthorizationEpoch).SingleOrDefaultAsync());
             // The reissue's insert is refused inside the narrowing's one save, after both legs and their audit are staged.
             await grants.Database.ExecuteSqlRawAsync(
                 "CREATE TRIGGER t1048h_refuse_reissue BEFORE INSERT ON search_grants BEGIN SELECT RAISE(ABORT, 't1048h'); END;");
@@ -777,6 +781,9 @@ public sealed class AdminTeamAccessAuthorityTests
             var grant = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original);
             Assert.Null(grant.RevokedAtUnixMs);
             Assert.Equal(ownerVersion, grant.OwnerVersion);
+            Assert.Equal(subjectEpoch, (await grants.GrantAuthorizationEpochs.AsNoTracking()
+                .Where(row => row.TenantId == TenantId && row.PrincipalId == "principal-narrowed")
+                .Select(row => (long?)row.AuthorizationEpoch).SingleOrDefaultAsync()));
             Assert.Equal(1, await grants.Grants.CountAsync(g => g.SubjectId == "principal-narrowed"));
         }
     }
@@ -997,6 +1004,7 @@ public sealed class AdminTeamAccessAuthorityTests
         public string WebHandle => WebHandleValue;
         public string ThirdHandle => ThirdHandleValue;
         public IAdminTeamAccessAuthority Authority { get; }
+        public IReadOnlyList<string> DatabasePaths => _paths;
 
         public static async Task<Fixture> CreateAsync(
             PermissionSet callerPermissions,

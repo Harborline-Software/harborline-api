@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Diagnostics;
 using System.Net.Http.Json;
@@ -6,6 +7,7 @@ using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +52,11 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-000000000461"));
     private static readonly DateTimeOffset Frozen = new(2026, 9, 20, 9, 0, 0, TimeSpan.Zero);
 
+    private readonly ConcurrentQueue<string> _exampleRequests = new();
+    private readonly ConfigurationExampleDiagnostics _exampleStages = new();
+    private bool _failAfterBinding;
+    private readonly string _exampleShellCacheRoot = Path.Combine(Path.GetTempPath(),
+        "harborline-configuration-example-" + Guid.NewGuid().ToString("N"));
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private PacksTestStore _db = null!;
@@ -63,12 +70,13 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _db = await PacksTestStore.CreateAsync(keySalt: 61);
-        _store = new DurablePackInstallStore(_db.Factory);
-        var gate = TestPackGate.AllowAll();
-        _activation = new ConfigurationActivationTarget(_db.Factory, _store, gate, evidence: null);
+        var observedFactory = _exampleStages.ObserveFactory(_db);
+        _store = new DurablePackInstallStore(observedFactory);
+        var gate = TestPackGate.AllowAll(_exampleStages.Observe);
+        _activation = new ConfigurationActivationTarget(observedFactory, _store, gate, evidence: null);
         _keys = KeyPair.Generate();
         _verifier = new Ed25519Verifier();
-        _proposals = new ConfigurationProposalStore(_db.Factory, _activation, new Ed25519Signer(_keys));
+        _proposals = new ConfigurationProposalStore(observedFactory, _activation, new Ed25519Signer(_keys));
         var activeTeam = new ActiveTeam(new TeamContext(TeamA, "Team A", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         _tenant = NodeTenant.Resolve(activeTeam);
 
@@ -81,11 +89,36 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         _app.Use(async (http, next) =>
         {
             if (http.Request.Headers.ContainsKey("X-Test-Desktop")) http.Features.Set(DesktopPlaneRequestFeature.Instance);
-            await next(http);
+            _exampleRequests.Enqueue($"request-start {http.Request.Method} {http.Request.Path}");
+            using var request = _exampleStages.BeginRequest();
+            try
+            {
+                await next(http);
+                _exampleStages.Observe("request-complete");
+                _exampleRequests.Enqueue($"request-complete {http.Request.Method} {http.Request.Path} HTTP {http.Response.StatusCode}");
+            }
+            catch { _exampleStages.Observe("request-failed"); throw; }
+            finally { _exampleStages.Observe("request-finally"); }
         });
         var clock = new FrozenClock(Frozen);
-        ConfigurationProposalRoutes.Map(_app, _proposals, activeTeam, gate, clock, NullLogger.Instance);
-        ConfigurationActivationRoutes.Map(_app, _activation, activeTeam, gate, clock, NullLogger.Instance);
+        var observedRoutes = _app.MapGroup("").AddEndpointFilter(async (invocation, next) =>
+        {
+            _exampleStages.Observe("bound-handler-enter");
+            try
+            {
+                if (_failAfterBinding)
+                {
+                    _exampleStages.Observe("controlled-boundary-failure");
+                    throw new InvalidOperationException("controlled configuration diagnostic boundary");
+                }
+                var result = await next(invocation);
+                _exampleStages.Observe("bound-handler-return");
+                return result;
+            }
+            catch { _exampleStages.Observe("bound-handler-failed"); throw; }
+        });
+        ConfigurationProposalRoutes.Map(observedRoutes, _proposals, activeTeam, gate, clock, NullLogger.Instance);
+        ConfigurationActivationRoutes.Map(observedRoutes, _activation, activeTeam, gate, clock, NullLogger.Instance);
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
@@ -98,9 +131,13 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     {
         _client?.Dispose();
         _keys?.Dispose();
-        await _app.StopAsync();
-        await _app.DisposeAsync();
-        await _db.DisposeAsync();
+        if (_app is not null)
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
+        }
+        if (_db is not null) await _db.DisposeAsync();
+        if (Directory.Exists(_exampleShellCacheRoot)) Directory.Delete(_exampleShellCacheRoot, recursive: true);
     }
 
     // Acceptance 1: a Proposed change records its baseline generation and never changes effective
@@ -405,18 +442,54 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
         processInfo.ArgumentList.Add("-NoProfile");
+        processInfo.ArgumentList.Add("-NonInteractive");
         processInfo.ArgumentList.Add("-Command");
-        processInfo.ArgumentList.Add("& $env:T463_EXAMPLE_SCRIPT -BaseUri $env:T463_EXAMPLE_URI -Mode Proposal -Headers @{ 'X-Test-Desktop'='1' } -ProposalId 't463-live-example' -PackageKey 'acme.finance' -CandidateFile $env:T463_EXAMPLE_CANDIDATE -Rationale 'Independent live example'");
+        processInfo.ArgumentList.Add("[Console]::Error.WriteLine('configuration-example: shell-started'); & $env:T463_EXAMPLE_SCRIPT -BaseUri $env:T463_EXAMPLE_URI -Mode Proposal -Headers @{ 'X-Test-Desktop'='1' } -ProposalId 't463-live-example' -PackageKey 'acme.finance' -CandidateFile $env:T463_EXAMPLE_CANDIDATE -Rationale 'Independent live example'");
         processInfo.Environment["T463_EXAMPLE_SCRIPT"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "t463-configuration.ps1");
         processInfo.Environment["T463_EXAMPLE_URI"] = _client.BaseAddress!.AbsoluteUri;
         processInfo.Environment["T463_EXAMPLE_CANDIDATE"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "asset.candidate.json");
+        processInfo.Environment["T463_EXAMPLE_DIAGNOSTICS"] = "1";
+        var parentCacheHome = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+        string? childCacheHome = null;
+        if (!OperatingSystem.IsWindows())
+        {
+            // PowerShell's startup profile cache uses XDG_CACHE_HOME on Unix. A unique
+            // child cache prevents concurrent shells sharing StartupProfileData-NonInteractive
+            // (PowerShell issue 26528), without changing the parent environment or concurrency.
+            childCacheHome = Path.Combine(_exampleShellCacheRoot, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(childCacheHome);
+            processInfo.Environment["XDG_CACHE_HOME"] = childCacheHome;
+        }
+        _exampleRequests.Clear();
+        _exampleStages.Clear();
         using var process = Process.Start(processInfo)!;
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
-        Assert.True(process.ExitCode == 0, await errors);
+        catch (OperationCanceledException exception) when (timeout.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new TimeoutException(
+                $"Configuration example exceeded its 30-second deadline. stdout: {await output}\nstderr: {await errors}\nhost requests: {string.Join("; ", _exampleRequests)}\nstages: {_exampleStages.Render()}", exception);
+        }
+        var diagnostics = await errors;
+        Assert.True(process.ExitCode == 0, $"{diagnostics}\nstages: {_exampleStages.Render()}");
+        if (childCacheHome is not null)
+        {
+            // Actual child filesystem evidence: removing the environment override must fail
+            // this assertion even when an inherited/shared cache happens to be uncorrupted.
+            Assert.True(File.Exists(Path.Combine(childCacheHome, "powershell", "StartupProfileData-NonInteractive")),
+                "PowerShell must write its startup profile cache under the child-owned directory.");
+            Assert.Equal(parentCacheHome, Environment.GetEnvironmentVariable("XDG_CACHE_HOME"));
+        }
+        Assert.Contains("configuration-example: shell-started", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: script-started", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: inputs-validated", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: request-complete POST /api/local-node/configuration/proposals/t463-live-example/versions HTTP 200", diagnostics, StringComparison.Ordinal);
+        Assert.Contains("configuration-example: workflow-complete", diagnostics, StringComparison.Ordinal);
+        Assert.DoesNotContain("X-Test-Desktop", diagnostics, StringComparison.Ordinal);
         using var result = JsonDocument.Parse(await output);
         Assert.Equal("Proposal", result.RootElement.GetProperty("mode").GetString());
         Assert.Equal(baseline, result.RootElement.GetProperty("baselineDigest").GetString());
@@ -427,6 +500,46 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         Assert.Empty(EffectiveRows());
         Assert.Empty(PreparedProjections());
         Assert.Equal(baseline, await EffectiveDigestAsync());
+    }
+
+    [Fact]
+    public async Task The_api_example_completes_under_four_parallel_isolated_host_workflows()
+    {
+        // Model concurrent suite activity with bounded real shells and independent hosts/stores.
+        // Every workflow retains the same 30-second deadline and durable state assertions.
+        var fixtures = new List<ConfigurationProposalRouteTests>();
+        try
+        {
+            for (var index = 0; index < 4; index++)
+            {
+                var fixture = new ConfigurationProposalRouteTests();
+                fixtures.Add(fixture);
+                await fixture.InitializeAsync();
+            }
+            await Task.WhenAll(fixtures.Select(fixture => fixture.The_api_example_runs_proposal_save_and_read_against_the_isolated_http_host()));
+        }
+        finally
+        {
+            foreach (var fixture in fixtures) await fixture.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_controlled_bound_handler_failure_preserves_the_failure_and_has_no_database_witness()
+    {
+        await StartAsync("diagnostic-boundary");
+        _exampleStages.Clear();
+        _failAfterBinding = true;
+        try
+        {
+            using var response = await _client.PutAsJsonAsync(Route("diagnostic-boundary", "edits"),
+                new { definitionKey = "forms/invoice", packageKey = "acme.finance", bodyJson = FormsEdit, contentKind = FormsKind });
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.Equal(new[] { "request-start", "bound-handler-enter", "controlled-boundary-failure",
+                "bound-handler-failed", "request-failed", "request-finally" }, _exampleStages.Phases());
+        }
+        finally { _failAfterBinding = false; }
+        Assert.Empty(_proposals.Read(_tenant, "diagnostic-boundary")!.State.Edits);
     }
 
     private async Task<JsonElement> StartAsync(string proposalId)

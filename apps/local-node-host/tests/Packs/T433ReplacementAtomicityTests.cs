@@ -27,9 +27,9 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Mixed_kind_late_failure_preserves_every_published_snapshot(string failure)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.4", failure == "refusal");
+        var replacement = MixedReplacement("1.1.7", failure == "refusal");
         var context = ReplacementContext();
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var before = await PublishedSnapshotAsync();
         _beforeViewAdmission = (definition, _) =>
         {
@@ -77,9 +77,9 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Concurrent_catalogue_reader_sees_only_old_or_complete_new_replacement(bool refuse)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.4", refuse);
+        var replacement = MixedReplacement("1.1.7", refuse);
         var context = ReplacementContext();
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
         var before = JsonSerializer.Serialize(await catalogue.ListAsync(Tenant));
         var reachedLate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -199,7 +199,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
         Assert.Equal(PackSeedProjector.AccessProjectionRefusedCode, activation.Refusal!.Code);
@@ -216,7 +216,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None));
         var source = WithVersionAndCurrentViewKinds(
             AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url()),
-            "1.1.4-atomicity-probe.0");
+            "1.1.7-atomicity-probe.0");
         var holder = source.Contents.Single(item => item.Key == "access.holders");
         var early = holder.Content.DeepClone();
         early["key"] = "m6.early-view";
@@ -234,7 +234,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        Assert.True(_installer.Install(bytes, context).Installed);
+        Assert.True((await _installer.InstallAsync(bytes, context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
         Assert.False(activation.Projected);

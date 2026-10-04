@@ -103,7 +103,8 @@ public static class BankAccountRoutes
         BankingServices banking,
         IActiveTeamAccessor activeTeam,
         NodeBankAccountWriter writer,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver? ledgerAccounts = null)
     {
         ArgumentNullException.ThrowIfNull(app);
 
@@ -115,7 +116,7 @@ public static class BankAccountRoutes
         MapImportStatement(app, banking, activeTeam);
         MapListStatementLines(app, banking, activeTeam);
         MapListMatchProposals(app, banking, activeTeam);
-        MapAcceptMatch(app, banking, activeTeam);
+        MapAcceptMatch(app, banking, activeTeam, ledgerAccounts);
         MapUnMatch(app, banking, activeTeam);
         MapGetReconciliationState(app, banking, activeTeam);
         MapLockReconciliation(app, banking, activeTeam);
@@ -202,7 +203,33 @@ public static class BankAccountRoutes
                 UpdatedAtUtc:        now);
 
             var authority = Authority(http, LocalTenantId, id, at);
-            account = await writer.CreateAsync(account, authority, ct).ConfigureAwait(false);
+            // T-1047 (ADR-0100; DES-0006): a keyed create is durable across a restart; the writer scopes the key to
+            // the authority's tenant and principal. NodeMutationIdempotency has already validated the header shape.
+            if (http.Request.Headers[IdempotencyContract.HeaderName] is { Count: 1 } key && !string.IsNullOrEmpty(key[0]))
+            {
+                var outcome = await writer.CreateAsync(
+                        account,
+                        authority,
+                        new BankAccountCreateKey(key[0]!, Fingerprint(account), created => System.Text.Json.JsonSerializer.Serialize(
+                            ToDetail(created, created.OpeningBalance, null, feedConnected: false), System.Text.Json.JsonSerializerOptions.Web)),
+                        ct)
+                    .ConfigureAwait(false);
+                switch (outcome.Kind)
+                {
+                    case BankAccountCreateOutcomeKind.KeyReused:
+                        return Results.Conflict(new { code = "authorization.idempotency_key_reused" });
+                    case BankAccountCreateOutcomeKind.Replayed:
+                        return Results.Created(
+                            $"{RouteBase}/{outcome.Replayed!.AccountId}",
+                            System.Text.Json.JsonSerializer.Deserialize<BankAccountDetailWire>(
+                                outcome.Replayed.Response, System.Text.Json.JsonSerializerOptions.Web));
+                }
+                account = outcome.Account!;
+            }
+            else
+            {
+                account = await writer.CreateAsync(account, authority, ct).ConfigureAwait(false);
+            }
             // Newly-created account: no feed connected yet (no row in bank_feed_connections).
             return Results.Created($"{RouteBase}/{account.Id.Value}", ToDetail(account, account.OpeningBalance, null, feedConnected: false));
         });
@@ -251,6 +278,18 @@ public static class BankAccountRoutes
             return Results.Ok(ToDetail(updated, updated.OpeningBalance + lines.Sum(l => l.Amount), null, feedConnectedOnBalanceSet));
         });
     }
+
+    /// <summary>T-1047: SHA-256 of the canonical create request, the fields the account is built from after the
+    /// route's normalisation; the server-minted id, entity id and instants are not part of the request.</summary>
+    private static string Fingerprint(BankAccount account) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            Kind = account.Kind.ToString(),
+            account.DisplayName,
+            account.InstitutionName,
+            Currency = account.Currency.Iso4217,
+            LinkedLedgerAccount = account.LinkedLedgerAccount.GLAccountId.Value,
+        })));
 
     private static AuthorizationWriteContext Authority(
         HttpContext http,
@@ -356,7 +395,8 @@ public static class BankAccountRoutes
     }
 
     // ── POST /api/local-node/bank-accounts/{accountId}/accept-match ────────────
-    private static void MapAcceptMatch(IEndpointRouteBuilder app, BankingServices b, IActiveTeamAccessor activeTeam)
+    private static void MapAcceptMatch(IEndpointRouteBuilder app, BankingServices b, IActiveTeamAccessor activeTeam,
+        Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver? ledgerAccounts)
     {
         app.MapPost($"{RouteBase}/{{accountId}}/accept-match", async (string accountId, MatchLinkBody body, CancellationToken ct) =>
         {
@@ -373,16 +413,23 @@ public static class BankAccountRoutes
 
             var statementLine = await b.LineRepo.GetByIdAsync(LocalTenantId, link.StatementLine, ct).ConfigureAwait(false);
             if (statementLine is null) return Results.BadRequest(new { error = "statement_line_not_found" });
+            if (statementLine.AccountId != account.Id)
+                return Results.BadRequest(new { error = "statement_line_account_mismatch" });
+
+            // The bound statement owner supplies the ledger reference. A newly created account may omit
+            // its chart, so recover that chart from the existing node ledger resolver before applying locks.
+            var chart = account.LinkedLedgerAccount.ChartId;
+            if (chart is null && ledgerAccounts is not null)
+                chart = (await ledgerAccounts.GetAsync(account.LinkedLedgerAccount.GLAccountId, ct).ConfigureAwait(false))?.ChartId;
+            if (chart is not { } chartId)
+                return Results.BadRequest(new { error = "bank_account_chart_unresolved" });
 
             // Server-derive the covering fiscal period from the line's PostedAt (never trust the
             // client) so the AcceptMatchService Locked + bank-rec-lock gates run against the real
             // period. If no period covers the date, the accept proceeds with no fiscal gate (single-
-            // device tenants may not have opened a period yet — the bank-rec lock still applies).
+            // device tenants may not have opened a period yet). An unresolved chart is refused above.
             var postedDate = DateOnly.FromDateTime(statementLine.PostedAt.Value.UtcDateTime);
-            // An account with no chart has no covering period either.
-            FiscalPeriod? period = account.LinkedLedgerAccount.ChartId is { } chartId
-                ? await b.PeriodRepo.FindByChartAndDateAsync(chartId, postedDate, ct).ConfigureAwait(false)
-                : null;
+            var period = await b.PeriodRepo.FindByChartAndDateAsync(chartId, postedDate, ct).ConfigureAwait(false);
 
             try
             {

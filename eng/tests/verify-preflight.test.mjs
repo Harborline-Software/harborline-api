@@ -23,12 +23,14 @@ test('production startup removes every old SARIF input and its manifest, includi
   try {
     const directory = path.join(apiRoot, 'artifacts/quality')
     mkdirSync(path.join(directory, 'stray'), {recursive: true})
-    const files = ['old.sarif', 'stray/old.sarif.json'].map(file => path.join(directory, file))
+    const files = ['old.sarif', 'stray/old.sarif.json', 'old.sarif.raw', 'stray/old.sarif.json.raw'].map(file => path.join(directory, file))
     for (const file of files) writeFileSync(file, '{}')
     writeFileSync(path.join(directory, 'host.cobertura.xml'), '<coverage/>')
     recordQualityProduction(apiRoot, {head: 'old-head', run: 'old-run', files})
-    beginQualityProduction(apiRoot, qualityArtifacts(apiRoot).sarif)
+    const oldArtifacts = qualityArtifacts(apiRoot)
+    beginQualityProduction(apiRoot, [...oldArtifacts.sarif, ...oldArtifacts.rawSarif])
     assert.deepEqual(qualityArtifacts(apiRoot).sarif, [])
+    assert.deepEqual(qualityArtifacts(apiRoot).rawSarif, [])
     assert.equal(existsSync(path.join(directory, 'production.json')), false)
     assert.equal(existsSync(path.join(directory, 'host.cobertura.xml')), true)
   } finally { rmSync(apiRoot, {recursive: true, force: true}) }
@@ -86,6 +88,21 @@ test('quality consumption refuses missing, previous-run, previous-head and chang
     assert.throws(() => requireQualityProduction(apiRoot, production), /outputs changed/)
     invalidateQualityProduction(apiRoot)
     assert.throws(() => requireQualityProduction(apiRoot, production), /missing fresh/)
+  } finally { rmSync(apiRoot, {recursive: true, force: true}) }
+})
+
+test('raw compiler bytes participate in exact-head production provenance', () => {
+  const {apiRoot} = fixture()
+  const normalized = path.join(apiRoot, 'artifacts/quality/compiler.sarif')
+  const raw = `${normalized}.raw`
+  const production = {head: 'source-head', run: 'producer-run', files: [normalized, raw]}
+  try {
+    writeFileSync(normalized, '{"normalized":true}')
+    writeFileSync(raw, 'original compiler bytes')
+    recordQualityProduction(apiRoot, production)
+    requireQualityProduction(apiRoot, production)
+    writeFileSync(raw, 'replaced compiler bytes')
+    assert.throws(() => requireQualityProduction(apiRoot, production), /outputs changed/)
   } finally { rmSync(apiRoot, {recursive: true, force: true}) }
 })
 test('all/shared require the generated local feed; either selective host produces its own', () => {
