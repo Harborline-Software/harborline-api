@@ -733,24 +733,32 @@ internal sealed partial class AdminTeamAccessAuthority(
         var revocation = new GrantRevocation(
             new ActorId(context.Session.TenantPrincipalId), authority.At,
             new GrantReason(GrantReasonCodes.RevocationReview, correlationId.ToString("D")));
+        // Both legs are audited against the act's OWN target -- the grant the decision admitted -- and carry
+        // the one correlation id; the reissued grant's id travels in the payload. T-1048 (DES-0029 ck-6): that id
+        // is deterministic, so both legs are signed first and commit in the narrowing's one save, with the
+        // conferral's own audit; the appends after it only deliver them.
+        var reissuedId = global::Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.NarrowedGrantId(tenant, target, correlationId);
+        var revokedLeg = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityRevoked, NarrowReason, correlationId,
+                reissuedId, cancellationToken)
+            .ConfigureAwait(false);
+        var delegatedLeg = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityDelegated, NarrowReason, correlationId,
+                reissuedId, cancellationToken)
+            .ConfigureAwait(false);
         var narrowing = await _grantRevocations
-            .NarrowAsync(tenant, target, nextPermissions, revocation, correlationId, decision, cancellationToken)
+            .NarrowAsync(tenant, target, nextPermissions, revocation, correlationId, decision,
+                [revokedLeg, delegatedLeg], cancellationToken)
             .ConfigureAwait(false);
         if (narrowing is null)
         {
             return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotFound);
         }
+        if (narrowing.Reissued.GrantId != reissuedId)
+            throw new InvalidOperationException("The narrowing reissued a grant its signed audit does not name.");
 
-        // Both legs are audited against the act's OWN target -- the grant the decision admitted -- and carry
-        // the one correlation id; the reissued grant's id travels in the payload.
-        await AppendGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityRevoked, NarrowReason, correlationId,
-                narrowing.Reissued.GrantId, cancellationToken)
-            .ConfigureAwait(false);
-        await AppendGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityDelegated, NarrowReason, correlationId,
-                narrowing.Reissued.GrantId, cancellationToken)
-            .ConfigureAwait(false);
+        await DeliverGrantAuditAsync(revokedLeg, decision, cancellationToken).ConfigureAwait(false);
+        await DeliverGrantAuditAsync(delegatedLeg, decision, cancellationToken).ConfigureAwait(false);
         return new AdminNarrowMemberGrantResult(
             AdminNarrowMemberGrantStatus.Narrowed, narrowing.Reissued.GrantId.ToString());
     }

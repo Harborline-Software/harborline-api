@@ -55,7 +55,7 @@ internal interface IAuthorizedGrantRevocationWriter
         GrantRevocation revocation,
         Guid correlationId,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default);
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Validates the carried decision against the write before reaching the raw grant store.</summary>
@@ -141,7 +141,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
         GrantRevocation revocation,
         Guid correlationId,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default)
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());
@@ -151,7 +151,8 @@ internal sealed class AuthorizedGrantRevocationWriter(
         // vocabulary is empty on purpose: the conferral pipeline always supplies the admission's own vocabulary.
         return new NodeEfAuthorizationConfigurationStore(grantFactory, new InMemoryRoleVocabulary([]))
             .NarrowAdmissionGrantAsync(
-                tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
+                tenant, current, narrowed, revocation, correlationId, admittedDecision, Stage(audit, admittedDecision),
+                cancellationToken);
     }
 
     /// <summary>
