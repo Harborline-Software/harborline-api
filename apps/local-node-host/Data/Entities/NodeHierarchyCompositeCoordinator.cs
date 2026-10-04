@@ -255,10 +255,9 @@ public sealed class NodeHierarchyCompositeCoordinator(
         string justification,
         ActorId actor,
         TenantId tenant,
-        AdmittedInstant instant)
+        AdmittedInstant at)
         : KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>
     {
-        private DateTimeOffset at => instant.Value;
         private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions);
         private CompositeAuthorization authorization = null!;
         private IReadOnlyList<EntityEdge> displaced = [];
@@ -266,22 +265,22 @@ public sealed class NodeHierarchyCompositeCoordinator(
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             authorization = await coordinator.DecideAllAsync(
-                [expectedNewId, .. oldEntities], actor, tenant, instant, ct).ConfigureAwait(false);
+                [expectedNewId, .. oldEntities], actor, tenant, at, ct).ConfigureAwait(false);
 
         /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
         /// superseded and deleted with them, so it is not moved under the merged record.</summary>
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
+            displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at.Value, ct).ConfigureAwait(false);
 
         protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
-            ValueTask.FromResult(newOptions with { ValidFrom = at });
+            ValueTask.FromResult(newOptions with { ValidFrom = at.Value });
 
         protected override async ValueTask<ValidatedRecordBody> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, CreateOptions mutation, CancellationToken ct)
         {
             ValidateTargetTenant(mutation, tenant);
             authorization = await coordinator.DecideAllAsync(
-                bound.Select(edge => edge.From), actor, tenant, instant, ct, authorization).ConfigureAwait(false);
+                bound.Select(edge => edge.From), actor, tenant, at, ct, authorization).ConfigureAwait(false);
             // Ticket 366: the merge target is a record, admitted from the decision that admitted it.
             return await ValidatedRecordBody.AdmitAsync(
                 coordinator.Validator, authorization.Require(expectedNewId), newSchema, newBody, tenant,
@@ -298,7 +297,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         {
             var store = coordinator.Store;
             var newId = await coordinator.Entities.CreateAsync(
-                validated, newOptions with { ValidFrom = at }, ct).ConfigureAwait(false);
+                validated, newOptions with { ValidFrom = at.Value }, ct).ConfigureAwait(false);
             if (newId != expectedNewId)
                 throw new InvalidOperationException("The entity store minted an id different from the pre-authorized merge target.");
             var reassigned = new List<EntityId>();
@@ -312,7 +311,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                     // An edge committed by a later-admitted act may start after this merge's admitted clock.
                     // Close it at its start (an empty half-open interval), never before it, and preserve that
                     // scheduled start on the replacement. Entity and audit admission remain at the merge clock.
-                    var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                    var start = edge.Validity.ValidFrom > at.Value ? edge.Validity.ValidFrom : at.Value;
                     await store.InvalidateEdgeAsync(edge.Id, start, ct).ConfigureAwait(false);
                     if (oldEntities.Contains(edge.From))
                         continue;
@@ -324,9 +323,9 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 }
                 authorization.Require(oldId);
                 authorization.Require(newId);
-                await store.AddEdgeAsync(oldId, newId, EdgeKind.SupersededBy, at, null, ct).ConfigureAwait(false);
+                await store.AddEdgeAsync(oldId, newId, EdgeKind.SupersededBy, at.Value, null, ct).ConfigureAwait(false);
                 await coordinator.Entities.DeleteAsync(
-                    oldId, new DeleteOptions(actor, at, justification), ct).ConfigureAwait(false);
+                    oldId, new DeleteOptions(actor, at.Value, justification), ct).ConfigureAwait(false);
             }
             using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
             {
@@ -336,7 +335,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 reassigned = reassigned.Select(id => id.ToString()).ToArray(),
             }));
             await coordinator.AuditWriter.AppendAsync(new AuditAppend(
-                newId, null, Op.Merge, actor, tenant, at, payload, justification),
+                newId, null, Op.Merge, actor, tenant, at.Value, payload, justification),
                 authorization.Require(newId), ct)
                 .ConfigureAwait(false);
             result = new MergeResult(newId, oldEntities, reassigned);
