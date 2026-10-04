@@ -7,6 +7,7 @@ import {release, tmpdir} from 'node:os'
 import path from 'node:path'
 import {inflateRawSync} from 'node:zlib'
 import {readPin, assertProducers} from './build-local-feed.mjs'
+import {buildEnvironment} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -29,13 +30,13 @@ export function feedIdentity({pin, platformTree, plan, sdk, node, os, arch, imag
 
 const producerInputs = ['eng/build-local-feed.mjs', 'eng/same-job-platform-feed.mjs',
   'eng/exact-clone-platform-feed.mjs', '.github/actions/platform-feed/action.yml', 'eng/platform-pin.json', 'global.json']
-const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {encoding: 'utf8'}).trim()
+const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {encoding: 'utf8', env: buildEnvironment()}).trim()
 export function assertCommittedProducer(apiRoot = root) {
   // Byte digests alone do not establish provenance. Every producing input must be tracked and
   // match HEAD before the canonical builder can mint a handoff, and again after it returns.
   for (const file of producerInputs) {
     git(apiRoot, 'cat-file', '-e', `HEAD:${file}`)
-    execFileSync('git', ['-C', apiRoot, 'diff', '--quiet', 'HEAD', '--', file], {stdio: 'pipe'})
+    execFileSync('git', ['-C', apiRoot, 'diff', '--quiet', 'HEAD', '--', file], {stdio: 'pipe', env: buildEnvironment()})
   }
 }
 
@@ -58,14 +59,14 @@ export function jobSession(env = process.env) {
 function currentIdentity(platform, pin, env = process.env) {
   // The existing builder independently checks commit, clean checkout, producer inventory and version.
   const plan = JSON.parse(execFileSync(process.execPath, ['eng/build-local-feed.mjs', '--dry-run'], {
-    cwd: root, encoding: 'utf8', env: {...env, HARBORLINE_PLATFORM_REPO: platform},
+    cwd: root, encoding: 'utf8', env: {...buildEnvironment(env), HARBORLINE_PLATFORM_REPO: platform},
   }))
-  const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8'}).trim()
+  const platformTree = execFileSync('git', ['-C', platform, 'rev-parse', `${pin.commit}^{tree}`], {encoding: 'utf8', env: buildEnvironment(env)}).trim()
   const scripts = Object.fromEntries(producerInputs.map(file => [file, sha256(readFileSync(path.join(root, file)))]))
   return feedIdentity({pin, platformTree, plan,
     apiCommit: git(root, 'rev-parse', 'HEAD'), apiTree: git(root, 'rev-parse', 'HEAD^{tree}'), session: jobSession(env),
-    sdk: execFileSync('dotnet', ['--version'], {cwd: root, encoding: 'utf8'}).trim(), node: process.version,
-    platformSdk: execFileSync('dotnet', ['--version'], {cwd: platform, encoding: 'utf8'}).trim(),
+    sdk: execFileSync('dotnet', ['--version'], {cwd: root, encoding: 'utf8', env: buildEnvironment(env)}).trim(), node: process.version,
+    platformSdk: execFileSync('dotnet', ['--version'], {cwd: platform, encoding: 'utf8', env: buildEnvironment(env)}).trim(),
     os: process.platform, osRelease: release(), arch: process.arch, imageOS: env.ImageOS ?? null, imageVersion: env.ImageVersion ?? null,
     scripts, globalJson: sha256(readFileSync(path.join(root, 'global.json')))})
 }
@@ -186,13 +187,29 @@ export function restoreSameJobFeed(platform, env = process.env) {
   return {restored: true, packages: files.length - 1, digest}
 }
 
+// The caller has independently authenticated cross-run package bytes. This converts only
+// those dependency bytes to the existing same-job transfer; it reuses no API test verdict.
+export function publishVerifiedSameJobFeed(files, platform, env = process.env) {
+  assertCommittedProducer()
+  const pin = readPin(), identity = currentIdentity(platform, pin, env)
+  const raw = createBundle(files, identity, pin)
+  materializeFeed(files, path.join(root, '.feed'))
+  const directory = mkdtempSync(path.join(env.RUNNER_TEMP ?? tmpdir(), 'api-platform-feed-job-'))
+  const transfer = path.join(directory, 'feed-bundle.json')
+  writeFileSync(transfer, raw, {flag: 'wx'})
+  const handoff = {path: transfer, sha256: sha256(raw), session: identity.session}
+  if (env.GITHUB_ENV) writeFileSync(env.GITHUB_ENV,
+    `HARBORLINE_PLATFORM_FEED_HANDOFF_PATH=${transfer}\nHARBORLINE_PLATFORM_FEED_HANDOFF_SHA256=${handoff.sha256}\n`, {flag: 'a'})
+  return handoff
+}
+
 if (import.meta.main) {
   const [command, platformArg] = process.argv.slice(2)
   if (command !== 'build' || !platformArg) throw new Error('usage: same-job-platform-feed.mjs build <pinned-platform>')
   assertCommittedProducer()
   const platform = path.resolve(platformArg), pin = readPin(), before = currentIdentity(platform, pin)
   execFileSync(process.execPath, ['eng/build-local-feed.mjs'], {cwd: root, stdio: 'inherit',
-    env: {...process.env, HARBORLINE_PLATFORM_REPO: platform}})
+    env: {...buildEnvironment(), HARBORLINE_PLATFORM_REPO: platform}})
   assertCommittedProducer()
   const identity = currentIdentity(platform, pin)
   if (canonical(before) !== canonical(identity)) throw new Error('producer inputs changed during canonical build')

@@ -24,6 +24,7 @@ import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx,
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
+import {handoffRestored} from './exact-clone-platform-feed.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -158,8 +159,16 @@ try {
   const artifacts = tracked.filter(file => /(^|\/)(node_modules|obj|bin)\//.test(file))
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
-  run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedHandoff = handoffRestored(feedStep, process.env)
+  if (feedHandoff) {
+    process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
+    mkdirSync(process.env.NUGET_PACKAGES)
+  }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  if (feedHandoff && !run('platform-feed-consumption', process.execPath,
+    ['eng/platform-feed-consumption.mjs', clone, process.env.NUGET_PACKAGES], clone).passed)
+    throw new Error('Verified dependency bytes were not consumed; see stage evidence')
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
   // invocation. Directory.Build.targets expands the project name per compiler
   // invocation, so the single solution build cannot overwrite one global log.
