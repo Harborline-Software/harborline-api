@@ -142,6 +142,82 @@
         "status": "reviewed",
         "reviewedBy": "/root/review333; source review, not required GitHub approval"
       }
+    },
+    {
+      "id": "identity-selection-recovery-lease-release",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "eb8f998a886b8f147b2cc453e46c31d76d3e30585ee3fd07983d7cd46ebd5f66",
+      "justification": {
+        "protectedBehavior": "Attempt uncancelled recovery lease cleanup without replacing the original recovery failure, requested cancellation, or successful durable completion.",
+        "whyComplianceChangesBehavior": "Actual rethrow control replaces both original exceptions with the release IOException and makes successful completed recovery throw. Registered ILeaseCoordinator implementations have no complete exception-type contract for a finite narrower catch.",
+        "protectedRisk": "A broad cleanup catch can hide lease-provider defects or delay peers until natural lease expiry.",
+        "applicability": "One recovery-only finally cleanup handler; not the live-selection baseline handler or per-home recovery logging boundary. Release uses CancellationToken.None, bounded30-second lease, and future recovery calls AcquireAsync before home reload/write.",
+        "remainingControls": "Actual three-case tests pin release attempt count/token, exact primary exception identity, unfinished state, successful completion, and one audit across retries. Fake proves finite configured duration and acquisition invocation only; Flease expiry/exclusivity is source-inspected, not proven by this fake.",
+        "repeatedExceptionReview": "Repeated recovery/lease exceptions require separate CA1031 applicability and contract review; no automatic analyzer change or acceptance of baseline handlers."
+      },
+      "alternatives": [
+        {
+          "kind": "executed",
+          "option": "Rethrow every recovery release failure",
+          "reason": "Three actual cases fail: cleanup IOException masks primary InvalidOperationException and requested original OperationCanceledException, and escapes after durable success.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "Executed lease-release rethrow control"
+            }
+          ],
+          "execution": {
+            "command": "dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-restore -nodeReuse:false -maxcpucount:2 --filter FullyQualifiedName~Recovery_release_failure --logger trx;LogFileName=lease-release-rethrow-red.trx --results-directory <evidence>/lease-release-rethrow-red",
+            "sourceHead": "489ac7b7de8fbfc5b731a1c57119d56011762687",
+            "outcome": "changed-behavior",
+            "observedResult": "Controlled tree inserts throw only in the recovery release catch;3 failed,0passed,0skipped; original exactbytes restored finally.",
+            "report": {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "9620edda93f03d39769c4131f1bf886199b33b0a8823484a9417caeed4cd01d5"
+            }
+          }
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch an assumed finite set such as IOException only",
+          "reason": "ILeaseCoordinator does not constrain release failures to IOException or another complete list; narrowing can mask primary outcomes for other implementation failures.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-selection-recovery-lease-release"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Skip release after requested cancellation",
+          "reason": "Breaks mandatory best-effort cleanup with CancellationToken.None; primary cancellation still propagates unchanged.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "identity-selection-recovery-lease-release"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Identity/WebTenantSelectionAuthorityTests.cs",
+          "anchor": "Recovery_release_failure_preserves_the_primary_exception_and_durable_retry"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/WebTenantSelectionAuthorityTests.cs",
+          "anchor": "Recovery_release_failure_does_not_undo_completion_or_duplicate_its_audit"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "Independent lease-release source review",
+        "status": "reviewed",
+        "reviewedBy": "/root/review333; final source/parser/manifest review, not required GitHub approval"
+      }
     }
   ]
 }

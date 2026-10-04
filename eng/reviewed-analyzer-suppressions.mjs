@@ -25,7 +25,7 @@ const reference = (root, item) => {
 // handlers. More C# forms need their own reviewed parser support, not a wildcard.
 const tokens = body => body.replace(/@"(?:""|[^"])*"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ')
 const oneCatch = body => {
-  const prefix = /^catch\s*\([^)]*\)\s*\{/.exec(body)
+  const prefix = /^catch(?:\s*\([^)]*\))?\s*\{/.exec(body)
   if (!prefix) return false
   let depth = 1
   for (let index = prefix[0].length; index < body.length; index++) {

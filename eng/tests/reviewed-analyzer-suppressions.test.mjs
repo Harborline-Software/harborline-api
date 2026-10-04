@@ -253,3 +253,17 @@ test('the pinned quality tool retains the reviewed finding and still fails new u
   assert.equal(compared.new, 6)
   assert.equal(compared.findings.length, 6)
 })
+
+for (const [name, handler, valid] of [
+  ['one bare handler', 'catch { PreservePrimary(); }', true],
+  ['two bare handlers', 'catch { PreservePrimary(); } catch { Ignore(); }', false],
+  ['bare handler followed by a statement', 'catch { PreservePrimary(); } Ignore();', false],
+]) test(`reviewed catch parser: ${name}`, t => {
+  const {root} = fixture(t, (manifest, root) => {
+    const block = '#pragma warning disable CA1031 // reviewed-suppression: cursor-comparison\n' + handler + '\n#pragma warning restore CA1031'
+    writeFileSync(path.join(root, 'Example.cs'), block)
+    Object.assign(manifest.exceptions[0], {rule: 'CA1031', scopeKind: 'catch', scopeSha256: createHash('sha256').update(block).digest('hex')})
+  })
+  if (valid) assert.equal(readReviewedSuppressions(root).length, 1)
+  else assert.throws(() => readReviewedSuppressions(root), /one handler/)
+})

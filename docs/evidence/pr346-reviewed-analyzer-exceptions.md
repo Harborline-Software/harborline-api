@@ -82,7 +82,9 @@ Apply the evidence contract above to Control's authoritative change-delivery pro
 
 The repeated intentional recovery/lease boundaries are a concrete CA1031 applicability pattern for a separate rule-scope review. Track that review independently before adding further exceptions; this PR does not authorize an analyzer-wide change or blanket suppression of those baseline sites.
 
-## Pending identity-selection-recovery-lease-release
+## Preparation checkpoint: identity-selection-recovery-lease-release
+
+This historical checkpoint is superseded by the executed trial and final review sections below.
 
 Fresh landing comparison at 458b5083 reports one new unsuppressed CA1031 at WebTenantSelectionAuthority.cs:291. This is the recovery-only finally cleanup handler; the live-selection handler is a separate baseline site. No reviewed suppression has been added here.
 
@@ -97,3 +99,15 @@ Prepared test Recovery_release_failure_preserves_the_primary_exception_and_durab
 Boundary verification passed. Full Windows host gate: 5,107 tests, 5,085 passed, one failed, 21 skipped. WrongBearer_Rejected_FailClosed failed at HttpClient.SendAsync with SocketException 10048 targeting 127.0.0.1:65533, before the HTTP status assertion. The fixture uses an OS-assigned listener port (127.0.0.1:0), obtains the bound address after StartAsync, and disposes HttpClient, stops/disposes the server, and disposes the signer. No fixed-port reservation race or lifecycle omission has been established. The failure does not establish ephemeral-port exhaustion or a transient cause. No retry, timeout, authentication assertion, or gate baseline was relaxed; no successful exact-head receipt was produced.
 
 The subsequent Node-only quality invocation is diagnostic, not a production-run attestation. Landing comparison failed the third CA1031 above. The quality decision also reports unmapped dist JavaScript coverage inputs and untrusted coverage; this has not been waived or represented as a passing quality gate.
+
+## Executed lease-release rethrow control
+
+Prepared test source content is recorded in local commit 489ac7b7de8fbfc5b731a1c57119d56011762687. Actual initial trial: 3 passed,0failed,0skipped; TRX SHA-256 62bf72a7e91b03f648537f8dc703f097660329dae3e042850dc770ce0e3f505d. Controlled source added only throw in the recovery cleanup catch: 3failed,0passed,0skipped. Both identity assertions observed release IOException instead of original primary exception/cancellation; successful completion case also threw. TRX SHA-256 9620edda93f03d39769c4131f1bf886199b33b0a8823484a9417caeed4cd01d5. Source original bytes restored in finally. This is a causal behavior trial, not Stryker or a successful fullgate receipt. Other alternatives remain analysis only. Final taggedscope restored-green trial pending.
+
+## Independent lease-release source review
+
+/root/review333 read-only reviewed both primary/cancellation cases and success-only fact. Reviewer identified that a None token alone could not prove cleanup ran; fixed with exact prior+1 ReleaseCalls assertions. Reviewer accepted site-specific cleanup rationale and required explicit fake expiry/exclusivity limitation. Final source peer review accepted the exact recovery-only bare catch, finite parser support and rejection tests, individual manifest rationale, and controlled-trial evidence. Reviewer found no concrete defect and confirmed corrected release-attempt oracles and fake limitations. The reviewer did not execute trials or grant required GitHub approval. Final tagged green/fullgate remained pending at review.
+
+## Final tagged recovery/provider/caller trial
+
+Actual restored and tagged source:30passed,0failed,0skipped across WebTenantSelectionAuthorityTests, WebSelectedSessionLogoutAuthorityTests and unchanged NodeCallerSessionTokenTests. TRX SHA-256 8f2ebca350f8b366c2f99b4611cd76d9b57bde4c5faa6705687bf4ee6e0cc2b1. This includes the3lease-release cases and actual SQLite provider rejection/paging and cancellation regressions. Initial compiler attempt stoppedbeforetests with CS0016 because the explicit SARIF directory did not exist; directorycreated and build/trial completed. This setup error is not a causal behavior failure. Bounded read-only socket watcher observed the actual testhost and retained timestamped snapshots; no Socket10048 occurred. Passing this targeted trial does not establish the historical transport failure rootcause. Full exact-head Windows gate pending.

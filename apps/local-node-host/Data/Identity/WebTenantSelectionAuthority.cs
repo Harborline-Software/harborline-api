@@ -288,10 +288,12 @@ internal sealed class WebTenantSelectionAuthority
             {
                 await partition.Leases.ReleaseAsync(lease, CancellationToken.None).ConfigureAwait(false);
             }
+#pragma warning disable CA1031 // reviewed-suppression: identity-selection-recovery-lease-release
             catch
             {
                 // The bounded lease expires fail-safe; recovery must reacquire before another write.
             }
+#pragma warning restore CA1031
         }
     }
 
