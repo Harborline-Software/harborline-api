@@ -1,8 +1,12 @@
 using System.Collections.Concurrent;
+using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Kernel.Lease;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -13,6 +17,277 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 15, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Recovery_pages_past_stalled_tied_homes_and_revisits_them_after_delivering_a_later_audit()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            var owed = await db.Coordinators.AsNoTracking().SingleAsync();
+            foreach (var id in new[] { "stalled-a", "stalled-b" })
+            {
+                var stalled = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                stalled.CorrelationId = id;
+                stalled.CreatedAtUtc = Now.AddDays(-1);
+                db.Coordinators.Add(stalled);
+            }
+            await db.SaveChangesAsync();
+        }
+        var attempts = new Dictionary<string, int>();
+        var logger = new RecoveryLogger();
+        var queries = new RecoveryQueryRecorder();
+        var recovery = fixture.Restart(inner => new StalledRecovery(inner, attempts), logger, queries);
+        await recovery.RecoverPendingAsync(limit: 2);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.DoesNotContain(await db.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+        await recovery.RecoverPendingAsync(limit: 2);
+        await recovery.RecoverPendingAsync(limit: 2);
+        Assert.Equal(2, attempts["stalled-a"]);
+        Assert.Equal(2, attempts["stalled-b"]);
+        var orderedPages = queries.Commands.Where(sql => sql.Contains("ORDER BY", StringComparison.Ordinal)
+            && sql.Contains("\"installation_identity_coordinators\"", StringComparison.Ordinal)).ToArray();
+        Assert.True(orderedPages.Length >= 6, "Membership and web recovery must each issue bounded ordered pages on all three drains.");
+        Assert.All(orderedPages, sql => Assert.Contains("COLLATE \"BINARY\"", sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..], StringComparison.Ordinal));
+        Assert.Contains(orderedPages, sql => sql[..sql.IndexOf("ORDER BY", StringComparison.Ordinal)].Contains("COLLATE \"BINARY\"", StringComparison.Ordinal));
+        Assert.Equal(2, logger.Entries.Count);
+        Assert.All(logger.Entries, entry =>
+        {
+            Assert.Equal(LogLevel.Error, entry.Level);
+            Assert.IsType<InvalidOperationException>(entry.Exception);
+            Assert.Equal("stalled recovery", entry.Exception!.Message);
+            Assert.Equal("Identity web home recovery row stalled-a failed; continuing the drain.", entry.Message);
+        });
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Single(await db.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+            Assert.All(await db.Coordinators.Where(row => row.CorrelationId == "stalled-a" || row.CorrelationId == "stalled-b").ToListAsync(),
+                row => Assert.Equal(InstallationIdentityCoordinatorState.Preparing, row.State));
+        }
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public async Task Recovery_retries_an_owed_audit_while_full_pages_of_later_homes_keep_arriving(int limit, bool tiedTime)
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        InstallationIdentityCoordinatorRecord owed;
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            owed = await db.Coordinators.AsNoTracking().SingleAsync();
+        Assert.Equal(new DateTimeOffset(2026, 7, 18, 15, 1, 0, TimeSpan.Zero), owed.CreatedAtUtc);
+        var visits = new List<string>();
+        var logger = new RecoveryLogger();
+        var recovery = fixture.Restart(inner => new ArrivingRecovery(inner, owed.CorrelationId, visits), logger);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            for (var row = 0; row < limit - 1; row++)
+            {
+                var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                later.CorrelationId = $"arrival-0-{row}";
+                later.CreatedAtUtc = tiedTime ? Now.AddMinutes(1) : Now.AddSeconds(90);
+                db.Coordinators.Add(later);
+            }
+            await db.SaveChangesAsync();
+        }
+        await recovery.RecoverPendingAsync(limit);
+        Assert.Equal(limit == 1 ? new[] { owed.CorrelationId } : new[] { owed.CorrelationId, "arrival-0-0" }, visits);
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        for (var sweep = 1; sweep <= 4; sweep++)
+        {
+            await using (var db = fixture.IdentityFactory.CreateDbContext())
+            {
+                for (var row = 0; row < limit; row++)
+                {
+                    var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                    later.CorrelationId = $"arrival-{sweep}-{row}";
+                    later.CreatedAtUtc = tiedTime ? Now.AddMinutes(1) : Now.AddMinutes(sweep + 1);
+                    db.Coordinators.Add(later);
+                }
+                await db.SaveChangesAsync();
+            }
+            await recovery.RecoverPendingAsync(limit);
+        }
+
+        Assert.Equal(2, visits.Count(id => id == owed.CorrelationId));
+        Assert.Contains("arrival-1-0", visits);
+        Assert.Single(logger.Entries);
+        Assert.Equal("first owed recovery failed", logger.Entries[0].Exception!.Message);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == owed.CorrelationId)).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await recovery.RecoverPendingAsync(limit);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    [Fact]
+    public async Task Recovery_starts_a_fresh_cycle_when_the_captured_first_page_completes_elsewhere()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        InstallationIdentityCoordinatorRecord owed;
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            owed = await db.Coordinators.AsNoTracking().SingleAsync();
+        var visits = new List<string>();
+        var queryRace = new CompleteCapturedHomeBeforePage(async () =>
+        {
+            // A separate real recovery commits the original home's completion audit.
+            await fixture.Restart().RecoverPendingAsync(1);
+            Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+            await using var db = fixture.IdentityFactory.CreateDbContext();
+            var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+            later.CorrelationId = "arrival-after-captured-bound";
+            later.CreatedAtUtc = Now.AddMinutes(2);
+            db.Coordinators.Add(later);
+            await db.SaveChangesAsync();
+        });
+        var recovery = fixture.Restart(inner => new ArrivingRecovery(inner, owed.CorrelationId, visits), queries: queryRace);
+
+        await recovery.RecoverPendingAsync(1);
+        Assert.Equal(1, queryRace.Interventions);
+        Assert.Empty(visits);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == owed.CorrelationId)).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        await recovery.RecoverPendingAsync(1);
+        Assert.Equal(new[] { "arrival-after-captured-bound" }, visits);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Preparing,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == "arrival-after-captured-bound")).State);
+    }
+
+    private sealed class CompleteCapturedHomeBeforePage(Func<Task> completeElsewhere) : DbCommandInterceptor
+    {
+        private bool _capturedBound;
+        public int Interventions { get; private set; }
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            var isWebQuery = command.CommandText.Contains("installation_identity_coordinators", StringComparison.Ordinal)
+                && (command.CommandText.Contains("WebSelectedSessionLogout", StringComparison.Ordinal)
+                    || command.Parameters.Cast<DbParameter>().Any(parameter =>
+                        parameter.Value is string value && value.Contains("WebSelectedSessionLogout", StringComparison.Ordinal)));
+            if (isWebQuery && command.CommandText.Contains("ORDER BY", StringComparison.Ordinal))
+            {
+                if (command.CommandText.Contains("DESC", StringComparison.Ordinal))
+                    _capturedBound = true;
+                else if (_capturedBound && Interventions == 0)
+                {
+                    Interventions++;
+                    await completeElsewhere();
+                }
+            }
+            return result;
+        }
+    }
+
+    private sealed class ArrivingRecovery(IInstallationIdentityHomeRecovery inner, string owedId, List<string> visits)
+        : IInstallationIdentityHomeRecovery
+    {
+        public string CommandType => inner.CommandType;
+        public Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken)
+        {
+            visits.Add(home.CorrelationId);
+            if (home.CorrelationId != owedId)
+                return Task.CompletedTask;
+            if (visits.Count(id => id == owedId) == 1)
+                throw new InvalidOperationException("first owed recovery failed");
+            return inner.RecoverAsync(home, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Requested_recovery_cancellation_propagates_the_original_exception_without_recording_failure()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        using var cancellation = new CancellationTokenSource();
+        var original = new OperationCanceledException("requested recovery cancellation", cancellation.Token);
+        var logger = new RecoveryLogger();
+        var recovery = fixture.Restart(inner => new CancellingRecovery(inner.CommandType, cancellation, original), logger);
+
+        var observed = await Assert.ThrowsAsync<OperationCanceledException>(() => recovery.RecoverPendingAsync(cancellationToken: cancellation.Token));
+        Assert.Same(original, observed);
+        Assert.Empty(logger.Entries);
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Preparing, (await db.Coordinators.SingleAsync()).State);
+
+        await fixture.Restart().RecoverPendingAsync();
+        await fixture.Restart().RecoverPendingAsync();
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    [Fact]
+    public async Task SQLite_rejects_the_ordinal_comparison_overload_in_a_recovery_cursor_query()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        await using var db = fixture.IdentityFactory.CreateDbContext();
+        var query = db.Coordinators.Where(row => string.Compare(
+            EF.Functions.Collate(row.CorrelationId, "BINARY"), "cursor", StringComparison.Ordinal) > 0);
+        var rejection = await Assert.ThrowsAsync<InvalidOperationException>(() => query.ToArrayAsync());
+        Assert.Contains("could not be translated", rejection.Message, StringComparison.Ordinal);
+        Assert.Contains("Ordinal", rejection.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class CancellingRecovery(string commandType, CancellationTokenSource cancellation, OperationCanceledException original)
+        : IInstallationIdentityHomeRecovery
+    {
+        public string CommandType => commandType;
+        public Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            throw original;
+        }
+    }
+
+    private sealed class RecoveryLogger : ILogger<InstallationIdentityCoordinatorRecoveryService>
+    {
+        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, exception, formatter(state, exception)));
+    }
+
+    private sealed class RecoveryQueryRecorder : DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = [];
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Commands.Add(command.CommandText);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    private sealed class StalledRecovery(IInstallationIdentityHomeRecovery inner, Dictionary<string, int> attempts)
+        : IInstallationIdentityHomeRecovery
+    {
+        public string CommandType => inner.CommandType;
+        public Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken)
+        {
+            if (!home.CorrelationId.StartsWith("stalled-", StringComparison.Ordinal))
+                return inner.RecoverAsync(home, cancellationToken);
+            attempts[home.CorrelationId] = attempts.GetValueOrDefault(home.CorrelationId) + 1;
+            return home.CorrelationId == "stalled-a" ? throw new InvalidOperationException("stalled recovery") : Task.CompletedTask;
+        }
+    }
 
     [Fact]
     [Trait("PlanCard", "SES-08C")]
@@ -58,6 +333,127 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         }
     }
 
+    /// <summary>
+    /// T-1048 (ck-6): the process stops after the session revocation commits and before the home
+    /// leaves Preparing. The client cannot retry (antiforgery refuses a revoked session), so a fresh
+    /// authority over the same files, driven only by the startup recovery drain, must write the one
+    /// Completed envelope. A second drain adds none.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_crash_after_the_revocation_commits_owes_one_envelope_that_the_recovery_drain_writes()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        await using (var interrupted = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Equal(
+                InstallationIdentityCoordinatorState.Preparing,
+                (await interrupted.Coordinators.AsNoTracking().SingleAsync()).State);
+        }
+        Assert.NotNull(await fixture.SelectedStore.FindRevocationAsync("selected-session"));
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        var recovery = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        await recovery.RecoverPendingAsync();
+
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+        Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
+        var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        // Literal SHA-256 of length-prefixed UTF-8 ("WebSelectedSessionLogout", "selected-session").
+        Assert.Equal("18C1EAEC19A1626478ED41B54AEAF6037A99F8C133E0C5F339735148C64AFEC6", home.CorrelationId);
+        Assert.Equal("18C1EAEC19A1626478ED41B54AEAF6037A99F8C133E0C5F339735148C64AFEC6", envelope.CorrelationId);
+        Assert.Equal(Now.AddMinutes(1), envelope.OccurredAtUtc);
+    }
+
+    /// <summary>
+    /// T-1048 (ck-6): the process stops before the revocation commits, so the logout never took
+    /// effect. The recovery drain leaves the Preparing home alone and writes no envelope.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_logout_stopped_before_the_revocation_commits_gets_no_envelope_from_the_recovery_drain()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.SessionStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        Assert.Null(await fixture.SelectedStore.FindRevocationAsync("selected-session"));
+
+        await fixture.Restart().RecoverPendingAsync();
+
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        Assert.Equal(
+            InstallationIdentityCoordinatorState.Preparing,
+            (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+    }
+
+    private static async Task<InstallationAuditEnvelopeRecord[]> CompletedEnvelopesAsync(
+        IDbContextFactory<NodeLocalInstallationIdentityDbContext> factory)
+    {
+        await using var identity = factory.CreateDbContext();
+        return await identity.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "WebUserSessionLogoutCompleted")
+            .ToArrayAsync();
+    }
+
+    /// <summary>Stops the process at one SaveChanges, before it commits, once armed.</summary>
+    private sealed class StopBeforeSave(Func<DbContext, bool> stopsHere) : SaveChangesInterceptor
+    {
+        public bool Armed { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Armed && stopsHere(eventData.Context!))
+            {
+                Armed = false;
+                throw new InvalidOperationException("injected process stop before this commit");
+            }
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
+    private sealed class StoppableIdentityFactory(string databasePath, IInterceptor stop)
+        : IDbContextFactory<NodeLocalInstallationIdentityDbContext>
+    {
+        public NodeLocalInstallationIdentityDbContext CreateDbContext() =>
+            new(new DbContextOptionsBuilder<NodeLocalInstallationIdentityDbContext>()
+                .UseSqlite($"Data Source={databasePath};Default Timeout=30;Pooling=False", sqlite =>
+                    sqlite.MigrationsHistoryTable(
+                        NodeLocalInstallationIdentityDbContext.MigrationsHistoryTableName))
+                .AddInterceptors(stop)
+                .Options);
+    }
+
+    private sealed class StoppableSessionFactory(string databasePath, IInterceptor stop)
+        : IDbContextFactory<NodeLocalWebSessionDbContext>
+    {
+        public NodeLocalWebSessionDbContext CreateDbContext() =>
+            new(new DbContextOptionsBuilder<NodeLocalWebSessionDbContext>()
+                .UseSqlite($"Data Source={databasePath};Pooling=False", sqlite =>
+                    sqlite.MigrationsHistoryTable(NodeLocalWebSessionDbContext.MigrationsHistoryTableName))
+                .AddInterceptors(stop)
+                .Options);
+    }
+
+    private sealed class AcceptingAdmission : ITenantMembershipAuthorityAdmission
+    {
+        public Task ValidateMutationAsync(
+            string actorAccountId, string authorityEvidenceDigest, string accountId,
+            TenantMembershipMutation mutation, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<long> ValidateExistingAsync(
+            string accountId, TenantMembershipSnapshot membership,
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
+    }
+
     private sealed class LogoutFixture : IAsyncDisposable
     {
         private readonly string _identityPath;
@@ -66,8 +462,11 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         private LogoutFixture(
             string identityPath,
             string sessionPath,
-            InstallationFounderBootstrapServiceTests.IdentityContextFactory identityFactory,
-            WebAccountAccessChallengeIssuerTests.SessionContextFactory sessionFactory,
+            StoppableIdentityFactory identityFactory,
+            StoppableSessionFactory sessionFactory,
+            StopBeforeSave identityStop,
+            StopBeforeSave sessionStop,
+            FixedPartitionResolver resolver,
             RecordingMembershipStore store,
             WebSelectedSessionStore selectedStore,
             WebSelectedSessionLogoutAuthority authority,
@@ -77,6 +476,9 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
             _sessionPath = sessionPath;
             IdentityFactory = identityFactory;
             SessionFactory = sessionFactory;
+            IdentityStop = identityStop;
+            SessionStop = sessionStop;
+            _resolver = resolver;
             Store = store;
             SelectedStore = selectedStore;
             Authority = authority;
@@ -84,20 +486,64 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         }
 
         public const string RawHandle = "selected-logout-handle-with-fixture-entropy";
-        public InstallationFounderBootstrapServiceTests.IdentityContextFactory IdentityFactory { get; }
-        public WebAccountAccessChallengeIssuerTests.SessionContextFactory SessionFactory { get; }
+        private readonly FixedPartitionResolver _resolver;
+
+        public StoppableIdentityFactory IdentityFactory { get; }
+        public StoppableSessionFactory SessionFactory { get; }
+
+        /// <summary>Armed: stops before the home leaves Preparing, after the revocation commits.</summary>
+        public StopBeforeSave IdentityStop { get; }
+
+        /// <summary>Armed: stops before the revocation commits.</summary>
+        public StopBeforeSave SessionStop { get; }
         public RecordingMembershipStore Store { get; }
         public WebSelectedSessionStore SelectedStore { get; }
         public WebSelectedSessionLogoutAuthority Authority { get; }
         public long AccountSecurityVersion { get; }
 
+        /// <summary>
+        /// A fresh host over the same identity and session files, as its recovery drain. The
+        /// recording tenant store stands in for the tenant file, so it carries over.
+        /// </summary>
+        public InstallationIdentityCoordinatorRecoveryService Restart(
+            Func<IInstallationIdentityHomeRecovery, IInstallationIdentityHomeRecovery>? decorate = null,
+            ILogger<InstallationIdentityCoordinatorRecoveryService>? logger = null,
+            DbCommandInterceptor? queries = null)
+        {
+            IDbContextFactory<NodeLocalInstallationIdentityDbContext> identityFactory = queries is null
+                ? new InstallationFounderBootstrapServiceTests.IdentityContextFactory(_identityPath)
+                : new StoppableIdentityFactory(_identityPath, queries);
+            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(_sessionPath);
+            var authority = new WebSelectedSessionLogoutAuthority(
+                identityFactory,
+                new WebSelectedSessionStore(sessionFactory),
+                _resolver,
+                new FixedTimeProvider(Now.AddMinutes(1)));
+            return new InstallationIdentityCoordinatorRecoveryService(
+                identityFactory,
+                new InstallationIdentityCoordinatorService(
+                    identityFactory,
+                    _resolver,
+                    new AcceptingAdmission(),
+                    new FixedTimeProvider(Now.AddMinutes(1)),
+                    TestAuthorization.Gate(true)),
+                logger: logger,
+                homeRecoveries: [decorate?.Invoke(authority) ?? authority]);
+        }
+
         public static async Task<LogoutFixture> CreateAsync()
         {
             var identityPath = Path.Combine(Path.GetTempPath(), $"logout-home-{Guid.NewGuid():N}.db");
             var sessionPath = Path.Combine(Path.GetTempPath(), $"logout-session-{Guid.NewGuid():N}.db");
-            var identityFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(
-                identityPath);
-            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(sessionPath);
+            var identityStop = new StopBeforeSave(context => context.ChangeTracker
+                .Entries<InstallationIdentityCoordinatorRecord>()
+                .Any(entry => entry.State == EntityState.Modified &&
+                              entry.Entity.State == InstallationIdentityCoordinatorState.Committing));
+            var sessionStop = new StopBeforeSave(context => context.ChangeTracker
+                .Entries<WebSessionRevocationRecord>()
+                .Any(entry => entry.State == EntityState.Added));
+            var identityFactory = new StoppableIdentityFactory(identityPath, identityStop);
+            var sessionFactory = new StoppableSessionFactory(sessionPath, sessionStop);
             await using (var identity = identityFactory.CreateDbContext())
             {
                 await identity.Database.MigrateAsync();
@@ -165,6 +611,9 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
                 sessionPath,
                 identityFactory,
                 sessionFactory,
+                identityStop,
+                sessionStop,
+                resolver,
                 store,
                 selectedStore,
                 authority,

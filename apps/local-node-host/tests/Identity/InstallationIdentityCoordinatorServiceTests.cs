@@ -309,6 +309,96 @@ public sealed class InstallationIdentityCoordinatorServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public async Task Recovery_revisits_an_owed_membership_home_despite_continuous_full_pages_of_later_arrivals(
+        int limit, bool leaseBlocked)
+    {
+        await using var fixture = await CoordinatorFixture.CreateAsync(1);
+        var tenant = fixture.Tenants[0];
+        var authority = tenant.Authority;
+        var leases = tenant.Leases;
+        tenant.Authority = new ThrowAfterFinalizeOnceStore(authority);
+        Assert.Equal(InstallationIdentityCoordinationStatus.PendingRecovery,
+            (await fixture.Coordinator.ExecuteAsync(fixture.Command(fixture.Tenants))).Status);
+        Assert.NotNull(await authority.GetMembershipAsync(fixture.AccountId, CancellationToken.None));
+
+        InstallationIdentityCoordinatorRecord owed;
+        await using (var db = fixture.HomeFactory.CreateDbContext())
+            owed = await db.Coordinators.AsNoTracking().SingleAsync();
+        var arrivalAccount = await fixture.CreateActiveActorAsync();
+
+        async Task AddLaterHomesAsync(int batch, int count)
+        {
+            await using var db = fixture.HomeFactory.CreateDbContext();
+            for (var index = 0; index < count; index++)
+            {
+                var arrival = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(
+                    JsonSerializer.Serialize(owed))!;
+                arrival.CorrelationId = $"arrival-{batch:D2}-{index:D2}";
+                arrival.AccountId = arrivalAccount.AccountId;
+                arrival.CreatedAtUtc = FixedNow.AddMinutes(batch + 1);
+                // These persisted eligible homes are poisoned scan inputs, not fabricated tenant effects.
+                arrival.IntentPayloadJson = "{poisoned";
+                db.Coordinators.Add(arrival);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        // Make the first page full too: wrapping only partial pages must not satisfy this oracle.
+        await AddLaterHomesAsync(0, limit - 1);
+        if (leaseBlocked) tenant.Leases = new UnavailableLeaseCoordinator();
+        else tenant.Authority = new AlwaysFailAfterFinalizeStore(authority);
+        var recovery = new InstallationIdentityCoordinatorRecoveryService(fixture.HomeFactory, fixture.Coordinator);
+        Assert.Equal(InstallationIdentityCoordinationStatus.PendingRecovery,
+            Assert.Single(await recovery.RecoverPendingAsync(limit)).Status);
+        await using (var db = fixture.HomeFactory.CreateDbContext())
+        {
+            Assert.Equal(InstallationIdentityCoordinatorState.Committing,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == "membership-command")).State);
+            Assert.Equal(1, await db.AuditEnvelopes.CountAsync());
+        }
+        tenant.Authority = authority;
+        tenant.Leases = leases;
+
+        for (var batch = 1; batch <= 6; batch++)
+        {
+            await AddLaterHomesAsync(batch, limit);
+            await recovery.RecoverPendingAsync(limit);
+        }
+
+        await using (var db = fixture.HomeFactory.CreateDbContext())
+        {
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.AsNoTracking().SingleAsync(row => row.CorrelationId == "membership-command")).State);
+            Assert.Equal(2, await db.AuditEnvelopes.CountAsync());
+            var completion = await db.AuditEnvelopes.AsNoTracking().SingleAsync(row => row.Sequence == 2);
+            Assert.Equal("TenantMembershipCoordinationCompleted", completion.EventType);
+            Assert.True(InstallationAuditIntegrity.HasValidEnvelopeHash(completion));
+            Assert.All(await db.Coordinators.AsNoTracking().Where(row => row.CorrelationId != "membership-command").ToArrayAsync(),
+                row => Assert.Equal(InstallationIdentityCoordinatorState.Committing, row.State));
+        }
+        Assert.False(await fixture.Coordinator.IsAccountFencedAsync(fixture.AccountId));
+        Assert.NotNull(await fixture.Coordinator.ResolveUsableMembershipAsync(fixture.AccountId, tenant.TenantId));
+        await AddLaterHomesAsync(7, limit);
+        await recovery.RecoverPendingAsync(limit);
+        await using var replay = fixture.HomeFactory.CreateDbContext();
+        Assert.Equal(2, await replay.AuditEnvelopes.CountAsync());
+        Assert.Equal(1, await replay.AuditEnvelopes.CountAsync(row => row.EventType == "TenantMembershipCoordinationCompleted"));
+    }
+
+    private sealed class UnavailableLeaseCoordinator : ILeaseCoordinator
+    {
+        public Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct) => Task.FromResult<Lease?>(null);
+        public Task ReleaseAsync(Lease lease, CancellationToken ct) => Task.CompletedTask;
+        public bool Holds(string resourceId) => false;
+        public IReadOnlyCollection<Lease> HeldLeases => [];
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     [Fact]
     public async Task Grant_Mutation_Waits_For_Completed_Audit_After_Previous_Window_Fault()
     {

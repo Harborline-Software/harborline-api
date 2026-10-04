@@ -1,7 +1,8 @@
 # DES-0029 kernel-core-ck-6 durable write classification (DurableWriteClassificationArchTests).
 # Every production host file with a SaveChanges/ExecuteUpdate/ExecuteDelete/ExecuteSql/ExecuteNonQuery call, with its exact count.
 # Classes: atomic-audit (record and audit commit together), record-is-audit (the record itself is the evidence),
-# outbox-audit (evidence row in the record transaction, delivered later), post-commit-audit (audit appended after commit),
+# outbox-audit (evidence row in the record transaction, delivered later), intent-audit (a decision row that owes the audit commits
+# before the effect, and recovery rolls it forward to the audit), post-commit-audit (audit appended after commit),
 # unaudited (a business or authorization write with no audit: ck-6 debt), n/a (not a business record).
 # path	count	class	evidence
 apps/local-node-host/BackupRestore/SignedRosterRehostGrantProvider.cs	1	record-is-audit	burn receipt INSERT OR IGNORE is the record (:87); refusal audits post-rollback; test SignedRosterRehostGrantProviderTests.cs:143
@@ -55,10 +56,10 @@ apps/local-node-host/Data/Identity/WebAccountAccessChallengeIssuer.cs	1	n/a	chal
 apps/local-node-host/Data/Identity/WebAntiforgeryStateStore.cs	2	n/a	antiforgery state
 apps/local-node-host/Data/Identity/WebInstallationSessionStore.cs	3	n/a	installation session state and tombstones
 apps/local-node-host/Data/Identity/WebJoinerAccountMinter.cs	1	atomic-audit	account row + AccountAdmitted (:143-200)
-apps/local-node-host/Data/Identity/WebSelectedSessionLogoutAuthority.cs	5	post-commit-audit	session revoke then home advance then Completed envelope (:167-585), resumable; WebSelectedSessionLogoutAuthorityTests.cs:19
+apps/local-node-host/Data/Identity/WebSelectedSessionLogoutAuthority.cs	5	intent-audit	the home decision row commits before the session revoke and owes the Completed envelope (:615-692); InstallationIdentityCoordinatorRecoveryService drains it from Preparing-with-revocation, Committing or Finalizing (RecoverAsync :215, InstallationIdentityCoordinatorService.cs:1397); crash test WebSelectedSessionLogoutAuthorityTests.cs:70, no-effect test :103
 apps/local-node-host/Data/Identity/WebSelectedSessionStore.cs	2	n/a	session idle touch and revocation tombstone
-apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs	6	post-commit-audit	tenant finalize then Completed envelope (:667-736), resumable; WebTenantSelectionAuthorityTests.cs:168
-apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs	6	post-commit-audit	tenant heads then Completed envelope (:790-859), resumable; WebTenantSwitchAuthorityTests.cs:25
+apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs	6	intent-audit	the Committing home decision row commits before the tenant finalize and owes the Completed envelope (:720-797); InstallationIdentityCoordinatorRecoveryService drains it from Committing or Finalizing (RecoverAsync :260, InstallationIdentityCoordinatorService.cs:1397); crash test WebTenantSelectionAuthorityTests.cs:301, refused-at-commit test :336
+apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs	6	intent-audit	the Committing home decision row commits before the tenant heads and owes the Completed envelope (:825-902); InstallationIdentityCoordinatorRecoveryService drains it from Committing or Finalizing (RecoverAsync :276, InstallationIdentityCoordinatorService.cs:1397); crash test WebTenantSwitchAuthorityTests.cs:298, refused-at-commit test :334
 apps/local-node-host/Data/OrgBranding/NodeEfOrgBrandingStore.cs	1	unaudited	in-place upsert; blob put then row upsert are two stores (OrgBrandingRoutes.cs:196/:213)
 apps/local-node-host/Data/Packs/DurableChannelSequenceStore.cs	1	n/a	monotonic channel sequence high-water
 apps/local-node-host/Data/Packs/DurablePackInstallStore.cs	9	outbox-audit	T-1048/T-1048b: install/activate/deactivate/narrow stage their signed audit as a search_audit_outbox row in the change's own transaction (StageAudit :338/:376/:414, and SaveOverride :246, carried by PackCommitAudit from PackInstaller.cs:224/:620/:768/:940), delivered by NodeAuditOutbox after the commit and by its drain daemon; tests PackAuditOutboxCrashTests.cs:178/:307/:321/:404 (crash after commit) and :338/:353/:366/:380/:419 (refused at commit); preparation/cancellation/signature reuse :77/:112

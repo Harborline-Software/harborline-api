@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
 using Harborline.Api.Foundation.Assets.Common;
@@ -63,6 +65,147 @@ public sealed class WebTenantSwitchRealSeamTests
     private const string TargetPrincipal = "principal-target-3244";
     private const string Username = "founder";
     private const string Password = "correct horse battery staple switch";
+
+    [Fact]
+    public async Task A_killed_logout_process_is_recovered_by_a_fresh_process_without_the_caller_handle()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"logout-process-loss-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        Process? committed = null;
+        Process? recovered = null;
+        try
+        {
+            committed = StartLogoutWorker(directory, "commit");
+            var stdout = committed.StandardOutput.ReadToEndAsync();
+            var stderr = committed.StandardError.ReadToEndAsync();
+            var marker = Path.Combine(directory, "committed.marker");
+            var deadline = DateTime.UtcNow.AddSeconds(60);
+            while (!File.Exists(marker) && !committed.HasExited && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+            Assert.True(File.Exists(marker), committed.HasExited ? await stdout + await stderr : "Worker did not reach the committed effect boundary.");
+            // Observe the committed session effect while the child is stopped before the next home save.
+            var identityFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(Path.Combine(directory, "identity.db"));
+            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(Path.Combine(directory, "sessions.db"));
+            await using (var identity = identityFactory.CreateDbContext())
+            {
+                var home = await identity.Coordinators.SingleAsync(row => row.CommandType == "WebSelectedSessionLogout");
+                Assert.Equal(InstallationIdentityCoordinatorState.Preparing, home.State);
+                Assert.DoesNotContain(await identity.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+            }
+            await using (var sessions = sessionFactory.CreateDbContext())
+                Assert.Single(await sessions.Revocations.ToListAsync(), row => row.ReasonCode == "user-logout");
+            committed.Kill(entireProcessTree: true);
+            await committed.WaitForExitAsync();
+            await stdout;
+            await stderr;
+
+            recovered = StartLogoutWorker(directory, "recover");
+            var recoveredOutput = recovered.StandardOutput.ReadToEndAsync();
+            var recoveredError = recovered.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            await recovered.WaitForExitAsync(timeout.Token);
+            Assert.True(recovered.ExitCode == 0, await recoveredOutput + await recoveredError);
+            Assert.True(File.Exists(Path.Combine(directory, "recovered.marker")));
+            await using var proof = identityFactory.CreateDbContext();
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await proof.Coordinators.SingleAsync(row => row.CommandType == "WebSelectedSessionLogout")).State);
+            Assert.Single(await proof.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+        }
+        finally
+        {
+            foreach (var child in new[] { committed, recovered })
+            {
+                if (child is null) continue;
+                if (!child.HasExited)
+                {
+                    child.Kill(entireProcessTree: true);
+                    await child.WaitForExitAsync();
+                }
+                child.Dispose();
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static Process StartLogoutWorker(string directory, string phase)
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("vstest");
+        start.ArgumentList.Add(typeof(WebTenantSwitchRealSeamTests).Assembly.Location);
+        start.ArgumentList.Add("/TestCaseFilter:FullyQualifiedName~Logout_process_loss_worker");
+        start.Environment["HARBORLINE_LOGOUT_PROCESS_TEST_DIRECTORY"] = directory;
+        start.Environment["HARBORLINE_LOGOUT_PROCESS_TEST_PHASE"] = phase;
+        return Process.Start(start) ?? throw new InvalidOperationException("Could not start the isolated logout worker.");
+    }
+
+    [Fact]
+    public async Task Logout_process_loss_worker()
+    {
+        var directory = Environment.GetEnvironmentVariable("HARBORLINE_LOGOUT_PROCESS_TEST_DIRECTORY");
+        if (directory is null) return;
+        var phase = Environment.GetEnvironmentVariable("HARBORLINE_LOGOUT_PROCESS_TEST_PHASE");
+        if (phase == "commit")
+        {
+            await using var h = await RealSeamHarness.CreateAsync(directory);
+            var handle = await h.LoginAndSelectAsync(h.OldTenant);
+            var stop = new PauseLogoutSave(Path.Combine(directory, "committed.marker"));
+            var identity = new PausingIdentityFactory(Path.Combine(directory, "identity.db"), stop);
+            var authority = new WebSelectedSessionLogoutAuthority(identity, new WebSelectedSessionStore(h.SessionFactory),
+                new FixturePartitionResolver(h.OldPartition, h.TargetPartition), new FixedTimeProvider(Now));
+            await authority.LogoutAsync(handle);
+            throw new InvalidOperationException("The committed worker was expected to be killed at its boundary.");
+        }
+        Assert.Equal("recover", phase);
+        var homeFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(Path.Combine(directory, "identity.db"));
+        var sessions = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(Path.Combine(directory, "sessions.db"));
+        var time = new FixedTimeProvider(Now.AddMinutes(1));
+        var (oldStore, oldPartition) = await RealSeamHarness.OpenPartitionAsync(directory, "old", OldTenantId, homeFactory, time);
+        var (targetStore, targetPartition) = await RealSeamHarness.OpenPartitionAsync(directory, "target", TargetTenantId, homeFactory, time);
+        await using (oldStore)
+        await using (targetStore)
+        {
+            var resolver = new FixturePartitionResolver(oldPartition, targetPartition);
+            var logout = new WebSelectedSessionLogoutAuthority(homeFactory, new WebSelectedSessionStore(sessions), resolver, time);
+            var recovery = new InstallationIdentityCoordinatorRecoveryService(homeFactory,
+                new InstallationIdentityCoordinatorService(homeFactory, resolver, new AcceptingAdmission(), time, TestAuthorization.Gate(true)),
+                homeRecoveries: [logout]);
+            await recovery.RecoverPendingAsync();
+            await recovery.RecoverPendingAsync();
+            await using var db = homeFactory.CreateDbContext();
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.SingleAsync(row => row.CommandType == "WebSelectedSessionLogout")).State);
+            Assert.Single(await db.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+        }
+        File.WriteAllText(Path.Combine(directory, "recovered.marker"), "completed once without a caller handle");
+    }
+
+    private sealed class PauseLogoutSave(string marker) : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<InstallationIdentityCoordinatorRecord>()
+                .Any(entry => entry.State == EntityState.Modified && entry.Entity.CommandType == "WebSelectedSessionLogout"
+                    && entry.Entity.State == InstallationIdentityCoordinatorState.Committing))
+            {
+                File.WriteAllText(marker, "session revocation committed; home save has not run");
+                using var pause = new ManualResetEventSlim();
+                pause.Wait(cancellationToken);
+            }
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
+    private sealed class PausingIdentityFactory(string path, IInterceptor pause) : IDbContextFactory<NodeLocalInstallationIdentityDbContext>
+    {
+        public NodeLocalInstallationIdentityDbContext CreateDbContext() => new(
+            new DbContextOptionsBuilder<NodeLocalInstallationIdentityDbContext>()
+                .UseSqlite($"Data Source={path};Pooling=False", sqlite => sqlite.MigrationsHistoryTable(NodeLocalInstallationIdentityDbContext.MigrationsHistoryTableName))
+                .AddInterceptors(pause).Options);
+    }
 
     [Fact]
     public async Task Switch_Finalizes_Both_Tenant_Heads_Through_The_Real_Home_Decision_Fence()
@@ -210,9 +353,9 @@ public sealed class WebTenantSwitchRealSeamTests
         internal string OldTenant => OldPartition.TenantId;
         internal string TargetTenant => TargetPartition.TenantId;
 
-        internal static async Task<RealSeamHarness> CreateAsync()
+        internal static async Task<RealSeamHarness> CreateAsync(string? testDirectory = null)
         {
-            var directory = Path.Combine(Path.GetTempPath(), $"switch-real-seam-{Guid.NewGuid():N}");
+            var directory = testDirectory ?? Path.Combine(Path.GetTempPath(), $"switch-real-seam-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
             var time = new FixedTimeProvider(Now);
             var identityFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(
@@ -333,7 +476,7 @@ public sealed class WebTenantSwitchRealSeamTests
                 row => row.CommandType == WebTenantSwitchAuthority.CommandType);
         }
 
-        private static async Task<(SqlCipherEncryptedStore Store, TenantIdentityAuthorityPartition Partition)>
+        internal static async Task<(SqlCipherEncryptedStore Store, TenantIdentityAuthorityPartition Partition)>
             OpenPartitionAsync(
                 string directory,
                 string name,
@@ -342,9 +485,11 @@ public sealed class WebTenantSwitchRealSeamTests
                 TimeProvider time)
         {
             var store = new SqlCipherEncryptedStore();
+            var keyPath = Path.Combine(directory, $"{name}-test.key");
+            if (!File.Exists(keyPath)) await File.WriteAllBytesAsync(keyPath, RandomNumberGenerator.GetBytes(32));
             await store.OpenAsync(
                 Path.Combine(directory, $"{name}-tenant.db"),
-                RandomNumberGenerator.GetBytes(32),
+                await File.ReadAllBytesAsync(keyPath),
                 CancellationToken.None);
             var partition = new TenantIdentityAuthorityPartition(
                 tenantId,
