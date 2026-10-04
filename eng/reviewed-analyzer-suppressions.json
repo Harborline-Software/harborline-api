@@ -6,13 +6,13 @@
       "rule": "CA1309",
       "path": "apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs",
       "scopeKind": "statement",
-      "scopeSha256": "d242f1eb6d10efee8bd49153c6ba7d97a9c0fdf92487a5a79d77f8afc6c74a2a",
+      "scopeSha256": "b31e81ff0741a8e959bae0a3e41d89c0d2abb7b400b3a8c9c0d43baa78449a01",
       "justification": {
-        "protectedBehavior": "Bounded recovery paging uses SQLite BINARY consistently in the cursor predicate and both page ordering paths so old stalled homes cannot hide later owed audits.",
+        "protectedBehavior": "Each bounded recovery cycle freezes an upper tuple bound and pages using SQLite BINARY in both cursor predicates and ordering, revisiting stalled old homes despite continuing later arrivals.",
         "whyComplianceChangesBehavior": "The actual SQLite provider rejects StringComparison.Ordinal translation. Materializing candidates changes bounded SQL paging into application-side scanning or can discard eligible rows after a database limit.",
         "protectedRisk": "A culture-dependent managed string comparison can reorder cursor identities and lose or repeat rows.",
         "applicability": "This comparison executes as SQL under declared SQLite BINARY collation; it is not a managed culture comparison or a claim of general UTF-8/UTF-16 ordering equivalence.",
-        "remainingControls": "Actual provider rejection test and tied-home recovery regression assert BINARY in emitted cursor/order SQL, later audit completion, and revisiting stalled durable homes.",
+        "remainingControls": "Actual provider rejection test and tied-home recovery regression assert BINARY in emitted cursor/order SQL, later audit completion, and revisiting stalled durable homes. Sustained full-page arrivals regression pins bounded retry and exactly one actual owed logout audit.",
         "repeatedExceptionReview": "Another justified exception requires separate review of rule applicability and supported SQL-provider detection, with its own evidence/tests/review; no automatic analyzer weakening."
       },
       "alternatives": [
@@ -68,13 +68,25 @@
         {
           "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
           "anchor": "Recovery_pages_past_stalled_tied_homes_and_revisits_them_after_delivering_a_later_audit"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "Recovery_retries_an_owed_audit_while_full_pages_of_later_homes_keep_arriving"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/WebSelectedSessionLogoutAuthorityTests.cs",
+          "anchor": "Recovery_starts_a_fresh_cycle_when_the_captured_first_page_completes_elsewhere"
+        },
+        {
+          "path": "apps/local-node-host/tests/Identity/InstallationIdentityCoordinatorServiceTests.cs",
+          "anchor": "Recovery_revisits_an_owed_membership_home_despite_continuous_full_pages_of_later_arrivals"
         }
       ],
       "review": {
         "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
-        "anchor": "Independent source review ee35604e",
+        "anchor": "Bounded recovery cycle review",
         "status": "reviewed",
-        "reviewedBy": "/root/review333; source review, not required GitHub approval"
+        "reviewedBy": "/root/review333; source review plus root actual-provider execution, not required GitHub approval"
       }
     },
     {

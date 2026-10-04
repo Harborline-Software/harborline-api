@@ -68,6 +68,147 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         }
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public async Task Recovery_retries_an_owed_audit_while_full_pages_of_later_homes_keep_arriving(int limit, bool tiedTime)
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        InstallationIdentityCoordinatorRecord owed;
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            owed = await db.Coordinators.AsNoTracking().SingleAsync();
+        Assert.Equal(new DateTimeOffset(2026, 7, 18, 15, 1, 0, TimeSpan.Zero), owed.CreatedAtUtc);
+        var visits = new List<string>();
+        var logger = new RecoveryLogger();
+        var recovery = fixture.Restart(inner => new ArrivingRecovery(inner, owed.CorrelationId, visits), logger);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            for (var row = 0; row < limit - 1; row++)
+            {
+                var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                later.CorrelationId = $"arrival-0-{row}";
+                later.CreatedAtUtc = tiedTime ? Now.AddMinutes(1) : Now.AddSeconds(90);
+                db.Coordinators.Add(later);
+            }
+            await db.SaveChangesAsync();
+        }
+        await recovery.RecoverPendingAsync(limit);
+        Assert.Equal(limit == 1 ? new[] { owed.CorrelationId } : new[] { owed.CorrelationId, "arrival-0-0" }, visits);
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        for (var sweep = 1; sweep <= 4; sweep++)
+        {
+            await using (var db = fixture.IdentityFactory.CreateDbContext())
+            {
+                for (var row = 0; row < limit; row++)
+                {
+                    var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                    later.CorrelationId = $"arrival-{sweep}-{row}";
+                    later.CreatedAtUtc = tiedTime ? Now.AddMinutes(1) : Now.AddMinutes(sweep + 1);
+                    db.Coordinators.Add(later);
+                }
+                await db.SaveChangesAsync();
+            }
+            await recovery.RecoverPendingAsync(limit);
+        }
+
+        Assert.Equal(2, visits.Count(id => id == owed.CorrelationId));
+        Assert.Contains("arrival-1-0", visits);
+        Assert.Single(logger.Entries);
+        Assert.Equal("first owed recovery failed", logger.Entries[0].Exception!.Message);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == owed.CorrelationId)).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await recovery.RecoverPendingAsync(limit);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    [Fact]
+    public async Task Recovery_starts_a_fresh_cycle_when_the_captured_first_page_completes_elsewhere()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        InstallationIdentityCoordinatorRecord owed;
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            owed = await db.Coordinators.AsNoTracking().SingleAsync();
+        var visits = new List<string>();
+        var queryRace = new CompleteCapturedHomeBeforePage(async () =>
+        {
+            // A separate real recovery commits the original home's completion audit.
+            await fixture.Restart().RecoverPendingAsync(1);
+            Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+            await using var db = fixture.IdentityFactory.CreateDbContext();
+            var later = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+            later.CorrelationId = "arrival-after-captured-bound";
+            later.CreatedAtUtc = Now.AddMinutes(2);
+            db.Coordinators.Add(later);
+            await db.SaveChangesAsync();
+        });
+        var recovery = fixture.Restart(inner => new ArrivingRecovery(inner, owed.CorrelationId, visits), queries: queryRace);
+
+        await recovery.RecoverPendingAsync(1);
+        Assert.Equal(1, queryRace.Interventions);
+        Assert.Empty(visits);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == owed.CorrelationId)).State);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        await recovery.RecoverPendingAsync(1);
+        Assert.Equal(new[] { "arrival-after-captured-bound" }, visits);
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.Equal(InstallationIdentityCoordinatorState.Preparing,
+                (await db.Coordinators.SingleAsync(row => row.CorrelationId == "arrival-after-captured-bound")).State);
+    }
+
+    private sealed class CompleteCapturedHomeBeforePage(Func<Task> completeElsewhere) : DbCommandInterceptor
+    {
+        private bool _capturedBound;
+        public int Interventions { get; private set; }
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            var isWebQuery = command.CommandText.Contains("installation_identity_coordinators", StringComparison.Ordinal)
+                && (command.CommandText.Contains("WebSelectedSessionLogout", StringComparison.Ordinal)
+                    || command.Parameters.Cast<DbParameter>().Any(parameter =>
+                        parameter.Value is string value && value.Contains("WebSelectedSessionLogout", StringComparison.Ordinal)));
+            if (isWebQuery && command.CommandText.Contains("ORDER BY", StringComparison.Ordinal))
+            {
+                if (command.CommandText.Contains("DESC", StringComparison.Ordinal))
+                    _capturedBound = true;
+                else if (_capturedBound && Interventions == 0)
+                {
+                    Interventions++;
+                    await completeElsewhere();
+                }
+            }
+            return result;
+        }
+    }
+
+    private sealed class ArrivingRecovery(IInstallationIdentityHomeRecovery inner, string owedId, List<string> visits)
+        : IInstallationIdentityHomeRecovery
+    {
+        public string CommandType => inner.CommandType;
+        public Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken)
+        {
+            visits.Add(home.CorrelationId);
+            if (home.CorrelationId != owedId)
+                return Task.CompletedTask;
+            if (visits.Count(id => id == owedId) == 1)
+                throw new InvalidOperationException("first owed recovery failed");
+            return inner.RecoverAsync(home, cancellationToken);
+        }
+    }
+
     [Fact]
     public async Task Requested_recovery_cancellation_propagates_the_original_exception_without_recording_failure()
     {
