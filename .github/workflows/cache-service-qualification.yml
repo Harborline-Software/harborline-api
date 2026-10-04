@@ -61,7 +61,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   candidate:
-    if: github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
+    if: >-
+      github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Deliberately request write. The service must still keep this token in its PR merge-ref namespace.
@@ -82,7 +83,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   readonly:
-    if: github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
+    if: >-
+      github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'Cache qualification namespace: api356-synthetic-')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     cache-mode: read
