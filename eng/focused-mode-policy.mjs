@@ -28,7 +28,9 @@ function category(file) {
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
     || /^eng\/(platform|quality)-pin\.json$/.test(file)) return 'toolchain'
   if (/\.(csproj|props|targets|sln|slnx)$/.test(file) || /^artifacts\//.test(file)
-    || /^eng\//.test(file) || /^\.github\//.test(file)) return 'build-artifact'
+    || /^eng\//.test(file) || /^\.github\//.test(file)
+    // Exact input of DurableWriteClassificationArchTests, not a general TSV allowance.
+    || file === 'apps/local-node-host/tests/ArchTests/durable-write-classification.tsv') return 'build-artifact'
   if (/\.cs$/.test(file) && /validat/i.test(file)) return 'validation'
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
   if (/\.(cs|dll|exe|pdb|nupkg|so|dylib|bin)$/.test(file)) return 'binary'

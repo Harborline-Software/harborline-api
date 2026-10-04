@@ -4,8 +4,9 @@
 // Rewrite every retained location relative to the repository, and add a stable
 // partial fingerprint derived from that clone-independent location and project output.
 import {createHash} from 'node:crypto'
-import {readFileSync, writeFileSync, realpathSync} from 'node:fs'
+import {existsSync, readFileSync, writeFileSync, realpathSync} from 'node:fs'
 import path from 'node:path'
+import {applyReviewedSuppressions, readReviewedSuppressions} from './reviewed-analyzer-suppressions.mjs'
 
 const slash = value => value.replaceAll('\\', '/')
 const trimTrailingSlash = value => value.length > 1 ? value.replace(/\/+$/, '') : value
@@ -53,34 +54,50 @@ const fingerprint = (result, project) => {
 
 const projectFingerprint = project => 'sha256:' + createHash('sha256').update(project).digest('hex')
 const v2Fingerprint = (location, project) => 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
+const anchored = result => {
+  const physical = result.locations?.[0]?.physicalLocation
+  return typeof result.ruleId === 'string' && typeof physical?.artifactLocation?.uri === 'string'
+    && Number.isInteger(physical?.region?.startLine) && physical.region.startLine > 0
+}
 
 // ESLint SARIF (340 s2) goes through the same normaliser: the caller names the engine and the package
 // as the project identity; Roslyn callers pass nothing and get the ErrorLog basename and driver mapping.
 export const normalizeSarifFile = (file, repoRoot, {engine, project: projectOption} = {}) => {
-  const sarif = JSON.parse(readFileSync(file, 'utf8'))
+  const raw = readFileSync(file)
+  // Keep failed and malformed compiler reports too. An identical retry is safe;
+  // a fresh compiler production must clear the old archive rather than replace it.
+  const rawFile = `${file}.raw`
+  if (existsSync(rawFile)) {
+    if (!readFileSync(rawFile).equals(raw)) throw new Error('raw analyzer evidence already exists with different bytes')
+  } else writeFileSync(rawFile, raw, {flag: 'wx'})
+  const sarif = JSON.parse(raw.toString('utf8'))
   if (sarif.version !== '2.1.0' || !Array.isArray(sarif.runs)) throw new Error('expected SARIF 2.1.0')
   // Directory.Build.targets names each compiler ErrorLog after MSBuildProjectName. Including that
   // stable output identity prevents diagnostics at one source location from different projects from
   // collapsing into one quality-baseline identity.
   const project = projectOption ?? path.basename(file).replace(/\.sarif$/i, '')
+  const reviewed = readReviewedSuppressions(repoRoot)
   for (const run of sarif.runs) {
     if (!Array.isArray(run.results)) throw new Error('SARIF run has no results array')
     if (engine) {
       if (!run.tool?.driver) throw new Error('SARIF run has no tool driver')
       run.tool.driver.name = engine
     } else if (run.tool?.driver?.name === 'Microsoft (R) Visual C# Compiler') run.tool.driver.name = 'roslyn'
-    run.results = run.results.filter(result => {
-      const physical = result.locations?.[0]?.physicalLocation
-      return typeof result.ruleId === 'string'
-        && typeof physical?.artifactLocation?.uri === 'string'
-        && Number.isInteger(physical?.region?.startLine)
-        && physical.region.startLine > 0
-    })
+    if (run.tool?.driver?.name === 'roslyn') {
+      for (const result of run.results) {
+        if ((result.suppressions ?? []).some(item => item.status === 'accepted')
+          && !anchored(result)) {
+          throw new Error('accepted analyzer suppression has no physical source scope')
+        }
+      }
+    }
+    run.results = run.results.filter(anchored)
     for (const result of run.results) {
       for (const location of result.locations) {
         const artifact = location?.physicalLocation?.artifactLocation
         if (typeof artifact?.uri === 'string') artifact.uri = repositoryRelativePath(artifact.uri, repoRoot)
       }
+      if (run.tool?.driver?.name === 'roslyn') applyReviewedSuppressions(result, reviewed)
       const locationFingerprint = fingerprint(result)
       const projectIdentity = projectFingerprint(project)
       result.partialFingerprints = {
@@ -95,6 +112,8 @@ export const normalizeSarifFile = (file, repoRoot, {engine, project: projectOpti
       }
     }
   }
+  // The .raw suffix is intentionally outside the analyzer-input glob. Preserve
+  // the compiler bytes, including suppressed and unanchored findings, for review.
   writeFileSync(file, JSON.stringify(sarif) + '\n')
 }
 

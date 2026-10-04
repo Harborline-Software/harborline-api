@@ -6,6 +6,8 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
+using Harborline.Api.Kernel.Lease;
+
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
 /// <summary>Server-authoritative selected-audience logout.</summary>
@@ -19,7 +21,8 @@ public interface IWebSelectedSessionLogoutAuthority
 /// <summary>
 /// Coordinates selected-session revocation with the owning tenant and installation audit heads.
 /// </summary>
-internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLogoutAuthority
+internal sealed class WebSelectedSessionLogoutAuthority
+    : IWebSelectedSessionLogoutAuthority, IInstallationIdentityHomeRecovery
 {
     internal const string CommandType = "WebSelectedSessionLogout";
     internal const int PayloadSchemaVersion = 1;
@@ -119,6 +122,10 @@ internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLog
 
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased logout home no longer exists.");
+            ValidateStoredLogout(home);
+            if (home.State == InstallationIdentityCoordinatorState.Aborted) return false;
             if (home.State == InstallationIdentityCoordinatorState.Completed)
             {
                 var completedReceipt = DeserializeReceipt(home.FinalReceiptsJson);
@@ -128,7 +135,11 @@ internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLog
                         completedReceipt,
                         cancellationToken)
                     .ConfigureAwait(false);
-                await RequireMatchingRevocationAsync(session, home.CorrelationId, cancellationToken)
+                await RequireMatchingRevocationAsync(
+                        session.AccountId,
+                        session.SessionCorrelationId,
+                        home.CorrelationId,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 return true;
             }
@@ -171,7 +182,11 @@ internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLog
                         _timeProvider.GetUtcNow(),
                         cancellationToken)
                     .ConfigureAwait(false);
-                await RequireMatchingRevocationAsync(session, home.CorrelationId, cancellationToken)
+                await RequireMatchingRevocationAsync(
+                        session.AccountId,
+                        session.SessionCorrelationId,
+                        home.CorrelationId,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 home = await AdvanceHomeAsync(
                         home.CorrelationId,
@@ -181,49 +196,146 @@ internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLog
                     .ConfigureAwait(false);
             }
 
-            if (home.State == InstallationIdentityCoordinatorState.Committing)
-            {
-                await RequireMatchingRevocationAsync(session, home.CorrelationId, cancellationToken)
-                    .ConfigureAwait(false);
-
-                var receipt = await partition.Memberships.FinalizeSessionRevocationAsync(
-                        home.CorrelationId,
-                        home.CommandFingerprint,
-                        _timeProvider.GetUtcNow(),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                ValidateTenantReceipt(home, receipt);
-                home = await PersistReceiptAndFinalizeAsync(
-                        home.CorrelationId,
-                        receipt,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            if (home.State != InstallationIdentityCoordinatorState.Finalizing)
-            {
-                return false;
-            }
-            var finalReceipt = DeserializeReceipt(home.FinalReceiptsJson);
-            await RequireDurableTenantReceiptAsync(partition, home, finalReceipt, cancellationToken)
-                .ConfigureAwait(false);
-            await RequireMatchingRevocationAsync(session, home.CorrelationId, cancellationToken)
-                .ConfigureAwait(false);
-
-            home = await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            home = await RollCommittedForwardAsync(
+                    home,
+                    partition,
+                    session.SessionCorrelationId,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return home.State == InstallationIdentityCoordinatorState.Completed;
         }
         finally
         {
-            try
+            await ReleaseLeaseAsync(partition, lease).ConfigureAwait(false);
+        }
+    }
+
+    string IInstallationIdentityHomeRecovery.CommandType => CommandType;
+
+    /// <summary>
+    /// The recovery drain's arm. Once the revocation is durable the home owes its Completed envelope,
+    /// and the client cannot retry: antiforgery refuses a revoked session at consume time.
+    /// </summary>
+    async Task IInstallationIdentityHomeRecovery.RecoverAsync(
+        InstallationIdentityCoordinatorRecord home,
+        CancellationToken cancellationToken)
+    {
+        var tenantId = ValidateStoredLogout(home)[0];
+        var payload = JsonSerializer.Deserialize<LogoutPayload>(home.IntentPayloadJson, Json)!;
+        if (home.State == InstallationIdentityCoordinatorState.Preparing)
+        {
+            var revocation = await _sessions.FindRevocationAsync(
+                    payload.SessionCorrelationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (revocation?.CoordinationCorrelationId != home.CorrelationId)
             {
-                await partition.Leases.ReleaseAsync(lease, CancellationToken.None).ConfigureAwait(false);
+                return;
             }
-            catch
+        }
+
+        var partition = await _partitions.ResolveAsync(tenantId, cancellationToken)
+            .ConfigureAwait(false);
+        var lease = await partition.Leases.AcquireAsync(
+                $"identity.membership:{tenantId}",
+                LeaseDuration,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (lease is null)
+        {
+            return;
+        }
+        try
+        {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased logout home no longer exists.");
+            ValidateStoredLogout(home);
+            payload = JsonSerializer.Deserialize<LogoutPayload>(home.IntentPayloadJson, Json)!;
+            if (home.State == InstallationIdentityCoordinatorState.Preparing)
             {
-                // The bounded lease expires fail-safe; recovery must reacquire before another write.
+                await RequireMatchingRevocationAsync(
+                        home.AccountId,
+                        payload.SessionCorrelationId,
+                        home.CorrelationId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                home = await AdvanceHomeAsync(
+                        home.CorrelationId,
+                        InstallationIdentityCoordinatorState.Preparing,
+                        InstallationIdentityCoordinatorState.Committing,
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
+            await RollCommittedForwardAsync(
+                    home,
+                    partition,
+                    payload.SessionCorrelationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            await ReleaseLeaseAsync(partition, lease).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Committing, then Finalizing, then Completed with its envelope; each step idempotent.</summary>
+    private async Task<InstallationIdentityCoordinatorRecord> RollCommittedForwardAsync(
+        InstallationIdentityCoordinatorRecord home,
+        TenantIdentityAuthorityPartition partition,
+        string sessionCorrelationId,
+        CancellationToken cancellationToken)
+    {
+        if (home.State == InstallationIdentityCoordinatorState.Committing)
+        {
+            await RequireMatchingRevocationAsync(
+                    home.AccountId,
+                    sessionCorrelationId,
+                    home.CorrelationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var receipt = await partition.Memberships.FinalizeSessionRevocationAsync(
+                    home.CorrelationId,
+                    home.CommandFingerprint,
+                    _timeProvider.GetUtcNow(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            ValidateTenantReceipt(home, receipt);
+            home = await PersistReceiptAndFinalizeAsync(
+                    home.CorrelationId,
+                    receipt,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (home.State != InstallationIdentityCoordinatorState.Finalizing)
+        {
+            return home;
+        }
+        var finalReceipt = DeserializeReceipt(home.FinalReceiptsJson);
+        await RequireDurableTenantReceiptAsync(partition, home, finalReceipt, cancellationToken)
+            .ConfigureAwait(false);
+        await RequireMatchingRevocationAsync(
+                home.AccountId,
+                sessionCorrelationId,
+                home.CorrelationId,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task ReleaseLeaseAsync(TenantIdentityAuthorityPartition partition, Lease lease)
+    {
+        try
+        {
+            await partition.Leases.ReleaseAsync(lease, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The bounded lease expires fail-safe; recovery must reacquire before another write.
         }
     }
 
@@ -489,16 +601,17 @@ internal sealed class WebSelectedSessionLogoutAuthority : IWebSelectedSessionLog
     }
 
     private async Task RequireMatchingRevocationAsync(
-        WebUserSessionRecord session,
+        string accountId,
+        string sessionCorrelationId,
         string correlationId,
         CancellationToken cancellationToken)
     {
         var revocation = await _sessions.FindRevocationAsync(
-                session.SessionCorrelationId,
+                sessionCorrelationId,
                 cancellationToken)
             .ConfigureAwait(false);
         if (revocation is null ||
-            revocation.AccountId != session.AccountId ||
+            revocation.AccountId != accountId ||
             revocation.CoordinationCorrelationId != correlationId ||
             revocation.ReasonCode != ReasonCode)
         {

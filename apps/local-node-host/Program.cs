@@ -1057,19 +1057,27 @@ if (webClientOptions.Enabled)
     builder.Services.AddSingleton<
         Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCoordinatorRecoveryService>();
     builder.Services.AddInstallationTenantCandidateClassification();
-    builder.Services.AddSingleton<
-        Harborline.Api.LocalNodeHost.Data.Identity.IWebTenantSelectionAuthority,
-        Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSelectionAuthority>();
-    builder.Services.AddSingleton<
-        Harborline.Api.LocalNodeHost.Data.Identity.IWebTenantSwitchAuthority,
-        Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSwitchAuthority>();
+    // T-1048: each web identity authority is also a recovery-drain arm, so one instance serves
+    // both the route interface and IInstallationIdentityHomeRecovery.
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSelectionAuthority>();
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IWebTenantSelectionAuthority>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSelectionAuthority>());
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IInstallationIdentityHomeRecovery>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSelectionAuthority>());
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSwitchAuthority>();
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IWebTenantSwitchAuthority>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSwitchAuthority>());
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IInstallationIdentityHomeRecovery>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebTenantSwitchAuthority>());
     builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionStore>();
     builder.Services.AddSingleton<
         Harborline.Api.LocalNodeHost.Data.Identity.IWebSelectedSessionPrincipalAuthority,
         Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionPrincipalAuthority>();
-    builder.Services.AddSingleton<
-        Harborline.Api.LocalNodeHost.Data.Identity.IWebSelectedSessionLogoutAuthority,
-        Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionLogoutAuthority>();
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionLogoutAuthority>();
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IWebSelectedSessionLogoutAuthority>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionLogoutAuthority>());
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.IInstallationIdentityHomeRecovery>(sp =>
+        sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Identity.WebSelectedSessionLogoutAuthority>());
     // MTW-2 card 3329 step 1: the selected audience's own whoami. Identity only — the account id,
     // Party, People label, tenant + its label, founder-vs-member standing, and an advisory expiry.
     // The label reader is the narrow People seam (a display name and nothing else); a miss leaves

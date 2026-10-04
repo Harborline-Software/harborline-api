@@ -29,7 +29,8 @@ public interface IWebTenantSwitchAuthority
 /// handle remains live and the destination handle remains absent until every audit owner has
 /// durably finalized. One final session-store transaction then makes the rotation visible.
 /// </summary>
-internal sealed class WebTenantSwitchAuthority : IWebTenantSwitchAuthority
+internal sealed class WebTenantSwitchAuthority
+    : IWebTenantSwitchAuthority, IInstallationIdentityHomeRecovery
 {
     internal const string CommandType = "WebTenantSwitch";
     internal const int PayloadSchemaVersion = 1;
@@ -170,6 +171,10 @@ internal sealed class WebTenantSwitchAuthority : IWebTenantSwitchAuthority
 
         try
         {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased switch home no longer exists.");
+            payload = ValidateStoredSwitch(home);
+            if (home.State == InstallationIdentityCoordinatorState.Aborted) return null;
             if (home.State == InstallationIdentityCoordinatorState.Completed)
             {
                 var completedReceipts = DeserializeReceipts(home.FinalReceiptsJson);
@@ -242,35 +247,7 @@ internal sealed class WebTenantSwitchAuthority : IWebTenantSwitchAuthority
                     .ConfigureAwait(false);
             }
 
-            if (home.State == InstallationIdentityCoordinatorState.Committing)
-            {
-                var receipts = await FinalizeTenantHeadsAsync(
-                        partitions,
-                        home,
-                        payload,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                home = await PersistReceiptsAndFinalizeAsync(
-                        home.CorrelationId,
-                        receipts,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            if (home.State != InstallationIdentityCoordinatorState.Finalizing)
-            {
-                return null;
-            }
-            var finalReceipts = DeserializeReceipts(home.FinalReceiptsJson);
-            await RequireDurableTenantReceiptsAsync(
-                    partitions,
-                    home,
-                    payload,
-                    finalReceipts,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            home = await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            home = await RollCommittedForwardAsync(partitions, home, payload, cancellationToken)
                 .ConfigureAwait(false);
             if (home.State != InstallationIdentityCoordinatorState.Completed)
             {
@@ -291,6 +268,77 @@ internal sealed class WebTenantSwitchAuthority : IWebTenantSwitchAuthority
         {
             await ReleaseLeasesAsync(heldLeases).ConfigureAwait(false);
         }
+    }
+
+    string IInstallationIdentityHomeRecovery.CommandType => CommandType;
+
+    /// <summary>
+    /// The recovery drain's arm. Once a tenant head is finalized the home owes its Completed
+    /// envelope whether or not the client ever retries. Recovery does not rotate sessions: the old
+    /// session stays live and a later retry finds Completed and performs the one rotation.
+    /// </summary>
+    async Task IInstallationIdentityHomeRecovery.RecoverAsync(
+        InstallationIdentityCoordinatorRecord home,
+        CancellationToken cancellationToken)
+    {
+        var payload = ValidateStoredSwitch(home);
+        var partitions = await ResolvePartitionsAsync(payload, cancellationToken).ConfigureAwait(false);
+        var heldLeases = await AcquireLeasesAsync(partitions, cancellationToken).ConfigureAwait(false);
+        if (heldLeases is null)
+        {
+            return;
+        }
+        try
+        {
+            home = await FindHomeAsync(home.CorrelationId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The leased switch home no longer exists.");
+            payload = ValidateStoredSwitch(home);
+            await RollCommittedForwardAsync(partitions, home, payload, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            await ReleaseLeasesAsync(heldLeases).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Committing, then Finalizing, then Completed with its envelope; each step idempotent.</summary>
+    private async Task<InstallationIdentityCoordinatorRecord> RollCommittedForwardAsync(
+        SwitchPartitions partitions,
+        InstallationIdentityCoordinatorRecord home,
+        SwitchPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (home.State == InstallationIdentityCoordinatorState.Committing)
+        {
+            var receipts = await FinalizeTenantHeadsAsync(
+                    partitions,
+                    home,
+                    payload,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            home = await PersistReceiptsAndFinalizeAsync(
+                    home.CorrelationId,
+                    receipts,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (home.State != InstallationIdentityCoordinatorState.Finalizing)
+        {
+            return home;
+        }
+        var finalReceipts = DeserializeReceipts(home.FinalReceiptsJson);
+        await RequireDurableTenantReceiptsAsync(
+                partitions,
+                home,
+                payload,
+                finalReceipts,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

@@ -20,7 +20,7 @@ public sealed class DurableWriteClassificationArchTests
     public void EveryProductionDurableWriteSiteIsClassifiedWithItsExactCount()
     {
         // The class vocabulary, not an allow-list: every row must use one of these.
-        string[] classes = ["atomic-audit", "record-is-audit", "outbox-audit", "post-commit-audit", "unaudited", "n/a"];
+        string[] classes = ["atomic-audit", "record-is-audit", "outbox-audit", "intent-audit", "post-commit-audit", "unaudited", "n/a"];
         var root = RepositoryRoot();
         var rows = ReadClassification(root);
         Assert.All(rows, row =>
