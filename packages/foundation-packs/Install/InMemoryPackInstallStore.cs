@@ -121,7 +121,12 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            var next = _byTenant.TryGetValue(tenant, out var current) ? current.Clone() : new TenantState();
+            _byTenant.TryGetValue(tenant, out var current);
+            var observedActive = current is not null && current.Active.TryGetValue(packKey, out var version)
+                ? current.Versions.GetValueOrDefault(VersionKey(packKey, version)) : null;
+            tenantOverride.ExpectedReadset?.RequireCurrent(observedActive,
+                current is not null && current.Overrides.TryGetValue(packKey, out var observedOverrides) ? observedOverrides : []);
+            var next = current is not null ? current.Clone() : new TenantState();
             var list = next.Overrides.TryGetValue(packKey, out var existing)
                 ? existing.Where(o => o.ContentKey != tenantOverride.ContentKey).ToList()
                 : new List<PackTenantOverride>();
@@ -141,6 +146,13 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         lock (_gate)
         {
             // COPY-ON-WRITE: build the whole next state off to the side; publish only at the very end.
+            transaction.RequireCurrentWatermark(
+                _byTenant.TryGetValue(transaction.Tenant, out var observed)
+                    && observed.Watermarks.TryGetValue(pack.PackKey, out var watermark) ? watermark : null);
+            transaction.RequireCurrentInstalledState(observed is null ? [] : observed.Versions.Values);
+            transaction.RequireCurrentAdmissionState(
+                observed is not null && observed.Overrides.TryGetValue(pack.PackKey, out var overrides) ? overrides : [],
+                observed?.KeyOwnership ?? new Dictionary<string, string>(StringComparer.Ordinal));
             var next = _byTenant.TryGetValue(transaction.Tenant, out var current)
                 ? current.Clone()
                 : new TenantState();

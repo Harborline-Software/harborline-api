@@ -74,7 +74,7 @@ internal static class SelectedPackReplacementRoutes
         var authorizationRefused = false;
         try
         {
-            installed = installer.Install(bytes, context);
+            installed = await installer.InstallAsync(bytes, context, CancellationToken.None).ConfigureAwait(false);
             if (installed.Installed) activation = await installer.ActivateAsync(context, packKey, installed.Version, ct).ConfigureAwait(false);
         }
         catch (AuthorizationDeniedException denied)

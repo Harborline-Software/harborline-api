@@ -106,6 +106,7 @@ public sealed class FormEngine : IFormEngine
     private readonly IFieldDecryptor? _fieldDecryptor;
     private readonly Harborline.Api.Foundation.Crypto.IDecryptCapabilityProvider? _decryptCapabilities;
     private readonly ILogger<FormEngine> _logger;
+    private readonly IFormSubmissionBindingResolver? _bindingResolver;
 
     /// <summary>
     /// Creates the engine over its four substrates plus options and a clock, and an
@@ -148,7 +149,8 @@ public sealed class FormEngine : IFormEngine
         IFieldDecryptor? fieldDecryptor = null,
         Harborline.Api.Foundation.Crypto.IDecryptCapabilityProvider? decryptCapabilityProvider = null,
         ILogger<FormEngine>? logger = null,
-        Func<DateTimeOffset, TimeProvider>? actClock = null)
+        Func<DateTimeOffset, TimeProvider>? actClock = null,
+        IFormSubmissionBindingResolver? bindingResolver = null)
     {
         ArgumentNullException.ThrowIfNull(formDefinitions);
         ArgumentNullException.ThrowIfNull(schemaRegistry);
@@ -191,6 +193,7 @@ public sealed class FormEngine : IFormEngine
         _decryptCapabilities = decryptCapabilityProvider;
         _logger = logger ?? NullLogger<FormEngine>.Instance;
         _actClock = actClock;
+        _bindingResolver = bindingResolver;
     }
 
     /// <summary>
@@ -396,7 +399,8 @@ public sealed class FormEngine : IFormEngine
         AuthorizationWriteContext authority,
         CancellationToken ct = default,
         string? idempotencyKey = null,
-        string? caseRef = null)
+        string? caseRef = null,
+        Func<CancellationToken, Task>? newSubmissionPreflight = null)
     {
         var authorizationDecision = await _authorizationGate.DecideAsync(
             authority.Request(AuthorizationOperation.Parse(Permission.FormsAuthor), "forms", form.Value), ct)
@@ -495,9 +499,18 @@ public sealed class FormEngine : IFormEngine
             if (prior is not null && prior.Tenant == token.Tenant && prior.DeletedAt is null)
             {
                 await ValidateReplayContextAsync(instanceId, prior.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
-                return new FormSubmitReceipt(instanceId, prior.CreatedAt);
+                return new FormSubmitReceipt(instanceId, prior.CreatedAt, ProjectionDefinition: prior.Binding?.ProjectionDefinition);
             }
         }
+
+        // Live authorization and authenticated replay precede time-dependent admission checks. A replay
+        // retains its original submission instant; only a new instance must satisfy today's admission.
+        if (newSubmissionPreflight is not null) await newSubmissionPreflight(ct).ConfigureAwait(false);
+
+        var submittedAt = authority.At;
+        var projectionDefinition = _bindingResolver is null
+            ? (DefinitionCoordinates?)null
+            : await _bindingResolver.ResolveAsync(formDef, submittedAt, ct).ConfigureAwait(false);
 
         var (storedBody, encryptedFields) =
             await ProtectFieldsAsync(formDef, candidateForStore, token, instanceId, authority.At, ct).ConfigureAwait(false);
@@ -511,7 +524,6 @@ public sealed class FormEngine : IFormEngine
             // Construct the mandatory binding BEFORE the entity mint so the store receives the
             // values and provenance in one CreateAsync mutation. The subsequent audit append can
             // fault without leaving a binding-less committed submission.
-            var submittedAt = authority.At;
             var header = SubmissionBindingHeader.Create(formDef, _options.LocaleChain, submittedAt);
             var binding = new EntityBinding(
                 SchemaRef: formDef.SchemaRef,
@@ -519,7 +531,8 @@ public sealed class FormEngine : IFormEngine
                 DefinitionVersion: header.DefinitionVersion,
                 EngineVersion: header.EngineVersion,
                 LocaleChain: header.LocaleChain,
-                SubmittedAt: header.SubmittedAt);
+                SubmittedAt: header.SubmittedAt,
+                ProjectionDefinition: projectionDefinition);
 
             // OQ-3: the macaroon-bound tenant flows into CreateOptions.Tenant.
             var options = new CreateOptions(
@@ -553,7 +566,7 @@ public sealed class FormEngine : IFormEngine
                 if (winner is not null && winner.Tenant == token.Tenant && winner.DeletedAt is null)
                 {
                     await ValidateReplayContextAsync(instanceId, winner.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
-                    return new FormSubmitReceipt(instanceId, winner.CreatedAt);
+                    return new FormSubmitReceipt(instanceId, winner.CreatedAt, ProjectionDefinition: winner.Binding?.ProjectionDefinition);
                 }
                 throw;
             }
@@ -599,7 +612,7 @@ public sealed class FormEngine : IFormEngine
 
             // F-CLOCK: surface the engine's OWN submit instant so a post-submit projection stamps its
             // side record at the SAME instant the persisted instance + audit record carry.
-            return new FormSubmitReceipt(entityId, submittedAt);
+            return new FormSubmitReceipt(entityId, submittedAt, ProjectionDefinition: projectionDefinition);
         }
         finally
         {

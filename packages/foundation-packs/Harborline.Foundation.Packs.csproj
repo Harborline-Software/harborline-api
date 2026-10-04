@@ -31,6 +31,9 @@
     <!-- B-1b install engine: TemplateMerger three-way re-attach primitive (ADR 0011 follow-up #1 /
          fold A2). Reused, not re-implemented — no second JSON-merge path (A4-drift avoidance). -->
     <ProjectReference Include="..\foundation-catalog\Harborline.Foundation.Catalog.csproj" />
+    <!-- DES-0029 ck-10 S5b: activation, deactivation and narrowing run through the one ADR 0038 executor,
+         WritePipeline.RunAsync. Foundation depends inward on kernel; kernel-runtime does not reach packs. -->
+    <ProjectReference Include="..\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
     <!-- T-655 / ADR 0096: the raise-only safety-floor reattachment rule has ONE producer, the platform's
          PackageSafetyFloorReattachment. Consumed from the released package (central pin, Justification
          "platform") - never copied into this repository. -->

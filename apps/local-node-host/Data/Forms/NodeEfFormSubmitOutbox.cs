@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Harborline.Api.Foundation.Definitions;
 
 using Harborline.Api.Foundation.Forms.Submission;
 
@@ -170,6 +172,7 @@ public sealed class NodeEfFormSubmitOutbox : IFormSubmitOutbox
         SubmittedAt = entry.SubmittedAt,
         SubmittedValuesJson = entry.SubmittedValuesJson,
         CaseRef = entry.CaseRef,
+        ProjectionDefinitionJson = entry.ProjectionDefinition is { } coordinate ? JsonSerializer.Serialize(coordinate) : null,
         State = entry.State,
         Attempts = entry.Attempts,
         LastError = entry.LastError,
@@ -186,7 +189,8 @@ public sealed class NodeEfFormSubmitOutbox : IFormSubmitOutbox
         CaseRef: row.CaseRef,
         State: row.State,
         Attempts: row.Attempts,
-        LastError: row.LastError);
+        LastError: row.LastError,
+        ProjectionDefinition: row.ProjectionDefinitionJson is { } coordinate ? JsonSerializer.Deserialize<DefinitionCoordinates>(coordinate) : null);
 
     private static void ThrowIfMissing(int updated, string entryId)
     {

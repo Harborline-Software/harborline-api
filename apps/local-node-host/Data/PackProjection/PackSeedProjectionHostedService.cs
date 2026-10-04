@@ -120,7 +120,7 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
     {
         try
         {
-            _reconciler.ReconcilePending(cancellationToken);
+            await _reconciler.ReconcilePendingAsync(cancellationToken).ConfigureAwait(false);
             var (restored, refused) = _restoreActive is null ? (0, 0)
                 : await _restoreActive(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation(

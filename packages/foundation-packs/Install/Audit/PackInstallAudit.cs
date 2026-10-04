@@ -109,6 +109,17 @@ public interface IPackInstallAudit
     /// <summary>Durably records one install-engine audit entry with the exact decision that admitted it.</summary>
     void AppendAuthorized(PackInstallAuditEntry entry, AuthorizationDecision decision);
 
+    /// <summary>Prepares a signed entry before a synchronous store commit; a fault refuses the write.</summary>
+    ValueTask PrepareAuthorizedAsync(PackInstallAuditEntry entry, AuthorizationDecision decision, CancellationToken ct = default)
+        => ValueTask.CompletedTask;
+
+    /// <summary>Records or delivers the same prepared entry after commit without blocking an async operation.</summary>
+    ValueTask AppendAuthorizedAsync(PackInstallAuditEntry entry, AuthorizationDecision decision, CancellationToken ct = default)
+    {
+        AppendAuthorized(entry, decision);
+        return ValueTask.CompletedTask;
+    }
+
     /// <summary>The recorded entries for a tenant, in append order (for list surfaces + tests).</summary>
     IReadOnlyList<PackInstallAuditEntry> Query(TenantId tenant);
 }

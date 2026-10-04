@@ -15,7 +15,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261002162649_SpatialFramesMapAuditOutbox";
+    public override string LastMigrationId => "20261003000000_AddFormSubmitProjectionDefinition";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -2369,6 +2369,49 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("node_audit_signature_epochs", (string)null);
             });
 
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Banking.BankAccountCreateKeyRow", b =>
+            {
+                b.Property<string>("TenantId")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Principal")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Key")
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("AccountId")
+                    .IsRequired()
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("CreatedAt")
+                    .IsRequired()
+                    .HasMaxLength(33)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ExpiresAt")
+                    .IsRequired()
+                    .HasMaxLength(33)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Fingerprint")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Response")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.HasKey("TenantId", "Principal", "Key");
+
+                b.ToTable("bank_account_create_keys", (string)null);
+            });
+
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow", b =>
             {
                 b.Property<long>("Sequence")
@@ -2404,6 +2447,9 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("LastError")
                     .HasMaxLength(4096)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ProjectionDefinitionJson")
                     .HasColumnType("TEXT");
 
                 b.Property<string>("State")
@@ -2595,6 +2641,11 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<long?>("PublishedAtUnixMs")
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
+
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
 
                 b.Property<string>("SignedPayloadJson")
                     .HasColumnType("TEXT")

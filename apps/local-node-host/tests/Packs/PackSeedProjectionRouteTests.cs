@@ -1505,7 +1505,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     {
         public void AttachProjector(IPackProjectionDispatcher projector) { }
 
-        public void ReconcilePending(CancellationToken cancellationToken = default) =>
+        public Task ReconcilePendingAsync(CancellationToken cancellationToken = default) =>
             throw new IOException("Simulated durable-store failure.");
     }
 

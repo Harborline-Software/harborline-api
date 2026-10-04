@@ -42,7 +42,7 @@ public sealed class NodeAuditOutbox(
     /// </summary>
     /// <returns>The staged entry's audit id.</returns>
     public static Guid StageAuthorized(
-        NodeLocalSearchDbContext db,
+        DbContext db,
         AuditEventType eventType,
         AuthorizationDecision decision,
         IReadOnlyDictionary<string, string?> body,
@@ -57,7 +57,7 @@ public sealed class NodeAuditOutbox(
         var entry = new Dictionary<string, string?>(body, StringComparer.Ordinal);
         if (request.CorrelationId is { } correlation) entry["correlation_id"] = correlation.ToString("D");
         var id = auditId ?? Guid.NewGuid();
-        db.AuditOutbox.Add(new AuditOutboxRow
+        db.Set<AuditOutboxRow>().Add(new AuditOutboxRow
         {
             AuditId = id.ToString("D"),
             TenantId = request.Tenant.Value,
@@ -161,7 +161,38 @@ public sealed class NodeAuditOutbox(
     }
 
     /// <summary>
-    /// Delivers every owed entry to the trail in stage order. An entry the trail already holds (a crash between
+    /// T-1048: stages <paramref name="record"/>, already signed, on <paramref name="write"/>, with the authority of
+    /// <paramref name="decision"/> captured now. A caller that appends the same record after the commit leaves the
+    /// drain only a mark to make; a crash before that append leaves the entry owed, and the drain delivers it.
+    /// </summary>
+    public static void StageRecord(DbContext write, AuditRecord record, AuthorizationDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(decision);
+        if (record.Actor is not { } actor || record.Target is not { } target || record.Act is not { } act)
+            throw new ArgumentException("An authorized audit record names its actor, target and act.", nameof(record));
+        var snapshot = CapturedAuditAuthority.Capture(record.TenantId, actor, record.OccurredAt, target, act, decision);
+        write.Set<AuditOutboxRow>().Add(new AuditOutboxRow
+        {
+            AuditId = record.AuditId.ToString("D"),
+            TenantId = record.TenantId.Value,
+            EventType = record.EventType.Value,
+            OccurredAt = record.OccurredAt,
+            Nonce = record.Payload.Nonce.ToString("D"),
+            BodyJson = JsonSerializer.Serialize(record.Payload.Payload.Body),
+            SignedPayloadJson = NodeAuditRecordJson.WritePayload(record.Payload),
+            Actor = actor.Value,
+            TargetKind = target.RecordKind,
+            TargetId = target.RecordId,
+            TargetScope = target.Scope.Value,
+            Act = act.ToString(),
+            AuthoritySnapshotJson = JsonSerializer.Serialize(snapshot),
+        });
+    }
+
+    /// <summary>
+    /// Delivers owed entries by occurrence time, honoring persisted ceremony predecessors. An entry the trail already holds (a crash between
     /// its append and its mark) is marked without a second append. A failed entry records its error and stays owed.
     /// </summary>
     /// <returns>The number of entries delivered or found delivered by this pass.</returns>
@@ -189,37 +220,56 @@ public sealed class NodeAuditOutbox(
         }
 
         var delivered = 0;
-        foreach (var row in owed.OrderBy(row => row.OccurredAt))
+        var pending = owed.OrderBy(row => row.OccurredAt).ToList();
+        while (pending.Count != 0)
         {
-            try
+            var attempted = false;
+            foreach (var row in pending.ToArray())
             {
-                var tenant = new TenantId(row.TenantId);
-                var auditId = Guid.Parse(row.AuditId);
-                if (!await HoldsAsync(tenant, auditId, ct).ConfigureAwait(false))
-                    await AppendAsync(row, tenant, auditId, ct).ConfigureAwait(false);
-                await MarkAsync(row.AuditId, publishedAt: time.GetUtcNow().ToUnixTimeMilliseconds(), error: null, ct)
-                    .ConfigureAwait(false);
-                delivered++;
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                logger.LogError(exception, "Audit outbox entry {AuditId} ({EventType}) is still owed to the audit trail.",
-                    row.AuditId, row.EventType);
                 try
                 {
-                    await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                    var tenant = new TenantId(row.TenantId);
+                    // Equal admission instants do not imply order. A ceremony's dependent entry remains owed
+                    // until its persisted predecessor is actually on the trail, including after a failed delivery.
+                    if (row.PredecessorAuditId is { } predecessor
+                        && !await HoldsAsync(tenant, Guid.Parse(predecessor), ct).ConfigureAwait(false))
+                        continue;
+                    pending.Remove(row);
+                    attempted = true;
+                    var auditId = Guid.Parse(row.AuditId);
+                    if (!await HoldsAsync(tenant, auditId, ct).ConfigureAwait(false))
+                        await AppendAsync(row, tenant, auditId, ct).ConfigureAwait(false);
+                    await MarkAsync(row.AuditId, publishedAt: time.GetUtcNow().ToUnixTimeMilliseconds(), error: null, ct)
+                        .ConfigureAwait(false);
+                    delivered++;
                 }
-                catch (Exception markFailure) when (markFailure is not OperationCanceledException)
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    // Recording the failure is best effort: the entry stays owed either way, and throwing here
-                    // would end the pass before the entries behind it are attempted.
-                    logger.LogError(markFailure, "Audit outbox entry {AuditId} could not record its delivery failure.", row.AuditId);
+                    pending.Remove(row);
+                    attempted = true;
+                    logger.LogError(exception, "Audit outbox entry {AuditId} ({EventType}) is still owed to the audit trail.",
+                        row.AuditId, row.EventType);
+                    try
+                    {
+                        await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception markFailure) when (markFailure is not OperationCanceledException)
+                    {
+                        // Recording the failure is best effort: the entry stays owed either way, and throwing here
+                        // would end the pass before the entries behind it are attempted.
+                        logger.LogError(markFailure, "Audit outbox entry {AuditId} could not record its delivery failure.", row.AuditId);
+                    }
                 }
             }
+            if (!attempted) break;
         }
 
         return delivered;
     }
+
+    /// <summary>Confirms that this tenant's audit is addressable on the actual trail, even if its outbox mark failed.</summary>
+    public Task<bool> IsDeliveredAsync(TenantId tenant, Guid auditId, CancellationToken ct = default) =>
+        HoldsAsync(tenant, auditId, ct);
 
     private async Task<bool> HoldsAsync(TenantId tenant, Guid auditId, CancellationToken ct)
     {

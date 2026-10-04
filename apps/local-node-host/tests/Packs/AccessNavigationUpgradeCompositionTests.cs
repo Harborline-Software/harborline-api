@@ -58,14 +58,14 @@ public sealed class AccessNavigationUpgradeCompositionTests
                 await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>().OfType<AccessAdministrationPreloadHostedService>().Single().PreloadAsync(Tenant, CancellationToken.None);
                 await AssertNavigationAsync(services);
                 var store = services.GetRequiredService<IPackInstallStore>();
-                Assert.Equal("1.1.3", store.GetActive(Tenant, PackKey)!.Version);
+                Assert.Equal("1.1.6", store.GetActive(Tenant, PackKey)!.Version);
                 Assert.Equal(PackLifecycleState.Superseded, store.GetVersion(Tenant, PackKey, "1.0.0")!.Lifecycle);
             }
             await using (var restarted = await UnattributedGrantCompositionTests.OpenAsync(directory))
             {
                 await AssertNavigationAsync(restarted.Services);
-                var outcome = restarted.Services.GetRequiredService<IPackInstaller>().Deactivate(
-                    Context(restarted.Services), PackKey, "1.1.3");
+                var outcome = await restarted.Services.GetRequiredService<IPackInstaller>().DeactivateAsync(
+                    Context(restarted.Services), PackKey, "1.1.6");
                 Assert.True(outcome.Deactivated);
                 using var after = await NavigationAsync(restarted.Services);
                 AssertWorkshopServed(after);
@@ -101,7 +101,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
             Dcp: DomainComplianceProfile.General(signer.Signer.IssuerId.ToBase64Url())), signer.Signer);
         Assert.True(export.Succeeded);
         var installer = services.GetRequiredService<IPackInstaller>();
-        var installed = installer.Install(export.FileBytes!, Context(services));
+        var installed = await installer.InstallAsync(export.FileBytes!, Context(services));
         Assert.True(installed.Installed, string.Join(",", installed.RefusalCodes));
         var activation = installer.Activate(Context(services), PackKey, "1.0.0");
         Assert.True(activation.Activated, activation.Detail);

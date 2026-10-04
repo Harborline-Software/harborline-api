@@ -65,10 +65,13 @@ internal static class SelectedFormSubmitRoutes
                     .ConfigureAwait(false);
                 var token = await verifier.VerifyAsync(bearer, authority.At, ct).ConfigureAwait(false);
                 using var candidate = FormsRoutes.Candidate(body);
-                if (await FormsRoutes.BackdateRefusalAsync(submissionGate, form, candidate, token.Subject, authority.At, time, ct)
-                    .ConfigureAwait(false) is { } backdate)
-                    return backdate;
-                var receipt = await engine.SaveWithReceiptAsync(form, candidate, token, authority, ct, key)
+                var receipt = await engine.SaveWithReceiptAsync(form, candidate, token, authority, ct, key,
+                    newSubmissionPreflight: async admissionCt =>
+                    {
+                        var refusal = await FormsRoutes.BackdateRefusalAsync(submissionGate, form, candidate,
+                            token.Subject, authority.At, time, admissionCt).ConfigureAwait(false);
+                        if (refusal is not null) throw new FormsRoutes.SubmissionAdmissionRefused(refusal);
+                    })
                     .ConfigureAwait(false);
                 var auditReceipt = audit is null ? null : await FormSubmissionAuditReceipt.ReadAsync(
                     audit, form, principal.TenantId, authority.Principal, receipt, ct).ConfigureAwait(false);
@@ -90,6 +93,7 @@ internal static class SelectedFormSubmitRoutes
             {
                 return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
             }
+            catch (FormsRoutes.SubmissionAdmissionRefused refusal) { return refusal.Result; }
             catch (FormSubmissionReplayConflictException)
             {
                 return Results.Conflict(new { code = "forms.replay_context_mismatch" });

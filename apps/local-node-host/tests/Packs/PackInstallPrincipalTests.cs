@@ -19,7 +19,7 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 /// <summary>
-/// Ticket 151 — the kernel install path carries a PRINCIPAL. <see cref="IPackInstaller.Install"/> is the
+/// Ticket 151 — the kernel install path carries a PRINCIPAL. <see cref="IPackInstaller.InstallAsync"/> is the
 /// commit seam, so the DOMAIN layer requires <see cref="PackInstallContext.Principal"/>: a compiled caller
 /// that skips the host route (and with it the <c>packages:operate</c> check) cannot commit a seed layer
 /// anonymously. Preview stays principal-free (it never mutates).
@@ -35,7 +35,7 @@ public sealed class PackInstallPrincipalTests
         using var fixture = await CreateFixtureAsync();
 
         var anonymous = fixture.Context; // no Principal
-        Assert.Throws<ArgumentNullException>(() => fixture.Installer.Install(fixture.PackBytes, anonymous));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => fixture.Installer.InstallAsync(fixture.PackBytes, anonymous));
         Assert.Empty(fixture.Store.ListInstalled(Tenant));
         var refusal = Assert.Single(fixture.Audit.Query(Tenant));
         Assert.True(refusal.PreDecision);
@@ -47,7 +47,7 @@ public sealed class PackInstallPrincipalTests
     {
         using var fixture = await CreateFixtureAsync();
 
-        var outcome = fixture.Installer.Install(
+        var outcome = await fixture.Installer.InstallAsync(
             fixture.PackBytes, fixture.Context with { Principal = "test-operator" });
 
         Assert.True(outcome.Installed);
@@ -60,11 +60,11 @@ public sealed class PackInstallPrincipalTests
         using var fixture = await CreateFixtureAsync();
         var principled = fixture.Context with { Principal = "test-operator" };
 
-        Assert.True(fixture.Installer.Install(fixture.PackBytes, principled).Installed);
+        Assert.True((await fixture.Installer.InstallAsync(fixture.PackBytes, principled)).Installed);
         // A tampered copy: verification refuses (S-7) — the refusal row must still record WHO tried.
         var tampered = (byte[])fixture.PackBytes.Clone();
         tampered[^1] ^= 0xFF;
-        Assert.False(fixture.Installer.Install(tampered, principled).Installed);
+        Assert.False((await fixture.Installer.InstallAsync(tampered, principled)).Installed);
 
         var entries = fixture.Audit.Query(Tenant);
         var installed = Assert.Single(entries, e => e.Action == PackInstallAuditAction.Installed);
@@ -78,7 +78,7 @@ public sealed class PackInstallPrincipalTests
     {
         using var fixture = await CreateFixtureAsync();
         PlatformPackTestPreload.Activate(fixture.Store, Tenant);
-        var outcome = fixture.Installer.Install(
+        var outcome = await fixture.Installer.InstallAsync(
             fixture.PackBytes, fixture.Context with { Principal = "test-operator" });
         Assert.True(outcome.Installed);
 
@@ -101,18 +101,18 @@ public sealed class PackInstallPrincipalTests
     {
         using var fixture = await CreateFixtureAsync();
         PlatformPackTestPreload.Activate(fixture.Store, Tenant);
-        var outcome = fixture.Installer.Install(
+        var outcome = await fixture.Installer.InstallAsync(
             fixture.PackBytes, fixture.Context with { Principal = "test-operator" });
         Assert.True(outcome.Installed);
         Assert.True(fixture.Installer.Activate(
             Tenant, outcome.PackKey, outcome.Version, Now, "test-operator").Activated);
 
-        Assert.Throws<ArgumentNullException>(() =>
-            fixture.Installer.Deactivate(Tenant, outcome.PackKey, outcome.Version, Now));
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            fixture.Installer.DeactivateAsync(Tenant, outcome.PackKey, outcome.Version, Now));
         var refusal = Assert.Single(fixture.Audit.Query(Tenant), e => e.PreDecision);
         Assert.Equal(PackInstallCodes.DeactivateRefusedNoPrincipal, refusal.Detail);
 
-        var deactivated = fixture.Installer.Deactivate(
+        var deactivated = await fixture.Installer.DeactivateAsync(
             Tenant, outcome.PackKey, outcome.Version, Now, "test-operator");
         Assert.True(deactivated.Deactivated, deactivated.Error);
         var deactivatedRow = Assert.Single(
@@ -153,8 +153,8 @@ public sealed class PackInstallPrincipalTests
     public async Task DeniedGate_RecordsPreDecisionRefusal()
     {
         using var fixture = await CreateFixtureAsync(allowed: false);
-        Assert.Throws<Harborline.Api.Foundation.Authorization.AuthorizationDeniedException>(() =>
-            fixture.Installer.Install(fixture.PackBytes, fixture.Context with { Principal = "test-operator" }));
+        await Assert.ThrowsAsync<Harborline.Api.Foundation.Authorization.AuthorizationDeniedException>(() =>
+            fixture.Installer.InstallAsync(fixture.PackBytes, fixture.Context with { Principal = "test-operator" }));
         var refusal = Assert.Single(fixture.Audit.Query(Tenant));
         Assert.True(refusal.PreDecision);
         Assert.Equal(PackInstallCodes.RefusedAuthorizationDenied, refusal.Detail);

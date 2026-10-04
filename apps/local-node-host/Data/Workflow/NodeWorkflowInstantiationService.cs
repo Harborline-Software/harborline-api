@@ -7,6 +7,7 @@ using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.FinancialAr.Models;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.LocalNodeHost.Data;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
@@ -46,14 +47,17 @@ public sealed class NodeWorkflowInstantiationService
 {
     private readonly IWorkflowStore _store;
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
+    private readonly IWorkflowDefinitionExecutionStore? _definitions;
 
     /// <summary>Construct over the durable workflow store + the recoverable schedule-store context factory.</summary>
     public NodeWorkflowInstantiationService(
         IWorkflowStore store,
-        IDbContextFactory<LocalNodeDbContext> contextFactory)
+        IDbContextFactory<LocalNodeDbContext> contextFactory,
+        IWorkflowDefinitionExecutionStore? definitions = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+        _definitions = definitions;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -69,6 +73,7 @@ public sealed class NodeWorkflowInstantiationService
         TenantId tenantId,
         string submissionInstanceId,
         GrantIssuanceRequest request,
+        string workflowVersion,
         DateTimeOffset at,
         CancellationToken ct = default)
     {
@@ -81,12 +86,16 @@ public sealed class NodeWorkflowInstantiationService
             return instanceId;
         }
 
+        var definitions = _definitions ?? throw new InvalidOperationException("Access grant issuance requires the admitted workflow definition store.");
+        var definition = await definitions.GetAdmittedAsync(
+            new DefinitionCoordinates(tenantId, GrantIssuanceSteps.DefinitionKey, workflowVersion), ct).ConfigureAwait(false);
+
         await _store.CreateInstanceAsync(new WorkflowInstanceRecord
         {
             Id = instanceId,
             TenantId = tenantId.Value,
             DefinitionKey = GrantIssuanceSteps.DefinitionKey,
-            DefinitionVersion = "1.0.1",
+            DefinitionVersion = definition.Version,
             CurrentStep = GrantIssuanceSteps.Approve,
             Status = WorkflowStatus.Running,
             StateJson = GrantIssuanceHandler.SerializeRequest(request),

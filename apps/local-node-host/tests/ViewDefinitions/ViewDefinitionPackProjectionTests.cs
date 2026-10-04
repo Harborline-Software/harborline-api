@@ -446,7 +446,7 @@ public sealed class ViewDefinitionPackProjectionTests
             new WorkflowRefusingPackContentAdmission(),
             new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
-        var install = installer.Install(
+        var install = await installer.InstallAsync(
             export.FileBytes!,
             new PackInstallContext(
                 tenant,

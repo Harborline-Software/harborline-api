@@ -157,7 +157,7 @@ public sealed class TenantDefinitionPackPromotionTests
         Assert.Null(await nodeBForms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, definitionId.Value)));
         Assert.Equal(0, (await projector.ProjectActivePacksAsync(tenant)).FormDefinitionsPublished);
 
-        var install = installer.Install(packBytes, context);
+        var install = await installer.InstallAsync(packBytes, context);
 
         Assert.True(install.Installed, string.Join(",", install.RefusalCodes));
         Assert.Null(nodeBPackStore.GetActive(tenant, "tenant.authored.inspection"));

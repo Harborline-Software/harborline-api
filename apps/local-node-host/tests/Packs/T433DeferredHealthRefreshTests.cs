@@ -30,10 +30,10 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var context = ReplacementContext();
-        var first = HealthReplacement("1.1.4", "1.0.0", hasFinding: false);
-        var second = HealthReplacement("1.1.5", "1.0.1", hasFinding: true);
-        Assert.True(_installer.Install(await ExportAsync(first), context).Installed);
-        Assert.True(_installer.Install(await ExportAsync(second), context).Installed);
+        var first = HealthReplacement("1.1.7", "1.0.0", hasFinding: false);
+        var second = HealthReplacement("1.1.8", "1.0.1", hasFinding: true);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(first), context)).Installed);
+        Assert.True((await _installer.InstallAsync(await ExportAsync(second), context)).Installed);
         var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var secondReadyToPublish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
@@ -93,15 +93,15 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var context = ReplacementContext();
-        var first = HealthReplacement("1.1.4", "1.0.0", hasFinding: false);
-        var second = HealthReplacement("1.1.5", "1.0.1", hasFinding: true, workflowFinding: report == "workflow");
-        var installedA = _installer.Install(await ExportAsync(first), context);
+        var first = HealthReplacement("1.1.7", "1.0.0", hasFinding: false);
+        var second = HealthReplacement("1.1.8", "1.0.1", hasFinding: true, workflowFinding: report == "workflow");
+        var installedA = await _installer.InstallAsync(await ExportAsync(first), context);
         Assert.True(installedA.Installed, JsonSerializer.Serialize(installedA));
         if (report == "workflow")
             SeedLegacyWorkflowDraft(first, second);
         else
         {
-            var installedB = _installer.Install(await ExportAsync(second), context);
+            var installedB = await _installer.InstallAsync(await ExportAsync(second), context);
             Assert.True(installedB.Installed, JsonSerializer.Serialize(installedB));
         }
 

@@ -15,7 +15,7 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260929170220_KernelAuditTrail";
+    public override string LastMigrationId => "20261002190000_AuditOutboxPredecessor";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -394,6 +394,11 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
                 b.Property<long?>("PublishedAtUnixMs")
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
+
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
 
                 b.Property<string>("SignedPayloadJson")
                     .HasColumnType("TEXT")

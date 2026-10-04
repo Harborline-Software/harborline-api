@@ -138,7 +138,7 @@ public sealed class PackCapabilityCompatibilityTests
         Assert.Contains("pack.install.refused.missing_platform_capability", preview.RefusalCodes);
         Assert.Empty(fixture.Store.ListInstalled(Tenant));
 
-        var install = fixture.Installer.Install(fixture.PackBytes, fixture.Context);
+        var install = await fixture.Installer.InstallAsync(fixture.PackBytes, fixture.Context);
         Assert.False(install.Installed);
         Assert.Empty(fixture.Store.ListInstalled(Tenant));
     }

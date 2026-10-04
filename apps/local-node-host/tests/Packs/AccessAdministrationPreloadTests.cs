@@ -116,6 +116,9 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
             });
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
+        builder.Services.AddSingleton<Harborline.Api.Foundation.Forms.Submission.IFormSubmissionBindingResolver>(sp =>
+            new Harborline.Api.LocalNodeHost.Data.Workflow.AccessGrantSubmissionBindingResolver(
+                _store, sp.GetRequiredService<IWorkflowDefinitionExecutionStore>()));
         _app = builder.Build();
 
         // The node's own signing identity: the export is signed by it and the trust store recognises it as
@@ -364,12 +367,12 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         // Both content keys resolve through the ordinary catalogue reads — over the REAL registries, so
         // "projected, not refused" is a claim about the composed host.
         var form = await _forms.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
+            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.3"), CancellationToken.None);
         Assert.NotNull(form);
         var workflow = await _workflows.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None);
+            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.3"), CancellationToken.None);
         Assert.NotNull(workflow);
-        var holders = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.2");
+        var holders = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.5");
         Assert.NotNull(holders);
         Assert.Equal(HostViewKindDescriptorRegistry.AccessGrantEntityType,
             holders.Parameters.GetProperty("entityType").GetString());
@@ -411,14 +414,14 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             [],
             PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(_signer.Signer.IssuerId.ToBase64Url())));
-        Assert.True(_installer.Install(platform, context).Installed);
+        Assert.True((await _installer.InstallAsync(platform, context)).Installed);
 
         // The request comes from the shipped export document. Removing its platform dependency is
         // the mutation that turns this test red: this otherwise inactive platform fixture no longer
         // invokes the declared-dependency activation refusal.
         var access = await ExportAsync(AccessAdministrationPreloadHostedService.ReadExportRequest(
             _signer.Signer.IssuerId.ToBase64Url()));
-        Assert.True(_installer.Install(access, context).Installed);
+        Assert.True((await _installer.InstallAsync(access, context)).Installed);
 
         var activation = _installer.Activate(
             context,
@@ -532,7 +535,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        var installed = _installer.Install(bytes, context);
+        var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, previousVersion);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
@@ -542,11 +545,11 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await _preload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
-        Assert.Equal("1.1.3", active.Version);
+        Assert.Equal("1.1.6", active.Version);
         var old = _store.GetVersion(Tenant, active.PackKey, previousVersion)!;
         Assert.Equal(PackLifecycleState.Superseded, old.Lifecycle);
         Assert.Equal(previousHolder, Assert.Single(old.SeedItems, item => item.Key == "access.holders"));
-        var view = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.2");
+        var view = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.5");
         Assert.NotNull(view);
         foreach (var action in view.Parameters.GetProperty("actions").EnumerateArray()
             .Where(action => action.GetProperty("id").GetString() is "narrow" or "revoke"))
@@ -564,7 +567,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         // publishing under the SAME (key, version) tuple 1.0.1, PackSeedProjector would find the existing,
         // differently-content'd tuple and refuse the whole pack with pack.form.pinned_tuple_conflict. This
         // proves 1.1.5's bumped form version (1.0.2) avoids that and the pack activates cleanly.
-        await PreloadPlatformThenAccessAsync();
+        // T-1017: the shipped preload is now 1.1.6, so the released 1.1.3 predecessor is installed from its conformance copy.
+        await InstallReleased113Async();
         var predecessorForm = await _forms.GetCurrentPublishedAsync(
             new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
         Assert.Equal("1.0.1", predecessorForm!.Version.ToString());
@@ -579,7 +583,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        var installed = _installer.Install(bytes, context);
+        var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, "1.1.5");
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
@@ -596,6 +600,51 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
         Assert.Equal(FormDefinitionStatus.Withdrawn, supersededForm!.Status);
         Assert.Equal("select", supersededForm.Overlay.Fields["reason"].ControlHint);
+
+        await _preload.PreloadAsync(Tenant, CancellationToken.None);
+        var currentForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.1.6", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.3", currentForm!.Version.ToString());
+        Assert.Null(currentForm.Overlay.Fields["reason"].ControlHint);
+        Assert.Null(currentForm.Overlay.Fields["residency"].ControlHint);
+        Assert.False(EffectiveFromRequired(_store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!));
+    }
+
+    [Fact(DisplayName = "T-1017: the shipped 1.1.6 preload upgrades a node on the released 1.1.3 without a pinned-tuple conflict")]
+    public async Task Access_preload_1_1_6_activates_over_the_released_1_1_3_predecessor()
+    {
+        // 1.1.6 makes effectiveFrom optional, which changes access.grant-a-role's content. Republished under
+        // the pinned 1.0.1 tuple, PackSeedProjector would refuse it as pack.form.pinned_tuple_conflict; 1.1.6
+        // carries it at 1.0.3, with the workflow and view that reference it at 1.0.3 and 1.0.5.
+        await InstallReleased113Async();
+        var predecessorForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.0.1", predecessorForm!.Version.ToString());
+
+        await _preload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var active = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
+        Assert.Equal("1.1.6", active.Version);
+        Assert.Equal(PackLifecycleState.Superseded,
+            _store.GetVersion(Tenant, AccessAdministrationPreloadHostedService.PackKey, "1.1.3")!.Lifecycle);
+        var successorForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.0.3", successorForm!.Version.ToString());
+        Assert.False(EffectiveFromRequired(active));
+        Assert.True(EffectiveFromRequired(_store.GetVersion(Tenant, active.PackKey, "1.1.3")!));
+        Assert.NotNull(await _workflows.GetAsync(
+            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.3"), CancellationToken.None));
+        Assert.NotNull(await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.5"));
+        var supersededForm = await _forms.GetAsync(
+            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
+        Assert.Equal(FormDefinitionStatus.Withdrawn, supersededForm!.Status);
+    }
+
+    private static bool EffectiveFromRequired(InstalledPack pack)
+    {
+        using var form = JsonDocument.Parse(Assert.Single(pack.SeedItems, item => item.Key == "access.grant-a-role").CanonicalJson);
+        return form.RootElement.GetProperty("fieldsMeta").GetProperty("effectiveFrom").GetProperty("required").GetBoolean();
     }
 
     [Fact]
@@ -621,7 +670,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("Literal", legacyAuthor.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         Assert.Equal("Literal", legacyDetail.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         var legacyBytes = await ExportAsync(legacy);
-        Assert.True(_installer.Install(legacyBytes, context).Installed);
+        Assert.True((await _installer.InstallAsync(legacyBytes, context)).Installed);
         var activation = _installer.Activate(context, legacy.Key, legacy.Version);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
         var installedLegacy = _store.GetVersion(Tenant, legacy.Key, legacy.Version)!;
@@ -776,19 +825,21 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(active);
         Assert.Equal(PackLifecycleState.Active, active!.Lifecycle);
         Assert.NotNull(await _workflows.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None));
+            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.3"), CancellationToken.None));
     }
 
     [Fact(DisplayName = "T-664: a signed legacy pack with a hint on a value-domain field is admitted; render and export use the runtime's editor")]
     public async Task Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime()
     {
-        // The released access-administration content carries controlHint "select" on `reason` and
+        // The preserved released 1.1.3 content carries controlHint "select" on `reason` and
         // `residency`, both option fields. The owner's compatibility split (T-664, Q19): signed content
         // stays admissible, the authoring route refuses the shape, and the runtime's editor is what ships.
-        await PreloadPlatformThenAccessAsync();
+        await InstallReleased113Async();
         var form = await _forms.GetCurrentPublishedAsync(
             new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
         Assert.NotNull(form);
+        Assert.Equal("1.1.3", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.1", form!.Version.ToString());
         Assert.Equal("select", form!.Overlay.Fields["reason"].ControlHint);
         Assert.Equal("select", form.Overlay.Fields["residency"].ControlHint);
 
@@ -816,12 +867,17 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     [Fact(DisplayName = "T-752: the catalogue render plan carries the runtime's editor over a signed legacy hint")]
     public async Task Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field()
     {
-        // The released access-administration pack carries controlHint "select" on `reason` and `residency`
+        // The preserved released 1.1.3 pack carries controlHint "select" on `reason` and `residency`
         // (option fields). The render plan is what both app lanes' workshop screens read, so ruling 64's
         // "the runtime's choice wins on render" has to hold here too, not only on the Forms wire.
-        await PreloadPlatformThenAccessAsync();
+        await InstallReleased113Async();
         var form = await _forms.GetCurrentPublishedAsync(
             new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.NotNull(form);
+        Assert.Equal("1.1.3", _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!.Version);
+        Assert.Equal("1.0.1", form!.Version.ToString());
+        Assert.Equal("select", form.Overlay.Fields["reason"].ControlHint);
+        Assert.Equal("select", form.Overlay.Fields["residency"].ControlHint);
         var plan = _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "access.grant-a-role", form!.Version.ToString());
         Assert.NotNull(plan);
         var fields = plan!.Bindings.GetProperty("fields");
@@ -932,6 +988,26 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             await before(definition, cancellationToken);
             await inner.AdmitAsync(definition, cancellationToken);
         }
+    }
+
+    /// <summary>Activates the platform pack, then the released 1.1.3 Access pack from its byte-pinned conformance copy.</summary>
+    private async Task InstallReleased113Async(TenantId? tenant = null)
+    {
+        var selectedTenant = tenant ?? Tenant;
+        await _platformPreload.PreloadAsync(selectedTenant, CancellationToken.None);
+        var source = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "access-replacement", "access-administration-pack-1.1.3.export.json"));
+        Assert.Equal("B6F84FEF3FFB4323167D5C9D1831098784A88B59BFD903198743AB9ADD4BB486", Convert.ToHexString(SHA256.HashData(source)));
+        var bytes = await ExportAsync(ReadExactLegacyPlatformRequest(source, _signer.Signer.IssuerId.ToBase64Url())
+            with { Exposes = ["access.holders"], InterfaceVersion = 1 });
+        var context = new PackInstallContext(selectedTenant, new InMemoryPackTrustStore([
+                new PackTrustRoot(TrustScope.OwnRoster, new PackFileCodec().TryDecode(bytes)!.Envelope!.IssuerId, 1, TrustRootStatus.Current),
+            ]), PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            Principal: TestDesktopOperator.Principal);
+        var installed = await _installer.InstallAsync(bytes, context);
+        Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
+        var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, "1.1.3");
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
     }
 
     private async Task PreloadPlatformThenAccessAsync()
