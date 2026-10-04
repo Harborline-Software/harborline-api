@@ -216,7 +216,7 @@ internal static class AuditAppendSymbolInventory
             ("Harborline.Api.Kernel.Audit.IAuditTrail", "AppendAsync") => AuditAppendKind.Ordinary,
             ("Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail", "AppendAuthorizedAsync") => AuditAppendKind.Authorized,
             ("Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit", "Append") => AuditAppendKind.PackOrdinary,
-            ("Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit", "AppendAuthorized") => AuditAppendKind.PackAuthorized,
+            ("Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit", "AppendAuthorized" or "AppendAuthorizedAsync") => AuditAppendKind.PackAuthorized,
             _ => null,
         };
     }

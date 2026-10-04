@@ -2640,6 +2640,11 @@ partial class _20261003000000_AddFormSubmitProjectionDefinition
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
 
+                b.Property<string>("PredecessorAuditId")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("predecessor_audit_id");
+
                 b.Property<string>("SignedPayloadJson")
                     .HasColumnType("TEXT")
                     .HasColumnName("signed_payload_json");

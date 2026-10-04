@@ -76,6 +76,24 @@ test('only authenticated successful observed producer evidence is trusted', () =
   const forged = envelope(); forged.payload.inputs.coverage.enabled = true
   assert.equal(verify(forged).trusted, false)
 })
+test('correctly signed malformed inputs produce a nonauthorizing verdict without throwing', () => {
+  for (const malformed of [undefined, null, false, 7, 'invalid', [], {}, {schemaVersion: 1}]) {
+    const receipt = envelope()
+    if (malformed === undefined) delete receipt.payload.inputs
+    else receipt.payload.inputs = malformed
+    // Sign the actual malformed producer output with the independently allowed fixture key.
+    receipt.signature = sign(null, Buffer.from(`harborline-validation-receipt/v1\n${canonical(receipt.payload)}`), privateKey).toString('base64')
+    assert.equal(verify(receipt).trusted, false)
+    const verdict = shadowVerdict({candidateSha: '1'.repeat(40), currentInputs: inputs(),
+      currentObservation: {candidateSha: '1'.repeat(40), candidateTree: 'a'.repeat(40)},
+      priorReceipt: receipt, artifactBytes: bytes, observation, policy})
+    assert.equal(verdict.trusted, false)
+    assert.equal(verdict.wouldReuse, false)
+    assert.equal(verdict.reuseAuthorized, false)
+    assert.equal(verdict.requiredWorkSkipped, false)
+  }
+})
+
 test('signed source identities bind to independently observed prior and current commit trees', () => {
   assert.equal(verify().trusted, true)
   for (const candidateTree of [undefined, null, 'b'.repeat(40), ['a'.repeat(40)], {}, 123]) {

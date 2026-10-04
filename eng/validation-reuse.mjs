@@ -117,9 +117,9 @@ export function verifyReceipt({envelope, artifactBytes, observation, policy}) {
   const payload = envelope.payload
   if (!(artifactBytes instanceof Uint8Array)) return refuse('artifact bytes absent')
   if (payload.artifactDigest !== digest(artifactBytes)) return refuse('artifact digest mismatch')
-  if (payload.inputFingerprint !== fingerprint(payload.inputs)) return refuse('input fingerprint mismatch')
   const problems = inputProblems(payload.inputs)
   if (problems.length) return refuse(problems.join('; '))
+  if (payload.inputFingerprint !== fingerprint(payload.inputs)) return refuse('input fingerprint mismatch')
   if (!observation || observation.status !== 'completed' || observation.conclusion !== 'success')
     return refuse('producer did not complete successfully')
   // The caller obtains this tree from authenticated commit metadata for headSha.

@@ -1,3 +1,4 @@
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
@@ -664,6 +665,11 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
 [Trait("PlanCard", "MTW-2-2840")]
 public sealed class NodeLiveInvoiceApprovalAuditAttributionRealCompositionTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper diagnosticOutput;
+
+    public NodeLiveInvoiceApprovalAuditAttributionRealCompositionTests(Xunit.Abstractions.ITestOutputHelper diagnosticOutput) =>
+        this.diagnosticOutput = diagnosticOutput;
+
     private const string SessionToken = "ticket-199-workflow-composition";
 
     /// <summary>The delegated approver this installation grants — a real, gate-resolvable second party.</summary>
@@ -674,114 +680,128 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionRealCompositionTests
     [Fact(DisplayName = "REAL composition: approving an issued invoice co-commits the admitting decision in the shipping audit row")]
     public async Task ApproveThroughShippingEndpoints_CoCommitsCarriedDecisionAuditRow()
     {
-        var dataDirectory = Path.Combine(
-            Path.GetTempPath(), $"ticket-199-workflow-composition-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dataDirectory);
-        using var environment = new CompositionEnvironment(dataDirectory);
-        var started = false;
-
-        try
+        await SqliteStartupLifecycleProbe.RunObservedAsync(async () =>
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-            var baseAddress = await LocalNodeHostRuntime.StartAsync(
-                SessionToken, dataDirectory, timeout.Token);
-            started = true;
+            var dataDirectory = Path.Combine(
+                Path.GetTempPath(), $"ticket-199-workflow-composition-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dataDirectory);
+            using var environment = new CompositionEnvironment(dataDirectory);
+            var started = false;
 
-            var services = Assert.IsAssignableFrom<IServiceProvider>(LocalNodeHostRuntime.CurrentServices);
-            var factory = services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
-            var activeTeam = services.GetRequiredService<IActiveTeamAccessor>().Active;
-            Assert.NotNull(activeTeam);
-            var tenant = ActiveTeamTenantContext.ProjectTenantId(activeTeam.TeamId);
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            await SeedGrantAsync(services, tenant, NodeOperatorIdentity.From(services)!.Value.Value);
-            // Ticket 272 slice 4: the overriding party is resolved through the authorization gate, so it
-            // must be a real party that may itself post this journal entry. A second grant makes this
-            // installation's delegated approver an actual second set of eyes rather than a typed string.
-            await SeedGrantAsync(services, tenant, CompositionOverrider);
-            await SeedFinancialPostingPrerequisitesAsync(factory, today);
-
-            using var client = new HttpClient { BaseAddress = baseAddress };
-            client.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", SessionToken);
-
-            using var create = await client.PostAsJsonAsync(InvoicesRoute, new
+            try
             {
-                id = (string?)null,
-                chartId = "CH-1",
-                customerId = "ticket-199-customer",
-                arAccountId = "1100",
-                issueDate = today.ToString("yyyy-MM-dd"),
-                dueDate = today.AddDays(30).ToString("yyyy-MM-dd"),
-                lines = new[]
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    SessionToken, dataDirectory, timeout.Token,
+                    finalServiceRegistration: SqliteStartupLifecycleProbe.Combine(null));
+                started = true;
+
+                var services = Assert.IsAssignableFrom<IServiceProvider>(LocalNodeHostRuntime.CurrentServices);
+                var factory = services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+                var activeTeam = services.GetRequiredService<IActiveTeamAccessor>().Active;
+                Assert.NotNull(activeTeam);
+                var tenant = ActiveTeamTenantContext.ProjectTenantId(activeTeam.TeamId);
+                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                await SeedGrantAsync(services, tenant, NodeOperatorIdentity.From(services)!.Value.Value);
+                // Ticket 272 slice 4: the overriding party is resolved through the authorization gate, so it
+                // must be a real party that may itself post this journal entry. A second grant makes this
+                // installation's delegated approver an actual second set of eyes rather than a typed string.
+                await SeedGrantAsync(services, tenant, CompositionOverrider);
+                await SeedFinancialPostingPrerequisitesAsync(factory, today);
+
+                using var client = new HttpClient { BaseAddress = baseAddress };
+                client.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", SessionToken);
+
+                using var create = await client.PostAsJsonAsync(InvoicesRoute, new
                 {
+                    id = (string?)null,
+                    chartId = "CH-1",
+                    customerId = "ticket-199-customer",
+                    arAccountId = "1100",
+                    issueDate = today.ToString("yyyy-MM-dd"),
+                    dueDate = today.AddDays(30).ToString("yyyy-MM-dd"),
+                    lines = new[]
+                    {
+                        new
+                        {
+                            description = "Composition audit proof",
+                            quantity = 1m,
+                            unitPrice = 7500m,
+                            incomeAccountId = "4000",
+                            taxCodeId = (string?)null,
+                        },
+                    },
+                }, timeout.Token);
+                Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+                var created = await create.Content.ReadFromJsonAsync<JsonElement>(timeout.Token);
+                var invoiceId = created.GetProperty("data").GetProperty("id").GetString()!;
+
+                using var issue = await client.PostAsJsonAsync(
+                    $"{InvoicesRoute}/{invoiceId}/issue", new { }, timeout.Token);
+                Assert.Equal(HttpStatusCode.Accepted, issue.StatusCode);
+                var parked = await issue.Content.ReadFromJsonAsync<JsonElement>(timeout.Token);
+                var instanceId = parked.GetProperty("instanceId").GetString()!;
+
+                // Ticket 272: the composition runs on ONE session principal, so this approve is a self-approval
+                // the separation-of-duty engine refuses. It stands only as a clause-2 OVERRIDE — a mandatory
+                // recorded reason plus an overriding party who is not the requester AND whom the authorization
+                // gate allows to post this entry (slice 4). Without the override the route answers 409
+                // separation_of_duty_refused and nothing posts.
+                using var approve = await client.PostAsJsonAsync(
+                    $"{TasksRoute}/{instanceId}/action",
                     new
                     {
-                        description = "Composition audit proof",
-                        quantity = 1m,
-                        unitPrice = 7500m,
-                        incomeAccountId = "4000",
-                        taxCodeId = (string?)null,
+                        decision = "approve",
+                        note = "ticket 199",
+                        overrideReason = "single-operator installation; approval delegated",
+                        overrideApprover = CompositionOverrider,
                     },
-                },
-            }, timeout.Token);
-            Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-            var created = await create.Content.ReadFromJsonAsync<JsonElement>(timeout.Token);
-            var invoiceId = created.GetProperty("data").GetProperty("id").GetString()!;
+                    timeout.Token);
+                Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
 
-            using var issue = await client.PostAsJsonAsync(
-                $"{InvoicesRoute}/{invoiceId}/issue", new { }, timeout.Token);
-            Assert.Equal(HttpStatusCode.Accepted, issue.StatusCode);
-            var parked = await issue.Content.ReadFromJsonAsync<JsonElement>(timeout.Token);
-            var instanceId = parked.GetProperty("instanceId").GetString()!;
-
-            // Ticket 272: the composition runs on ONE session principal, so this approve is a self-approval
-            // the separation-of-duty engine refuses. It stands only as a clause-2 OVERRIDE — a mandatory
-            // recorded reason plus an overriding party who is not the requester AND whom the authorization
-            // gate allows to post this entry (slice 4). Without the override the route answers 409
-            // separation_of_duty_refused and nothing posts.
-            using var approve = await client.PostAsJsonAsync(
-                $"{TasksRoute}/{instanceId}/action",
-                new
-                {
-                    decision = "approve",
-                    note = "ticket 199",
-                    overrideReason = "single-operator installation; approval delegated",
-                    overrideApprover = CompositionOverrider,
-                },
-                timeout.Token);
-            Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
-
-            await using var context = await factory.CreateDbContextAsync(timeout.Token);
-            Assert.Equal(1, await context.Set<JournalEntry>()
-                .CountAsync(entry => entry.TenantId == tenant, timeout.Token));
-            var rows = await context.Set<NodeAuditEventRow>()
-                .Where(entry => entry.TenantId == tenant.Value)
-                .ToListAsync(timeout.Token);
-            Assert.Contains(rows, audit => audit.EventType == "Workflow.Advanced");
-            var row = Assert.Single(rows, audit => audit.EventType == NodeAuditWriteEnlister.JournalPostedEventType);
-            using var payload = JsonDocument.Parse(row.Payload);
-            var root = payload.RootElement;
-            var authority = root.GetProperty("authority");
-            Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
-                root.GetProperty("attribution").GetProperty("schema").GetString());
-            Assert.Equal(row.Actor, authority.GetProperty("principal").GetString());
-            Assert.Equal(tenant.Value, authority.GetProperty("tenant").GetString());
-            Assert.StartsWith("ledger:post@/records/", authority.GetProperty("act").GetString());
-            Assert.Equal("journal-entry",
-                authority.GetProperty("target").GetProperty("record_kind").GetString());
-            Assert.NotEmpty(authority.GetProperty("grants").EnumerateArray());
-            Assert.NotEmpty(authority.GetProperty("resolution").EnumerateArray());
-        }
-        finally
-        {
-            if (started)
-            {
-                using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                await LocalNodeHostRuntime.StopAsync(stopTimeout.Token);
+                await using var context = await factory.CreateDbContextAsync(timeout.Token);
+                Assert.Equal(1, await context.Set<JournalEntry>()
+                    .CountAsync(entry => entry.TenantId == tenant, timeout.Token));
+                var rows = await context.Set<NodeAuditEventRow>()
+                    .Where(entry => entry.TenantId == tenant.Value)
+                    .ToListAsync(timeout.Token);
+                Assert.Contains(rows, audit => audit.EventType == "Workflow.Advanced");
+                var row = Assert.Single(rows, audit => audit.EventType == NodeAuditWriteEnlister.JournalPostedEventType);
+                using var payload = JsonDocument.Parse(row.Payload);
+                var root = payload.RootElement;
+                var authority = root.GetProperty("authority");
+                Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
+                    root.GetProperty("attribution").GetProperty("schema").GetString());
+                Assert.Equal(row.Actor, authority.GetProperty("principal").GetString());
+                Assert.Equal(tenant.Value, authority.GetProperty("tenant").GetString());
+                Assert.StartsWith("ledger:post@/records/", authority.GetProperty("act").GetString());
+                Assert.Equal("journal-entry",
+                    authority.GetProperty("target").GetProperty("record_kind").GetString());
+                Assert.NotEmpty(authority.GetProperty("grants").EnumerateArray());
+                Assert.NotEmpty(authority.GetProperty("resolution").EnumerateArray());
             }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure(started ? "invoice-test" : "invoice-startup", original);
+                throw;
+            }
+            finally
+            {
+                if (started)
+                {
+                    using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    try { await LocalNodeHostRuntime.StopAsync(stopTimeout.Token); }
+                    catch (Exception original)
+                    {
+                        SqliteStartupLifecycleProbe.Current?.CaptureFailure("invoice-disposal", original);
+                        throw;
+                    }
+                }
 
-            TryDelete(dataDirectory);
-        }
+                TryDelete(dataDirectory);
+            }
+        }, diagnosticOutput.WriteLine);
     }
 
     private static async Task SeedFinancialPostingPrerequisitesAsync(

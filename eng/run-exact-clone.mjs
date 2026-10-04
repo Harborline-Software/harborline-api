@@ -12,9 +12,10 @@
 // clone that builds one but not the other is not a working clone.
 //
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
-import {execFileSync, spawnSync} from 'node:child_process'
+import {execFileSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
+import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -92,6 +93,9 @@ const clone = path.join(scratch, 'clone')
 let retainScratch = false
 let knownTestsWriteRefused = false
 const steps = []
+const progressFile = path.join(apiRoot, '.claude', 'gate-evidence', `exact-clone-${head}-progress.jsonl`)
+// A new attempt must not inherit a previous attempt's terminal state.
+resetProgressFile(progressFile)
 // The ESC byte is part of the pattern; stripping only the bracket sequence would leave a stray
 // ESC that \s+ cannot match, so a colourised summary would fail to parse for a reason invisible
 // in the printed output. Built via fromCharCode so this file carries no literal control byte.
@@ -109,10 +113,10 @@ const redactEvidence = text => {
 // by design because each carries permitted, name-pinned failures; gating on the exit code would
 // make this gate unpassable while the baselines are honest. For those steps the baseline
 // comparison below is the authority, and the exit code is recorded for the record only.
-const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
+const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
-  const result = spawnSync(resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
+  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile, diagnosticDirectory})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
   // Error messages, executable paths and spawn arguments can contain credentials.
   // Retain only bounded OS codes and numeric errno, plus the termination signal.
@@ -149,7 +153,8 @@ try {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
     for (const report of Object.values(coveragePaths)) rmSync(report, {force: true})
   }
-  execFileSync('git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], {stdio: 'ignore'})
+  const cloneStep = run('git-clone', 'git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], apiRoot)
+  if (!cloneStep.passed) throw new Error('Exact-clone git clone failed; see stage evidence')
   // Resolve once before restore/build. Keep approval as parent-owned state even
   // when a failed query leaves an inherited override available to the build.
   packageRootResolution = observeNuGetRoot({cwd: clone})
@@ -286,7 +291,10 @@ try {
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--filter', 'Lane!=perf',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
-      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
+      // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
+      '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
@@ -444,6 +452,7 @@ try {
   const unexpected = unpermitted(observedFailures, permittedNames)
   const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
+  let retryStage = 0
   for (const name of retryable) {
     const limit = flakyLimits.get(name)
     // vstest filter values need these escaped; spawnSync passes the value as one argv element, so
@@ -457,7 +466,7 @@ try {
     for (let attempt = 1; attempt <= limit; attempt++) {
       const resolved = resolveCommand('dotnet',
         ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6', '--filter', filter])
-      const result = spawnSync(resolved.executable, resolved.args, {cwd: clone, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024})
+      const result = observedSpawnSync(`host-retry-${++retryStage}`, resolved.executable, resolved.args, {cwd: clone, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024}, {file: progressFile})
       const output = stripAnsi(`${result.stdout ?? ''}${result.stderr ?? ''}`)
       record.attempts = attempt
       if (/No test matches the given testcase filter/.test(output)) {

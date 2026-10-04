@@ -25,7 +25,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 internal static class TestPackGate
 {
     /// <summary>A gate granting every pack operation at the install root.</summary>
-    internal static AuthorizationGate AllowAll() => Granting(ScopeExpression.Parse("/"));
+    internal static AuthorizationGate AllowAll(Action<string>? observe = null) =>
+        GrantingObserved(observe, ScopeExpression.Parse("/"));
 
     /// <summary>A gate granting nothing — every act refuses fail-closed.</summary>
     internal static AuthorizationGate Denying() => Granting();
@@ -47,15 +48,18 @@ internal static class TestPackGate
             .Select(key => ScopeExpression.Parse($"/records/{key}"))
             .ToArray());
 
-    private static AuthorizationGate Granting(params ScopeExpression[] scopes)
+    private static AuthorizationGate Granting(params ScopeExpression[] scopes) => GrantingObserved(null, scopes);
+
+    private static AuthorizationGate GrantingObserved(Action<string>? observe, params ScopeExpression[] scopes)
     {
-        var source = new ScopedGrantSource(scopes);
+        var source = new ScopedGrantSource(scopes, observe: observe);
         return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
     }
 
     private sealed class ScopedGrantSource(
         IReadOnlyList<ScopeExpression> grantScopes,
-        AuthorizationOperation? onlyOperation = null) :
+        AuthorizationOperation? onlyOperation = null,
+        Action<string>? observe = null) :
         IAuthorizationClosureSnapshotReader,
         IAuthorizationDefinitionAtomReader
     {
@@ -66,6 +70,7 @@ internal static class TestPackGate
             CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
+            observe?.Invoke("authorization-snapshot-start");
             _issued.Clear();
             var derivations = new List<AuthorizationAtomDerivation>(grantScopes.Count);
             IReadOnlyList<ScopeExpression> scopes =
@@ -87,6 +92,7 @@ internal static class TestPackGate
                     null));
             }
 
+            observe?.Invoke("authorization-snapshot-complete");
             return ValueTask.FromResult(new AuthorizationClosureSnapshot(derivations));
         }
 
@@ -96,8 +102,10 @@ internal static class TestPackGate
             CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
+            observe?.Invoke("authorization-atoms-start");
             _ = tenantId;
             _ = role;
+            observe?.Invoke("authorization-atoms-complete");
             return ValueTask.FromResult<IReadOnlyList<PermissionAtom>>(_issued.ToArray());
         }
     }
