@@ -121,6 +121,8 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         // activation or deactivation stages its audit on its own save.
         "20261002120000_PacksMapsAuditOutbox",
         "20261002190000_AuditOutboxPredecessor",
+        // T-1048: a subject erasure's recovery evidence, completion and backoff on the search context.
+        "20261004130000_SubjectErasureRecoveryEvidence",
     ];
 
     [Fact]
@@ -132,6 +134,16 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
     public void Catalog_Binds_The_Exact_16_Contexts_60_Migrations_And_15_Plus_1_Owners()
+        => AssertExactCurrentCatalog();
+
+    [Fact]
+    [Trait("PlanCard", "ADM-01A")]
+    public void Catalog_Binds_The_Exact_16_Contexts_67_Migrations_And_15_Plus_1_Owners()
+        => AssertExactCurrentCatalog();
+
+    [Fact]
+    [Trait("PlanCard", "ADM-01A")]
+    public void Catalog_Binds_The_Exact_16_Contexts_61_Migrations_And_15_Plus_1_Owners()
         => AssertExactCurrentCatalog();
 
     private static void AssertExactCurrentCatalog()
