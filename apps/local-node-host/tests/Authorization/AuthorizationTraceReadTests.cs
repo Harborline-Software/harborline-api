@@ -38,16 +38,16 @@ public sealed class AuthorizationTraceReadTests
             "Admit a signed successor that holds the floor live.", "classified-record-evidence");
         var id = await audit.RecordAsync(refusal, Permission.MembersRevoke, h.Subject, Tenant, At, null);
         Assert.NotNull(id);
-        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, At);
+        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, AdmittedInstant.FromRecordedAct(At));
         Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, read.Availability);
         Assert.Equal(new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation), read.Refusal);
         Assert.Empty(read.Steps);
         Assert.Null(read.Counterfactual);
         Assert.DoesNotContain("classified-record-evidence", System.Text.Json.JsonSerializer.Serialize(read));
-        var denied = await h.Reader.ReadAsync(Tenant, Stranger, id.Value, At);
+        var denied = await h.Reader.ReadAsync(Tenant, Stranger, id.Value, AdmittedInstant.FromRecordedAct(At));
         Assert.Equal(AuthorizationTraceAvailability.Refused, denied.Availability);
         Assert.Null(denied.Refusal);
-        var missing = await h.Reader.ReadAsync(Tenant, Stranger, Guid.NewGuid(), At);
+        var missing = await h.Reader.ReadAsync(Tenant, Stranger, Guid.NewGuid(), AdmittedInstant.FromRecordedAct(At));
         Assert.Equal(denied, missing);
 
         // The durable audit reader rematerializes object values as JsonElement, not CLR records.
@@ -69,7 +69,7 @@ public sealed class AuthorizationTraceReadTests
             };
             Assert.True(new Ed25519Verifier().Verify(reloaded.Payload));
             await h.Trail.AppendAsync(reloaded);
-            var restored = await h.Reader.ReadAsync(Tenant, Auditor, reloaded.AuditId, At);
+            var restored = await h.Reader.ReadAsync(Tenant, Auditor, reloaded.AuditId, AdmittedInstant.FromRecordedAct(At));
             Assert.Equal(read.Refusal, restored.Refusal);
             var rendered = System.Text.Json.JsonSerializer.SerializeToElement(restored,
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
@@ -79,7 +79,7 @@ public sealed class AuthorizationTraceReadTests
             Assert.Equal(refusal.Code, rendered.GetProperty("refusal").GetProperty("code").GetString());
             Assert.Equal(System.Text.Json.JsonValueKind.Null, rendered.GetProperty("counterfactual").ValueKind);
             Assert.DoesNotContain("classified-record-evidence", rendered.GetRawText());
-            Assert.Equal(denied, await h.Reader.ReadAsync(Tenant, Stranger, reloaded.AuditId, At));
+            Assert.Equal(denied, await h.Reader.ReadAsync(Tenant, Stranger, reloaded.AuditId, AdmittedInstant.FromRecordedAct(At)));
         }
     }
 
@@ -91,7 +91,7 @@ public sealed class AuthorizationTraceReadTests
         await using var h = await Harness.CreateAsync();
         var (auditId, decision) = await h.RecordAnAuthorizedActAsync();
 
-        var read = await h.Reader.ReadAsync(Tenant, h.Subject, auditId, At);
+        var read = await h.Reader.ReadAsync(Tenant, h.Subject, auditId, AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(AuthorizationTraceAvailability.Available, read.Availability);
         Assert.Equal(AuthorizationDecisionEvidence.CurrentVersion, read.Version);
@@ -112,7 +112,7 @@ public sealed class AuthorizationTraceReadTests
         await using var h = await Harness.CreateAsync(new ActorId("os:Chris#a1b2c3d4"));
         var (auditId, decision) = await h.RecordAnAuthorizedActAsync();
 
-        var read = await h.Reader.ReadAsync(Tenant, new ActorId("os:chris#a1b2c3d4"), auditId, At);
+        var read = await h.Reader.ReadAsync(Tenant, new ActorId("os:chris#a1b2c3d4"), auditId, AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(AuthorizationTraceAvailability.Available, read.Availability);
         Assert.Equal(AuthorizationDecisionEvidence.CurrentVersion, read.Version);
@@ -132,8 +132,8 @@ public sealed class AuthorizationTraceReadTests
         await using var h = await Harness.CreateAsync();
         var (auditId, _) = await h.RecordAnAuthorizedActAsync();
 
-        var stranger = await h.Reader.ReadAsync(Tenant, Stranger, auditId, At);
-        var auditor = await h.Reader.ReadAsync(Tenant, Auditor, auditId, At);
+        var stranger = await h.Reader.ReadAsync(Tenant, Stranger, auditId, AdmittedInstant.FromRecordedAct(At));
+        var auditor = await h.Reader.ReadAsync(Tenant, Auditor, auditId, AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(AuthorizationTraceAvailability.Refused, stranger.Availability);
         Assert.Empty(stranger.Steps);
@@ -151,7 +151,7 @@ public sealed class AuthorizationTraceReadTests
         var record = await h.UnauthorizedRecordAsync();
         await h.Trail.AppendAsync(record);
 
-        var read = await h.Reader.ReadAsync(Tenant, Auditor, record.AuditId, At);
+        var read = await h.Reader.ReadAsync(Tenant, Auditor, record.AuditId, AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(AuthorizationTraceAvailability.NotAvailable, read.Availability);
         Assert.Empty(read.Steps);
@@ -167,8 +167,8 @@ public sealed class AuthorizationTraceReadTests
         await using var h = await Harness.CreateAsync();
         var (present, _) = await h.RecordAnAuthorizedActAsync();
 
-        var missing = await h.Reader.ReadAsync(Tenant, Stranger, Guid.NewGuid(), At);
-        var existing = await h.Reader.ReadAsync(Tenant, Stranger, present, At);
+        var missing = await h.Reader.ReadAsync(Tenant, Stranger, Guid.NewGuid(), AdmittedInstant.FromRecordedAct(At));
+        var existing = await h.Reader.ReadAsync(Tenant, Stranger, present, AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(existing, missing);
         Assert.Equal(AuthorizationTraceAvailability.Refused, missing.Availability);
@@ -201,7 +201,7 @@ public sealed class AuthorizationTraceReadTests
         await foreach (var row in h.Trail.QueryAsync(new AuditQuery(Tenant, AuditId: id.Value))) byId.Add(row);
         Assert.Equal(id.Value, Assert.Single(byId).AuditId);
 
-        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, At);
+        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, AdmittedInstant.FromRecordedAct(At));
         Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, read.Availability);
     }
 
@@ -213,7 +213,7 @@ public sealed class AuthorizationTraceReadTests
         var sink = new AuthorizedActAudit(new FaultingTrail(), new Ed25519Signer(KeyPair.Generate()),
             NullLogger<AuthorizedActAudit>.Instance);
         var decision = await TestAuthorization.AllowGate().DecideAsync(
-            new AuthorizationWriteContext(new ActorId("actor-331"), Tenant, At)
+            new AuthorizationWriteContext(new ActorId("actor-331"), Tenant, AdmittedInstant.FromRecordedAct(At))
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite), "record", "r-331"));
         Assert.Null(await sink.RecordAsync(
             new AuditEventType("RecordWritten"), decision, new Dictionary<string, object?>()));
@@ -271,7 +271,7 @@ public sealed class AuthorizationTraceReadTests
             var keys = KeyPair.Generate();
             var harness = new Harness(provider, keys, new Ed25519Signer(keys), subject);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var grants = provider.GetRequiredService<IGrantStore>();
             // The subject and the stranger are ordinary members; the auditor is the sealed platform role.
             await grants.AppendAsync(Tenant, Grant(harness.Subject, AccessGrantAuthorizationSeed.MemberRole));
@@ -285,7 +285,7 @@ public sealed class AuthorizationTraceReadTests
         public async Task<(Guid AuditId, AuthorizationDecision Decision)> RecordAnAuthorizedActAsync()
         {
             var operation = AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
-            var request = new AuthorizationWriteContext(Subject, Tenant, At)
+            var request = new AuthorizationWriteContext(Subject, Tenant, AdmittedInstant.FromRecordedAct(At))
                 .Request(operation, AuthorizationGate.RecordKindFor(operation), "a");
             var decision = await Gate.DecideAsync(request);
             Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);

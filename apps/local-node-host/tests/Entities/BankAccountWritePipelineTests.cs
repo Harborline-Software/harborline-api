@@ -20,7 +20,7 @@ public sealed class BankAccountWritePipelineTests
     private static readonly DateTimeOffset Before = new(2026, 9, 1, 8, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("bank-pipeline");
     private static readonly TenantId OtherTenant = new("bank-pipeline-other");
-    private static readonly AuthorizationWriteContext Authority = new(new ActorId("bank-operator"), Tenant, At);
+    private static readonly AuthorizationWriteContext Authority = new(new ActorId("bank-operator"), Tenant, AdmittedInstant.FromRecordedAct(At));
 
     // ADR 0038's order, written out here rather than read from WritePipeline.Order.
     private static readonly WritePipelineStage[] SixStages =

@@ -7,8 +7,11 @@ namespace Harborline.Api.Foundation.Authorization;
 public readonly record struct AuthorizationWriteContext(
     ActorId Principal,
     TenantId Tenant,
-    DateTimeOffset At)
+    AdmittedInstant Instant)
 {
+    /// <summary>The server-admitted decision instant (T-1015); never a caller-chosen time.</summary>
+    public AdmittedInstant Instant { get; init; } = Instant ?? throw new ArgumentNullException(nameof(Instant));
+    public DateTimeOffset At => Instant.Value;
     /// <summary>Validated request correlation for audit association; it grants no authority.</summary>
     public Guid? CorrelationId { get; init; }
     /// <summary>Builds a request from a coordinator-derived operation and record identity.</summary>
@@ -23,7 +26,7 @@ public readonly record struct AuthorizationWriteContext(
             Principal,
             Tenant,
             new AuthorizationTarget(recordKind, recordId, scope),
-            At) { CorrelationId = CorrelationId };
+            Instant) { CorrelationId = CorrelationId };
     }
 
     /// <summary>
@@ -39,6 +42,6 @@ public readonly record struct AuthorizationWriteContext(
             Principal,
             Tenant,
             new AuthorizationTarget(string.Empty, string.Empty, scope),
-            At) { CorrelationId = CorrelationId };
+            Instant) { CorrelationId = CorrelationId };
     }
 }

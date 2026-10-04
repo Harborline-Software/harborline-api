@@ -364,7 +364,7 @@ public sealed class ConsentRecordRouteAndSweepTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(At)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             if (!offerConsentToTheCaller)
             {
                 // The caller keeps every other holding the seed gives it; the two consent definitions are

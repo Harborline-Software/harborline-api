@@ -377,7 +377,7 @@ public sealed class FormEngine : IFormEngine
     public async Task<EntityId> SaveAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(token);
-        var at = _timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(_timeProvider);
         var authority = new AuthorizationWriteContext(
             token.Subject,
             token.Tenant,

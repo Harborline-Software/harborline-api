@@ -217,7 +217,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         }
 
         var context = new AuthorizationWriteContext(
-            new ActorId($"pack:{authority.PackId}"), authority.Tenant, authority.ActivationInstant);
+            new ActorId($"pack:{authority.PackId}"), authority.Tenant, authority.Admitted);
         // (L675) The DECLARING TENANT is the tenant the pack is installed into. Ticket 204's store reads
         // a null declaring tenant as "visible in every tenant", so omitting it would make one tenant's
         // pack the ceiling for tenants that never installed it -- and leave WithdrawPackDefinitionAsync,
@@ -254,7 +254,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         var bound = await states.ReadStateAsync(definitionId, authority.Tenant, ct).ConfigureAwait(false);
         if (bound.Definition is null || bound.EffectiveBinding.Equals(RoleBindingSet.Empty)) return false;
         var context = new AuthorizationWriteContext(
-            new ActorId($"pack:{authority.PackId}"), authority.Tenant, authority.ActivationInstant);
+            new ActorId($"pack:{authority.PackId}"), authority.Tenant, authority.Admitted);
         await WriteCoreAsync(
             new NarrowCapabilityRoleBinding(
                 authority.Tenant, definitionId, RoleBindingSet.Empty, context.Principal,
@@ -272,7 +272,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         ArgumentNullException.ThrowIfNull(bootstrap);
         var bootstrapDecision = bootstrap.Decision;
         return await WriteCoreAsync(command, bootstrapDecision.Request is { } request
-            ? new AuthorizationWriteContext(request.Principal, request.Tenant, request.At)
+            ? new AuthorizationWriteContext(request.Principal, request.Tenant, request.Instant)
             : throw new ArgumentException("A bootstrap decision requires a request.", nameof(bootstrap)),
             bootstrapDecision,
             additiveSeedRevision: false,

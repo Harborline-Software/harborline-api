@@ -34,17 +34,11 @@ public sealed class CreateAuthorizationTargetTests
                 request => targets.Add(request.Target.RecordId)));
         using var body = JsonDocument.Parse("{\"name\":\"ck3\"}");
 
-        var created = await writer.CreateAsync(schema, body, options, new AuthorizationWriteContext(actor, tenant, at));
+        var created = await writer.CreateAsync(schema, body, options, new AuthorizationWriteContext(actor, tenant, AdmittedInstant.FromRecordedAct(at)));
 
         Assert.Equal(derived, created);
         Assert.Equal([created.LocalPart], targets);
         Assert.NotNull(await entities.GetAsync(created));
-
-        using var coordinatorBody = JsonDocument.Parse("{\"name\":\"ck3\"}");
-        var viaCoordinator = await ((IEntityWriteCoordinator)writer).CreateAsync(
-            schema, coordinatorBody, options, actor, tenant, at);
-        Assert.Equal(derived, viaCoordinator);
-        Assert.Equal([created.LocalPart, created.LocalPart], targets);
     }
 
     [Fact(DisplayName = "ck-3: prepared options whose derived id differs from the admitted id are refused")]
@@ -65,7 +59,7 @@ public sealed class CreateAuthorizationTargetTests
         using var body = JsonDocument.Parse("{\"name\":\"ck3\"}");
 
         await Assert.ThrowsAsync<ArgumentException>(async () => await writer.CreateWithReceiptAsync(
-            body, options.Nonce, new AuthorizationWriteContext(actor, tenant, at),
+            body, options.Nonce, new AuthorizationWriteContext(actor, tenant, AdmittedInstant.FromRecordedAct(at)),
             _ => ValueTask.FromResult((schema, options))));
         Assert.Null(await entities.GetAsync(InMemoryEntityStore.DeriveEntityId(schema, options)));
     }

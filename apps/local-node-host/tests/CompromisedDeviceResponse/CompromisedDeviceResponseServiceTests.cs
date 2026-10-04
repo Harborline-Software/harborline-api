@@ -180,5 +180,5 @@ public sealed class CompromisedDeviceResponseServiceTests
     }
 
     private static AuthorizationWriteContext Authority() =>
-        new(new ActorId("operator-principal"), new TenantId(TeamId), RevokedAt);
+        new(new ActorId("operator-principal"), new TenantId(TeamId), AdmittedInstant.Read(new FixedTimeProvider(RevokedAt)));
 }

@@ -82,7 +82,7 @@ public static class AuthorizationRefusalRenderer
             throw new ArgumentException("Only a denied decision has a refusal to render.", nameof(decision));
 
         var request = decision.Request;
-        var authority = new AuthorizationWriteContext(request.Principal, request.Tenant, request.At);
+        var authority = new AuthorizationWriteContext(request.Principal, request.Tenant, request.Instant);
         var readable = ImmutableArray.CreateBuilder<RefusalDisclosure>();
         foreach (var disclosure in disclosures)
         {

@@ -41,7 +41,8 @@ public sealed class SignedRosterRehostGrantProvider(
         string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
         CancellationToken ct = default)
     {
-        var now = time.GetUtcNow();
+        var admitted = AdmittedInstant.Read(time);
+        var now = admitted.Value;
         var tenant = TenantId.FromString(tenantId);
         SignedOperation<RehostGrantPayload>? signed = null;
         string? reason = null;
@@ -88,7 +89,7 @@ public sealed class SignedRosterRehostGrantProvider(
                 $"INSERT OR IGNORE INTO rehost_grant_burns (tenant, issuer, nonce) VALUES ({tenantId}, {issuer}, {nonce})", ct);
             if (inserted == 0) reason = "rehost.already_redeemed";
         }
-        var request = new AuthorizationWriteContext(caller, tenant, now).Request(
+        var request = new AuthorizationWriteContext(caller, tenant, admitted).Request(
             AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId);
         if (reason is not null)
         {

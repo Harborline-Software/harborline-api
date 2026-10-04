@@ -189,7 +189,7 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
     public async Task KgApproval_CoCommitsDraftAndAdvance_WithApprovingHumanActor(int offsetHours)
     {
         var cutover = CreateKgCutover();
-        var authority = new AuthorizationWriteContext(new ActorId("kg-approving-human"), Tenant, At.ToOffset(TimeSpan.FromHours(offsetHours)));
+        var authority = new AuthorizationWriteContext(new ActorId("kg-approving-human"), Tenant, AdmittedInstant.FromRecordedAct(At.ToOffset(TimeSpan.FromHours(offsetHours))));
         var parked = await cutover.ParkForApprovalAsync(
             Tenant,
             "kg-approval",

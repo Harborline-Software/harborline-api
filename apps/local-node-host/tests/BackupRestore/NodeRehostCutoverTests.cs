@@ -156,7 +156,7 @@ public sealed class NodeRehostCutoverTests : IAsyncLifetime
         public ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant? grant, string tenantId,
             string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
             CancellationToken ct = default) => TestAuthorization.AllowGate().DecideAsync(
-                new AuthorizationWriteContext(caller, new TenantId(tenantId), TestAuthorization.At).Request(
+                new AuthorizationWriteContext(caller, new TenantId(tenantId), AdmittedInstant.FromRecordedAct(TestAuthorization.At)).Request(
                     AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId), ct);
 
         public ValueTask<RosterSignedRehostGrant> ObtainAsync(

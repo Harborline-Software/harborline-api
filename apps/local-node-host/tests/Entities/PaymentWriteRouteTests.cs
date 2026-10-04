@@ -321,7 +321,7 @@ public sealed class PaymentWriteRouteTests : IAsyncLifetime
             new Harborline.Api.Foundation.Authorization.AuthorizationWriteContext(
                 new Harborline.Api.Foundation.Assets.Common.ActorId("user:payment-write-route-test"),
                 LocalTenantId,
-                FixedNow));
+                Harborline.Api.Foundation.Authorization.AdmittedInstant.Read(new FixedTimeProvider(FixedNow))));
         Assert.True(unapplied.Success);
 
         var retained = await paymentServices.ApplicationRepository.ListByTargetAsync(

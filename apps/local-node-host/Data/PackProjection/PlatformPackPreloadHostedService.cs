@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -70,7 +71,7 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
         var active = store.GetActive(tenant, PackKey);
         if (active is not null && active.Version == PackVersion) return;
 
-        var context = new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(),
+        var context = new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time),
             PackInstallRoutes.RevocationMaxAge, Principal: nodeOperator?.Principal?.Value);
         if (store.GetVersion(tenant, PackKey, PackVersion) is null)
         {

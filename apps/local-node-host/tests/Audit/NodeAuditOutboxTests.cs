@@ -156,7 +156,7 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
         var scope = ScopeExpression.Parse("/records/package.outbox");
         var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
             new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
-            principal, Tenant, new AuthorizationTarget("pack", "package.outbox", scope), At));
+            principal, Tenant, new AuthorizationTarget("pack", "package.outbox", scope), AdmittedInstant.FromRecordedAct(At)));
 
         var seedRoles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
         var configuration = new NodeEfAuthorizationConfigurationStore(_store.Factory, seedRoles);
@@ -220,7 +220,7 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
 
     private async Task InstallAsync()
     {
-        await _writer.WriteAsync(new InstallAuthorizationDefinition(Definition), new AuthorizationWriteContext(Admin, Tenant, At));
+        await _writer.WriteAsync(new InstallAuthorizationDefinition(Definition), new AuthorizationWriteContext(Admin, Tenant, AdmittedInstant.FromRecordedAct(At)));
         // The install's own entry is delivered first, so each test observes only the act it performs.
         Assert.Equal(1, await _outbox.DrainAsync());
     }
@@ -229,7 +229,7 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
         await _writer.WriteAsync(
             new NarrowCapabilityRoleBinding(Tenant, Definition.DefinitionId, RoleBindingSet.Empty, Admin, At,
                 new BindingChangeReason("outbox test")),
-            new AuthorizationWriteContext(Admin, Tenant, At));
+            new AuthorizationWriteContext(Admin, Tenant, AdmittedInstant.FromRecordedAct(At)));
 
     private async Task<AuditOutboxRow> SingleOwedAsync(AuditEventType eventType) =>
         Assert.Single(await OwedAsync(), row => row.EventType == eventType.Value);

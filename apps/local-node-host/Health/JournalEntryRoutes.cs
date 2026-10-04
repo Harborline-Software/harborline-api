@@ -221,7 +221,7 @@ public static class JournalEntryRoutes
             // ledger:post (already in the vocabulary + the Owner/Admin compositions), decided BEFORE
             // any validation or persistence work. Same request-scoped mechanism as the sibling gates.
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            var at = timeProvider.GetUtcNow();
+            var at = AdmittedInstant.Read(timeProvider);
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 LocalTenantId,
@@ -310,7 +310,7 @@ public static class JournalEntryRoutes
                     entryDate:    postingDate,
                     memo:         Truncate(body.Memo!, 200),
                     lines:        lines,
-                    createdAtUtc: new Instant(at),
+                    createdAtUtc: new Instant(at.Value),
                     sourceReference: ManualIdempotencyReference(http, authority))
                 {
                     ChartId     = string.IsNullOrWhiteSpace(body.ChartId) ? (ChartOfAccountsId?)null : new ChartOfAccountsId(body.ChartId),
@@ -396,7 +396,7 @@ public static class JournalEntryRoutes
         {
             // Ticket 151 cluster: a reversal POSTS a new GL entry — the same ledger:post gate as create.
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            var at = timeProvider.GetUtcNow();
+            var at = AdmittedInstant.Read(timeProvider);
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 LocalTenantId,
@@ -459,7 +459,7 @@ public static class JournalEntryRoutes
             }
             else
             {
-                reversalDate = DateOnly.FromDateTime(at.UtcDateTime);
+                reversalDate = DateOnly.FromDateTime(at.Value.UtcDateTime);
             }
 
             // Swap debit/credit on every line.
@@ -479,7 +479,7 @@ public static class JournalEntryRoutes
                 entryDate:    reversalDate,
                 memo:         memo.Length > 200 ? memo[..200] : memo,
                 lines:        reversedLines,
-                createdAtUtc: new Instant(at),
+                createdAtUtc: new Instant(at.Value),
                 sourceReference: replayReference)
             {
                 ChartId     = original.ChartId,

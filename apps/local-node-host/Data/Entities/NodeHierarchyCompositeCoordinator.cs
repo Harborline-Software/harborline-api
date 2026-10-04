@@ -71,7 +71,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
     {
         ArgumentNullException.ThrowIfNull(newEntities);
         ArgumentNullException.ThrowIfNull(childReassignments);
-        var at = timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(timeProvider);
         return (await WritePipeline.RunAsync(
             new Split(this, oldEntity, newEntities, childReassignments, justification, actor, tenant, at),
             pipelineObserver, ct).ConfigureAwait(false))!;
@@ -90,9 +90,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
         string justification,
         ActorId actor,
         TenantId tenant,
-        DateTimeOffset at)
+        AdmittedInstant instant)
         : KernelWrite<IReadOnlyList<EntityEdge>, IReadOnlyList<SplitTarget>, IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)>, SplitResult>
     {
+        private DateTimeOffset at => instant.Value;
         private readonly EntityId[] replacementIds = newEntities
             .Select(target => InMemoryEntityStore.DeriveEntityId(target.Schema, target.Options))
             .ToArray();
@@ -103,7 +104,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             authorization = await coordinator.DecideAllAsync(
                 [oldEntity, .. replacementIds, .. childReassignments.Keys, .. childReassignments.Values],
-                actor, tenant, at, ct).ConfigureAwait(false);
+                actor, tenant, instant, ct).ConfigureAwait(false);
 
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
             displaced = await coordinator.ReadChildrenNotEndedAsync(
@@ -229,7 +230,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
     {
         ArgumentNullException.ThrowIfNull(oldEntities);
         ArgumentNullException.ThrowIfNull(newBody);
-        var at = timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(timeProvider);
         // Ticket 216 (review round 7): the merge reads every edge not ended by the act instant inside the unit,
         // including future-start edges committed while it waited, so the whole pipeline runs inside the unit
         // and the displaced set it decides is the set it writes.
@@ -254,9 +255,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
         string justification,
         ActorId actor,
         TenantId tenant,
-        DateTimeOffset at)
+        AdmittedInstant instant)
         : KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>
     {
+        private DateTimeOffset at => instant.Value;
         private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions);
         private CompositeAuthorization authorization = null!;
         private IReadOnlyList<EntityEdge> displaced = [];
@@ -264,7 +266,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             authorization = await coordinator.DecideAllAsync(
-                [expectedNewId, .. oldEntities], actor, tenant, at, ct).ConfigureAwait(false);
+                [expectedNewId, .. oldEntities], actor, tenant, instant, ct).ConfigureAwait(false);
 
         /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
         /// superseded and deleted with them, so it is not moved under the merged record.</summary>
@@ -279,7 +281,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         {
             ValidateTargetTenant(mutation, tenant);
             authorization = await coordinator.DecideAllAsync(
-                bound.Select(edge => edge.From), actor, tenant, at, ct, authorization).ConfigureAwait(false);
+                bound.Select(edge => edge.From), actor, tenant, instant, ct, authorization).ConfigureAwait(false);
             // Ticket 366: the merge target is a record, admitted from the decision that admitted it.
             return await ValidatedRecordBody.AdmitAsync(
                 coordinator.Validator, authorization.Require(expectedNewId), newSchema, newBody, tenant,
@@ -354,7 +356,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         DateTimeOffset effectiveAt,
         CancellationToken ct = default)
     {
-        var at = timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(timeProvider);
         await WritePipeline.RunAsync(
             new Reparent(this, child, oldParent, newParent, justification, actor, tenant, at),
             pipelineObserver, ct).ConfigureAwait(false);
@@ -374,15 +376,16 @@ public sealed class NodeHierarchyCompositeCoordinator(
         string justification,
         ActorId actor,
         TenantId tenant,
-        DateTimeOffset at)
+        AdmittedInstant instant)
         : KernelWrite<IReadOnlyList<EntityEdge>, DateTimeOffset?, DateTimeOffset?, bool>
     {
+        private DateTimeOffset at => instant.Value;
         private CompositeAuthorization authorization = null!;
         private IReadOnlyList<EntityEdge> displaced = [];
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             authorization = await coordinator.DecideAllAsync(
-                [child, oldParent, newParent], actor, tenant, at, ct).ConfigureAwait(false);
+                [child, oldParent, newParent], actor, tenant, instant, ct).ConfigureAwait(false);
 
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
             displaced = await coordinator.ReadAffectedChildrenAsync(
@@ -455,7 +458,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         IEnumerable<EntityId> targets,
         ActorId actor,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken ct,
         CompositeAuthorization? decided = null)
     {

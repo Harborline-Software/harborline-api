@@ -94,7 +94,7 @@ public sealed class CatalogueDetailRuntime(ICatalogueFormSources sources, Catalo
             var scope = new CatalogueFieldTarget(coordinate.Kind, coordinate.Id, coordinate.Version, coordinate.Field).Scope;
             var operation = AuthorizationOperation.Parse(Permission.CatalogueRead);
             var decision = await gate.DecideAsync(new AuthorizationGateRequest(new PermissionAtom(operation, scope),
-                authority.Principal, authority.Tenant, new AuthorizationTarget("catalogue", coordinate.Id, scope), authority.At), ct)
+                authority.Principal, authority.Tenant, new AuthorizationTarget("catalogue", coordinate.Id, scope), authority.Instant), ct)
                 .ConfigureAwait(false);
             if (decision.Verdict != AuthorizationVerdict.Allowed)
             {

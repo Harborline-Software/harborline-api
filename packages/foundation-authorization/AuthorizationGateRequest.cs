@@ -13,8 +13,14 @@ public sealed record AuthorizationGateRequest(
     ActorId Principal,
     TenantId Tenant,
     AuthorizationTarget Target,
-    DateTimeOffset At)
+    AdmittedInstant Instant)
 {
+    /// <summary>
+    /// The decision instant. Server-admitted only (T-1015): there is no public path that sets it from a raw
+    /// <see cref="DateTimeOffset"/>, so a caller cannot choose the time a decision rests on.
+    /// </summary>
+    public AdmittedInstant Instant { get; init; } = Instant ?? throw new ArgumentNullException(nameof(Instant));
+    public DateTimeOffset At => Instant.Value;
     /// <summary>
     /// The roster facts the gate derived through <see cref="IAuthorizationRosterConstraintReader"/>, recorded
     /// on the decision's request. Only the gate sets it (T-519); routes and blocks cannot supply one.

@@ -59,7 +59,7 @@ public sealed class PackNarrowingCommitReadsetTests
             store, new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant,
             new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, 1, TrustRootStatus.Current)]),
-            PackRevocationList.Empty, At, TimeSpan.FromDays(30), Principal: Principal);
+            PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(At), TimeSpan.FromDays(30), Principal: Principal);
         var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, Principal, At);
         var operation = installer.NarrowAsync(context, PackKey, ContentKey, JsonNode.Parse("{\"roles\":[\"A\"]}")!, decision);
         Assert.False(operation.IsCompleted);
