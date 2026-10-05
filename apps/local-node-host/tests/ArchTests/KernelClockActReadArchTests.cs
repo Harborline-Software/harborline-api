@@ -68,12 +68,13 @@ public sealed class KernelClockActReadArchTests
     public void APlantedSecondReadIsReported()
     {
         var assemblies = new[] { typeof(PlantedRoutes).Assembly };
-        var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
+        var handlers = DiscoverHandlers(assemblies, out _,
+            type => IsWithin(type, typeof(PlantedRoutes)) || IsWithin(type, typeof(PlantedInstanceRoute)));
 
         // One graph over every planted handler, as in production, so the route objects are known to every act.
         var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
-        Assert.Equal(40, reads.Count);
+        Assert.Equal(42, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -81,7 +82,9 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsAHiddenGetUtcNow", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsALookalikeOverload", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandlerOwner.Handle", StringComparison.Ordinal)).Value);
-        Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedInstanceRoute.Handle", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.Handle", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleAsync", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedInstanceRoute.<Map>", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
@@ -202,21 +205,20 @@ public sealed class KernelClockActReadArchTests
         bool Is(int at, OpCode opCode) => at >= 0 && code[at].OpCode == opCode;
         bool IsDelegateConstruction(int at) => Is(at, OpCodes.Newobj)
             && Resolve(method, code[at].Operand)?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created);
-        var c = consumer;
         // A fresh delegate: ldftn X; newobj.
-        if (IsDelegateConstruction(c - 1) && Is(c - 2, OpCodes.Ldftn) && body.Straight(c - 2, c))
-            return Resolve(method, code[c - 2].Operand);
+        if (IsDelegateConstruction(consumer - 1) && Is(consumer - 2, OpCodes.Ldftn) && body.Straight(consumer - 2, consumer))
+            return Resolve(method, code[consumer - 2].Operand);
         // The compiler's cached delegate: ldsfld F; dup; brtrue L; pop; ldsfld <>9 | ldnull; ldftn X; newobj; dup; stsfld F; L:
-        if (Is(c - 1, OpCodes.Stsfld) && Is(c - 2, OpCodes.Dup) && IsDelegateConstruction(c - 3) && Is(c - 4, OpCodes.Ldftn)
-            && (Is(c - 5, OpCodes.Ldsfld) || Is(c - 5, OpCodes.Ldnull)) && Is(c - 6, OpCodes.Pop)
-            && (Is(c - 7, OpCodes.Brtrue_S) || Is(c - 7, OpCodes.Brtrue)) && code[c - 7].Operand == code[c].Offset
-            && Is(c - 8, OpCodes.Dup) && Is(c - 9, OpCodes.Ldsfld) && code[c - 9].Operand == code[c - 1].Operand
-            && body.Straight(c - 9, c, allowedJoin: code[c].Offset))
-            return Resolve(method, code[c - 4].Operand);
+        if (Is(consumer - 1, OpCodes.Stsfld) && Is(consumer - 2, OpCodes.Dup) && IsDelegateConstruction(consumer - 3) && Is(consumer - 4, OpCodes.Ldftn)
+            && (Is(consumer - 5, OpCodes.Ldsfld) || Is(consumer - 5, OpCodes.Ldnull)) && Is(consumer - 6, OpCodes.Pop)
+            && (Is(consumer - 7, OpCodes.Brtrue_S) || Is(consumer - 7, OpCodes.Brtrue)) && code[consumer - 7].Operand == code[consumer].Offset
+            && Is(consumer - 8, OpCodes.Dup) && Is(consumer - 9, OpCodes.Ldsfld) && code[consumer - 9].Operand == code[consumer - 1].Operand
+            && body.Straight(consumer - 9, consumer, allowedJoin: code[consumer].Offset))
+            return Resolve(method, code[consumer - 4].Operand);
         // A delegate local assigned exactly once from one of these shapes.
-        if (c >= 1 && IsLoadLocal(code[c - 1].OpCode) && body.Straight(c - 1, c))
+        if (consumer >= 1 && IsLoadLocal(code[consumer - 1].OpCode) && body.Straight(consumer - 1, consumer))
         {
-            var local = code[c - 1].Operand;
+            var local = code[consumer - 1].Operand;
             if (AddressTaken(code, local))
                 return null; // a ref to it can replace the handler out of sight
             var stores = Enumerable.Range(0, code.Length)
@@ -224,8 +226,8 @@ public sealed class KernelClockActReadArchTests
             return stores is [var store] ? HandlerArgument(body, store, assemblies, tracing) : null;
         }
         // A production helper that builds the delegate and returns it from its only ret.
-        if (c >= 1 && (Is(c - 1, OpCodes.Call) || Is(c - 1, OpCodes.Callvirt)) && body.Straight(c - 1, c)
-            && Resolve(method, code[c - 1].Operand) is MethodInfo { ReturnType: var returned } factory
+        if (consumer >= 1 && (Is(consumer - 1, OpCodes.Call) || Is(consumer - 1, OpCodes.Callvirt)) && body.Straight(consumer - 1, consumer)
+            && Resolve(method, code[consumer - 1].Operand) is MethodInfo { ReturnType: var returned } factory
             && typeof(Delegate).IsAssignableFrom(returned) && factory.DeclaringType is { } declaring
             && assemblies.Contains(declaring.Assembly) && tracing.Add(factory))
         {
@@ -255,10 +257,14 @@ public sealed class KernelClockActReadArchTests
     /// The types whose instances ARE route handlers (an instance method mapped as one). Such an object is route code,
     /// not a service: a clock in its fields is the act's own clock, so its reads count like any other.
     /// </summary>
+    /// A lambda handler that captures <c>this</c> lives on a compiler-generated closure holding the route object, which
+    /// counts as that object's type.
     internal static IReadOnlySet<Type> RouteTypes(IEnumerable<MethodBase> handlers) =>
         handlers.Where(handler => !handler.IsStatic && handler.DeclaringType is { } owner
-                && !owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
-            .Select(handler => handler.DeclaringType!).ToHashSet();
+                && (!owner.IsDefined(typeof(CompilerGeneratedAttribute), false)
+                    || owner.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                        .Any(field => field.FieldType == Outer(owner))))
+            .Select(handler => Outer(handler.DeclaringType!)).ToHashSet();
 
     /// <summary>
     /// The production call graph's clock reads, by method. Methods that call each other recursively form one
@@ -542,7 +548,8 @@ public sealed class KernelClockActReadArchTests
     /// through that type's own getter.
     /// </summary>
     /// <remarks>
-    /// Whether the clock is a route object's is judged by the code reading it (<paramref name="reader"/>), not by
+    /// Whether the clock is a route object's is judged by the code reading it (<paramref name="reader"/>, out of
+    /// any state machine or closure, see <see cref="Outer"/>), not by
     /// where the field is declared: a service and a route object may share a clock-bearing base class. Code on a
     /// route type, or on a base of one, reads the act's clock; code on any other type reads its service's own.
     /// </remarks>
@@ -550,7 +557,7 @@ public sealed class KernelClockActReadArchTests
         receiver is { IsStatic: false, DeclaringType: { } declaring }
         && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
         && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false)
-        && !(reader is not null && routeTypes.Any(reader.IsAssignableFrom));
+        && !(reader is not null && routeTypes.Any(Outer(reader).IsAssignableFrom));
 
     private static FieldInfo? ResolveField(MethodBase method, int token) =>
         ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveField(token, generics, methodGenerics));
@@ -670,6 +677,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/inherited-clock", UsesAnInheritedServiceClock);
             app.MapGet("/planted/handler-owner", HandlerOwner.Handle);
             app.MapGet("/planted/instance-handler", new PlantedInstanceRoute(null!).Handle);
+            app.MapGet("/planted/instance-async-handler", new PlantedInstanceRoute(null!).HandleAsync);
             app.MapGet("/planted/lookalike-overload", CallsALookalikeOverload);
             app.MapGet("/planted/hidden-get-utc-now", CallsAHiddenGetUtcNow);
             app.MapGet("/planted/loop", ReadsInALoop);
@@ -965,6 +973,17 @@ public sealed class KernelClockActReadArchTests
     private sealed class PlantedInstanceRoute(TimeProvider clock) : PlantedClockBase(clock)
     {
         internal IResult Handle() => Results.Ok(Stamp() - Stamp());
+
+        // The same reads from the compiler's async state machine.
+        internal async Task<IResult> HandleAsync()
+        {
+            await Task.Yield();
+            return Results.Ok(_clock.GetUtcNow() - _clock.GetUtcNow());
+        }
+
+        // The same reads from a lambda that captures this route object and a local.
+        internal void Map(IEndpointRouteBuilder app, string label) =>
+            app.MapGet("/planted/instance-lambda", () => Results.Ok((label, _clock.GetUtcNow() - _clock.GetUtcNow())));
 
         private DateTimeOffset Stamp() => _clock.GetUtcNow();
     }
