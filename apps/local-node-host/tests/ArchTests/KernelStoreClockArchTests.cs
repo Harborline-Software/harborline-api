@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.LocalFirst;
@@ -90,7 +91,8 @@ public sealed class KernelStoreClockArchTests
         var holders = PersistenceTypes([typeof(KernelStoreClockArchTests).Assembly], type => IsWithin(type, typeof(Planted)));
 
         Assert.Equal(
-            [typeof(Planted.InheritsAClock), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
+            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.InheritsAClock), typeof(Planted.InheritsAStampingBase),
+             typeof(Planted.ReadsAClockItIsHanded), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
              typeof(Planted.StoresBehindAnEncryptedStore)],
             ClockedStores(holders).OrderBy(type => type.Name, StringComparer.Ordinal).ToArray());
         Assert.Contains(typeof(Planted.TakesTheActsInstant), holders);
@@ -102,10 +104,22 @@ public sealed class KernelStoreClockArchTests
     /// <summary>Every production type that takes or holds a persistence handle.</summary>
     internal static IReadOnlySet<Type> PersistenceTypes(IEnumerable<Assembly> assemblies, Func<Type, bool>? filter = null) =>
         assemblies.SelectMany(Types)
-            .Where(type => !type.IsInterface && !type.IsDefined(typeof(CompilerGeneratedAttribute), false))
+            .Where(type => !type.IsInterface && !IsCompilerGenerated(type))
             .Where(type => filter?.Invoke(type) ?? true)
             .Where(type => Inputs(type).Any(IsPersistenceHandle))
             .ToHashSet();
+
+    /// <summary>
+    /// Compiler-generated code (a closure, a state machine, or anything nested in one) belongs to the type it was
+    /// written in, whose scan already covers it: it is never a persistence type of its own.
+    /// </summary>
+    private static bool IsCompilerGenerated(Type type)
+    {
+        for (var level = type; level is not null; level = level.DeclaringType)
+            if (level.IsDefined(typeof(CompilerGeneratedAttribute), false) || level.Name.StartsWith('<'))
+                return true;
+        return false;
+    }
 
     /// <summary>The persistence types that are stores (not classified an authority, not hosted) and hold or read a clock.</summary>
     internal static IEnumerable<Type> ClockedStores(IEnumerable<Type> persistenceTypes) =>
@@ -114,9 +128,22 @@ public sealed class KernelStoreClockArchTests
             .Where(type => !typeof(IHostedService).IsAssignableFrom(type))
             .Where(IsClocked);
 
+    /// <summary>
+    /// Holds a clock, or reads one anywhere in its code or its own bases' code: a clock it was handed, a wall clock, or
+    /// a fresh admitted instant.
+    /// </summary>
     private static bool IsClocked(Type type) =>
         Inputs(type).Any(input => typeof(TimeProvider).IsAssignableFrom(input))
-        || Code(type).Any(method => RawMutationPortSymbolInventoryTests.CalledMethods(method).Any(call => IsWallClockRead(call.Target)));
+        || Lineage(type).SelectMany(Code).Any(method =>
+            RawMutationPortSymbolInventoryTests.CalledMethods(method).Any(call => IsClockRead(call.Target)));
+
+    /// <summary>The type and its bases declared in the solution (a framework base's internals are not the store's code).</summary>
+    private static IEnumerable<Type> Lineage(Type type)
+    {
+        for (var level = type; level is not null && level.Assembly.GetName().Name?.StartsWith("Harborline", StringComparison.Ordinal) == true;
+             level = level.BaseType)
+            yield return level;
+    }
 
     /// <summary>What a type takes or holds: every constructor parameter, and every instance field of it and its bases.</summary>
     private static IEnumerable<Type> Inputs(Type type)
@@ -132,16 +159,26 @@ public sealed class KernelStoreClockArchTests
 
     private static bool IsPersistenceHandle(Type type) =>
         typeof(DbContext).IsAssignableFrom(type)
-        || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IDbContextFactory<>))
+        || IsContextFactory(type) || type.GetInterfaces().Any(IsContextFactory)
         || typeof(DbConnection).IsAssignableFrom(type)
         || typeof(IEncryptedStore).IsAssignableFrom(type)
         || typeof(IBlobStore).IsAssignableFrom(type)
         || typeof(IOfflineStore).IsAssignableFrom(type)
         || typeof(IKeyStore).IsAssignableFrom(type);
 
-    /// <summary>A static wall-clock read: <see cref="DateTime.UtcNow"/>, <see cref="DateTimeOffset.Now"/> and the like, or <see cref="TimeProvider.System"/>.</summary>
-    private static bool IsWallClockRead(MethodBase target) =>
-        target is MethodInfo { IsStatic: true, Name: "get_UtcNow" or "get_Now" or "get_Today" } wall
+    private static bool IsContextFactory(Type type) =>
+        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IDbContextFactory<>);
+
+    /// <summary>
+    /// A clock read: any <see cref="TimeProvider"/>'s <see cref="TimeProvider.GetUtcNow"/> or
+    /// <see cref="TimeProvider.GetLocalNow"/>, a fresh <see cref="AdmittedInstant"/>, a static wall-clock read
+    /// (<see cref="DateTime.UtcNow"/>, <see cref="DateTimeOffset.Now"/> and the like), or <see cref="TimeProvider.System"/>.
+    /// </summary>
+    private static bool IsClockRead(MethodBase target) =>
+        target is MethodInfo { IsStatic: false, Name: nameof(TimeProvider.GetUtcNow) or nameof(TimeProvider.GetLocalNow) } read
+            && read.GetBaseDefinition().DeclaringType == typeof(TimeProvider)
+        || target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read)
+        || target is MethodInfo { IsStatic: true, Name: "get_UtcNow" or "get_Now" or "get_Today" } wall
             && (wall.DeclaringType == typeof(DateTime) || wall.DeclaringType == typeof(DateTimeOffset))
         || target is MethodInfo { IsStatic: true, Name: "get_System" } system && system.DeclaringType == typeof(TimeProvider);
 
@@ -219,6 +256,31 @@ public sealed class KernelStoreClockArchTests
         internal sealed class InheritsAClock(IDbContextFactory<DbContext> factory, TimeProvider clock) : HoldsAClock(clock)
         {
             internal DateTimeOffset Stamp() => factory is null ? default : Clock.GetUtcNow();
+        }
+
+        internal sealed class ReadsAClockItIsHanded(IDbContextFactory<DbContext> factory)
+        {
+            internal DateTimeOffset Stamp(TimeProvider handed) => factory is null ? default : handed.GetUtcNow();
+        }
+
+        internal abstract class StampsInItsBase
+        {
+            protected static DateTimeOffset Stamp() => DateTimeOffset.UtcNow;
+        }
+
+        internal sealed class InheritsAStampingBase(IDbContextFactory<DbContext> factory) : StampsInItsBase
+        {
+            internal DateTimeOffset Write() => factory is null ? default : Stamp();
+        }
+
+        internal sealed class ConcreteFactory : IDbContextFactory<DbContext>
+        {
+            public DbContext CreateDbContext() => throw new NotSupportedException();
+        }
+
+        internal sealed class HoldsAConcreteFactory(ConcreteFactory factory, TimeProvider clock)
+        {
+            internal DateTimeOffset Stamp() => factory is null ? default : clock.GetUtcNow();
         }
 
         [ClockAuthority("Planted: decides admission and dates its own decision rows.")]
