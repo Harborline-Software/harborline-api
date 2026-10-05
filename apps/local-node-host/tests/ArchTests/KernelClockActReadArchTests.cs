@@ -70,7 +70,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(34, reads.Count);
+        Assert.Equal(35, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ProjectsTheClockPerItem", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsAHiddenGetUtcNow", StringComparison.Ordinal)).Value);
@@ -403,8 +404,8 @@ public sealed class KernelClockActReadArchTests
                 {
                     var site = $"{Name(target)} in {Name(method)}+IL_{offset:x4}";
                     direct.Add(site);
-                    if (InLoop(offset))
-                        direct.Add($"{site} (in a loop, can repeat)");
+                    if (InLoop(offset) || opCode == OpCodes.Ldftn || opCode == OpCodes.Ldvirtftn)
+                        direct.Add($"{site} (in a loop or a delegate, can repeat)"); // `Func<DateTimeOffset> read = time.GetUtcNow;`
                 }
                 else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
                     // A delegate the act builds (ldftn) may be invoked any number of times; a call in a loop may repeat.
@@ -622,6 +623,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/hidden-get-utc-now", CallsAHiddenGetUtcNow);
             app.MapGet("/planted/loop", ReadsInALoop);
             app.MapGet("/planted/projection", ProjectsTheClockPerItem);
+            app.MapGet("/planted/method-group", ReadsThroughAMethodGroup);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -686,6 +688,13 @@ public sealed class KernelClockActReadArchTests
             for (var pass = 0; pass < 2; pass++)
                 stamps.Add(time.GetUtcNow());
             return Results.Ok(stamps);
+        }
+
+        // A delegate over the clock primitive itself, invoked twice.
+        private static IResult ReadsThroughAMethodGroup(TimeProvider time)
+        {
+            Func<DateTimeOffset> read = time.GetUtcNow;
+            return Results.Ok(new[] { read(), read() });
         }
 
         // A clock-reading lambda the act builds: the projection runs it once per item.
