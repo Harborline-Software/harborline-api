@@ -153,6 +153,8 @@ public sealed class AllowListVacuityArchTests
             "the fence already asserts SequenceEqual against the discovered call sites, both directions",
         ["AdmittedInstantArchTests.ReviewedMints"] =
             "the fence already asserts an exact inventory against the discovered production mints, both directions",
+        ["AdmittedInstantArchTests.ReviewedFriends"] =
+            "the friend list is asserted equal to the instant assembly's InternalsVisibleTo attributes, both directions",
         ["RawMutationPortSymbolInventoryTests.Allowed"] =
             "the fence already asserts an exact inventory against the discovered call sites, both directions",
         ["LastAdministratorGuardArchTests.MutationMembers"] =

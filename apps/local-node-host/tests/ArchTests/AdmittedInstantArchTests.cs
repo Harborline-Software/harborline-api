@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using Harborline.Api.Foundation.Authorization;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
@@ -13,14 +12,14 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// </summary>
 public sealed class AdmittedInstantArchTests
 {
-    /// <summary>Every production raw-to-admitted mint, by file and kind, with the reviewed reason.</summary>
+    /// <summary>Every production raw-to-admitted mint, by file and factory, with the reviewed reason.</summary>
     private static readonly (string Path, string Kind, int Count, string Reason)[] ReviewedMints =
     [
-        ("apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs", "Exempt:ConfigurationRehearsal", 1,
+        ("apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs", "Exempt", 1,
             "Owed (T-1015 slice 3): the verification candidate world seeds and installs at the fixture's rehearsal instant."),
-        ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "Exempt:ConfigurationRehearsal", 1,
+        ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "Exempt", 1,
             "Owed (T-1015 slice 3): verification decides the rehearsed create at the fixture's rehearsal instant."),
-        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "Exempt:SignedRosterIssuedAt", 1,
+        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "Exempt", 1,
             "Owed (T-1015 slice 3): roster sync reads install-root authority at the device-signed roster IssuedAt (ADR-0053)."),
         ("apps/local-node-host/Layout/LayoutDenialOutbox.cs", "FromRecordedAct", 1,
             "The appender replays a stored denial at the OccurredAt the server clock wrote into its outbox row."),
@@ -28,15 +27,17 @@ public sealed class AdmittedInstantArchTests
             "Boot replay of a stored pack projection admission carries the activation instant recorded at install."),
     ];
 
-    private static readonly Regex Mint = new(
-        @"\bAdmittedInstant\s*\.\s*(?<kind>FromRecordedAct|Exempt)\b(?:\s*\([^;]*?\bAdmittedInstantExemption\s*\.\s*(?<exemption>\w+))?",
-        RegexOptions.Compiled | RegexOptions.Singleline);
-
-    private static readonly Regex StaticImport = new(
-        @"\busing\s+static\s+[\w.]*\bAdmittedInstant\s*;", RegexOptions.Compiled);
+    /// <summary>The only assemblies that can reach the internal raw mints at all.</summary>
+    private static readonly string[] ReviewedFriends =
+    [
+        "Harborline.Api.Foundation.Authorization.Tests",
+        "Harborline.Api.Foundation.Packs",
+        "Harborline.Api.LocalNodeHost",
+        "Harborline.Api.LocalNodeHost.Tests",
+    ];
 
     [Fact]
-    public void AdmittedInstant_IsMintedOnlyByItsThreeNamedFactories()
+    public void AdmittedInstant_IsMintedPubliclyOnlyFromTheKernelClock()
     {
         var type = typeof(AdmittedInstant);
         Assert.DoesNotContain(type.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic),
@@ -45,17 +46,22 @@ public sealed class AdmittedInstantArchTests
             method => method.Name is "op_Implicit" or "op_Explicit");
         Assert.DoesNotContain(type.GetProperties(), property => property.SetMethod is { IsPrivate: false });
 
-        var factories = type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(method => method.ReturnType == type && !method.IsPrivate)
+        string[] Factories(Func<MethodInfo, bool> visibility) => type
+            .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(method => method.ReturnType == type && visibility(method))
             .Select(Signature)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        // A caller outside the reviewed friends can mint only by reading a clock (and production holds only the
+        // host's, ticket 216). The raw mints are internal, so no public path builds a request from a raw instant.
+        Assert.Equal(["Read(TimeProvider)"], Factories(method => method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly));
         Assert.Equal(
-        [
-            "Exempt(DateTimeOffset,AdmittedInstantExemption)",
-            "FromRecordedAct(DateTimeOffset)",
-            "Read(TimeProvider)",
-        ], factories);
+            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "FromRecordedAct(DateTimeOffset)"],
+            Factories(method => method.IsAssembly));
+        Assert.Equal(ReviewedFriends, type.Assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
+            .Select(attribute => attribute.AssemblyName)
+            .Order(StringComparer.Ordinal)
+            .ToArray());
     }
 
     [Theory]
@@ -86,60 +92,31 @@ public sealed class AdmittedInstantArchTests
     [Fact]
     public void ProductionRawInstantMintsMatchTheReviewedListExactly()
     {
+        // Read from compiled IL, not source text, so an alias, a using static or a method group cannot hide a mint.
         var expected = ReviewedMints
-            .Select(row => $"{row.Path}\t{row.Kind}\t{row.Count}")
+            .Select(row => $"{row.Path}	{row.Kind}	{row.Count}")
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.All(ReviewedMints, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
 
-        var actual = Scan(RepositoryRoot());
+        var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
+                target => target.DeclaringType == typeof(AdmittedInstant)
+                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt))
+            .GroupBy(site => (site.Path, Kind: site.Target.Contains($".{nameof(AdmittedInstant.Exempt)}(", StringComparison.Ordinal)
+                ? nameof(AdmittedInstant.Exempt) : nameof(AdmittedInstant.FromRecordedAct)))
+            .Select(group => $"{group.Key.Path}	{group.Key.Kind}	{group.Count()}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
         Assert.True(expected.SequenceEqual(actual, StringComparer.Ordinal),
             $"Expected:{Environment.NewLine}{string.Join(Environment.NewLine, expected)}" +
             $"{Environment.NewLine}Actual:{Environment.NewLine}{string.Join(Environment.NewLine, actual)}");
     }
 
-    [Fact]
-    public void MintScanReportsPlantedRawPaths()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "t1015-mint-" + Guid.NewGuid().ToString("N"));
-        var planted = Path.Combine(root, "packages", "planted");
-        Directory.CreateDirectory(planted);
-        try
-        {
-            File.WriteAllText(Path.Combine(planted, "Offender.cs"),
-                "using static Harborline.Api.Foundation.Authorization.AdmittedInstant;\n" +
-                "class C { object A(System.DateTimeOffset at) => AdmittedInstant.FromRecordedAct(at);\n" +
-                "object B(System.DateTimeOffset at) => AdmittedInstant.Exempt(at,\n AdmittedInstantExemption.SignedRosterIssuedAt);\n" +
-                "System.Func<System.DateTimeOffset, object> D() => AdmittedInstant.FromRecordedAct; }");
-
-            Assert.Equal(
-            [
-                "packages/planted/Offender.cs\tExempt:SignedRosterIssuedAt\t1",
-                "packages/planted/Offender.cs\tFromRecordedAct\t2",
-                "packages/planted/Offender.cs\tusing static\t1",
-            ], Scan(root));
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    private static string[] Scan(string root) =>
-        ProductionFiles(root)
-            .SelectMany(item =>
-            {
-                var source = StripComments(File.ReadAllText(item.File));
-                return Mint.Matches(source)
-                    .Select(match => match.Groups["kind"].Value == "Exempt"
-                        ? "Exempt:" + (match.Groups["exemption"].Success ? match.Groups["exemption"].Value : "?")
-                        : match.Groups["kind"].Value)
-                    .Concat(StaticImport.Matches(source).Select(_ => "using static"))
-                    .Select(kind => (item.Relative, Kind: kind));
-            })
-            .GroupBy(row => row)
-            .Select(group => $"{group.Key.Relative}\t{group.Key.Kind}\t{group.Count()}")
-            .Order(StringComparer.Ordinal)
+    private static Assembly[] ProductionAssemblies() =>
+        Directory.EnumerateFiles(AppContext.BaseDirectory, "Harborline*.dll")
+            .Where(path => !Path.GetFileName(path).Contains("Test", StringComparison.OrdinalIgnoreCase))
+            .Where(path => File.Exists(Path.ChangeExtension(path, ".pdb")))
+            .Select(Assembly.LoadFrom)
             .ToArray();
 
     private static bool IsRawInstant(Type type) =>
@@ -147,32 +124,4 @@ public sealed class AdmittedInstantArchTests
 
     private static string Signature(MethodInfo method) =>
         $"{method.Name}({string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.Name))})";
-
-    private static IEnumerable<(string File, string Relative)> ProductionFiles(string root) =>
-        new[] { "packages", "apps" }
-            .Select(name => Path.Combine(root, name))
-            .Where(Directory.Exists)
-            .SelectMany(scanRoot => Directory.EnumerateFiles(scanRoot, "*.cs", SearchOption.AllDirectories))
-            .Select(file => (File: file, Relative: Path.GetRelativePath(root, file).Replace('\\', '/')))
-            .Where(item => !item.Relative.Split('/').Any(segment =>
-                segment is "tests" or "bin" or "obj" or ".git" or ".claude"));
-
-    private static string StripComments(string source) => Regex.Replace(
-        source,
-        @"//.*?$|/\*.*?\*/",
-        string.Empty,
-        RegexOptions.Multiline | RegexOptions.Singleline);
-
-    private static string RepositoryRoot([CallerFilePath] string file = "")
-    {
-        var directory = new DirectoryInfo(Path.GetDirectoryName(file)!);
-        while (directory is not null)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, "apps"))
-                && Directory.Exists(Path.Combine(directory.FullName, "packages")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException();
-    }
 }

@@ -1051,6 +1051,7 @@ public sealed partial class WritePipelineExecutorFenceTests
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
             .Select(assembly => assembly.Location)
             .Concat(new[] { typeof(DynamicAttribute).Assembly.Location,
+                typeof(AdmittedInstant).Assembly.Location,
                 typeof(Microsoft.CSharp.RuntimeBinder.Binder).Assembly.Location,
                 typeof(System.Linq.Expressions.Expression).Assembly.Location })
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1693,6 +1694,8 @@ public sealed partial class WritePipelineExecutorFenceTests
             typeof(EntityId).Assembly, typeof(TenantId).Assembly, typeof(WritePipeline).Assembly,
             typeof(Harborline.Api.Foundation.Authorization.AuthorizationGate).Assembly,
             typeof(Harborline.Api.Foundation.Authorization.AuthorizationDecision).Assembly,
+            // T-1015: the admitted decision instant the merge and its decisions carry.
+            typeof(Harborline.Api.Foundation.Authorization.AdmittedInstant).Assembly,
             typeof(Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions).Assembly,
             typeof(Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator).Assembly,
             typeof(Microsoft.Extensions.DependencyInjection.FromKeyedServicesAttribute).Assembly,

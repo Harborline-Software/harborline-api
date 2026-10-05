@@ -4,8 +4,8 @@ namespace Harborline.Api.Foundation.Authorization;
 /// The instant an authority decision is taken at, admitted by the server (T-1015, DES-0029 ck-5 and ck-9,
 /// board finding F2). It is minted only from the kernel clock, read once per act (T-650), or from a stored
 /// act's recorded instant (L143). No caller can supply a raw <see cref="DateTimeOffset"/>, so no caller can
-/// choose the time a decision rests on. <see cref="AuthorizationGateRequest"/> and
-/// <see cref="AuthorizationWriteContext"/> take only this type.
+/// choose the time a decision rests on. <c>AuthorizationGateRequest</c> and
+/// <c>AuthorizationWriteContext</c> take only this type.
 /// </summary>
 public sealed record AdmittedInstant
 {
@@ -22,15 +22,16 @@ public sealed record AdmittedInstant
 
     /// <summary>
     /// A past act, decided as of the instant the server recorded for it (L143), read back from the stored act.
-    /// Every production caller is pinned by <c>AdmittedInstantArchTests</c>, so a new one is reviewed.
+    /// Internal: only this assembly's reviewed friends can reach it, and <c>AdmittedInstantArchTests</c> pins every
+    /// production call site, so a new one is reviewed.
     /// </summary>
-    public static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
+    internal static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
 
     /// <summary>
     /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
     /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
     /// </summary>
-    public static AdmittedInstant Exempt(DateTimeOffset at, AdmittedInstantExemption exemption) =>
+    internal static AdmittedInstant Exempt(DateTimeOffset at, AdmittedInstantExemption exemption) =>
         Enum.IsDefined(exemption) ? new(at) : throw new ArgumentOutOfRangeException(nameof(exemption));
 
     public override string ToString() => Value.ToString("O");

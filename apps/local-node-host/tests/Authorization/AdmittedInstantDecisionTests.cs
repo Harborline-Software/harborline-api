@@ -36,7 +36,8 @@ public sealed class AdmittedInstantDecisionTests
         Assert.Equal(Now, decision.Request.At);
         Assert.Equal(1, clock.Reads);
 
-        // The oracle holds: had the decision rested on the stale instant, the grant would have allowed it.
+        // The oracle holds: had the decision rested on the stale instant, the grant would have allowed it. Only a
+        // reviewed friend can build that instant (FromRecordedAct is internal); this test is one, as the oracle.
         var atStale = await WindowGate().DecideAsync(new AuthorizationWriteContext(
             Principal, Tenant, AdmittedInstant.FromRecordedAct(Stale)).Request(RecordsWrite, "record", "a"));
         Assert.Equal(AuthorizationVerdict.Allowed, atStale.Verdict);
