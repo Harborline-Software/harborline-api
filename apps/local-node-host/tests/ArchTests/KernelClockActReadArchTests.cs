@@ -70,7 +70,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(35, reads.Count);
+        Assert.Equal(36, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ProjectsTheClockPerItem", StringComparison.Ordinal)).Value);
@@ -368,7 +369,8 @@ public sealed class KernelClockActReadArchTests
             var direct = new List<string>();
             var calls = new List<(MethodBase Target, bool Repeats)>();
             var initializers = new HashSet<MethodBase>();
-            if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
+            // An async, iterator or async-iterator method's body lives in its compiler-generated state machine.
+            if (method.GetCustomAttribute<StateMachineAttribute>() is { } state
                 && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
                 calls.Add((moveNext, false));
             var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
@@ -623,6 +625,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/loop", ReadsInALoop);
             app.MapGet("/planted/projection", ProjectsTheClockPerItem);
             app.MapGet("/planted/method-group", ReadsThroughAMethodGroup);
+            app.MapGet("/planted/iterator", ConsumesAClockIterator);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -687,6 +690,15 @@ public sealed class KernelClockActReadArchTests
             for (var pass = 0; pass < 2; pass++)
                 stamps.Add(time.GetUtcNow());
             return Results.Ok(stamps);
+        }
+
+        // An iterator helper whose body (in its state machine) yields two reads, consumed within the act.
+        private static IResult ConsumesAClockIterator(TimeProvider time) => Results.Ok(Stamps(time).ToArray());
+
+        private static IEnumerable<DateTimeOffset> Stamps(TimeProvider time)
+        {
+            yield return time.GetUtcNow();
+            yield return time.GetUtcNow();
         }
 
         // A delegate over the clock primitive itself, invoked twice.
