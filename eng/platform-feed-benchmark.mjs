@@ -192,26 +192,34 @@ export async function benchmark(platform, env = process.env) {
   const head = execute('git', ['-C', root, 'rev-parse', 'HEAD']).trim()
   if (head !== env.GITHUB_SHA || execute('git', ['-C', root, 'status', '--porcelain']).trim())
     throw new Error('benchmark source must be the clean dispatched commit')
-  const sdk = execute('dotnet', ['--version'], {cwd: root}).trim()
-  const profile = JSON.parse(readFileSync(path.join(root, 'eng/platform-feed-profile.json')))
-  if (sdk !== profile.sdk) throw new Error('benchmark host SDK differs from fixed profile')
-  // Equalize immutable image setup; cold must not pay a first pull that warm avoids.
-  const setupStarted = Number(env.BENCHMARK_SETUP_STARTED_MS)
-  if (!Number.isSafeInteger(setupStarted) || setupStarted <= 0 || setupStarted > Date.now())
-    throw new Error('benchmark common setup timing unavailable')
-  execute('docker', ['pull', '--platform=linux/amd64', profile.image])
-  const commonSetupMs = Date.now() - setupStarted
-  const cache = diagnosticOnly ? {put: () => {}} : benchmarkCache(env)
   const destination = path.join(root, '.claude/platform-feed-benchmark/evidence.json')
   mkdirSync(path.dirname(destination), {recursive: true})
-  const evidence = {schemaVersion: 1, apiCommit: head, sdk, node: process.version, image: profile.image,
+  const evidence = {schemaVersion: 1, apiCommit: head, node: process.version,
     runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT,
-    pair: Number(pair), commonSetupMs, results: [], reuseAuthorized: false, verdictReused: false, diagnosticOnly,
+    pair: Number(pair), results: [], completed: false, reuseAuthorized: false, verdictReused: false, diagnosticOnly,
     scope: diagnosticOnly ? 'boundary diagnostic only; full host/capability suites and cache-service operations omitted'
       : 'controlled disposable transport measurement; production authority remains unqualified'}
   const record = () => writeFileSync(destination, `${JSON.stringify(evidence, null, 2)}\n`)
-  let digest
+  record()
+  let digest, commonSetupMs, cache, setupStage = 'sdk-check'
   try {
+    const sdk = execute('dotnet', ['--version'], {cwd: root}).trim()
+    const profile = JSON.parse(readFileSync(path.join(root, 'eng/platform-feed-profile.json')))
+    evidence.image = profile.image
+    if (sdk !== profile.sdk) throw new Error('benchmark host SDK differs from fixed profile')
+    evidence.sdk = sdk
+    // Equalize immutable image setup; cold must not pay a first pull that warm avoids.
+    setupStage = 'setup-clock'
+    const setupStarted = Number(env.BENCHMARK_SETUP_STARTED_MS)
+    if (!Number.isSafeInteger(setupStarted) || setupStarted <= 0 || setupStarted > Date.now())
+      throw new Error('benchmark common setup timing unavailable')
+    setupStage = 'docker-pull'
+    execute('docker', ['pull', '--platform=linux/amd64', profile.image])
+    commonSetupMs = Date.now() - setupStarted
+    evidence.commonSetupMs = commonSetupMs
+    setupStage = 'cache-client'
+    cache = diagnosticOnly ? {put: () => {}} : benchmarkCache(env)
+    setupStage = undefined
     for (const mode of diagnosticOnly ? ['cold'] : ['cold', 'warm', 'forcedmiss']) {
       let prepared, handoff, clone
       const scratch = mkdtempSync(path.join(env.RUNNER_TEMP || tmpdir(), 'api-feed-benchmark-'))
@@ -277,7 +285,9 @@ export async function benchmark(platform, env = process.env) {
       forcedMissMs: evidence.measurement.forcedMissMs + commonSetupMs, improvementPercent: 100 * (cold - warm) / cold}
     evidence.completed = true; record()
   } catch (error) {
-    evidence.completed = false; evidence.failure = safeFailure(error); record()
+    evidence.completed = false; evidence.failure = safeFailure(error)
+    if (setupStage) evidence.failedSetupStage = setupStage
+    record()
     throw new Error('benchmark failed; no performance verdict')
   }
   return evidence

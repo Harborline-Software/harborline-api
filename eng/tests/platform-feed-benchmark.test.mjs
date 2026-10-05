@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, failureIdentity, measureCase, readBoundaryTail, runBoundaryDiagnostic} from '../platform-feed-benchmark.mjs'
 import {benchmarkCache} from '../platform-feed-benchmark-cache.mjs'
+import {safeFailure} from '../platform-feed-qualification.mjs'
 
 const input = {source: 'literal source identity'}
 const key = 'api356-benchmark-123456-1-1-' + 'a'.repeat(64) + '-bundle'
@@ -231,4 +232,60 @@ test('actual workflow restricts benchmark writers to manual dispatch and runs th
   const action = readFileSync(new URL('../../.github/actions/platform-feed-benchmark/action.yml', import.meta.url), 'utf8')
   assert.match(action, /using: node24/)
   assert.match(action, /main: \.\.\/\.\.\/\.\.\/eng\/platform-feed-benchmark\.mjs/)
+})
+
+// Execute the actual exported orchestrator body with external process/command fixtures;
+// no Docker, SDK build or cache service is launched by this regression.
+test('actual benchmark writes bounded failure evidence for every fallible common setup operation', async () => {
+  const source = readFileSync(new URL('../platform-feed-benchmark.mjs', import.meta.url), 'utf8')
+  const body = source.slice(source.indexOf('export async function benchmark('), source.indexOf("\nif ((process.argv[1]"))
+    .replace('export async function', 'async function').replaceAll('import.meta.dirname', 'moduleDirectory')
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+  for (const failure of ['sdk-exit', 'sdk-mismatch', 'setup-clock', 'docker-pull', 'cache-client']) {
+    const root = mkdtempSync(path.join(tmpdir(), 'benchmark-setup-evidence-'))
+    const head = 'a'.repeat(40), calls = [], snapshots = []
+    const profile = {sdk: '11.0.100-literal', image: 'literal-image@sha256:' + 'b'.repeat(64)}
+    const privateText = 'private-value https://private.example/?token=private-value'
+    const commandError = Object.assign(new Error(privateText), {status: 7, stderr: privateText + ' NU1301'})
+    const execute = (command, args) => {
+      calls.push(command)
+      if (command === 'git') return args.includes('rev-parse') ? head : ''
+      if (command === 'dotnet') {
+        assert.equal(snapshots.length, 1, 'initial evidence precedes fallible SDK command')
+        if (failure === 'sdk-exit') throw commandError
+        return failure === 'sdk-mismatch' ? privateText : profile.sdk
+      }
+      assert.equal(command, 'docker')
+      if (failure === 'docker-pull') throw commandError
+      return ''
+    }
+    const run = new AsyncFunction('moduleDirectory', 'process', 'path', 'readPin', 'execFileSync',
+      'buildEnvironment', 'readFileSync', 'mkdirSync', 'writeFileSync', 'benchmarkCache', 'safeFailure',
+      'fixtureEnv', body + '\nreturn benchmark("literal-platform", fixtureEnv)')
+    const fixtureEnv = {BENCHMARK_PAIR: '1', GITHUB_RUN_ID: '123456', GITHUB_RUN_ATTEMPT: '1',
+      GITHUB_REPOSITORY: 'Harborline-Software/harborline-api', GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_JOB: 'benchmark-linux', GITHUB_SHA: head,
+      BENCHMARK_SETUP_STARTED_MS: failure === 'setup-clock' ? 'invalid-private-value' : String(Date.now() - 1000)}
+    try {
+      await assert.rejects(run(path.join(root, 'eng'), {platform: 'linux', versions: {node: '24.0.0'}, version: 'v24.0.0'},
+        path, () => ({}), execute, () => ({}), () => JSON.stringify(profile),
+        (directory, options) => {assert.equal(options.recursive, true); mkdirSync(directory, options)},
+        (destination, text) => {snapshots.push(JSON.parse(text)); writeFileSync(destination, text)},
+        benchmarkCache, safeFailure, fixtureEnv), /benchmark failed; no performance verdict/)
+      const evidence = JSON.parse(readFileSync(path.join(root, '.claude/platform-feed-benchmark/evidence.json')))
+      assert.equal(snapshots[0].completed, false)
+      assert.deepEqual(snapshots[0].results, [])
+      assert.equal(evidence.completed, false)
+      assert.equal(evidence.failedSetupStage, failure.startsWith('sdk-') ? 'sdk-check' : failure)
+      assert.deepEqual(evidence.results, [])
+      assert.equal(evidence.apiCommit, head)
+      assert.equal(evidence.runId, '123456'); assert.equal(evidence.runAttempt, '1'); assert.equal(evidence.pair, 1)
+      assert.equal(evidence.reuseAuthorized, false); assert.equal(evidence.verdictReused, false)
+      assert.equal(Object.hasOwn(evidence, 'measurement'), false)
+      assert.deepEqual(evidence.failure, ['sdk-exit', 'docker-pull'].includes(failure)
+        ? {kind: 'command-exit', exitCode: 7, diagnosticCodes: ['NU1301']} : {kind: 'validation-or-spawn'})
+      assert.doesNotMatch(JSON.stringify(evidence), /private-value|private\.example/)
+      assert.deepEqual(calls, ['git', 'git', 'dotnet', ...(['docker-pull', 'cache-client'].includes(failure) ? ['docker'] : [])])
+    } finally {rmSync(root, {recursive: true, force: true})}
+  }
 })
