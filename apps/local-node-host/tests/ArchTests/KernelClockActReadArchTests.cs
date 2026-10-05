@@ -70,7 +70,7 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(37, reads.Count);
+        Assert.Equal(38, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -93,6 +93,7 @@ public sealed class KernelClockActReadArchTests
         // The getter's two wall-clock reads, and its returned clock: not `return _clock;`, so not proven the service's own.
         Assert.Equal(3, reads.Single(item => item.Key.Contains("ReadsThroughAWallClockGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockViaALocal", StringComparison.Ordinal)).Value);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughADelegate", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandsTheClockOnAsAnObject", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByASuppliedType", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByTypeTwice", StringComparison.Ordinal)).Value);
@@ -389,8 +390,12 @@ public sealed class KernelClockActReadArchTests
                 {
                     if (opCode.OperandType == OperandType.InlineField && ResolveField(method, operand) is { IsStatic: true } staticField)
                         AddInitializer(initializers, staticField.DeclaringType);
-                    injectedReceiver = ProducesInjectedClock(method, opCode, operand)
-                        || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
+                    // `dup` copies the value on top, so the copy keeps its provenance unless the dup sits at a join
+                    // (`Func<DateTimeOffset> read = _clock.GetUtcNow;` emits ldfld; dup; ldvirtftn; newobj).
+                    injectedReceiver = opCode == OpCodes.Dup
+                        ? injectedReceiver && !joins.Contains(offset)
+                        : ProducesInjectedClock(method, opCode, operand)
+                            || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                     continue;
                 }
                 var receiver = injectedReceiver && !joins.Contains(offset);
@@ -615,6 +620,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/object-clock", HandsTheClockOnAsAnObject);
             app.MapGet("/planted/wall-getter", ReadsThroughAWallClockGetter);
             app.MapGet("/planted/service-local", UsesAServiceOwnClockViaALocal);
+            app.MapGet("/planted/service-delegate", UsesAServiceOwnClockThroughADelegate);
             app.MapGet("/planted/container-getter", ReadsAContainerClockThroughAGetter);
             app.MapGet("/planted/branch-merged", ReadsABranchMergedClock);
             app.MapGet("/planted/ternary-merged", ReadsATernaryMergedClock);
@@ -672,6 +678,9 @@ public sealed class KernelClockActReadArchTests
 
         // Both reads are the service's own injected clock, held in a local: not the act's.
         private static IResult UsesAServiceOwnClockViaALocal(PlantedService service) => Results.Ok(service.Window());
+
+        // `Func<DateTimeOffset> read = _clock.GetUtcNow;`: a delegate over the service's own clock (ldfld; dup; ldvirtftn).
+        private static IResult UsesAServiceOwnClockThroughADelegate(PlantedService service) => Results.Ok(service.DelegateRead());
 
         // The getter touches the injected field but returns the request container's clock.
         private static IResult ReadsAContainerClockThroughAGetter(PlantedService service) =>
@@ -947,6 +956,12 @@ public sealed class KernelClockActReadArchTests
         {
             var own = clock;
             return own.GetUtcNow() - own.GetUtcNow();
+        }
+
+        public DateTimeOffset DelegateRead()
+        {
+            Func<DateTimeOffset> read = clock.GetUtcNow;
+            return read();
         }
 
         public HttpContext Http { get; init; } = null!;
