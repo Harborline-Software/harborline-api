@@ -70,7 +70,7 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(36, reads.Count);
+        Assert.Equal(37, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -87,6 +87,7 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(2, reads.Single(item => item.Key.Contains("FallsBackReadingTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsATernaryMergedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughAThrowingGetter", StringComparison.Ordinal)).Value);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABranchingThrowGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAContainerClockThroughAGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsABranchMergedClock", StringComparison.Ordinal)).Value);
         // The getter's two wall-clock reads, and its returned clock: not `return _clock;`, so not proven the service's own.
@@ -474,13 +475,19 @@ public sealed class KernelClockActReadArchTests
             return false;
         if (code.Length == 3)
             return true; // return _clock;
-        // return _clock ?? throw new X(...);  — the throw arm ends in throw with no ret and no branch, so whatever it
-        // computes never reaches the return value: only the field does.
-        return code[2].OpCode == OpCodes.Dup
-            && (code[3].OpCode == OpCodes.Brtrue_S || code[3].OpCode == OpCodes.Brtrue) && code[3].Operand == code[^1].Offset
-            && code[4].OpCode == OpCodes.Pop && code[^2].OpCode == OpCodes.Throw
-            && code[5..^2].All(instruction => instruction.OpCode != OpCodes.Ret
-                && instruction.OpCode.FlowControl is not (FlowControl.Branch or FlowControl.Cond_Branch));
+        // return _clock ?? throw new X(...);  — the throw arm ends in throw, holds no ret, and every branch inside it
+        // (a conditional message, say) lands inside it, so whatever it computes never reaches the return value: only
+        // the field does.
+        if (code.Length < 7 || code[2].OpCode != OpCodes.Dup
+            || (code[3].OpCode != OpCodes.Brtrue_S && code[3].OpCode != OpCodes.Brtrue) || code[3].Operand != code[^1].Offset
+            || code[4].OpCode != OpCodes.Pop || code[^2].OpCode != OpCodes.Throw
+            || code[5..^1].Any(instruction => instruction.OpCode == OpCodes.Ret)
+            || getter.GetMethodBody()?.ExceptionHandlingClauses.Count > 0)
+            return false;
+        int armStart = code[5].Offset, armEnd = code[^2].Offset, returnAt = code[^1].Offset;
+        return RawMutationPortSymbolInventoryTests.BranchEdges(getter).All(edge =>
+            edge.From == code[3].Offset // the coalescing branch itself, to the ret
+            || (edge.From >= armStart && edge.From <= armEnd && edge.To >= armStart && edge.To <= armEnd && edge.To < returnAt));
     }
 
     /// <summary>
@@ -628,6 +635,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/iterator", ConsumesAClockIterator);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
+            app.MapGet("/planted/branching-throw-getter", UsesAServiceOwnClockThroughABranchingThrowGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
@@ -742,6 +750,10 @@ public sealed class KernelClockActReadArchTests
         // `_clock ?? throw new Exception(null)`: the service's own clock both times.
         private static IResult UsesAServiceOwnClockThroughAThrowingGetter(PlantedNullableClockService service) =>
             Results.Ok(service.OwnClock.GetUtcNow() - service.OwnClock.GetUtcNow());
+
+        // `_clock ?? throw new X(flag ? a : b)`: the throw arm branches, but only within itself.
+        private static IResult UsesAServiceOwnClockThroughABranchingThrowGetter(PlantedNullableClockService service) =>
+            Results.Ok(service.MessageClock.GetUtcNow() - service.MessageClock.GetUtcNow());
 
         // A block-bodied `get { return _clock ?? throw ...; }`, whose Debug IL returns through a local.
         private static IResult UsesAServiceOwnClockThroughABlockGetter(PlantedNullableClockService service) =>
@@ -921,6 +933,10 @@ public sealed class KernelClockActReadArchTests
         {
             get { return _clock ?? throw new InvalidOperationException(); }
         }
+
+        public bool Flag { get; init; }
+
+        public TimeProvider MessageClock => _clock ?? throw new InvalidOperationException(Flag ? "missing" : "unset");
     }
 
     private sealed class PlantedService(TimeProvider clock)
