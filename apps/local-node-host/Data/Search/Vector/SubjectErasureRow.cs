@@ -32,4 +32,27 @@ public sealed class SubjectErasureRow
 
     /// <summary>When the erasure was recorded, Unix-ms UTC (compliance metadata; not consulted by the gate).</summary>
     public required long ErasedAtUnixMs { get; set; }
+
+    // T-1048 approval evidence: what the recovery pass needs to finish an interrupted erasure and write its
+    // SubjectErased audit without the request. PERSONAL DATA (the approver ids). Read only by
+    // NodeEfSubjectErasureRegistry's recovery path, never by a route, query surface or projection, and cleared in
+    // the commit that stages the audit in the outbox. Null on a completed row and on a row marked before T-1048.
+
+    /// <summary>The approver principal ids, a JSON string array; the audit's <c>approving_actors</c>.</summary>
+    public string? ApprovingActorsJson { get; set; }
+
+    /// <summary>The legal-basis code; the audit's <c>legal_basis</c>.</summary>
+    public string? LegalBasis { get; set; }
+
+    /// <summary>The instant the approved erasure took effect, Unix-ms UTC; the tombstone's and the audit's instant.</summary>
+    public long? ApprovedAtUnixMs { get; set; }
+
+    /// <summary>When the audit was secured and the evidence cleared, Unix-ms UTC; null while the erasure is owed.</summary>
+    public long? CompletedAtUnixMs { get; set; }
+
+    /// <summary>Failed recovery attempts, for the backoff.</summary>
+    public int RecoveryAttempts { get; set; }
+
+    /// <summary>The earliest instant the next recovery attempt is due, Unix-ms UTC; null when due now.</summary>
+    public long? NextRecoveryAtUnixMs { get; set; }
 }

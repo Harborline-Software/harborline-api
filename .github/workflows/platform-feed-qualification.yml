@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/platform-feed-qualification.yml'
+      - '.github/workflows/platform-feed-producer.yml'
+      - '.github/actions/platform-feed/action.yml'
+      - 'eng/tests/platform-feed*.test.mjs'
+      - 'eng/tests/same-job-platform-feed.test.mjs'
+      - 'eng/tests/exact-clone-platform-feed.test.mjs'
       - 'eng/platform-feed-*.mjs'
       - 'eng/platform-feed-profile.json'
       - 'eng/build-local-feed.mjs'

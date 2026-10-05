@@ -19,12 +19,15 @@ import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {randomUUID} from 'node:crypto'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
 import {handoffRestored} from './exact-clone-platform-feed.mjs'
+import {persistInputShadow} from './validation-inputs.mjs'
+import {observeNuGetRoot} from './validation-nuget-root.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -51,7 +54,8 @@ const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
 if (qualityEnabled) {
   // qualityArtifacts also finds SARIF outside the engine directories. Never attest an old
   // top-level or nested report merely because this run rebuilt the three normal directories.
-  beginQualityProduction(apiRoot, qualityArtifacts(apiRoot).sarif)
+  const oldQuality = qualityArtifacts(apiRoot)
+  beginQualityProduction(apiRoot, [...oldQuality.sarif, ...oldQuality.rawSarif])
 }
 
 const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
@@ -111,10 +115,10 @@ const redactEvidence = text => {
 // by design because each carries permitted, name-pinned failures; gating on the exit code would
 // make this gate unpassable while the baselines are honest. For those steps the baseline
 // comparison below is the authority, and the exit code is recorded for the record only.
-const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
+const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
-  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile})
+  const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile, diagnosticDirectory})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
   // Error messages, executable paths and spawn arguments can contain credentials.
   // Retain only bounded OS codes and numeric errno, plus the termination signal.
@@ -145,6 +149,7 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
 
 let report
 let persisted
+let packageRootResolution = {status: 'unavailable'}
 try {
   if (collectCoverage) {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
@@ -152,6 +157,12 @@ try {
   }
   const cloneStep = run('git-clone', 'git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], apiRoot)
   if (!cloneStep.passed) throw new Error('Exact-clone git clone failed; see stage evidence')
+  // Resolve once before restore/build. Keep approval as parent-owned state even
+  // when a failed query leaves an inherited override available to the build.
+  packageRootResolution = observeNuGetRoot({cwd: clone})
+  if (packageRootResolution.status !== 'resolved') {
+    console.error('compiler package root unavailable; input observation remains incomplete')
+  }
 
   // Sanity: the clone must carry no build or dependency artifacts. If it does, the .gitignore is
   // wrong and this gate would be testing the same ambient state it exists to exclude.
@@ -159,11 +170,16 @@ try {
   const artifacts = tracked.filter(file => /(^|\/)(node_modules|obj|bin)\//.test(file))
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
+  run('validation-reuse-contracts', process.execPath, ['--test',
+    'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
+    'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
+    'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
   const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   const feedHandoff = handoffRestored(feedStep, process.env)
   if (feedHandoff) {
     process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
     mkdirSync(process.env.NUGET_PACKAGES)
+    packageRootResolution = observeNuGetRoot({cwd: clone})
   }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   if (feedHandoff && !run('platform-feed-consumption', process.execPath,
@@ -177,6 +193,9 @@ try {
   const archDirectory = path.join(qualityDirectory, 'arch')
   const eslintDirectory = path.join(qualityDirectory, 'eslint')
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
+  buildArgs.push('-p:HarborlineValidationInputCapture=1')
+  process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION = randomUUID()
+  buildArgs.push(`-p:HarborlineValidationCaptureSession=${process.env.HARBORLINE_VALIDATION_CAPTURE_SESSION}`)
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
     rmSync(archDirectory, {recursive: true, force: true})
@@ -283,7 +302,10 @@ try {
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--filter', 'Lane!=perf',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
-      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
+      // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
+      '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
@@ -572,6 +594,10 @@ try {
     recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), steps,
   }
 } finally {
+  // Observe the dependency/native closure while scratch still exists. Shadow data never
+  // authorizes skipping work and a collection failure cannot change the gate verdict.
+  persistInputShadow({apiRoot, clone, hostBaseline: BASELINES.host,
+    coverage: collectCoverage, quality: qualityEnabled, packageRootResolution})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
@@ -585,8 +611,9 @@ try {
 // same path and ANSI redaction as the report tail. Raw output stays out of recorded JSON;
 // the report references a relative artifact path, and passing reports stay compact.
 if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
+  const producedQuality = qualityArtifacts(apiRoot)
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
-    files: qualityArtifacts(apiRoot).sarif})
+    files: [...producedQuality.sarif, ...producedQuality.rawSarif]})
 }
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and

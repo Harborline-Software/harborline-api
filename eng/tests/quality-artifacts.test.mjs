@@ -18,9 +18,11 @@ test('only top-level cobertura reports are quality inputs; raw per-run coverlet 
     writeFileSync(path.join(quality, 'contracts.cobertura.xml'), '<coverage/>')
     writeFileSync(path.join(quality, 'coverage', 'host', 'run-1', 'coverage.cobertura.xml'), '<coverage/>')
     writeFileSync(path.join(quality, 'roslyn', 'A.sarif'), '{}')
+    writeFileSync(path.join(quality, 'roslyn', 'A.sarif.raw'), 'compiler bytes')
     const found = qualityArtifacts(root)
     assert.deepEqual(found.cobertura.map(f => path.relative(quality, f)).sort(), ['contracts.cobertura.xml', 'host.cobertura.xml'])
     assert.deepEqual(found.sarif.map(f => path.relative(quality, f)), [path.join('roslyn', 'A.sarif')])
+    assert.deepEqual(found.rawSarif.map(f => path.relative(quality, f)), [path.join('roslyn', 'A.sarif.raw')])
   } finally {
     rmSync(root, {recursive: true, force: true})
   }

@@ -1,0 +1,15 @@
+name: Synthetic cache service qualification
+description: Exercise only disposable cache namespaces; never package or release caches
+inputs:
+  mode:
+    required: true
+    description: seed, read, attack, or deny
+  namespace:
+    default: ''
+    description: Disposable namespace returned by the protected-main seed run
+outputs:
+  namespace:
+    description: Disposable synthetic namespace
+runs:
+  using: node24
+  main: ../../../eng/cache-service-qualification.mjs

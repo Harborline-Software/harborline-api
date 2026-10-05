@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process'
 import {appendFileSync, mkdirSync, writeFileSync, writeSync} from 'node:fs'
 import path from 'node:path'
 import {isMainThread, Worker, workerData} from 'node:worker_threads'
+import {diagnosticReader, sampleCpu} from './host-test-diagnostics.mjs'
 
 // Only caller-assigned stage identifiers and bounded process metadata cross this boundary.
 // Commands, arguments, environment values and child output can contain credentials.
@@ -13,14 +14,17 @@ const emit = (file, event) => {
 }
 
 if (!isMainThread) {
-  const {file, id, started, shared, intervalMs} = workerData
+  const {file, id, started, shared, intervalMs, diagnosticDirectory} = workerData
+  const readDiagnostics = diagnosticDirectory ? diagnosticReader(diagnosticDirectory) : null
   const state = new Int32Array(shared)
   Atomics.store(state, 1, 1)
   Atomics.notify(state, 1)
   try {
     while (Atomics.wait(state, 0, 0, intervalMs) === 'timed-out') {
       if (Atomics.load(state, 0) !== 0) break
-      emit(file, {id, state: 'running', elapsedMs: Date.now() - started})
+      const diagnostics = readDiagnostics?.()
+      emit(file, {id, state: 'running', elapsedMs: Date.now() - started,
+        ...(diagnostics ? {diagnostics, cpu: sampleCpu(diagnostics.traceWriterPids)} : {})})
     }
   } finally {
     Atomics.store(state, 2, 1)
@@ -37,7 +41,7 @@ export function resetProgressFile(file) {
 }
 
 export function observedSpawnSync(id, executable, args, options,
-  {file, intervalMs = 30_000, workerUrl = new URL(import.meta.url), waitMs = 5_000}) {
+  {file, intervalMs = 30_000, workerUrl = new URL(import.meta.url), waitMs = 5_000, diagnosticDirectory} = {}) {
   const started = Date.now()
   let worker
   let state
@@ -51,7 +55,7 @@ export function observedSpawnSync(id, executable, args, options,
       emit(file, {id, state: 'started', recordedAt: new Date(started).toISOString()})
       const shared = new SharedArrayBuffer(3 * Int32Array.BYTES_PER_ELEMENT)
       state = new Int32Array(shared)
-      worker = new Worker(workerUrl, {workerData: {file, id, started, shared, intervalMs}})
+      worker = new Worker(workerUrl, {workerData: {file, id, started, shared, intervalMs, diagnosticDirectory}})
       // Worker failures may arrive after spawnSync unblocks. They remain diagnostic only.
       worker.on('error', () => emit(file, {id, state: 'diagnostic-worker-failed', elapsedMs: Date.now() - started}))
       worker.unref()

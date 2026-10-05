@@ -31,4 +31,5 @@
     <ProjectReference Include="..\kernel-ledger\Harborline.Kernel.Ledger.csproj" />
     <ProjectReference Include="..\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/record-construction-inputs.targets" />
 </Project>

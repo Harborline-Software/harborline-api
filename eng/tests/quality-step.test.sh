@@ -84,6 +84,7 @@ git -C "$fixture" commit --no-verify -qm changed
 cat > "$fixture/artifacts/quality/finding.sarif" <<'JSON'
 {"version":"2.1.0","runs":[{"tool":{"driver":{"name":"roslyn","version":"1","rules":[{"id":"TEST001"}]}},"invocations":[{"executionSuccessful":false}],"results":[{"ruleId":"TEST001","level":"error","message":{"text":"planted"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"src/example.cs"},"region":{"startLine":2,"snippet":{"text":"new finding"}}}}]}]},{"tool":{"driver":{"name":"eslint","version":"1","rules":[]}},"results":[]}]}
 JSON
+node "$root/eng/normalize-roslyn-sarif.mjs" --repo-root "$fixture" "$fixture/artifacts/quality/finding.sarif"
 HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" node "$root/eng/quality-step.mjs" --root "$fixture" --write-baseline "$fixture/candidate.json" > "$fixture/.git/evaluate.out"
 node -e 'const d=require(process.argv[1]); if(d.wouldBlock !== true || d.conclusion !== "success" || d.findings.length !== 1) process.exit(1)' "$fixture/.git/harborline-api-quality-decision.json"
 node -e 'const d=require(process.argv[1]); const roslyn=d.engines.find(e=>e.engine==="roslyn"), eslint=d.engines.find(e=>e.engine==="eslint"); if(!roslyn || roslyn.status!=="analyzer-error" || !eslint || eslint.status!=="ok") process.exit(1)' "$fixture/candidate.json"

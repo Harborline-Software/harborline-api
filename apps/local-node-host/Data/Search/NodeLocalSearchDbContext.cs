@@ -320,6 +320,12 @@ public sealed class NodeLocalSearchDbContext : DbContext
             e.Property(r => r.TenantId).HasColumnName("tenant_id").HasMaxLength(256);
             e.Property(r => r.SubjectId).HasColumnName("subject_id").HasMaxLength(256);
             e.Property(r => r.ErasedAtUnixMs).HasColumnName("erased_at_unix_ms");
+            e.Property(r => r.ApprovingActorsJson).HasColumnName("approving_actors_json");
+            e.Property(r => r.LegalBasis).HasColumnName("legal_basis");
+            e.Property(r => r.ApprovedAtUnixMs).HasColumnName("approved_at_unix_ms");
+            e.Property(r => r.CompletedAtUnixMs).HasColumnName("completed_at_unix_ms");
+            e.Property(r => r.RecoveryAttempts).HasColumnName("recovery_attempts");
+            e.Property(r => r.NextRecoveryAtUnixMs).HasColumnName("next_recovery_at_unix_ms");
         });
 
         modelBuilder.Entity<SubjectTombstoneRow>(e =>

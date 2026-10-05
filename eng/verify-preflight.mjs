@@ -5,6 +5,7 @@ import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {readQualityPin, resolveQualityCheckout, resolveControlPolicy} from './quality-step.mjs'
 import {readPin} from './build-local-feed.mjs'
+import {executeFocusedModes} from './focused-mode-policy.mjs'
 
 export function verificationPlan(env = process.env) {
   const lane = env.HARBORLINE_VERIFY_LANE || 'all'
@@ -53,7 +54,15 @@ export function verifyPreflight({apiRoot = process.cwd(), env = process.env,
   return plan
 }
 
+// Classification precedes execution; completion receipts are checked by the
+// focused executor after both modes finish. Shared lanes still own no host work.
+export function runVerificationPreflight({prerequisites = verifyPreflight, focusedModes = executeFocusedModes, ...options} = {}) {
+  const plan = prerequisites(options)
+  const focused = plan.lane === 'shared' ? {status: 'host-lane-owned'} : focusedModes(options)
+  return {...plan, focused}
+}
+
 if (process.argv[1]?.replaceAll('\\', '/').endsWith('/eng/verify-preflight.mjs')) {
-  try { const plan = verifyPreflight(); console.log(`preflight: ${plan.lane} prerequisites OK; quality=${plan.quality}`) }
+  try { const plan = runVerificationPreflight(); console.log(`preflight: ${plan.lane} prerequisites OK; quality=${plan.quality}; focused=${plan.focused.status}`) }
   catch (error) { console.error(`preflight: ${error.message}`); process.exitCode = 1 }
 }

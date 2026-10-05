@@ -16,7 +16,7 @@ const setup = body => {
 }
 const events = file => readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line))
 
-for (const scenario of ['journal-parent-is-file', 'journal-is-directory', 'console-closed', 'console-write-throws', 'terminate-throws', 'terminate-rejects',
+for (const scenario of ['journal-parent-is-file', 'journal-is-directory', 'console-write-ebadf', 'console-write-throws', 'terminate-throws', 'terminate-rejects',
   'worker-construction-fails', 'worker-start-times-out', 'worker-heartbeat-throws',
   'worker-stop-times-out', 'completion-write-fails']) {
   test(`${scenario}: telemetry cannot skip, repeat or replace the child result`, () => {
@@ -35,7 +35,9 @@ for (const scenario of ['journal-parent-is-file', 'journal-is-directory', 'conso
       prepare = `fs.writeFileSync(file,'blocked');`
       fileExpression = `file+'/child.jsonl'`
     } else if (scenario === 'journal-is-directory') prepare = 'fs.mkdirSync(file);'
-    else if (scenario === 'console-closed') prepare = 'fs.closeSync(1);'
+    // Closing runtime fd 1 before spawn/Worker can abort libuv on Linux Node24,
+    // even without our observer. Inject EBADF at the sink and retain the descriptor.
+    else if (scenario === 'console-write-ebadf') prepare = "const originalWrite=fs.writeSync;fs.writeSync=(fd,...args)=>{if(fd===1)throw Object.assign(new Error('private-sink-error'),{code:'EBADF'});return originalWrite(fd,...args)};(await import('node:module')).syncBuiltinESMExports();"
     else if (scenario === 'console-write-throws') prepare = "fs.writeSync=()=>{throw new Error('private-sink-error')};(await import('node:module')).syncBuiltinESMExports();"
     else if (scenario === 'terminate-throws' || scenario === 'terminate-rejects') prepare =
       "const {Worker}=await import('node:worker_threads');Worker.prototype.terminate=()=>" +
@@ -46,9 +48,15 @@ for (const scenario of ['journal-parent-is-file', 'journal-is-directory', 'conso
     const childSource = `const fs=require('fs');fs.appendFileSync(process.argv[1],${JSON.stringify('once\n')});
       ${scenario === 'completion-write-fails' ? "fs.unlinkSync(process.argv[2]);fs.mkdirSync(process.argv[2]);" : ''}
       process.stdout.write('literal child output');process.stderr.write('literal child error');setTimeout(()=>process.exit(7),150);`
+    const baselineMarker = path.join(fixture.root, 'baseline-child-ran.txt')
+    const directBaseline = scenario === 'console-write-ebadf' ? `
+      const direct=(await import('node:child_process')).spawnSync(process.execPath,
+        ['-e',${JSON.stringify(childSource)},${JSON.stringify(baselineMarker)},file],{encoding:'utf8'});
+      if(direct.status!==7||direct.signal!==null||direct.error||direct.stdout!=='literal child output'||direct.stderr!=='literal child error')process.exit(92);` : ''
     writeFileSync(fixture.fixture, `import {observedSpawnSync,resetProgressFile} from ${JSON.stringify(helper)};
       import fs from 'node:fs';const file=${JSON.stringify(fixture.file)};${prepare}
       resetProgressFile(${fileExpression});
+      ${directBaseline}
       const result=observedSpawnSync('fixture-observer',process.execPath,
         ['-e',${JSON.stringify(childSource)},${JSON.stringify(marker)},file],
         {encoding:'utf8'}, {file:${fileExpression},intervalMs:${scenario === 'completion-write-fails' ? 10000 : 10},waitMs:${scenario === 'worker-start-times-out' ? 20 : 500}${observerOptions}});
@@ -65,7 +73,8 @@ for (const scenario of ['journal-parent-is-file', 'journal-is-directory', 'conso
         assert.ok(events(fixture.file).some(row => row.state === 'diagnostic-start-failed'))
       if (scenario === 'journal-is-directory' || scenario === 'journal-parent-is-file')
         assert.match(result.stdout, /"state":"completed"/)
-      if (scenario === 'console-closed' || scenario === 'console-write-throws') assert.equal(events(fixture.file).at(-1).exitCode, 7)
+      if (scenario === 'console-write-ebadf') assert.equal(readFileSync(baselineMarker, 'utf8'), 'once\n', 'direct spawn baseline ran once under the same injected sink failure')
+      if (scenario === 'console-write-ebadf' || scenario === 'console-write-throws') assert.equal(events(fixture.file).at(-1).exitCode, 7)
     } finally { rmSync(fixture.root, {recursive: true, force: true}) }
   })
 }

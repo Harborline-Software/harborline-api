@@ -105,4 +105,6 @@
                             And '$(HarborlineRoslynSarifDirectory)' != ''">
     <ErrorLog>$([System.IO.Path]::Combine('$(HarborlineRoslynSarifDirectory)', '$(MSBuildProjectName).sarif')),version=2.1</ErrorLog>
   </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)eng/validation-compiler-inputs.targets"
+          Condition="'$(HarborlineValidationInputCapture)' == '1'" />
 </Project>
