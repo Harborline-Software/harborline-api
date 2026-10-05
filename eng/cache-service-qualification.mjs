@@ -62,13 +62,23 @@ export function serviceClient(env, fetcher = fetch) {
     const upload = field('signed_upload_url', 'signedUploadUrl')
     const download = field('signed_download_url', 'signedDownloadUrl')
     const matched = field('matched_key', 'matchedKey')
+    if ((Object.hasOwn(data, 'message') && (typeof data.message !== 'string' || data.message.length > 4096))
+      || ['code', 'msg', 'error'].some(name => Object.hasOwn(data, name)))
+      throw new QualificationFailure('malformed or error cache service response')
+    const message = data.message || ''
     if (data.ok === true) {
-      if (!response.ok || (method === 'CreateCacheEntry' && !upload)
+      if (!response.ok || message || (method === 'CreateCacheEntry' && !upload)
         || (method === 'GetCacheEntryDownloadURL' && (!download || matched !== request.key)))
         throw new QualificationFailure('incomplete or mismatched cache service success')
     } else if (upload || download || matched) throw new QualificationFailure('cache service miss contains success fields')
-    // Signed URLs remain private to the client, never included in evidence or errors.
-    return {status: response.status, ok: response.ok && data.ok === true, upload, download}
+    if (method === 'GetCacheEntryDownloadURL' && data.ok !== true && message)
+      throw new QualificationFailure('cache lookup returned an error; no isolation verdict')
+    // Official saveCacheV2 classifies this stable service prefix as CacheWriteDeniedError.
+    // Generic false reservations, HTTP errors and omitted messages prove no permission denial.
+    const writeDenied = method === 'CreateCacheEntry' && response.status === 200
+      && data.ok !== true && message.startsWith('cache write denied:')
+    // Raw messages, signed URLs and credentials never enter evidence or errors.
+    return {status: response.status, ok: response.ok && data.ok === true, upload, download, writeDenied}
   }
 }
 
@@ -86,7 +96,8 @@ export async function exercise(context, env, rpc, fetcher = fetch) {
   const key = suffix => `${context.namespace}-${suffix}`
   const call = async (method, suffix, extra = {}) => {
     const result = await rpc(method, {key: key(suffix), version, ...extra})
-    evidence.operations.push({method, suffix, status: result.status, ok: result.ok})
+    evidence.operations.push({method, suffix, status: result.status, ok: result.ok,
+      ...(result.writeDenied ? {refusal: 'write-denied'} : {})})
     if (env.GITHUB_ACTIONS === 'true') console.log(JSON.stringify(evidence.operations.at(-1)))
     return result
   }
@@ -120,15 +131,20 @@ export async function exercise(context, env, rpc, fetcher = fetch) {
     await write('read-positive', literal)
   } else if (context.mode === 'read') {
     if (await read('shared') !== literal) throw new QualificationFailure('main fixture changed or unavailable')
-    if (await read('pr-only') !== null || await read('override') !== null)
+    if (await read('pr-only') !== null || await read('override') !== null || await read('denied') !== null)
       throw new QualificationFailure('candidate entry visible to protected main')
   } else {
     if (await read(context.mode === 'deny' ? 'read-positive' : 'shared') !== literal) throw new QualificationFailure('main fixture read positive control failed')
     // Bypass both a restore-only action and the client-side mode check.
     env.ACTIONS_CACHE_MODE = 'write'
     if (context.mode === 'deny') {
+      if (evidence.declaredServiceMode !== 'read') throw new QualificationFailure('read-only service mode required')
+      if (await read('denied') !== null) throw new QualificationFailure('denial key already exists; collision control failed')
       const result = await call('CreateCacheEntry', 'denied')
-      if (result.status !== 403 || result.ok) throw new QualificationFailure('service read-only write denial not established')
+      if (result.status !== 200 || result.ok || result.writeDenied !== true)
+        throw new QualificationFailure('service read-only write denial not established')
+      if (await read('denied') !== null) throw new QualificationFailure('denied reservation became visible')
+      evidence.writeDenialEstablished = true
     } else {
       await write('shared', altered)
       await write('pr-only', altered)
