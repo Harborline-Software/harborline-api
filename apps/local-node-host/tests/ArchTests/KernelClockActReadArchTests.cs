@@ -34,8 +34,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// (read once, before the branch), and a read that can repeat (inside a loop, in a recursive cycle, or in a
 /// delegate the act builds, which may be invoked any number of times) counts as more than one. Interface and virtual dispatch are not
 /// resolved to implementations, and neither is any call made by reflection, <c>dynamic</c> or a compiled
-/// expression (<c>MethodInfo.Invoke</c>, <c>Activator</c>): the graph follows call instructions only. A delegate the act builds over its own code counts as invoked once where it is
-/// built. A clock injected into a service instance is that service's own and is not counted; the runtime theory
+/// expression (<c>MethodInfo.Invoke</c>, <c>Activator</c>): the graph follows call instructions only. A delegate the act builds over its own code is counted where it is built,
+/// not where it is invoked. A clock injected into a service instance is that service's own and is not counted (an
+/// object whose instance method is a mapped handler is route code, not a service, so its clock counts); the runtime theory
 /// covers those for the acts it drives, and a structural store rule is owed (T-690 slice 2). Out of scope (T-690 log): the <c>NodeFormsComposition</c> shape, a read inside a DI factory closure
 /// reached through interface dispatch from a validator, which only the runtime theory sees.
 /// </para>
@@ -50,7 +51,7 @@ public sealed class KernelClockActReadArchTests
 
         Assert.Empty(unpaired);
         Assert.True(handlers.Count > 200, $"Handler discovery found only {handlers.Count} route handlers.");
-        var graph = new ReadGraph(assemblies);
+        var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
         var violations = handlers
             .Select(handler => (handler, reads: ActReads(handler.Handler, assemblies, graph)))
             .Where(item => item.reads.Count > 1)
@@ -70,7 +71,7 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(39, reads.Count);
+        Assert.Equal(40, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -78,6 +79,7 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsAHiddenGetUtcNow", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsALookalikeOverload", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandlerOwner.Handle", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedInstanceRoute.Handle", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
@@ -117,7 +119,7 @@ public sealed class KernelClockActReadArchTests
         var entersAtA = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtA), BindingFlags.Static | BindingFlags.NonPublic)!;
         var entersAtB = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtBTwice), BindingFlags.Static | BindingFlags.NonPublic)!;
 
-        var shared = new ReadGraph(assemblies);
+        var shared = new ReadGraph(assemblies, RouteTypes([]));
         // The recursive component can repeat, so its one read counts twice per call into it.
         Assert.Equal(2, ActReads(entersAtA, assemblies, shared).Count);
         Assert.Equal(4, ActReads(entersAtB, assemblies, shared).Count);
@@ -235,8 +237,8 @@ public sealed class KernelClockActReadArchTests
     /// <summary>
     /// The act's clock reads, path-insensitively: every clock read its call closure reaches through production
     /// code, once per call site, so a helper called twice counts twice. The one exclusion is a read of a clock
-    /// injected into a service instance (the read's receiver is a <see cref="TimeProvider"/> field of a real type),
-    /// which is that service's own clock, not the act's; the runtime theory covers those for the acts it drives,
+    /// injected into a service instance (the read's receiver is a <see cref="TimeProvider"/> field of a real type
+    /// that is not itself a route handler's object, see <see cref="RouteTypes"/>), which is that service's own clock, not the act's; the runtime theory covers those for the acts it drives,
     /// and a structural store rule is owed (T-690 slice 2). A clock the act hands on (a parameter, an <c>object</c>, a captured variable) or that is pulled from
     /// the request container counts wherever it is read. A read in either of two exclusive branches counts twice
     /// (read once, before the branch). A read that can repeat counts as more than one: one inside a loop, in a
@@ -245,7 +247,16 @@ public sealed class KernelClockActReadArchTests
     /// <c>dynamic</c> or compiled-expression calls.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
-        (graph ?? new ReadGraph(assemblies)).ActReads(handler);
+        (graph ?? new ReadGraph(assemblies, RouteTypes([handler]))).ActReads(handler);
+
+    /// <summary>
+    /// The types whose instances ARE route handlers (an instance method mapped as one). Such an object is route code,
+    /// not a service: a clock in its fields is the act's own clock, so its reads count like any other.
+    /// </summary>
+    internal static IReadOnlySet<Type> RouteTypes(IEnumerable<MethodBase> handlers) =>
+        handlers.Where(handler => !handler.IsStatic && handler.DeclaringType is { } owner
+                && !owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
+            .Select(handler => handler.DeclaringType!).ToHashSet();
 
     /// <summary>
     /// The production call graph's clock reads, by method. Methods that call each other recursively form one
@@ -255,7 +266,7 @@ public sealed class KernelClockActReadArchTests
     /// A type initializer runs at most once, so it is not a call: each method records the initializers it can
     /// trigger, and an act adds each one's reads once, however many accesses reach it.
     /// </summary>
-    internal sealed class ReadGraph(IReadOnlyList<Assembly> assemblies)
+    internal sealed class ReadGraph(IReadOnlyList<Assembly> assemblies, IReadOnlySet<Type> routeTypes)
     {
         private readonly Dictionary<MethodBase, IReadOnlyList<string>> _reads = [];
         private readonly Dictionary<MethodBase, IReadOnlySet<MethodBase>> _initializers = [];
@@ -383,7 +394,7 @@ public sealed class KernelClockActReadArchTests
             bool InLoop(int at) => loops.Any(loop => at >= loop.Start && at <= loop.End);
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
             var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
-            var injectedLocals = InjectedLocals(method, code, joins);
+            var injectedLocals = InjectedLocals(method, code, joins, routeTypes);
             var injectedReceiver = false;
             foreach (var (offset, opCode, operand) in code)
             {
@@ -395,7 +406,7 @@ public sealed class KernelClockActReadArchTests
                     // (`Func<DateTimeOffset> read = _clock.GetUtcNow;` emits ldfld; dup; ldvirtftn; newobj).
                     injectedReceiver = opCode == OpCodes.Dup
                         ? injectedReceiver && !joins.Contains(offset)
-                        : ProducesInjectedClock(method, opCode, operand)
+                        : ProducesInjectedClock(method, opCode, operand, routeTypes)
                             || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                     continue;
                 }
@@ -407,7 +418,7 @@ public sealed class KernelClockActReadArchTests
                 }
                 if (target.IsStatic || target.IsConstructor)
                     AddInitializer(initializers, target.DeclaringType);
-                injectedReceiver = IsInjectedClockGetter(target);
+                injectedReceiver = IsInjectedClockGetter(target, routeTypes);
                 if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
                 {
                     var site = $"{Name(target)} in {Name(method)}+IL_{offset:x4}";
@@ -434,8 +445,8 @@ public sealed class KernelClockActReadArchTests
     }
 
     /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
-    private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand) =>
-        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand));
+    private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand, IReadOnlySet<Type> routeTypes) =>
+        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand), routeTypes);
 
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
@@ -444,7 +455,8 @@ public sealed class KernelClockActReadArchTests
     /// service's clock wherever it is loaded, a join point included: only a value merged on the evaluation stack
     /// (a conditional expression feeding the store or the read) is never proven to be that clock.
     /// </summary>
-    private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, HashSet<int> joins)
+    private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, HashSet<int> joins,
+        IReadOnlySet<Type> routeTypes)
     {
         var injected = new HashSet<int>();
         var other = new HashSet<int>();
@@ -467,8 +479,8 @@ public sealed class KernelClockActReadArchTests
                 continue;
             }
             copies.Clear();
-            if (ProducesInjectedClock(method, opCode, operand)
-                || (opCode.OperandType == OperandType.InlineMethod && Resolve(method, operand) is { } source && IsInjectedClockGetter(source)))
+            if (ProducesInjectedClock(method, opCode, operand, routeTypes)
+                || (opCode.OperandType == OperandType.InlineMethod && Resolve(method, operand) is { } source && IsInjectedClockGetter(source, routeTypes)))
                 copies.Push(true);
         }
         injected.ExceptWith(other);
@@ -480,7 +492,7 @@ public sealed class KernelClockActReadArchTests
     /// An instance getter of a real type whose body is exactly <c>return _clock;</c> or
     /// <c>return _clock ?? throw new …(…);</c> over that type's injected clock, so what it returns is that clock.
     /// </summary>
-    private static bool IsInjectedClockGetter(MethodBase target)
+    private static bool IsInjectedClockGetter(MethodBase target, IReadOnlySet<Type> routeTypes)
     {
         if (target is not MethodInfo { IsStatic: false, IsSpecialName: true, ReturnType: var gotten } getter
             || !typeof(TimeProvider).IsAssignableFrom(gotten) || getter.DeclaringType is not { } owner
@@ -490,7 +502,7 @@ public sealed class KernelClockActReadArchTests
             .Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
         bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
             && ResolveField(getter, code[at].Operand) is { DeclaringType: { } declaring } field
-            && declaring.IsAssignableFrom(owner) && IsInjectedClock(field); // the owner's own or an inherited injected clock
+            && declaring.IsAssignableFrom(owner) && IsInjectedClock(field, routeTypes); // the owner's own or an inherited injected clock
         if (code.Length < 3 || code[0].OpCode != OpCodes.Ldarg_0 || !Field(1) || code[^1].OpCode != OpCodes.Ret)
             return false;
         if (code.Length == 3)
@@ -527,10 +539,11 @@ public sealed class KernelClockActReadArchTests
     /// A clock injected into a service instance: a <see cref="TimeProvider"/> field of a real type, read directly or
     /// through that type's own getter.
     /// </summary>
-    private static bool IsInjectedClock(FieldInfo? receiver) =>
+    private static bool IsInjectedClock(FieldInfo? receiver, IReadOnlySet<Type> routeTypes) =>
         receiver is { IsStatic: false, DeclaringType: { } declaring }
         && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
-        && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false);
+        && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false)
+        && !routeTypes.Any(declaring.IsAssignableFrom); // a route object's clock is the act's clock, not a service's
 
     private static FieldInfo? ResolveField(MethodBase method, int token) =>
         ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveField(token, generics, methodGenerics));
@@ -649,6 +662,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/initializer-twice", ReadsAOnceInitializedStampTwice);
             app.MapGet("/planted/inherited-clock", UsesAnInheritedServiceClock);
             app.MapGet("/planted/handler-owner", HandlerOwner.Handle);
+            app.MapGet("/planted/instance-handler", new PlantedInstanceRoute(null!).Handle);
             app.MapGet("/planted/lookalike-overload", CallsALookalikeOverload);
             app.MapGet("/planted/hidden-get-utc-now", CallsAHiddenGetUtcNow);
             app.MapGet("/planted/loop", ReadsInALoop);
@@ -937,6 +951,16 @@ public sealed class KernelClockActReadArchTests
         static HandlerOwner() => Window = DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
 
         internal static IResult Handle() => Results.Ok();
+    }
+
+    // A route object, not a service: its own clock field is the act's clock, read twice through a helper.
+    private sealed class PlantedInstanceRoute(TimeProvider clock)
+    {
+        private readonly TimeProvider _clock = clock;
+
+        internal IResult Handle() => Results.Ok(Stamp() - Stamp());
+
+        private DateTimeOffset Stamp() => _clock.GetUtcNow();
     }
 
     private abstract class PlantedClockBase(TimeProvider clock)
