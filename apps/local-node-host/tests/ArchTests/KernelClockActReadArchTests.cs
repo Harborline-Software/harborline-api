@@ -48,9 +48,9 @@ public sealed class KernelClockActReadArchTests
 
         Assert.Empty(unpaired);
         Assert.True(handlers.Count > 200, $"Handler discovery found only {handlers.Count} route handlers.");
-        var known = new Dictionary<MethodBase, IReadOnlyList<string>>();
+        var graph = new ReadGraph(assemblies);
         var violations = handlers
-            .Select(handler => (handler, reads: ActReads(handler.Handler, assemblies, known)))
+            .Select(handler => (handler, reads: ActReads(handler.Handler, assemblies, graph)))
             .Where(item => item.reads.Count > 1)
             .Select(item => $"{item.handler.MappedAt} {Name(item.handler.Handler)} reads the clock {item.reads.Count} times: "
                 + string.Join("; ", item.reads))
@@ -68,7 +68,7 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(23, reads.Count);
+        Assert.Equal(24, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsARefSwappedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("FallsBackReadingTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsATernaryMergedClock", StringComparison.Ordinal)).Value);
@@ -100,10 +100,13 @@ public sealed class KernelClockActReadArchTests
         var entersAtA = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtA), BindingFlags.Static | BindingFlags.NonPublic)!;
         var entersAtB = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtBTwice), BindingFlags.Static | BindingFlags.NonPublic)!;
 
-        var shared = new Dictionary<MethodBase, IReadOnlyList<string>>();
+        var shared = new ReadGraph(assemblies);
         Assert.Single(ActReads(entersAtA, assemblies, shared));
         Assert.Equal(2, ActReads(entersAtB, assemblies, shared).Count);
         Assert.Equal(2, ActReads(entersAtB, assemblies).Count);
+        // Calling into the cycle at two members reads at each call.
+        var entersBoth = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtAThenB), BindingFlags.Static | BindingFlags.NonPublic)!;
+        Assert.Equal(2, ActReads(entersBoth, assemblies, shared).Count);
     }
 
     [Fact(DisplayName = "T-690: a Map call whose handler cannot be traced is reported unpaired, never attributed to a stale pointer")]
@@ -223,67 +226,110 @@ public sealed class KernelClockActReadArchTests
     /// is reported (loud), and one invoked repeatedly counts once; not counting it would let a read inside a
     /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved.
     /// </summary>
-    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies,
-        Dictionary<MethodBase, IReadOnlyList<string>>? known = null) =>
-        Reads(handler, assemblies, known ?? [], [], [], out _);
+    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
+        (graph ?? new ReadGraph(assemblies)).Reads(handler);
 
     /// <summary>
-    /// The reads under <paramref name="method"/>. A recursive call back into a method still being walked reads
-    /// nothing more on this walk (the cycle's reads are already counted once), and a result that relied on that is
-    /// <paramref name="partial"/>: it is kept for this handler only, never in the memo <paramref name="known"/>
-    /// shared across handlers, so the order handlers are walked in cannot change any handler's count.
+    /// The production call graph's clock reads, by method. Methods that call each other recursively form one
+    /// strongly connected component (Tarjan), and every member reads what the component's own code reads once,
+    /// plus what each call leaving the component reads, the same way a loop counts once. Each component is
+    /// computed once and is independent of the order handlers are walked in, so one graph serves every handler.
     /// </summary>
-    private static IReadOnlyList<string> Reads(MethodBase method, IReadOnlyList<Assembly> assemblies,
-        Dictionary<MethodBase, IReadOnlyList<string>> known, Dictionary<MethodBase, IReadOnlyList<string>> walk,
-        HashSet<MethodBase> active, out bool partial)
+    internal sealed class ReadGraph(IReadOnlyList<Assembly> assemblies)
     {
-        partial = false;
-        if (known.TryGetValue(method, out var cached) || walk.TryGetValue(method, out cached))
-            return cached;
-        if (!active.Add(method))
+        private readonly Dictionary<MethodBase, IReadOnlyList<string>> _reads = [];
+        private readonly Dictionary<MethodBase, (List<string> Direct, List<MethodBase> Calls)> _local = [];
+        private readonly Dictionary<MethodBase, (int Index, int Low)> _visit = [];
+        private readonly Stack<MethodBase> _stack = new();
+        private readonly HashSet<MethodBase> _onStack = [];
+        private int _next;
+
+        internal IReadOnlyList<string> Reads(MethodBase method)
         {
-            partial = true; // a cycle back into a method being walked
-            return [];
+            if (!_reads.ContainsKey(method))
+                Connect(method);
+            return _reads[method];
         }
-        var reads = new List<string>();
-        if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
-            && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
+
+        private void Connect(MethodBase method)
         {
-            reads.AddRange(Reads(moveNext, assemblies, known, walk, active, out var childPartial));
-            partial |= childPartial;
+            _visit[method] = (_next, _next);
+            _next++;
+            _stack.Push(method);
+            _onStack.Add(method);
+            foreach (var callee in Local(method).Calls)
+            {
+                if (_reads.ContainsKey(callee))
+                    continue;
+                if (!_visit.ContainsKey(callee))
+                {
+                    Connect(callee);
+                    _visit[method] = (_visit[method].Index, Math.Min(_visit[method].Low, _visit[callee].Low));
+                }
+                else if (_onStack.Contains(callee))
+                    _visit[method] = (_visit[method].Index, Math.Min(_visit[method].Low, _visit[callee].Index));
+            }
+            if (_visit[method].Low != _visit[method].Index)
+                return;
+            var component = new List<MethodBase>();
+            MethodBase member;
+            do
+            {
+                member = _stack.Pop();
+                _onStack.Remove(member);
+                component.Add(member);
+            }
+            while (member != method);
+            var members = component.ToHashSet();
+            var reads = new List<string>();
+            foreach (var each in component)
+            {
+                var (direct, calls) = Local(each);
+                reads.AddRange(direct);
+                foreach (var callee in calls.Where(callee => !members.Contains(callee)))
+                    reads.AddRange(_reads[callee]);
+            }
+            foreach (var each in component)
+                _reads[each] = reads;
         }
-        var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
-        // A join point merges values from several paths, so the value on the stack there is not provably one source.
-        var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
-        var injectedLocals = InjectedLocals(method, code, joins);
-        var injectedReceiver = false;
-        foreach (var (offset, opCode, operand) in code)
+
+        /// <summary>The method's own read sites, and its production callees once per call site.</summary>
+        private (List<string> Direct, List<MethodBase> Calls) Local(MethodBase method)
         {
-            if (opCode.OperandType != OperandType.InlineMethod)
+            if (_local.TryGetValue(method, out var known))
+                return known;
+            var direct = new List<string>();
+            var calls = new List<MethodBase>();
+            if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
+                && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
+                calls.Add(moveNext);
+            var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+            // A join point merges values from several paths, so the value on the stack there is not provably one source.
+            var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
+            var injectedLocals = InjectedLocals(method, code, joins);
+            var injectedReceiver = false;
+            foreach (var (offset, opCode, operand) in code)
             {
-                injectedReceiver = ProducesInjectedClock(method, opCode, operand)
-                    || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
-                continue;
+                if (opCode.OperandType != OperandType.InlineMethod)
+                {
+                    injectedReceiver = ProducesInjectedClock(method, opCode, operand)
+                        || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
+                    continue;
+                }
+                var receiver = injectedReceiver && !joins.Contains(offset);
+                if (Resolve(method, operand) is not { } target)
+                {
+                    injectedReceiver = false;
+                    continue;
+                }
+                injectedReceiver = IsInjectedClockGetter(target);
+                if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
+                    direct.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
+                else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
+                    calls.Add(target);
             }
-            var receiver = injectedReceiver && !joins.Contains(offset);
-            if (Resolve(method, operand) is not { } target)
-            {
-                injectedReceiver = false;
-                continue;
-            }
-            injectedReceiver = IsInjectedClockGetter(target);
-            if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
-                reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
-            else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
-            {
-                reads.AddRange(Reads(target, assemblies, known, walk, active, out var childPartial));
-                partial |= childPartial;
-            }
+            return _local[method] = (direct, calls);
         }
-        active.Remove(method);
-        if (partial) walk[method] = reads;
-        else known[method] = reads;
-        return reads;
     }
 
     /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
@@ -457,6 +503,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/ref-swapped-clock", ReadsARefSwappedClock);
             app.MapGet("/planted/recursion-a", EntersTheCycleAtA);
             app.MapGet("/planted/recursion-b", EntersTheCycleAtBTwice);
+            app.MapGet("/planted/recursion-a-then-b", EntersTheCycleAtAThenB);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
@@ -517,6 +564,8 @@ public sealed class KernelClockActReadArchTests
         internal static IResult EntersTheCycleAtA(TimeProvider time) => Results.Ok(CycleA(0, time));
 
         internal static IResult EntersTheCycleAtBTwice(TimeProvider time) => Results.Ok(CycleB(1, time) + CycleB(1, time));
+
+        internal static IResult EntersTheCycleAtAThenB(TimeProvider time) => Results.Ok(CycleA(1, time) + CycleB(1, time));
 
         private static int CycleA(int depth, TimeProvider time) => (time.GetUtcNow().Second > 0 ? 1 : 0) + (depth > 0 ? CycleB(depth - 1, time) : 0);
 
