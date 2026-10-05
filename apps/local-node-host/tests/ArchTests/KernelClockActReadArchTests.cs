@@ -68,7 +68,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(28, reads.Count);
+        Assert.Equal(29, reads.Count);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("MappedAtTypeInitialization", StringComparison.Ordinal)).Value);
@@ -431,7 +432,8 @@ public sealed class KernelClockActReadArchTests
         var code = WithoutReturnLocal(RawMutationPortSymbolInventoryTests.Instructions(getter)
             .Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
         bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
-            && ResolveField(getter, code[at].Operand) is { } field && field.DeclaringType == owner && IsInjectedClock(field);
+            && ResolveField(getter, code[at].Operand) is { DeclaringType: { } declaring } field
+            && declaring.IsAssignableFrom(owner) && IsInjectedClock(field); // the owner's own or an inherited injected clock
         if (code.Length < 3 || code[0].OpCode != OpCodes.Ldarg_0 || !Field(1) || code[^1].OpCode != OpCodes.Ret)
             return false;
         if (code.Length == 3)
@@ -579,6 +581,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/recursion-a-then-b", EntersTheCycleAtAThenB);
             app.MapGet("/planted/static-initializer", ReadsAStaticallyInitializedStamp);
             app.MapGet("/planted/initializer-twice", ReadsAOnceInitializedStampTwice);
+            app.MapGet("/planted/inherited-clock", UsesAnInheritedServiceClock);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -630,6 +633,8 @@ public sealed class KernelClockActReadArchTests
             Results.Ok(service.SwappedWindow(time));
 
         private static IResult ReadsAStaticallyInitializedStamp() => Results.Ok(StaticStamp.Value);
+
+        private static IResult UsesAnInheritedServiceClock(PlantedDerivedService service) => Results.Ok(service.Window());
 
         // Two accesses, one initializer run: one read.
         private static IResult ReadsAOnceInitializedStampTwice() => Results.Ok(new[] { OnceStamp.At, OnceStamp.At });
@@ -785,6 +790,18 @@ public sealed class KernelClockActReadArchTests
         internal static readonly DateTimeOffset At;
 
         static OnceStamp() => At = DateTimeOffset.UtcNow;
+    }
+
+    private abstract class PlantedClockBase(TimeProvider clock)
+    {
+        protected readonly TimeProvider _clock = clock;
+    }
+
+    private sealed class PlantedDerivedService(TimeProvider clock) : PlantedClockBase(clock)
+    {
+        public TimeProvider Clock => _clock;
+
+        public TimeSpan Window() => Clock.GetUtcNow() - Clock.GetUtcNow();
     }
 
     private sealed class PlantedNullableClockService(TimeProvider? clock)
