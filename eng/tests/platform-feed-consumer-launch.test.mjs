@@ -15,8 +15,12 @@ test('runner step environments remove startup loaders before shells and token-be
     action.slice(action.indexOf('    - name: Prepare authenticated'),action.indexOf('    - name: Test the feed')),
     producer.slice(producer.indexOf('      - name: Build isolated'),producer.indexOf('      - name: Dependency artifact'))]
   for(const step of steps) {
+    assert.match(step,/shell: bash --noprofile --norc -p -e -o pipefail \{0\}/,'privileged Bash rejects imported functions and shell startup options')
     const environment=step.slice(step.indexOf('      env:'),step.indexOf('      run:'))
-    for(const name of ['NODE_OPTIONS','NODE_PATH','NODE_REPL_EXTERNAL_MODULE','LD_PRELOAD','LD_LIBRARY_PATH',
+    assert.match(environment,/NODE_DISABLE_COMPILE_CACHE: '1'/)
+    for(const name of ['NODE_OPTIONS','NODE_PATH','NODE_REPL_EXTERNAL_MODULE','NODE_PRESERVE_SYMLINKS','NODE_ICU_DATA','NODE_COMPILE_CACHE','NODE_COMPILE_CACHE_PORTABLE',
+      'NODE_DEBUG','NODE_DEBUG_NATIVE','NODE_REDIRECT_WARNINGS','NODE_V8_COVERAGE','NODE_TLS_REJECT_UNAUTHORIZED','OPENSSL_CONF','OPENSSL_CONF_INCLUDE',
+      'OPENSSL_MODULES','OPENSSL_ENGINES','LD_AUDIT','LD_ORIGIN_PATH','GCONV_PATH','LD_PRELOAD','LD_LIBRARY_PATH',
       'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH','DYLD_FALLBACK_LIBRARY_PATH',
       'DYLD_FALLBACK_FRAMEWORK_PATH','BASH_ENV','ENV'])
       assert.match(environment,new RegExp(`\\b${name}: ''(?:\\r?\\n|$)`),'literal startup variable must be cleared before shell startup')
@@ -49,13 +53,17 @@ test('actual authentication action resolves launcher and dependency from protect
   const start=source.indexOf('      run: |',source.indexOf('id: feed_reuse'))+'      run: |'.length
   const run=source.slice(start,source.indexOf('    - name: Test the feed contract',start)).trimStart().split('\n').map(line=>line.replace(/^        /,'')).join('\n')
   const bash=process.platform==='win32'?'C:/Program Files/Git/bin/bash.exe':'/bin/bash'
+  const shell=source.slice(source.indexOf('id: feed_reuse'),start).match(/shell: bash ([^\r\n]+)/)[1].trim().split(/\s+/)
+  assert.equal(shell.pop(),'{0}')
+  const script=path.join(directory,'authentication.sh');writeFileSync(script,run)
+  const protectedArgs=[...shell,script.replaceAll('\\','/')]
   const env={...process.env,GH_TOKEN:'synthetic-action-only',GITHUB_ACTIONS:'true',GITHUB_WORKSPACE:candidate.replaceAll('\\','/'),
     TRUSTED_FEED_ACTION_PATH:action.replaceAll('\\','/'),TRUSTED_FEED_ACTION_REPOSITORY:'Harborline-Software/harborline-api',TRUSTED_FEED_ACTION_REF:'main',
     FEED_NODE:process.execPath.replaceAll('\\','/'),HARBORLINE_PLATFORM_REPO:path.join(directory,'platform').replaceAll('\\','/'),GITHUB_OUTPUT:output.replaceAll('\\','/')}
   // This fixture establishes that the candidate replacement can steal the synthetic credential.
   assert.equal(spawnSync(process.execPath,[path.join(candidate,'eng/platform-feed-consumer-launch.mjs')],{env,encoding:'utf8'}).status,0)
   assert.equal(readFileSync(stolen,'utf8'),'synthetic-action-only');rmSync(stolen)
-  const result=spawnSync(bash,['-c','set -eo pipefail\n'+run],{env,cwd:candidate,encoding:'utf8',timeout:10000})
+  const result=spawnSync(bash,protectedArgs,{env,cwd:candidate,encoding:'utf8',timeout:10000})
   assert.equal(result.status,0,result.stderr);assert.equal(existsSync(stolen),false)
   assert.deepEqual(JSON.parse(readFileSync(witness,'utf8')),{provenance:'protected-definition',actions:'true',candidate:env.GITHUB_WORKSPACE})
   assert.equal(readFileSync(output,'utf8'),'reused=true\n')
@@ -67,14 +75,75 @@ test('actual authentication action resolves launcher and dependency from protect
   for(const hook of [`--require=${preload}`, `--import=${pathToFileURL(loader).href}`]) {
     assert.equal(spawnSync(process.execPath,['-e',''],{env:{...env,NODE_OPTIONS:hook},encoding:'utf8'}).status,0)
     assert.equal(readFileSync(stolen,'utf8'),'synthetic-action-only');rmSync(stolen)
-    const result=spawnSync(bash,['-c','set -eo pipefail\n'+run],{env:{...env,NODE_OPTIONS:hook,NODE_PATH:directory},cwd:candidate,encoding:'utf8',timeout:10000})
+    const result=spawnSync(bash,protectedArgs,{env:{...env,NODE_OPTIONS:hook,NODE_PATH:directory},cwd:candidate,encoding:'utf8',timeout:10000})
     assert.equal(result.status,0,result.stderr);assert.equal(existsSync(stolen),false)
     assert.equal(readFileSync(output,'utf8'),'reused=true\nreused=true\n')
     writeFileSync(output,'reused=true\n')
   }
+  // A malformed config is a safe pre-JavaScript witness: the unsafe child
+  // fails before its literal script can run. No native library is compiled.
+  const badConfig=path.join(directory,'hostile.cnf'),includeConfig=path.join(directory,'include.cnf')
+  writeFileSync(badConfig,'this is not an OpenSSL configuration\n')
+  writeFileSync(includeConfig,'.include hostile.cnf\n')
+  for(const configuration of [
+    {OPENSSL_CONF:badConfig},
+    {OPENSSL_CONF:includeConfig,OPENSSL_CONF_INCLUDE:directory}
+  ]) {
+    const hostile={...env,...configuration,OPENSSL_MODULES:directory,OPENSSL_ENGINES:directory}
+    const control=spawnSync(process.execPath,['-e',"process.stdout.write('JS-REACHED')"],{env:hostile,cwd:candidate,encoding:'utf8',timeout:10000})
+    assert.notEqual(control.status,0,'unsafe control must consult OpenSSL configuration before JS')
+    assert.equal(control.stdout,'');assert.match(control.stderr,/OpenSSL configuration error/)
+    const result=spawnSync(bash,protectedArgs,{env:hostile,cwd:candidate,encoding:'utf8',timeout:10000})
+    assert.equal(result.status,0,result.stderr)
+    assert.equal(readFileSync(output,'utf8'),'reused=true\nreused=true\n')
+    writeFileSync(output,'reused=true\n')
+  }
+  // Compile-cache input and writable diagnostics are independent of
+  // NODE_OPTIONS. The protected shell must remove them before Node starts.
+  const cacheDirectory=path.join(directory,'hostile-compile-cache')
+  const startupProbe=path.join(directory,'startup-probe.mjs')
+  writeFileSync(startupProbe,"import {writeFileSync} from 'node:fs';process.emitWarning('startup-warning-control');writeFileSync(process.argv[2],JSON.stringify(Object.fromEntries(['NODE_COMPILE_CACHE','NODE_COMPILE_CACHE_PORTABLE','NODE_DEBUG','NODE_DEBUG_NATIVE','NODE_REDIRECT_WARNINGS','NODE_V8_COVERAGE','NODE_TLS_REJECT_UNAUTHORIZED','OPENSSL_CONF','OPENSSL_CONF_INCLUDE','OPENSSL_MODULES','OPENSSL_ENGINES'].filter(key=>process.env[key]).map(key=>[key,process.env[key]]))))")
+  const probeOutput=path.join(directory,'startup-probe.json')
+  const startupEnv={...env,NODE_COMPILE_CACHE:cacheDirectory,NODE_COMPILE_CACHE_PORTABLE:'1',NODE_DISABLE_COMPILE_CACHE:'0',
+    NODE_DEBUG:'http',NODE_DEBUG_NATIVE:'http',NODE_REDIRECT_WARNINGS:path.join(directory,'warnings.log'),
+    NODE_V8_COVERAGE:path.join(directory,'coverage'),NODE_TLS_REJECT_UNAUTHORIZED:'0',OPENSSL_MODULES:directory,OPENSSL_ENGINES:directory}
+  delete startupEnv.NODE_DISABLE_COMPILE_CACHE // Presence, even '0', disables the unsafe cache control.
+  const cacheControl=spawnSync(process.execPath,[startupProbe,probeOutput],{env:startupEnv,encoding:'utf8',timeout:10000})
+  assert.equal(cacheControl.status,0,cacheControl.stderr)
+  assert.match(readFileSync(startupEnv.NODE_REDIRECT_WARNINGS,'utf8'),/startup-warning-control/);rmSync(startupEnv.NODE_REDIRECT_WARNINGS)
+  assert.equal(JSON.parse(readFileSync(probeOutput,'utf8')).NODE_COMPILE_CACHE,cacheDirectory)
+  assert.ok(readdirSync(cacheDirectory,{recursive:true,withFileTypes:true}).some(entry=>entry.isFile()),'unsafe compile cache must write actual cache bytes')
+  // The producer executes its declared shell/run body against a bounded local
+  // script fixture. No real production pack, SDK command or network is run.
+  const producerSource=readFileSync(path.join(root,'.github/workflows/platform-feed-producer.yml'),'utf8')
+  const producerStep=producerSource.slice(producerSource.indexOf('      - name: Build isolated'),producerSource.indexOf('      - name: Dependency artifact'))
+  const producerShell=producerStep.match(/shell: bash ([^\r\n]+)/)[1].trim().split(/\s+/);assert.equal(producerShell.pop(),'{0}')
+  const producerRun=producerStep.slice(producerStep.indexOf('        run: |')+'        run: |'.length).trimStart().split('\n').map(line=>line.replace(/^          /,'')).join('\n')
+  const producerScript=path.join(directory,'producer.sh');writeFileSync(producerScript,producerRun)
+  copyFileSync(startupProbe,path.join(protectedRoot,'eng/platform-feed-reuse.mjs'))
+  // The actual producer passes "produce" as argv[2], so the fixture writes the
+  // bounded observation there, inside this owned temporary directory.
+  const producerResult=spawnSync(bash,[...producerShell,producerScript.replaceAll('\\','/')],{env:startupEnv,cwd:protectedRoot,encoding:'utf8',timeout:10000})
+  assert.equal(producerResult.status,0,producerResult.stderr)
+  assert.deepEqual(JSON.parse(readFileSync(path.join(protectedRoot,'produce'),'utf8')), {})
+  assert.equal(existsSync(startupEnv.NODE_REDIRECT_WARNINGS),false,'protected producer must not redirect warnings to inherited path')
+  // Imported Bash functions can replace even the first unset command. The
+  // unsafe shell must demonstrate that entrypoint; -p rejects it at startup.
+  const hostileShell={...env,'BASH_FUNC_unset%%':`() { printf '%s' "$GH_TOKEN" > ${JSON.stringify(stolen.replaceAll('\\','/'))}; builtin unset "$@"; }`,SHELLOPTS:'xtrace',BASHOPTS:'extdebug'}
+  const shellControl=spawnSync(bash,['--noprofile','--norc','-c','unset NODE_OPTIONS'],{env:hostileShell,encoding:'utf8',timeout:10000})
+  assert.equal(shellControl.status,0,shellControl.stderr)
+  assert.equal(readFileSync(stolen,'utf8'),'synthetic-action-only');rmSync(stolen)
+  const shellProtected=spawnSync(bash,protectedArgs,{env:hostileShell,cwd:candidate,encoding:'utf8',timeout:10000})
+  assert.equal(shellProtected.status,0,shellProtected.stderr);assert.equal(existsSync(stolen),false)
+  assert.equal(shellProtected.stderr.includes('synthetic-action-only'),false,'imported xtrace must not expand the token-bearing function')
+  const tracingEnv={...env,SHELLOPTS:'xtrace',PS4:"$(printf 'PS4-STARTUP-WITNESS' >&2)"}
+  const tracingControl=spawnSync(bash,['--noprofile','--norc','-c','true'],{env:tracingEnv,encoding:'utf8',timeout:10000})
+  assert.equal(tracingControl.status,0);assert.match(tracingControl.stderr,/PS4-STARTUP-WITNESS/)
+  const tracingProtected=spawnSync(bash,protectedArgs,{env:tracingEnv,cwd:candidate,encoding:'utf8',timeout:10000})
+  assert.equal(tracingProtected.status,0,tracingProtected.stderr);assert.equal(tracingProtected.stderr.includes('PS4-STARTUP-WITNESS'),false)
   rmSync(witness);rmSync(output)
   for(const changed of [{TRUSTED_FEED_ACTION_REF:'candidate'},{TRUSTED_FEED_ACTION_REPOSITORY:'attacker/repo'}]) {
-    assert.equal(spawnSync(bash,['-c','set -eo pipefail\n'+run],{env:{...env,...changed},cwd:candidate,encoding:'utf8'}).status,1)
+    assert.equal(spawnSync(bash,protectedArgs,{env:{...env,...changed},cwd:candidate,encoding:'utf8'}).status,1)
     assert.equal(existsSync(witness),false);assert.equal(existsSync(stolen),false)
   }
 })
@@ -136,7 +205,7 @@ test('pre-candidate snapshot preserves approved transport and excludes startup, 
   before.PATH = '/candidate/bin'; before.HTTPS_PROXY = 'http://candidate.invalid'; before.NODE_EXTRA_CA_CERTS = '/candidate/ca.pem'
   assert.deepEqual({...snapshot}, {PATH: '/trusted/bin', HTTPS_PROXY: 'http://approved.invalid:8080',
     NODE_EXTRA_CA_CERTS: '/trusted/enterprise.pem', NODE_USE_ENV_PROXY: '1', NODE_USE_SYSTEM_CA: '1',
-    SSL_CERT_FILE: '/trusted/root.pem', GH_TOKEN: 'synthetic-metadata-only', GITHUB_ACTIONS: 'true'})
+    SSL_CERT_FILE: '/trusted/root.pem', GH_TOKEN: 'synthetic-metadata-only', GITHUB_ACTIONS: 'true',NODE_DISABLE_COMPILE_CACHE:'1'})
   assert.equal(Object.isFrozen(snapshot), true)
 })
 
@@ -166,7 +235,7 @@ test('authentication launcher uses the explicit snapshot and preserves unavailab
   const before={PATH:'/trusted/bin',NODE_OPTIONS:'--require=/candidate.js',HTTPS_PROXY:'http://approved.invalid'}
   assert.equal(launchConsumer({platform,apiRoot,beforeCandidate:before,run:(executable,args,options)=>{
     assert.equal(executable,process.execPath);assert.equal(args.at(-3),'consume');assert.equal(args.at(-2),platform);assert.equal(args.at(-1),apiRoot)
-    assert.deepEqual({...options.env},{PATH:'/trusted/bin',HTTPS_PROXY:'http://approved.invalid'})
+    assert.deepEqual({...options.env},{PATH:'/trusted/bin',HTTPS_PROXY:'http://approved.invalid',NODE_DISABLE_COMPILE_CACHE:'1'})
     return {status:0}
   }}),0)
   for(const status of [2,1,null])assert.equal(launchConsumer({platform,apiRoot,run:()=>({status})}),2)

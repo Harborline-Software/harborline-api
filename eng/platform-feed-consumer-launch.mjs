@@ -22,6 +22,8 @@ export function trustedConsumerEnvironment(beforeCandidate) {
   const snapshot = Object.create(null)
   for (const name of allowed)
     if (typeof beforeCandidate[name] === 'string') snapshot[name] = beforeCandidate[name]
+  // Protected authentication never consumes or produces module compile-cache bytes.
+  snapshot.NODE_DISABLE_COMPILE_CACHE = '1'
   return Object.freeze(snapshot)
 }
 
