@@ -74,7 +74,7 @@ public sealed class KernelClockActReadArchTests
         // One graph over every planted handler, as in production, so the route objects are known to every act.
         var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
-        Assert.Equal(44, reads.Count);
+        Assert.Equal(45, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -85,6 +85,7 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.Handle", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleAsync", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleThroughAHelper", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleThroughASibling", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedInstanceRoute.<Map>", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
@@ -406,13 +407,14 @@ public sealed class KernelClockActReadArchTests
             var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
             var injectedLocals = InjectedLocals(method, code, joins, routeTypes);
             var copies = new ClockCopies(joins);
-            foreach (var (offset, opCode, operand) in code)
+            for (var index = 0; index < code.Length; index++)
             {
+                var (offset, opCode, operand) = code[index];
                 if (opCode.OperandType != OperandType.InlineMethod)
                 {
                     if (opCode.OperandType == OperandType.InlineField && ResolveField(method, operand) is { IsStatic: true } staticField)
                         AddInitializer(initializers, staticField.DeclaringType);
-                    copies.Step(offset, opCode, ProducesInjectedClock(method, opCode, operand, routeTypes)
+                    copies.Step(offset, opCode, ProducesInjectedClock(method, opCode, operand, FromThis(code, index, joins), routeTypes)
                         || (IsLoadLocal(opCode) && injectedLocals.Contains(operand)));
                     continue;
                 }
@@ -484,8 +486,17 @@ public sealed class KernelClockActReadArchTests
         }
     }
 
-    private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand, IReadOnlySet<Type> routeTypes) =>
-        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand), method.DeclaringType, routeTypes);
+    /// <summary>
+    /// The value an instruction pushes is a service's injected clock (an <c>ldfld</c> of it). <paramref name="fromThis"/>:
+    /// the field is read from <c>this</c> (<c>ldarg.0</c> just before, in a straight run), whose type is then known.
+    /// </summary>
+    private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand, bool fromThis, IReadOnlySet<Type> routeTypes) =>
+        opCode == OpCodes.Ldfld && ResolveField(method, operand) is { } field
+        && IsInjectedClock(field, fromThis && !method.IsStatic ? method.DeclaringType : field.DeclaringType, routeTypes);
+
+    /// <summary>Whether the instruction at <paramref name="index"/> reads from <c>this</c>: <c>ldarg.0</c> just before it, no join between.</summary>
+    private static bool FromThis((int Offset, OpCode OpCode, int Operand)[] code, int index, HashSet<int> joins) =>
+        index > 0 && code[index - 1].OpCode == OpCodes.Ldarg_0 && !joins.Contains(code[index].Offset);
 
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
@@ -501,9 +512,10 @@ public sealed class KernelClockActReadArchTests
         var other = new HashSet<int>();
         // `first = second = _clock;` is ldfld; dup; stloc; stloc: both stores pop the field's value.
         var copies = new ClockCopies(joins);
-        foreach (var (offset, opCode, operand) in code)
+        for (var index = 0; index < code.Length; index++)
         {
-            var pushesClock = ProducesInjectedClock(method, opCode, operand, routeTypes)
+            var (offset, opCode, operand) = code[index];
+            var pushesClock = ProducesInjectedClock(method, opCode, operand, FromThis(code, index, joins), routeTypes)
                 || (opCode.OperandType == OperandType.InlineMethod && Resolve(method, operand) is { } source && IsInjectedClockGetter(source, routeTypes));
             if (copies.Step(offset, opCode, pushesClock) is { } fromClock)
                 (fromClock ? injected : other).Add(operand);
@@ -562,21 +574,20 @@ public sealed class KernelClockActReadArchTests
 
     /// <summary>
     /// A clock injected into a service instance: a <see cref="TimeProvider"/> field of a real type, read directly or
-    /// through that type's own getter.
+    /// through that type's own getter, from an object that cannot be a route object.
     /// </summary>
     /// <remarks>
-    /// A field declared on a route type, or on a base of one, can hold a route object's clock, which is the act's
-    /// own and counts wherever it is read. The one case it is still a service's is a service sharing that base and
-    /// reading through its own code: the reader (<paramref name="reader"/>, lifted out of any state machine or
-    /// closure, see <see cref="Outer"/>) derives from the field's type and is neither a route type nor related to one.
+    /// <paramref name="holder"/> is what is statically known of the object the field is read from: the method's own
+    /// type for <c>this</c>, the getter's type for a getter, and otherwise only the field's declaring type. A route
+    /// object's clock is the act's own, so the read is a service's only when no route type is a
+    /// <paramref name="holder"/>. A service sharing a clock-bearing base with a route object is therefore excluded
+    /// when it reads its own (<c>this</c>) clock, and counted when the object is any other instance of that base.
     /// </remarks>
-    private static bool IsInjectedClock(FieldInfo? receiver, Type? reader, IReadOnlySet<Type> routeTypes) =>
+    private static bool IsInjectedClock(FieldInfo? receiver, Type? holder, IReadOnlySet<Type> routeTypes) =>
         receiver is { IsStatic: false, DeclaringType: { } declaring }
         && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
         && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false)
-        && (!routeTypes.Any(declaring.IsAssignableFrom)
-            || (reader is not null && Outer(reader) is var code && declaring.IsAssignableFrom(code)
-                && !routeTypes.Any(route => code.IsAssignableFrom(route) || route.IsAssignableFrom(code))));
+        && holder is not null && !routeTypes.Any(holder.IsAssignableFrom);
 
     private static FieldInfo? ResolveField(MethodBase method, int token) =>
         ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveField(token, generics, methodGenerics));
@@ -699,6 +710,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/instance-handler", new PlantedInstanceRoute(null!).Handle);
             app.MapGet("/planted/instance-async-handler", new PlantedInstanceRoute(null!).HandleAsync);
             app.MapGet("/planted/instance-helper-handler", new PlantedInstanceRoute(null!).HandleThroughAHelper);
+            app.MapGet("/planted/instance-sibling-handler", new PlantedInstanceRoute(null!).HandleThroughASibling);
             app.MapGet("/planted/lookalike-overload", CallsALookalikeOverload);
             app.MapGet("/planted/hidden-get-utc-now", CallsAHiddenGetUtcNow);
             app.MapGet("/planted/loop", ReadsInALoop);
@@ -1003,6 +1015,9 @@ public sealed class KernelClockActReadArchTests
         // The route object's own clock field, read by a static helper outside the route type.
         internal IResult HandleThroughAHelper() => Results.Ok(PlantedRouteHelper.Stamp(this) - PlantedRouteHelper.Stamp(this));
 
+        // The route object's clock, read by a service of the shared base from the instance it is handed.
+        internal IResult HandleThroughASibling(PlantedDerivedService service) => Results.Ok(service.StampOf(this) - service.StampOf(this));
+
         // The same reads from the compiler's async state machine.
         internal async Task<IResult> HandleAsync()
         {
@@ -1024,7 +1039,7 @@ public sealed class KernelClockActReadArchTests
 
     private abstract class PlantedClockBase(TimeProvider clock)
     {
-        protected readonly TimeProvider _clock = clock;
+        internal readonly TimeProvider _clock = clock;
     }
 
     private sealed class PlantedDerivedService(TimeProvider clock) : PlantedClockBase(clock)
@@ -1032,6 +1047,9 @@ public sealed class KernelClockActReadArchTests
         public TimeProvider Clock => _clock;
 
         public TimeSpan Window() => Clock.GetUtcNow() - Clock.GetUtcNow();
+
+        // A service reading ANOTHER instance's clock of the shared base: that instance may be a route object.
+        internal DateTimeOffset StampOf(PlantedClockBase source) => source._clock.GetUtcNow();
     }
 
     private sealed class PlantedNullableClockService(TimeProvider? clock)
