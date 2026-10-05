@@ -22,6 +22,21 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// A persistence seam (a store that holds a database handle) takes its instant as a parameter and holds no clock.
 /// <c>KernelClockIntegrationTests</c> still counts the reads of the composed host at runtime for the acts it drives;
 /// this fence is what fails on a handler nobody listed.
+/// <para>
+/// Prior art and deviation: a Roslyn banned-API analyzer bans a symbol everywhere, and an ArchUnit-style rule
+/// bans a dependency; neither can say "at most once per act", which needs the act's call closure, so this reads
+/// IL like <c>RawMutationPortSymbolInventoryTests</c>. A request-scoped clock read once per request (NodaTime's
+/// <c>IClock</c> in a request scope) is the runtime form of the same rule; it is not used because routes capture
+/// the root clock at mapping time and the five-argument guard's no-clock refusal must stay (T-650).
+/// </para>
+/// <para>
+/// Deliberate limits. The count is path-insensitive: a read in either of two exclusive branches counts twice
+/// (read once, before the branch) and a read in a loop counts once. Interface and virtual dispatch are not
+/// resolved to implementations. A delegate the act builds over its own code counts as invoked once where it is
+/// built. A service's own injected clock is not counted; the persistence-seam rule and the runtime theory cover
+/// those. Out of scope (T-690 log): the <c>NodeFormsComposition</c> shape, a read inside a DI factory closure
+/// reached through interface dispatch from a validator, which only the runtime theory sees.
+/// </para>
 /// </summary>
 public sealed class KernelClockActReadArchTests
 {
@@ -71,7 +86,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(10, reads.Count);
+        Assert.Equal(11, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByTypeTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsTheWallClockElsewhere", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("GuardedThroughAnotherType", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("<HandlerFactory>", StringComparison.Ordinal)).Value);
@@ -196,11 +212,39 @@ public sealed class KernelClockActReadArchTests
     /// <c>RequestAuthorization.Authority</c>). A service that holds its own injected clock is not a seam the route
     /// can see; the persistence-seam rule and <c>KernelClockIntegrationTests</c> cover those.
     /// </summary>
-    private static bool ReceivesClock(MethodBase method) =>
-        method.GetParameters().Any(parameter => typeof(TimeProvider).IsAssignableFrom(parameter.ParameterType))
-        || OwnClosure(method, Outer(method.DeclaringType!)).Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic
-            && generic.Name is nameof(ServiceProviderServiceExtensions.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService)
-            && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved));
+    private static bool ReceivesClock(MethodBase method)
+    {
+        if (method.GetParameters().Any(parameter => typeof(TimeProvider).IsAssignableFrom(parameter.ParameterType)))
+            return true;
+        var closure = OwnClosure(method, Outer(method.DeclaringType!)).ToArray();
+        // GetService<TimeProvider>() / GetRequiredService<TimeProvider>() ...
+        if (closure.Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic && IsServiceLookup(generic)
+                && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved)))
+            return true;
+        // ... or the non-generic lookup by type: GetService(typeof(TimeProvider)).
+        return closure.Any(call => call.Target is MethodInfo { IsGenericMethod: false } lookup && IsServiceLookup(lookup))
+            && closure.Select(call => call.Caller).Distinct().Any(LoadsTimeProviderToken);
+    }
+
+    private static bool IsServiceLookup(MethodInfo method) =>
+        method.Name is nameof(IServiceProvider.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService);
+
+    private static bool LoadsTimeProviderToken(MethodBase method) =>
+        RawMutationPortSymbolInventoryTests.Instructions(method).Any(instruction => instruction.OpCode == OpCodes.Ldtoken
+            && ResolveType(method, instruction.Operand) is { } type && typeof(TimeProvider).IsAssignableFrom(type));
+
+    private static Type? ResolveType(MethodBase method, int token)
+    {
+        try
+        {
+            return method.Module.ResolveType(token, method.DeclaringType?.GetGenericArguments(),
+                method is MethodInfo { IsGenericMethod: true } generic ? generic.GetGenericArguments() : null);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// A static wall-clock read (<see cref="DateTime.UtcNow"/>, <see cref="DateTimeOffset.Now"/> and the like, or
@@ -420,6 +464,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/factory", HandlerFactory(time));
             app.MapPost("/planted/helper-guard", GuardedThroughAnotherType);
             app.MapGet("/planted/wall-clock-elsewhere", ReadsTheWallClockElsewhere);
+            app.MapGet("/planted/resolve-by-type", ResolvesTheClockByTypeTwice);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
             app.MapPost("/planted/seam-twice", HandsTheClockToASeamTwice);
@@ -446,6 +491,9 @@ public sealed class KernelClockActReadArchTests
 
         private static async Task<IResult> GuardedThroughAnotherType(HttpContext http, TimeProvider time, CancellationToken ct) =>
             await PlantedHelperGuard.GuardAsync(http, ct) ?? Results.Ok(time.GetUtcNow());
+
+        private static IResult ResolvesTheClockByTypeTwice(HttpContext http) =>
+            Results.Ok(PlantedHelperGuard.Stamp(http) - PlantedHelperGuard.Stamp(http));
 
         private static IResult ReadsTheWallClockElsewhere() => Results.Ok(PlantedHelperGuard.WallWindow());
 
@@ -512,6 +560,10 @@ public sealed class KernelClockActReadArchTests
 
         // A helper of another type with no clock of its own, reading the wall clock twice.
         internal static TimeSpan WallWindow() => DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
+
+        // Pulls the clock from the request container by type, then reads it.
+        internal static DateTimeOffset Stamp(HttpContext http) =>
+            ((TimeProvider)http.RequestServices.GetRequiredService(typeof(TimeProvider))).GetUtcNow();
     }
 
     private static class PlantedGuard
