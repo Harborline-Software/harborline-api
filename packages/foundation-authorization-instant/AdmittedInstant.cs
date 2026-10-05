@@ -17,6 +17,8 @@ public sealed record AdmittedInstant
     public static AdmittedInstant Read(TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
+        if (clock is IDeclaredInstantClock)
+            throw new ArgumentException("A declared-instant clock reports a chosen time; it cannot admit a decision instant.", nameof(clock));
         return new(clock.GetUtcNow());
     }
 
@@ -45,3 +47,10 @@ public enum AdmittedInstantExemption
     /// <summary>Roster sync reads install-root authority at the device-signed roster <c>IssuedAt</c> (ADR-0053).</summary>
     SignedRosterIssuedAt = 2,
 }
+
+/// <summary>
+/// A clock that reports a declared instant instead of reading time, such as a verification fixture's or a form
+/// rule evaluation's pinned clock. <see cref="AdmittedInstant.Read"/> refuses one, so a declared time can never
+/// become a decision instant, and <c>AdmittedInstantArchTests</c> requires every production clock to carry this.
+/// </summary>
+public interface IDeclaredInstantClock;

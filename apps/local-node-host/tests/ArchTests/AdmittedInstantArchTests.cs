@@ -64,6 +64,25 @@ public sealed class AdmittedInstantArchTests
             .ToArray());
     }
 
+    [Fact]
+    public void ProductionHoldsNoClockButTheHosts()
+    {
+        // Read(TimeProvider) is the public mint, so the clock it is handed must read time. Every production clock,
+        // at any depth of inheritance, must be a declared-instant clock, which Read refuses; nor may production
+        // reference a fake-clock library. Read from the compiled assemblies, so an alias or an indirect base cannot
+        // hide one (ticket 216 holds the source side, and only Program.cs may register TimeProvider.System).
+        var assemblies = ProductionAssemblies();
+        Assert.Empty(assemblies
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => type.IsSubclassOf(typeof(TimeProvider)) && !typeof(IDeclaredInstantClock).IsAssignableFrom(type))
+            .Select(type => type.FullName));
+        Assert.Empty(assemblies
+            .SelectMany(assembly => assembly.GetReferencedAssemblies().Select(reference => (assembly, reference)))
+            .Where(pair => pair.reference.Name?.StartsWith("Microsoft.Extensions.TimeProvider.Testing", StringComparison.Ordinal) == true
+                || pair.reference.Name?.StartsWith("Microsoft.Extensions.Time.Testing", StringComparison.Ordinal) == true)
+            .Select(pair => $"{pair.assembly.GetName().Name} -> {pair.reference.Name}"));
+    }
+
     [Theory]
     [InlineData(typeof(AuthorizationGateRequest))]
     [InlineData(typeof(AuthorizationWriteContext))]

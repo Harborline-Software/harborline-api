@@ -2922,7 +2922,7 @@ await Harborline.Api.LocalNodeHost.LocalNodeHostRuntime.RunAsync(app, listener);
 /// a verification fixture's instant is a declared input rather than wall time, so it is minted here
 /// and handed to the runner. It reads no ambient time and never advances.
 /// </summary>
-internal sealed class DeclaredInstantTimeProvider(DateTimeOffset instant) : TimeProvider
+internal sealed class DeclaredInstantTimeProvider(DateTimeOffset instant) : TimeProvider, Harborline.Api.Foundation.Authorization.IDeclaredInstantClock
 {
     /// <inheritdoc />
     public override DateTimeOffset GetUtcNow() => instant;

@@ -66,6 +66,18 @@ public sealed class AdmittedInstantDecisionTests
         Assert.Equal(AuthorizationVerdict.Denied, live.Verdict);
     }
 
+    [Fact]
+    public void ADeclaredInstantClock_CannotAdmitADecisionInstant()
+    {
+        // A clock that reports a chosen time (a fixture's or a form rule's pinned clock) is not the kernel clock.
+        Assert.Throws<ArgumentException>(() => AdmittedInstant.Read(new DeclaredClock(Stale)));
+    }
+
+    private sealed class DeclaredClock(DateTimeOffset instant) : TimeProvider, IDeclaredInstantClock
+    {
+        public override DateTimeOffset GetUtcNow() => instant;
+    }
+
     private sealed record StoredAct(ActorId Principal, TenantId Tenant, DateTimeOffset RecordedAt);
 
     /// <summary>
