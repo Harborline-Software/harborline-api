@@ -1,0 +1,22 @@
+# Register the manual entrypoint without landing the experimental implementation.
+# Maintainers select an independently reviewed candidate using workflow_dispatch ref.
+name: platform-feed-qualification
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Select benchmark mode on an independently reviewed candidate ref
+        type: boolean
+        default: false
+permissions: {}
+jobs:
+  registration-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    cache-mode: none
+    steps:
+      - name: Explain registration without claiming qualification
+        run: |
+          echo 'Manual entrypoint registered. This version performs no qualification or benchmark.'
+          echo 'Dispatch a reviewed candidate ref only after the disposable cache denial qualification passes.'
+          echo 'No production reuse is enabled by this workflow.'
