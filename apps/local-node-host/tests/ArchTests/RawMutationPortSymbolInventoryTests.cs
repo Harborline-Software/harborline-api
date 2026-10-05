@@ -384,17 +384,48 @@ public sealed class RawMutationPortSymbolInventoryTests
             var instructionOffset = position;
             var first = il[position++];
             var opCode = first == 0xfe ? MultiByteOpCodes[il[position++]] : SingleByteOpCodes[first];
+            var next = position + OperandSize(opCode.OperandType, il, position);
             var operand = opCode.OperandType switch
             {
                 OperandType.ShortInlineVar => il[position],
                 OperandType.InlineVar => BitConverter.ToUInt16(il, position),
                 OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineType or OperandType.InlineField
                     => BitConverter.ToInt32(il, position),
+                OperandType.ShortInlineBrTarget => next + (sbyte)il[position], // the absolute branch target
+                OperandType.InlineBrTarget => next + BitConverter.ToInt32(il, position),
                 _ => ImplicitLocal(opCode),
             };
             yield return (instructionOffset, opCode, operand);
-            position += OperandSize(opCode.OperandType, il, position);
+            position = next;
         }
+    }
+
+    /// <summary>Every offset some branch or switch can jump to (T-690: a join point is where values merge).</summary>
+    internal static HashSet<int> BranchTargets(MethodBase method)
+    {
+        var targets = new HashSet<int>();
+        var il = method.GetMethodBody()?.GetILAsByteArray();
+        if (il is null)
+            return targets;
+        foreach (var (offset, opCode, operand) in Instructions(method))
+        {
+            if (opCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
+                targets.Add(operand);
+            else if (opCode.OperandType == OperandType.InlineSwitch)
+            {
+                var start = offset + opCode.Size;
+                var count = BitConverter.ToInt32(il, start);
+                var end = start + 4 + count * 4;
+                for (var index = 0; index < count; index++)
+                    targets.Add(end + BitConverter.ToInt32(il, start + 4 + index * 4));
+            }
+        }
+        foreach (var clause in method.GetMethodBody()!.ExceptionHandlingClauses)
+        {
+            targets.Add(clause.HandlerOffset);
+            if (clause.Flags == ExceptionHandlingClauseOptions.Filter) targets.Add(clause.FilterOffset);
+        }
+        return targets;
     }
 
     private static int ImplicitLocal(OpCode opCode) =>

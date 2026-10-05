@@ -17,8 +17,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// T-690 (DES-0029 ck-9, ADR 0081): one act admits one kernel-clock instant, enforced structurally rather than by
 /// a list of handlers. Every minimal-API route handler is discovered from compiled IL (the delegate handed to a
 /// <c>Map*</c> call), and its act may read the clock once: a direct <see cref="TimeProvider.GetUtcNow"/>, an
-/// <see cref="AdmittedInstant.Read"/>, or a call into a seam that takes a <see cref="TimeProvider"/> or pulls one
-/// from the request container and reads it (the five-argument <c>RequestAuthorization.RefusalAsync</c> is one).
+/// <see cref="AdmittedInstant.Read"/>, or any read its call closure reaches through production code, such as the
+/// five-argument <c>RequestAuthorization.RefusalAsync</c> pulling the clock from the request container. Only a read
+/// of a clock injected into a service instance is that service's own and is not counted.
 /// A persistence seam (a store that holds a database handle) takes its instant as a parameter and holds no clock.
 /// <c>KernelClockIntegrationTests</c> still counts the reads of the composed host at runtime for the acts it drives;
 /// this fence is what fails on a handler nobody listed.
@@ -33,8 +34,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// Deliberate limits. The count is path-insensitive: a read in either of two exclusive branches counts twice
 /// (read once, before the branch) and a read in a loop counts once. Interface and virtual dispatch are not
 /// resolved to implementations. A delegate the act builds over its own code counts as invoked once where it is
-/// built. A service's own injected clock is not counted; the persistence-seam rule and the runtime theory cover
-/// those. Out of scope (T-690 log): the <c>NodeFormsComposition</c> shape, a read inside a DI factory closure
+/// built. A clock injected into a service instance is that service's own and is not counted; the persistence-seam
+/// rule and the runtime theory cover those. Out of scope (T-690 log): the <c>NodeFormsComposition</c> shape, a read inside a DI factory closure
 /// reached through interface dispatch from a validator, which only the runtime theory sees.
 /// </para>
 /// </summary>
@@ -66,7 +67,7 @@ public sealed class KernelClockActReadArchTests
 
         Assert.Empty(unpaired);
         Assert.True(handlers.Count > 200, $"Handler discovery found only {handlers.Count} route handlers.");
-        var known = new Dictionary<(MethodBase, bool), IReadOnlyList<string>?>();
+        var known = new Dictionary<MethodBase, IReadOnlyList<string>?>();
         var violations = handlers
             .Select(handler => (handler, reads: ActReads(handler.Handler, assemblies, known)))
             .Where(item => item.reads.Count > 1)
@@ -86,7 +87,9 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(11, reads.Count);
+        Assert.Equal(13, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("HandsTheClockOnAsAnObject", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByASuppliedType", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByTypeTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsTheWallClockElsewhere", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("GuardedThroughAnotherType", StringComparison.Ordinal)).Value);
@@ -107,7 +110,7 @@ public sealed class KernelClockActReadArchTests
             type => IsWithin(type, typeof(PlantedUntraceableRoutes)));
 
         Assert.Empty(handlers);
-        Assert.Equal(4, unpaired.Count);
+        Assert.Equal(5, unpaired.Count);
     }
 
     [Fact(DisplayName = "T-690 ck-9: a persistence seam takes its instant as a parameter and holds no clock")]
@@ -134,9 +137,12 @@ public sealed class KernelClockActReadArchTests
     internal sealed record RouteHandler(MethodBase Handler, string MappedAt);
 
     /// <summary>
-    /// The handler of each <c>Map*(…, Delegate)</c> call is the method whose pointer was loaded last before it
-    /// (<c>ldftn</c>: a lambda, a closure method or a method group). A Map call with no such pointer is returned
-    /// as unpaired, so a handler shape this discovery cannot see fails loudly instead of escaping the fence.
+    /// Each <c>Map*(…, Delegate)</c> call's handler, recognised only in the shapes the compiler emits for a handler
+    /// argument: a fresh delegate (<c>ldftn; newobj</c>), the compiler's cached lambda or method-group delegate, a
+    /// delegate local assigned once from one of those, or a production helper whose single <c>ret</c> returns one.
+    /// A branch into any of those instructions from outside the shape (a conditional or if/else choosing the
+    /// handler) rejects it. Anything else is returned as unpaired, so a handler this fence cannot name fails loudly
+    /// instead of escaping or being attributed to the wrong delegate.
     /// </summary>
     internal static IReadOnlyList<RouteHandler> DiscoverHandlers(
         IReadOnlyList<Assembly> assemblies, out IReadOnlyList<string> unpaired, Func<Type, bool>? typeFilter = null)
@@ -145,99 +151,152 @@ public sealed class KernelClockActReadArchTests
         var missing = new List<string>();
         foreach (var type in assemblies.SelectMany(assembly => assembly.GetTypes()).Where(type => typeFilter?.Invoke(type) ?? true))
         foreach (var method in Declared(type))
-            Trace(method, assemblies, onMap: (pointer, offset) =>
+        {
+            var body = Body.Of(method);
+            for (var index = 0; index < body.Instructions.Length; index++)
             {
+                var (offset, opCode, operand) = body.Instructions[index];
+                if (opCode.OperandType != OperandType.InlineMethod || Resolve(method, operand) is not { } target || !IsDelegateMap(target))
+                    continue;
                 var at = $"{Name(method)}+IL_{offset:x4}";
-                if (pointer is null) missing.Add(at);
-                else handlers.Add(new RouteHandler(pointer, at));
-            });
+                if (HandlerArgument(body, index, assemblies, []) is { } handler) handlers.Add(new RouteHandler(handler, at));
+                else missing.Add(at);
+            }
+        }
         unpaired = missing;
         return handlers;
     }
 
-    /// <summary>
-    /// The act's clock reads, path-insensitively: every read site its own code reaches, once per call site, so a
-    /// helper or seam called twice counts twice and a seam that reads twice counts twice. A read inside a loop
-    /// counts once; a read in either of two exclusive branches counts twice (read once, before the branch).
-    /// A delegate the act builds over its own code (<c>ldftn</c>) is counted as invoked once where it is built:
-    /// a clock-reading callback that is never invoked is reported (loud), and one invoked repeatedly counts once
-    /// (not multiplied); not counting it would let a read inside a lambda the act runs pass silently.
-    /// </summary>
-    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies,
-        Dictionary<(MethodBase, bool), IReadOnlyList<string>?>? known = null) =>
-        Reads(handler, actsClock: true, assemblies, known ?? []);
+    private sealed record Body(MethodBase Method, (int Offset, OpCode OpCode, int Operand)[] Instructions,
+        HashSet<int> Joins, Dictionary<int, int> BranchesInto)
+    {
+        internal static Body Of(MethodBase method)
+        {
+            var instructions = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+            var branchesInto = instructions
+                .Where(instruction => instruction.OpCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
+                .GroupBy(instruction => instruction.Operand)
+                .ToDictionary(group => group.Key, group => group.Count());
+            return new(method, instructions, RawMutationPortSymbolInventoryTests.BranchTargets(method), branchesInto);
+        }
+
+        /// <summary>No instruction in (from, to] is a join point, except the allowed one reached by one branch.</summary>
+        internal bool Straight(int from, int to, int allowedJoin = -1) =>
+            Enumerable.Range(from + 1, to - from).All(index => !Joins.Contains(Instructions[index].Offset)
+                || (Instructions[index].Offset == allowedJoin && BranchesInto.GetValueOrDefault(allowedJoin) == 1));
+    }
+
+    /// <summary>The method the delegate consumed by the instruction at <paramref name="consumer"/> was built over.</summary>
+    private static MethodBase? HandlerArgument(Body body, int consumer, IReadOnlyList<Assembly> assemblies, HashSet<MethodBase> tracing)
+    {
+        var code = body.Instructions;
+        var method = body.Method;
+        bool Is(int at, OpCode opCode) => at >= 0 && code[at].OpCode == opCode;
+        bool IsDelegateConstruction(int at) => Is(at, OpCodes.Newobj)
+            && Resolve(method, code[at].Operand)?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created);
+        var c = consumer;
+        // A fresh delegate: ldftn X; newobj.
+        if (IsDelegateConstruction(c - 1) && Is(c - 2, OpCodes.Ldftn) && body.Straight(c - 2, c))
+            return Resolve(method, code[c - 2].Operand);
+        // The compiler's cached delegate: ldsfld F; dup; brtrue L; pop; ldsfld <>9 | ldnull; ldftn X; newobj; dup; stsfld F; L:
+        if (Is(c - 1, OpCodes.Stsfld) && Is(c - 2, OpCodes.Dup) && IsDelegateConstruction(c - 3) && Is(c - 4, OpCodes.Ldftn)
+            && (Is(c - 5, OpCodes.Ldsfld) || Is(c - 5, OpCodes.Ldnull)) && Is(c - 6, OpCodes.Pop)
+            && (Is(c - 7, OpCodes.Brtrue_S) || Is(c - 7, OpCodes.Brtrue)) && code[c - 7].Operand == code[c].Offset
+            && Is(c - 8, OpCodes.Dup) && Is(c - 9, OpCodes.Ldsfld) && code[c - 9].Operand == code[c - 1].Operand
+            && body.Straight(c - 9, c, allowedJoin: code[c].Offset))
+            return Resolve(method, code[c - 4].Operand);
+        // A delegate local assigned exactly once from one of these shapes.
+        if (c >= 1 && IsLoadLocal(code[c - 1].OpCode) && body.Straight(c - 1, c))
+        {
+            var stores = Enumerable.Range(0, code.Length)
+                .Where(at => IsStoreLocal(code[at].OpCode) && code[at].Operand == code[c - 1].Operand).ToArray();
+            return stores is [var store] ? HandlerArgument(body, store, assemblies, tracing) : null;
+        }
+        // A production helper that builds the delegate and returns it from its only ret.
+        if (c >= 1 && (Is(c - 1, OpCodes.Call) || Is(c - 1, OpCodes.Callvirt)) && body.Straight(c - 1, c)
+            && Resolve(method, code[c - 1].Operand) is MethodInfo { ReturnType: var returned } factory
+            && typeof(Delegate).IsAssignableFrom(returned) && factory.DeclaringType is { } declaring
+            && assemblies.Contains(declaring.Assembly) && tracing.Add(factory))
+        {
+            var helper = Body.Of(factory);
+            var returns = Enumerable.Range(0, helper.Instructions.Length).Where(at => helper.Instructions[at].OpCode == OpCodes.Ret).ToArray();
+            return returns is [var ret] ? HandlerArgument(helper, ret, assemblies, tracing) : null;
+        }
+        return null;
+    }
 
     /// <summary>
-    /// The reads under <paramref name="method"/>. Its own direct reads count when it runs on the act's clock
-    /// (<paramref name="actsClock"/>): the handler and its own helpers, or a seam that receives the clock. Any other
-    /// production code is still walked, so a guard reached through a helper of another type is found, but its own
-    /// direct reads are a service's injected clock, which the persistence-seam rule and the runtime theory cover.
+    /// The act's clock reads, path-insensitively: every clock read its call closure reaches through production
+    /// code, once per call site, so a helper called twice counts twice. The one exclusion is a read of a clock
+    /// injected into a service instance (the read's receiver is a <see cref="TimeProvider"/> field of a real type),
+    /// which is that service's own clock, not the act's; the persistence-seam rule and the runtime theory cover
+    /// those. A clock the act hands on (a parameter, an <c>object</c>, a captured variable) or that is pulled from
+    /// the request container counts wherever it is read. A read inside a loop counts once; a read in either of two
+    /// exclusive branches counts twice (read once, before the branch). A delegate the act builds over its own code
+    /// (<c>ldftn</c>) is counted as invoked once where it is built: a clock-reading callback that is never invoked
+    /// is reported (loud), and one invoked repeatedly counts once; not counting it would let a read inside a
+    /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved.
     /// </summary>
-    private static IReadOnlyList<string> Reads(MethodBase method, bool actsClock, IReadOnlyList<Assembly> assemblies,
-        Dictionary<(MethodBase, bool), IReadOnlyList<string>?> known)
+    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies,
+        Dictionary<MethodBase, IReadOnlyList<string>?>? known = null) =>
+        Reads(handler, assemblies, known ?? []);
+
+    private static IReadOnlyList<string> Reads(
+        MethodBase method, IReadOnlyList<Assembly> assemblies, Dictionary<MethodBase, IReadOnlyList<string>?> known)
     {
-        if (known.TryGetValue((method, actsClock), out var cached))
+        if (known.TryGetValue(method, out var cached))
             return cached ?? []; // in progress: a cycle reads nothing more
-        known[(method, actsClock)] = null;
-        var owner = Outer(method.DeclaringType!);
+        known[method] = null;
         var reads = new List<string>();
         if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
             && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
-            reads.AddRange(Reads(moveNext, actsClock, assemblies, known));
-        foreach (var (target, offset) in RawMutationPortSymbolInventoryTests.CalledMethods(method))
+            reads.AddRange(Reads(moveNext, assemblies, known));
+        var injectedReceiver = false;
+        foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
         {
-            if (IsWallClockRead(target))
-                reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
-            else if (IsClockRead(target))
+            if (opCode.OperandType != OperandType.InlineMethod)
             {
-                if (actsClock) reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
-            }
-            else if (target.DeclaringType is not { } declaring || !assemblies.Contains(declaring.Assembly))
+                injectedReceiver = opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand));
                 continue;
-            else if (Outer(declaring) == owner)
-                reads.AddRange(Reads(target, actsClock, assemblies, known));
-            else if (ReceivesClock(target))
-                reads.AddRange(Reads(target, actsClock: true, assemblies, known).Select(read => $"seam {Name(target)} -> {read}"));
-            else
-                reads.AddRange(Reads(target, actsClock: false, assemblies, known));
+            }
+            var receiver = injectedReceiver;
+            if (Resolve(method, operand) is not { } target)
+            {
+                injectedReceiver = false;
+                continue;
+            }
+            // An instance getter on the service's own type that hands back its injected clock (`Clock => _clock`).
+            injectedReceiver = target is MethodInfo { IsStatic: false, IsSpecialName: true, ReturnType: var gotten } getter
+                && typeof(TimeProvider).IsAssignableFrom(gotten) && getter.DeclaringType is { } owner
+                && !owner.IsDefined(typeof(CompilerGeneratedAttribute), false)
+                && RawMutationPortSymbolInventoryTests.Instructions(getter).Any(instruction =>
+                    instruction.OpCode == OpCodes.Ldfld && ResolveField(getter, instruction.Operand) is { } field
+                    && field.DeclaringType == owner && IsInjectedClock(field));
+            if (injectedReceiver)
+                continue;
+            if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
+                reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
+            else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
+                reads.AddRange(Reads(target, assemblies, known));
         }
-        known[(method, actsClock)] = reads;
+        known[method] = reads;
         return reads;
     }
 
     /// <summary>
-    /// A seam reads the clock on the act's behalf when the act hands it a clock (a <see cref="TimeProvider"/>
-    /// parameter) or it pulls one from the request container; its reads are counted where it is called, and a
-    /// seam it hands the clock on to is counted the same way (<c>PackRouteAuthorization.Authority</c> forwards to
-    /// <c>RequestAuthorization.Authority</c>). A service that holds its own injected clock is not a seam the route
-    /// can see; the persistence-seam rule and <c>KernelClockIntegrationTests</c> cover those.
+    /// A clock injected into a service instance: a <see cref="TimeProvider"/> field of a real type, read directly or
+    /// through that type's own getter.
     /// </summary>
-    private static bool ReceivesClock(MethodBase method)
-    {
-        if (method.GetParameters().Any(parameter => typeof(TimeProvider).IsAssignableFrom(parameter.ParameterType)))
-            return true;
-        var closure = OwnClosure(method, Outer(method.DeclaringType!)).ToArray();
-        // GetService<TimeProvider>() / GetRequiredService<TimeProvider>() ...
-        if (closure.Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic && IsServiceLookup(generic)
-                && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved)))
-            return true;
-        // ... or the non-generic lookup by type: GetService(typeof(TimeProvider)).
-        return closure.Any(call => call.Target is MethodInfo { IsGenericMethod: false } lookup && IsServiceLookup(lookup))
-            && closure.Select(call => call.Caller).Distinct().Any(LoadsTimeProviderToken);
-    }
+    private static bool IsInjectedClock(FieldInfo? receiver) =>
+        receiver is { IsStatic: false, DeclaringType: { } declaring }
+        && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
+        && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false);
 
-    private static bool IsServiceLookup(MethodInfo method) =>
-        method.Name is nameof(IServiceProvider.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService);
-
-    private static bool LoadsTimeProviderToken(MethodBase method) =>
-        RawMutationPortSymbolInventoryTests.Instructions(method).Any(instruction => instruction.OpCode == OpCodes.Ldtoken
-            && ResolveType(method, instruction.Operand) is { } type && typeof(TimeProvider).IsAssignableFrom(type));
-
-    private static Type? ResolveType(MethodBase method, int token)
+    private static FieldInfo? ResolveField(MethodBase method, int token)
     {
         try
         {
-            return method.Module.ResolveType(token, method.DeclaringType?.GetGenericArguments(),
+            return method.Module.ResolveField(token, method.DeclaringType?.GetGenericArguments(),
                 method is MethodInfo { IsGenericMethod: true } generic ? generic.GetGenericArguments() : null);
         }
         catch (ArgumentException)
@@ -262,99 +321,6 @@ public sealed class KernelClockActReadArchTests
             && target.DeclaringType is { } declaring && typeof(TimeProvider).IsAssignableFrom(declaring))
         || (target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read));
 
-    /// <summary>Every call in the method and the code its own type owns (lambdas, state machines, helpers).</summary>
-    private static IEnumerable<(MethodBase Caller, MethodBase Target, int Offset)> OwnClosure(MethodBase root, Type owner)
-    {
-        var seen = new HashSet<MethodBase>();
-        var pending = new Queue<MethodBase>([root]);
-        while (pending.TryDequeue(out var method))
-        {
-            if (!seen.Add(method))
-                continue;
-            if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state)
-                foreach (var moveNext in state.StateMachineType.GetMethods(
-                             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                    pending.Enqueue(moveNext);
-            foreach (var (target, offset) in RawMutationPortSymbolInventoryTests.CalledMethods(method))
-            {
-                yield return (method, target, offset);
-                if (target.DeclaringType is { } declaring && Outer(declaring) == owner)
-                    pending.Enqueue(target);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Follows the delegate on top of the stack through one method body: freshly built (ldftn, newobj), reloaded
-    /// from the local it was stored in, or returned by a production helper that builds it. Anything else that could
-    /// put a delegate there (an argument, a field, the result of another call) clears it, so a Map call whose
-    /// handler cannot be traced reaches <paramref name="onMap"/> with null instead of a stale pointer. Returns the
-    /// one delegate every <c>ret</c> returns, or null when the returns disagree or cannot be traced.
-    /// </summary>
-    private static MethodBase? Trace(MethodBase method, IReadOnlyList<Assembly> assemblies,
-        Action<MethodBase?, int>? onMap = null, HashSet<MethodBase>? tracing = null)
-    {
-        tracing ??= [];
-        if (!tracing.Add(method))
-            return null;
-        MethodBase? pointer = null;
-        var locals = new Dictionary<int, MethodBase?>();
-        var returned = new HashSet<MethodBase?>();
-        var localTypes = method.GetMethodBody()?.LocalVariables.ToDictionary(local => local.LocalIndex, local => local.LocalType)
-            ?? [];
-        foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
-        {
-            var target = opCode.OperandType == OperandType.InlineMethod ? Resolve(method, operand) : null;
-            if (opCode == OpCodes.Ldftn)
-                pointer = pointer is null ? target : Ambiguous; // a second delegate before the first is consumed: a branch merge
-            else if (opCode == OpCodes.Newobj && target?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created))
-                continue; // wraps the pointer just loaded
-            else if (IsStoreLocal(opCode))
-            {
-                // A delegate local assigned on several paths names one handler only if every assignment is the same
-                // traced delegate; an untraced assignment (an argument, a call result) is Unknown, and any mix is
-                // Ambiguous. Linear IL order sees every assignment, whichever branch it is on.
-                if (localTypes.TryGetValue(operand, out var localType) && typeof(Delegate).IsAssignableFrom(localType))
-                {
-                    var value = pointer ?? Unknown;
-                    locals[operand] = !locals.TryGetValue(operand, out var held) || held == value ? value : Ambiguous;
-                }
-                pointer = null;
-            }
-            else if (IsLoadLocal(opCode))
-                pointer = locals.GetValueOrDefault(operand) is { } loaded && loaded != Unknown ? loaded : null;
-            else if (opCode == OpCodes.Ret)
-                returned.Add(pointer);
-            else if (target is not null && IsDelegateMap(target))
-            {
-                onMap?.Invoke(pointer == Ambiguous ? null : pointer, offset);
-                pointer = null;
-            }
-            else if (target is MethodInfo { ReturnType: var result } factory && typeof(Delegate).IsAssignableFrom(result))
-                pointer = factory.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly)
-                    ? Trace(factory, assemblies, tracing: tracing)
-                    : null;
-            else if (target is not null && (opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj))
-                pointer = null;
-            else if (LoadsDelegateFromElsewhere(method, opCode, operand))
-                pointer = pointer is null ? null : Ambiguous; // over a delegate already on the stack: a branch merge
-        }
-        tracing.Remove(method);
-        return returned.Count == 1 && returned.Single() != Ambiguous ? returned.Single() : null;
-    }
-
-    /// <summary>Marks a delegate whose handler depends on a branch, so its Map call is reported, not guessed.</summary>
-    private static readonly MethodBase Ambiguous = typeof(KernelClockActReadArchTests).GetMethod(
-        nameof(AmbiguousDelegate), BindingFlags.NonPublic | BindingFlags.Static)!;
-
-    private static void AmbiguousDelegate() { }
-
-    /// <summary>Marks a delegate local assigned from something this discovery cannot trace.</summary>
-    private static readonly MethodBase Unknown = typeof(KernelClockActReadArchTests).GetMethod(
-        nameof(UnknownDelegate), BindingFlags.NonPublic | BindingFlags.Static)!;
-
-    private static void UnknownDelegate() { }
-
     private static MethodBase? Resolve(MethodBase method, int token)
     {
         try
@@ -366,24 +332,6 @@ public sealed class KernelClockActReadArchTests
         {
             return null;
         }
-    }
-
-    /// <summary>An argument or field load whose value is a delegate: a handler this discovery cannot trace.</summary>
-    private static bool LoadsDelegateFromElsewhere(MethodBase method, OpCode opCode, int operand)
-    {
-        if (opCode == OpCodes.Ldfld || opCode == OpCodes.Ldsfld)
-        {
-            try { return typeof(Delegate).IsAssignableFrom(method.Module.ResolveField(operand)?.FieldType); }
-            catch (ArgumentException) { return false; }
-        }
-        var index = opCode == OpCodes.Ldarg_0 ? 0 : opCode == OpCodes.Ldarg_1 ? 1 : opCode == OpCodes.Ldarg_2 ? 2
-            : opCode == OpCodes.Ldarg_3 ? 3 : opCode == OpCodes.Ldarg_S || opCode == OpCodes.Ldarg ? operand : -1;
-        if (index < 0)
-            return false;
-        if (!method.IsStatic && index-- == 0)
-            return false; // this
-        var parameters = method.GetParameters();
-        return index < parameters.Length && typeof(Delegate).IsAssignableFrom(parameters[index].ParameterType);
     }
 
     private static bool IsStoreLocal(OpCode opCode) =>
@@ -465,6 +413,8 @@ public sealed class KernelClockActReadArchTests
             app.MapPost("/planted/helper-guard", GuardedThroughAnotherType);
             app.MapGet("/planted/wall-clock-elsewhere", ReadsTheWallClockElsewhere);
             app.MapGet("/planted/resolve-by-type", ResolvesTheClockByTypeTwice);
+            app.MapGet("/planted/object-clock", HandsTheClockOnAsAnObject);
+            app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
             app.MapPost("/planted/seam-twice", HandsTheClockToASeamTwice);
@@ -494,6 +444,13 @@ public sealed class KernelClockActReadArchTests
 
         private static IResult ResolvesTheClockByTypeTwice(HttpContext http) =>
             Results.Ok(PlantedHelperGuard.Stamp(http) - PlantedHelperGuard.Stamp(http));
+
+        private static IResult HandsTheClockOnAsAnObject(TimeProvider time) =>
+            Results.Ok(PlantedHelperGuard.StampObject(time) - PlantedHelperGuard.StampObject(time));
+
+        private static IResult ResolvesTheClockByASuppliedType(HttpContext http) =>
+            Results.Ok(PlantedHelperGuard.StampByType(http, typeof(TimeProvider))
+                - PlantedHelperGuard.StampByType(http, typeof(TimeProvider)));
 
         private static IResult ReadsTheWallClockElsewhere() => Results.Ok(PlantedHelperGuard.WallWindow());
 
@@ -544,12 +501,20 @@ public sealed class KernelClockActReadArchTests
             else supplied = ReadsNothing;
             app.MapGet("/planted/supplied-or-known", supplied);
             app.MapGet("/planted/conditional", flag ? ReadsTwice : (Func<IResult>)ReadsNothing);
+
+            // One arm is a known handler, the other an object field cast back to a delegate.
+            app.MapGet("/planted/object-field", flag ? (Func<IResult>)ReadsNothing : (Func<IResult>)Holder.Handler);
             return unrelated;
         }
 
         private static IResult ReadsTwice() => Results.Ok(TimeProvider.System.GetUtcNow() - TimeProvider.System.GetUtcNow());
 
         private static IResult ReadsNothing() => Results.Ok();
+
+        private static class Holder
+        {
+            internal static object Handler = (Func<IResult>)ReadsTwice;
+        }
     }
 
     private static class PlantedHelperGuard
@@ -560,6 +525,11 @@ public sealed class KernelClockActReadArchTests
 
         // A helper of another type with no clock of its own, reading the wall clock twice.
         internal static TimeSpan WallWindow() => DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
+
+        internal static DateTimeOffset StampObject(object clock) => ((TimeProvider)clock).GetUtcNow();
+
+        internal static DateTimeOffset StampByType(HttpContext http, Type type) =>
+            ((TimeProvider)http.RequestServices.GetRequiredService(type)).GetUtcNow();
 
         // Pulls the clock from the request container by type, then reads it.
         internal static DateTimeOffset Stamp(HttpContext http) =>
