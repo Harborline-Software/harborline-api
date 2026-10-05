@@ -107,12 +107,15 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
   for (const qualityEnabled of [false, true]) for (const exitCode of [0, 1]) {
     const steps = []
     const calls = []
+    // The stub below models the no-handoff route. A surrounding job's real handoff
+    // must not make its literal selection output masquerade as a handoff result.
+    const fixtureProcess = {execPath: process.execPath, env: {}}
     new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence', 'process', 'clone', 'apiRoot', 'scratch', 'artifacts', 'path', 'rmSync', 'mkdirSync', 'qualityEnabled', 'handoffRestored',
       runBlock + '\n' + route)(steps, (executable, args) => ({executable, args}),
       (_id, executable, args, options) => {
         calls.push({executable, args, cwd: options.cwd})
         return {status: args[0] === 'eng/exact-clone-platform-feed.mjs' ? exitCode : 0, stdout: 'selection evidence'}
-      }, '/progress-fixture.jsonl', text => text, text => text, process, '/clone', '/source', '/scratch', [], path,
+      }, '/progress-fixture.jsonl', text => text, text => text, fixtureProcess, '/clone', '/source', '/scratch', [], path,
       () => {}, () => {}, qualityEnabled, handoffRestored)
     assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'platform-feed', 'dotnet-restore'])
     assert.equal(steps[1].passed, exitCode === 0)
@@ -121,6 +124,22 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
     assert.deepEqual(calls[0], {executable: process.execPath,
       args: ['eng/exact-clone-platform-feed.mjs', '/source', '/scratch'], cwd: '/clone'})
   }
+})
+
+test('recorder fixture remains independent of a surrounding live handoff', () => {
+  // Exercise the actual fixture in a child with an external ambient context. The
+  // original fixture failed with "platform feed handoff result missing or ambiguous".
+  const env = {...process.env, HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: path.join(tmpdir(), 'literal-outer-transfer.json'),
+    HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: 'a'.repeat(64)}
+  // This is a separate test invocation, not an internal child of the parent runner.
+  delete env.NODE_TEST_CONTEXT
+  const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap',
+    '--test-name-pattern=^exact-clone records platform-feed between artifact check and dotnet-restore$',
+    import.meta.filename], {encoding: 'utf8', env, timeout: 10000})
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /\btests 1\b/)
+  assert.match(result.stdout, /\bfail 0\b/)
 })
 
 test('composed exact-clone handoff isolates restore and refuses consumption failure before compilation', () => {
