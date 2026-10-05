@@ -314,7 +314,7 @@ internal sealed partial class AdminTeamAccessAuthority(
                     rosterMember.PartyId,
                     TeamMemberSource.Roster,
                     (await _gate.InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId),
-                        context.Decision.Request.Tenant, context.Decision.Request.At, cancellationToken)
+                        context.Decision.Request.Tenant, context.Decision.Request.Instant, cancellationToken)
                         .ConfigureAwait(false)).Permissions.Order(StringComparer.Ordinal).ToArray(),
                     GrantId: null));
             }
@@ -477,7 +477,7 @@ internal sealed partial class AdminTeamAccessAuthority(
             cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
         coverage.RequireAllowed();
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.Instant, cancellationToken,
                 requireGrantCoverage: true,
                 authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId))
             .ConfigureAwait(false);
@@ -530,7 +530,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         {
             return await HandOverAdministratorAsync(
                     context, tenant, target, existing, revocation, successorPrincipalId, decision,
-                    cancellationToken)
+                    authority.Instant, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -602,7 +602,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         var coverage = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
         coverage.RequireAllowed();
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.Instant, cancellationToken,
             requireGrantCoverage: true, request).ConfigureAwait(false);
         if (context is null) return null;
         if (!Guid.TryParse(grantId, out var parsed) || successorId.Value == Guid.Empty || successorId.Value == parsed)
@@ -671,7 +671,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         var coverage = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
         coverage.RequireAllowed();
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.Instant, cancellationToken,
                 requireGrantCoverage: true, request)
             .ConfigureAwait(false);
         if (context is null)
@@ -787,6 +787,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         GrantRevocation revocation,
         string successorPrincipalId,
         AuthorizationDecision decision,
+        AdmittedInstant instant,
         CancellationToken cancellationToken)
     {
         var at = revocation.RevokedAt;
@@ -804,7 +805,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         // authoritative where it exists, so a successor the roster narrows or has ejected is refused here
         // rather than handed a role that does nothing.
         var successorDecision = successorParty is null ? null : await _gate.DecideProspectiveAdministratorAsync(
-            new AuthorizationWriteContext(successorPrincipal, tenant, at)
+            new AuthorizationWriteContext(successorPrincipal, tenant, instant)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
                 // Ticket 294 slice 2a — the flag is the whole question; the gate answers it. The caller no
                 // longer substitutes a members:manage set for a successor the roster reports nothing about,
@@ -900,7 +901,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         var recordId = grantId.Value.ToString("D");
         var operation = AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
         var reaction = new AuthorizationWriteContext(
-            admittedDecision.Request.Principal, tenant, admittedDecision.DecidedAt)
+            admittedDecision.Request.Principal, tenant, admittedDecision.Request.Instant)
             .Request(operation, "members", recordId);
         admittedDecision.RequireAllowedReaction(
             operation, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);
@@ -965,7 +966,7 @@ internal sealed partial class AdminTeamAccessAuthority(
     private async Task<AdminSessionContext?> ResolveAdminAsync(
         string selectedSessionHandle,
         string tenantId,
-        DateTimeOffset? at,
+        AdmittedInstant? at,
         CancellationToken cancellationToken,
         bool requireGrantCoverage,
         AuthorizationGateRequest? request = null)
@@ -977,7 +978,8 @@ internal sealed partial class AdminTeamAccessAuthority(
         }
 
         var canonicalTenantId = parsedTenant.ToString("D");
-        var now = at ?? _timeProvider.GetUtcNow();
+        var admitted = at ?? AdmittedInstant.Read(_timeProvider);
+        var now = admitted.Value;
         var session = await LoadSelectedSessionAsync(selectedSessionHandle, now, cancellationToken)
             .ConfigureAwait(false);
         if (session is null ||
@@ -1015,7 +1017,7 @@ internal sealed partial class AdminTeamAccessAuthority(
 
         // `party` above is still required and pinned to the session's canonical party reference
         // (attribution); the gate derives the roster facts itself (T-519).
-        request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, now)
+        request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, admitted)
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "list");
         if (request.Principal.Value != session.TenantPrincipalId)
             throw new ArgumentException("The selected-session principal does not match the write authority.");

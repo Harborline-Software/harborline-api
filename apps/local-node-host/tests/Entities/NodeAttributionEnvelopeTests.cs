@@ -90,7 +90,7 @@ public sealed class NodeAttributionEnvelopeTests : IAsyncLifetime
         new(_signer.Signer);
 
     private static AuthorizationWriteContext Authority(string party) =>
-        new(new ActorId(party), LocalTenantId, DateTimeOffset.UtcNow);
+        new(new ActorId(party), LocalTenantId, AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
 
     [Fact(DisplayName = "Attestation integrity: a bound member's JE-posted audit row carries the node-signed attribution envelope (member Party + membership + session + authority + signed key-binding) and the signature VERIFIES")]
     public async Task MemberSession_AttributionEnvelope_IsSigned_AndVerifies()

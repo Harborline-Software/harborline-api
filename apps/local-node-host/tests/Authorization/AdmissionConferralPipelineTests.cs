@@ -186,7 +186,7 @@ public sealed class AdmissionConferralPipelineTests : IAsyncLifetime
         new(new ActorId(Admitter), At, new GrantReason(GrantReasonCodes.RevocationReview, "ck10"));
 
     private static async Task<AuthorizationDecision> DecisionAsync(GrantId target) =>
-        await TestAuthorization.AllowGate().DecideAsync(new AuthorizationWriteContext(new ActorId(Admitter), Tenant, At)
+        await TestAuthorization.AllowGate().DecideAsync(new AuthorizationWriteContext(new ActorId(Admitter), Tenant, AdmittedInstant.FromRecordedAct(At))
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", target.ToString()));
 
     private async Task AssertNothingPersistedAsync()

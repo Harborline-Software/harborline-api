@@ -427,7 +427,7 @@ public sealed class RosterPreInsertVerificationTests
         var gate = Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.Gate(_ => true,
             new NodeAuthorizationRosterConstraintReader(new NoPartyBinding(), rosters),
             new RoleReference(RoleVocabularies.Domain, "member"));
-        var decision = await gate.DecideAsync(new AuthorizationWriteContext(new ActorId("stray"), tenant, At.AddHours(3))
+        var decision = await gate.DecideAsync(new AuthorizationWriteContext(new ActorId("stray"), tenant, AdmittedInstant.FromRecordedAct(At.AddHours(3)))
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "stray"));
         Assert.Equal(tampered ? AuthorizationVerdict.Denied : AuthorizationVerdict.Allowed, decision.Verdict);
         Assert.Equal(!tampered, decision.Evidence.Roster!.Member);

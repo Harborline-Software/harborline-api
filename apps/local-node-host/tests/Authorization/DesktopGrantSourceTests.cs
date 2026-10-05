@@ -25,7 +25,7 @@ public sealed class DesktopGrantSourceTests
         var tenant = new TenantId("desktop-grant-source");
         var now = TimeProvider.System.GetUtcNow();
         await SeedAsync(provider, tenant, now);
-        var request = new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, now)
+        var request = new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, AdmittedInstant.FromRecordedAct(now))
             .Request(AuthorizationOperation.Parse(Permission.OrgManageSettings), "org", "desktop");
         var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(request);
         Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);

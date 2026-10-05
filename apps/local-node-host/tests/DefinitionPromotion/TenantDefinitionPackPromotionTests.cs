@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
@@ -133,7 +134,7 @@ public sealed class TenantDefinitionPackPromotionTests
             tenant,
             trustStore,
             PackRevocationList.Empty,
-            now,
+            AdmittedInstant.FromRecordedAct(now),
             TimeSpan.FromDays(30),
             Principal: "test-operator");
         using var nodeBForms = new InMemoryFormDefinitionStore(TimeProvider.System);

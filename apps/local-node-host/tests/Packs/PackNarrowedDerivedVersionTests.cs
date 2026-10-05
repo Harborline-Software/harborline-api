@@ -366,7 +366,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
                 new InMemoryPackTrustStore(
                     [new PackTrustRoot(TrustScope.OwnRoster, _keyPair.PrincipalId, 1, TrustRootStatus.Current)]),
                 PackRevocationList.Empty,
-                Now,
+                AdmittedInstant.FromRecordedAct(Now),
                 TimeSpan.FromDays(30),
                 Principal: "test-operator");
         }
@@ -425,7 +425,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
             var principal = new ActorId("test-operator");
             var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
                 new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
-                principal, Tenant, new AuthorizationTarget("pack", PackKey, scope), at));
+                principal, Tenant, new AuthorizationTarget("pack", PackKey, scope), AdmittedInstant.FromRecordedAct(at)));
             var authority = new PackProjectionAuthority(
                 decision, PackKey, pack.Version, Tenant, principal, at);
             return await Projector.ProjectActivePacksAsync(authority);

@@ -314,7 +314,7 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
         ConfigurationActivationTarget target,
         ConfigurationActivationRequest request,
         CancellationToken cancellationToken = default) =>
-        target.For(new AuthorizationWriteContext(new ActorId("test:operator"), Tenant, Frozen))
+        target.For(new AuthorizationWriteContext(new ActorId("test:operator"), Tenant, AdmittedInstant.FromRecordedAct(Frozen)))
             .CompareAndSwapAsync(request, cancellationToken);
 
     private List<ConfigurationEvidenceOutboxRow> Outbox()

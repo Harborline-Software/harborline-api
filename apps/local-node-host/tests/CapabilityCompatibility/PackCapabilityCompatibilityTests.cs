@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Assets.Common;
@@ -266,7 +267,7 @@ public sealed class PackCapabilityCompatibilityTests
             Tenant,
             trustStore,
             PackRevocationList.Empty,
-            Now,
+            AdmittedInstant.FromRecordedAct(Now),
             TimeSpan.FromDays(30),
             Principal: "test-operator");
 

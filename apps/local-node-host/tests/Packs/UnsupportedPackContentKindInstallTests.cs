@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Net;
 using System.Text.Json.Nodes;
 
@@ -442,7 +443,7 @@ public sealed class UnsupportedPackContentKindInstallTests
             new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
         var context = new PackInstallContext(
-            Tenant, trustStore, PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "test-operator");
+            Tenant, trustStore, PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: "test-operator");
 
         return (installer, context, store, export.FileBytes!, keyPair);
     }

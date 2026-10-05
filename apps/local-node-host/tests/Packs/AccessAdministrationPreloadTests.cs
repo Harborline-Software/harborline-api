@@ -139,7 +139,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
         await new AccessGrantAuthorizationSeed(authorizationWriter, configuration, grants)
-            .InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(TestAuthorization.At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
@@ -400,7 +400,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             Tenant,
             TrustingTheNodeKey(),
             PackRevocationList.Empty,
-            TimeProvider.System.GetUtcNow(),
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
             PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         var platform = await ExportAsync(new PackExportRequest(
@@ -533,7 +533,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
         ]);
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
-            TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
@@ -581,7 +581,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
         ]);
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
-            TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
@@ -654,7 +654,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             Tenant,
             TrustingTheNodeKey(),
             PackRevocationList.Empty,
-            TimeProvider.System.GetUtcNow(),
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
             PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         var fixtureBytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
@@ -1002,7 +1002,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             with { Exposes = ["access.holders"], InterfaceVersion = 1 });
         var context = new PackInstallContext(selectedTenant, new InMemoryPackTrustStore([
                 new PackTrustRoot(TrustScope.OwnRoster, new PackFileCodec().TryDecode(bytes)!.Envelope!.IssuerId, 1, TrustRootStatus.Current),
-            ]), PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            ]), PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         var installed = await _installer.InstallAsync(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));

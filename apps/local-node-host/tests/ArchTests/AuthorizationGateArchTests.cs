@@ -309,7 +309,7 @@ public sealed class AuthorizationGateArchTests
         var constructor = Assert.Single(constructors);
         Assert.False(constructor.IsPublic);
         Assert.Equal(
-            [typeof(string), typeof(TenantId), typeof(DateTimeOffset), typeof(string)],
+            [typeof(string), typeof(TenantId), typeof(AdmittedInstant), typeof(string)],
             constructor.GetParameters().Select(parameter => parameter.ParameterType));
 
         var exposedMethods = capability

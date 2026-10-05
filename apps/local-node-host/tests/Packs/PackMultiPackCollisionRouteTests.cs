@@ -49,6 +49,8 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
     private const string AssetTypesRoute = "/api/local-node/asset-registry/types";
     private const string SharedKey = "shared.equipment";
+    // T-1014 oracle: the refusal's wire code as a literal (AGENTS.md test oracles), not the production constant.
+    private const string UnresolvedCollisionWireCode = "pack.install.activate.unresolved_collision";
 
     private WebApplication _app = null!;
     private HttpClient _client = null!;
@@ -245,6 +247,68 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
         var shared = (await GetTypesAsync()).Single(t => t.GetProperty("id").GetString() == SharedKey);
         Assert.Equal("Equipment A", shared.GetProperty("displayName").GetString()); // the dependency-chain owner.
+    }
+
+    [Fact(DisplayName = "T-1014 ruling 124: a chain owner beats a conflicting recorded choice")]
+    public async Task Chain_owner_beats_a_conflicting_choice()
+    {
+        // pack.a depends on pack.b, so the chain names pack.a. The recorded choice names pack.b; the chain wins.
+        await InstallAsync(PackBody("pack.b", (SharedKey, "Equipment B")));
+        await InstallAsync(PackBody("pack.a", new[] { (SharedKey, "Equipment A") }, dependsOn: "pack.b"));
+
+        Assert.Equal(HttpStatusCode.OK, (await ActivateAsync("pack.b", "1.0.0", (SharedKey, "pack.b"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await ActivateAsync("pack.a", "1.0.0")).StatusCode);
+
+        var shared = (await GetTypesAsync()).Single(t => t.GetProperty("id").GetString() == SharedKey);
+        Assert.Equal("Equipment A", shared.GetProperty("displayName").GetString());
+    }
+
+    [Fact(DisplayName = "T-1014 ruling 124: a recorded choice whose pack no longer claims the key is ignored, so activation refuses")]
+    public async Task Stale_recorded_choice_is_ignored()
+    {
+        await InstallAsync(PackBody("pack.a", (SharedKey, "Equipment A")));
+        await InstallAsync(PackBody("pack.b", (SharedKey, "Equipment B")));
+        await InstallAsync(PackBody("pack.c", (SharedKey, "Equipment C")));
+
+        // A valid choice is recorded while pack.b claims the key.
+        Assert.Equal(HttpStatusCode.OK, (await ActivateAsync("pack.a", "1.0.0", (SharedKey, "pack.b"))).StatusCode);
+        Assert.Equal("pack.b", _store.GetKeyOwnership(NodeTenantFor())[SharedKey]);
+        // pack.b's newer version stops shipping the key, so the recorded choice is stale.
+        await InstallAsync(PackBody("pack.b", new[] { ("b.only", "B Only") }, version: "1.1.0"));
+
+        var refused = await ActivateAsync("pack.c", "1.0.0");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var body = await ReadJsonAsync(refused);
+        Assert.Equal(UnresolvedCollisionWireCode, body.GetProperty("error").GetString());
+        var detail = body.GetProperty("detail").GetString();
+        Assert.Contains(SharedKey, detail);
+        Assert.Contains("pack.a", detail);
+        Assert.DoesNotContain("pack.b", detail);
+        Assert.Null(_store.GetActive(NodeTenantFor(), "pack.c"));
+    }
+
+    [Fact(DisplayName = "T-1014 ruling 124: a partial chain with no choice identifies no owner; the outcome names the activating pack and every other claimant, and projects nothing")]
+    public async Task Partial_chain_without_choice_refuses()
+    {
+        // pack.b goes live while it is the only claimant. Then pack.c and pack.a also claim the key, and
+        // pack.a depends on pack.b but not on pack.c, so no claimant composes over every other one.
+        await InstallAsync(PackBody("pack.b", (SharedKey, "Equipment B")));
+        Assert.Equal(HttpStatusCode.OK, (await ActivateAsync("pack.b", "1.0.0")).StatusCode);
+        await InstallAsync(PackBody("pack.c", (SharedKey, "Equipment C")));
+        await InstallAsync(PackBody("pack.a", new[] { (SharedKey, "Equipment A") }, dependsOn: "pack.b"));
+
+        var refused = _installer.Activate(NodeTenantFor(), "pack.a", "1.0.0", DateTimeOffset.UnixEpoch, "test-operator");
+
+        Assert.False(refused.Activated);
+        Assert.Equal("pack.a", refused.PackKey);
+        Assert.Equal(UnresolvedCollisionWireCode, refused.Error);
+        Assert.Contains($"content key '{SharedKey}'", refused.Detail);
+        Assert.Contains("[pack.b, pack.c]", refused.Detail);
+        Assert.Null(_store.GetActive(NodeTenantFor(), "pack.a"));
+        // Nothing of pack.a's projects for the key: it still reads as pack.b projected it.
+        var shared = (await GetTypesAsync()).Single(t => t.GetProperty("id").GetString() == SharedKey);
+        Assert.Equal("Equipment B", shared.GetProperty("displayName").GetString());
     }
 
     [Fact(DisplayName = "provider-slot exclusivity: activating a 2nd provider in an occupied category is REFUSED at activate")]
@@ -461,11 +525,12 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
     private static object PackBody(string key, params (string Id, string Display)[] types)
         => PackBody(key, types, dependsOn: null, providerSlot: null);
 
-    private static object PackBody(string key, (string Id, string Display)[] types, string? dependsOn = null, string? providerSlot = null)
+    private static object PackBody(string key, (string Id, string Display)[] types, string? dependsOn = null, string? providerSlot = null,
+        string version = "1.0.0")
         => new
         {
             key,
-            version = "1.0.0",
+            version,
             name = key,
             description = "B-1f collision test pack",
             scopeTier = "Horizontal",

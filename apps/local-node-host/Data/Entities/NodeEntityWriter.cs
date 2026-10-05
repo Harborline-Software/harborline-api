@@ -42,7 +42,7 @@ public sealed class NodeEntityWriter(
     Health.AuthorizationRefusalAudit? refusals = null,
     Health.AuthorizedActAudit? accepted = null,
     IWritePipelineObserver? pipelineObserver = null,
-    Audit.NodeAuditOutbox? outbox = null) : IEntityWriteCoordinator
+    Audit.NodeAuditOutbox? outbox = null)
 {
     /// <summary>The event type an accepted record write is recorded under (ticket 331 slice 2).</summary>
     public static readonly Kernel.Audit.AuditEventType RecordWrittenEventType = new("RecordWritten");
@@ -153,7 +153,7 @@ public sealed class NodeEntityWriter(
         string recordId,
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken ct = default)
     {
         var scope = ScopeExpression.Parse($"/records/{recordId}");
@@ -485,44 +485,5 @@ public sealed class NodeEntityWriter(
                 .ConfigureAwait(false);
             return id;
         }
-    }
-
-    ValueTask<EntityId> IEntityWriteCoordinator.CreateAsync(
-        SchemaId schema,
-        JsonDocument body,
-        CreateOptions options,
-        ActorId principal,
-        TenantId tenant,
-        DateTimeOffset at,
-        CancellationToken ct)
-    {
-        return CreateAsync(
-            schema,
-            body,
-            options,
-            new AuthorizationWriteContext(principal, tenant, at),
-            ct);
-    }
-
-    ValueTask IEntityWriteCoordinator.AuthorizeAsync(
-        string recordId,
-        ActorId principal,
-        TenantId tenant,
-        DateTimeOffset at,
-        CancellationToken ct) => AuthorizeAsync(recordId, principal, tenant, at, ct);
-
-    ValueTask IEntityWriteCoordinator.DeleteAsync(
-        EntityId id,
-        DeleteOptions options,
-        ActorId principal,
-        TenantId tenant,
-        DateTimeOffset at,
-        CancellationToken ct)
-    {
-        return DeleteAsync(
-            id,
-            options,
-            new AuthorizationWriteContext(principal, tenant, at),
-            ct);
     }
 }

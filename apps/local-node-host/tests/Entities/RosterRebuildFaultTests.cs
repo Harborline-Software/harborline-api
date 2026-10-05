@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Data.Common;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -147,7 +148,7 @@ public sealed class RosterRebuildFaultTests
         var row = Assert.Single(await f.AuditsAsync());
         Assert.True(new Ed25519Verifier().Verify(row.Payload));
         var reader = new AuthorizationTraceReader(f.Trail, Authorization.TestAuthorization.AllowGate());
-        var read = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), new ActorId("auditor"), row.AuditId, At);
+        var read = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), new ActorId("auditor"), row.AuditId, AdmittedInstant.FromRecordedAct(At));
         Assert.Equal("PreDecisionRefusal", read.Availability.ToString());
         var json = JsonSerializer.SerializeToElement(read);
         Assert.Equal(refusal.Code, json.GetProperty("Refusal").GetProperty("Code").GetString());

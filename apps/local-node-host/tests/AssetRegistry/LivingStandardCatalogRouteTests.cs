@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -82,7 +83,7 @@ public sealed class LivingStandardCatalogRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<IConditionRatingFieldBindingStore>(),
             _app.Services.GetRequiredService<IStandardCatalogSeedStore>(),
             tenant,
-            DateTimeOffset.UtcNow);
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
 
         // A unit type so a unit entity can be created and inspected.
         _app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(

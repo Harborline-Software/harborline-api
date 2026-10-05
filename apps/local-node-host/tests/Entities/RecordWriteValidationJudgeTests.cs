@@ -605,7 +605,7 @@ public sealed class RecordWriteValidationJudgeTests
         /// <summary>Any read of the authority registry: ValidateAsync or a schema resolution by id.</summary>
         internal int RegistryReads => _counting.Reads;
 
-        internal AuthorizationWriteContext Authority => new(Principal, Tenant, At);
+        internal AuthorizationWriteContext Authority => new(Principal, Tenant, AdmittedInstant.Read(new JudgeClock(At)));
 
         internal CreateOptions Options(string nonce) =>
             new("entity", "judge", nonce, Principal, Tenant, At, nonce);

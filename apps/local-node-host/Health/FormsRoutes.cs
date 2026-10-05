@@ -199,7 +199,8 @@ public static class FormsRoutes
             // T-540 (ck-7): the act's ONE host-clock read. The token, the pre-save validate, the pack gate's
             // decision, the save's rule gate and the stored stamp all use this instant, so a submit that
             // straddles midnight cannot pass its pre-check on one day and be judged or dated on the next.
-            var at = timeProvider.GetUtcNow();
+            var admitted = AdmittedInstant.Read(timeProvider);
+            var at = admitted.Value;
             var token = await MintTokenAsync(
                 issuer, verifier, activeTeam, ActingSubject(request.HttpContext), roles, FormCapabilityAction.Write,
                 at, ct)
@@ -220,7 +221,7 @@ public static class FormsRoutes
 
                 if (submissionGate?.RequiredPermission(definition) is { } permission)
                 {
-                    var gateAuthority = RequestAuthorization.Authority(request.HttpContext, token.Tenant, at);
+                    var gateAuthority = RequestAuthorization.Authority(request.HttpContext, token.Tenant, admitted);
                     var denied = await RequestAuthorization.RefusalAsync(
                         request.HttpContext, gateAuthority, permission, RouteRecord.TheInstall, ct).ConfigureAwait(false);
                     if (denied is not null) return denied;
@@ -238,7 +239,7 @@ public static class FormsRoutes
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
                     token.Tenant,
-                    at);
+                    admitted);
                 var receipt = await engine
                     .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef,
                         async admissionCt =>

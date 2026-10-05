@@ -27,7 +27,7 @@ internal sealed partial class AdminTeamAccessAuthority
         var coverage = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
         coverage.RequireAllowed();
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.Instant, cancellationToken,
             requireGrantCoverage: true, request).ConfigureAwait(false);
         if (context is null || !Guid.TryParse(grantId, out var parsed)) return null;
         if (!string.Equals(context.Session.TenantPrincipalId, authority.Principal.Value, StringComparison.Ordinal))

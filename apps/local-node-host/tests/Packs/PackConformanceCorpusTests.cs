@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -63,7 +64,7 @@ public sealed class PackConformanceCorpusTests
                 new PackTrustRoot(TrustScope.OwnRoster, keyPair.PrincipalId, 1, TrustRootStatus.Current),
             ]),
             PackRevocationList.Empty,
-            Now,
+            AdmittedInstant.FromRecordedAct(Now),
             TimeSpan.FromDays(30),
             Principal: "conformance-corpus");
         var exporter = new PackExporter(

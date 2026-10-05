@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -165,7 +166,7 @@ public sealed class ChannelFeedRouteTests
         {
             new PackTrustRoot(TrustScope.HarborlineChannel, feed.Root.KeyId, feed.Root.PublisherEpoch, TrustRootStatus.Current),
         });
-        var ctx = new PackInstallContext(TeamTenant, trustStore, PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "test-operator");
+        var ctx = new PackInstallContext(TeamTenant, trustStore, PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: "test-operator");
         var installed = await harness.Installer.InstallAsync(artifactBytes, ctx);
         Assert.True(installed.Installed);
         var activated = harness.Installer.Activate(TeamTenant, FeedTestBuilder.PackKey, "0.1.0", Now, "test-operator");

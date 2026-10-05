@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
@@ -78,7 +79,7 @@ public sealed class T433ActivationAsyncTests
             new WorkflowRefusingPackContentAdmission(), new InMemoryPackInstallAudit(),
             Authorization.TestAuthorization.AllowGate(), projector);
         var context = new PackInstallContext(tenant, Substitute.For<IPackTrustStore>(),
-            Substitute.For<IPackRevocationList>(), now, TimeSpan.FromHours(1), Principal: "operator");
+            Substitute.For<IPackRevocationList>(), AdmittedInstant.FromRecordedAct(now), TimeSpan.FromHours(1), Principal: "operator");
         return (installer, store, context, projector);
     }
 

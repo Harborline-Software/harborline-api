@@ -40,7 +40,7 @@ public sealed class RosterGrantEquivalenceTests
                      ("absent", new ActorId("absent")),
                  })
         {
-            var actual = await gate.InstallRootPermissionsAsync(principal, Tenant, At);
+            var actual = await gate.InstallRootPermissionsAsync(principal, Tenant, AdmittedInstant.FromRecordedAct(At));
             var expected = await LegacyInstallRootPermissionsAsync(closure, principal);
             Assert.Equal(expected, actual);
         }
@@ -94,6 +94,6 @@ public sealed class RosterGrantEquivalenceTests
 
     private static ValueTask<AuthorizationDecision> DecideAsync(
         AuthorizationGate gate, ActorId principal) =>
-        gate.DecideAsync(new AuthorizationWriteContext(principal, Tenant, At)
+        gate.DecideAsync(new AuthorizationWriteContext(principal, Tenant, AdmittedInstant.FromRecordedAct(At))
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "fixture"));
 }

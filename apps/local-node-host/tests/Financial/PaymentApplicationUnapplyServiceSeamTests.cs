@@ -48,7 +48,7 @@ public sealed class PaymentApplicationUnapplyServiceSeamTests : IAsyncLifetime
 
     /// <summary>The authority every act in this fixture is decided with and stamped at.</summary>
     private static readonly AuthorizationWriteContext Authority =
-        new(new ActorId("user:seam-test-operator"), LocalTenantId, FixedNow);
+        new(new ActorId("user:seam-test-operator"), LocalTenantId, Harborline.Api.Foundation.Authorization.AdmittedInstant.Read(new FixedTimeProvider(FixedNow)));
 
     public async Task InitializeAsync()
     {

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -509,7 +510,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
     private PackInstallContext Context() => new(
         Tenant,
         new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, _keys.PrincipalId, 1, TrustRootStatus.Current)]),
-        PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: Operator);
+        PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: Operator);
 
     private async Task<byte[]> PackAsync()
     {

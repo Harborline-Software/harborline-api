@@ -719,12 +719,12 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
             var inputs = EffectiveMemberPermissions.Read(Roster.Current, partyId, Operator);
             var allowed = new List<string>();
             var permissions = await provider.GetRequiredService<AuthorizationGate>().InstallRootPermissionsAsync(
-                Operator, tenant, DateTimeOffset.UnixEpoch, CancellationToken.None);
+                Operator, tenant, AdmittedInstant.Read(new FixedClock(DateTimeOffset.UnixEpoch)), CancellationToken.None);
             foreach (var permission in permissions.Permissions)
             {
                 var operation = AuthorizationOperation.Parse(permission);
                 var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
-                    new AuthorizationWriteContext(Operator, tenant, DateTimeOffset.UnixEpoch)
+                    new AuthorizationWriteContext(Operator, tenant, AdmittedInstant.Read(new FixedClock(DateTimeOffset.UnixEpoch)))
                         .Request(operation, AuthorizationGate.RecordKindFor(operation), "session") with { Roster = inputs });
                 if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
             }

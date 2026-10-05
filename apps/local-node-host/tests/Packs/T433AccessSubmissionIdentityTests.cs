@@ -104,7 +104,7 @@ public sealed partial class AccessAdministrationPreloadTests
             var principal = new ActorId("test-pack-operator");
             var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
                 new PermissionAtom(AuthorizationOperation.Parse("packages:operate"), scope), principal, tenant,
-                new AuthorizationTarget("pack", "harborline.access-administration", scope), at));
+                new AuthorizationTarget("pack", "harborline.access-administration", scope), AdmittedInstant.FromRecordedAct(at)));
             var projectionAuthority = new Harborline.Api.Foundation.Packs.Install.PackProjectionAuthority(
                 decision, "harborline.access-administration", "1.1.6", tenant, principal, at);
             var lifecycle = TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(),
@@ -119,7 +119,7 @@ public sealed partial class AccessAdministrationPreloadTests
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
         await new AccessGrantAuthorizationSeed(definitions, configuration, grants)
-            .InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            .InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         await grants.AppendAsync(tenant, new AccessGrant(new GrantId(Guid.NewGuid()), tenant, actor,
             RoleReference.Administrator, ScopeExpression.Parse("/"), GrantResidency.Cache,
             new GrantValidity(at.AddDays(-1), null), GranterKind.Person, actor, at,
@@ -152,7 +152,7 @@ public sealed partial class AccessAdministrationPreloadTests
             person = "m6-t433-holder", role = "member", scope = "/records", residency = "cache",
             effectiveFrom = at.AddMinutes(-1).ToString("O"), effectiveTo = "", reason = "manual",
         }));
-        var authority = new AuthorizationWriteContext(actor, tenant, at);
+        var authority = new AuthorizationWriteContext(actor, tenant, AdmittedInstant.FromRecordedAct(at));
         if (deferUntilUpgrade)
         {
             // Commit the real submission and its immutable binding before its workflow projection runs.

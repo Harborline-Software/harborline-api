@@ -149,7 +149,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     private const string JoinerPassword = "correct horse battery staple joiner";
 
     private static AuthorizationWriteContext FounderAuthority(string tenantId) =>
-        new(new ActorId(FounderPrincipal), new TenantId(tenantId), Now);
+        new(new ActorId(FounderPrincipal), new TenantId(tenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)));
 
     // Ticket 362 - the retired ticket-204 bundle mutation these three rows probed is replaced by the
     // production revoke-and-reissue surface; every property they claimed is kept, now against an act that
@@ -711,7 +711,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var authority = new AuthorizationWriteContext(
                 new ActorId(principal.CanonicalParty.Value),
                 LedgerTenantId,
-                h.AuditClock.GetUtcNow());
+                AdmittedInstant.Read(new FixedTimeProvider(h.AuditClock.GetUtcNow())));
             await h.JournalStore.SaveAtomicForTestAsync(
                 LedgerTenantId,
                 BalancedPosted(journalEntryId, amount, authority.At),
@@ -913,7 +913,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             await new AccessGrantAuthorizationSeed(authorizationWriter, authorizationStore, grantStore)
                 .InstallAsync(
                     new TenantId(canonicalTenantId),
-                    time.GetUtcNow(),
+                    AdmittedInstant.Read(new FixedTimeProvider(time.GetUtcNow())),
                     AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var liveAuthorization = new DefinitionJoinedAuthorizationReader(grantStore, authorizationStore);
             // Ticket 293 slice 4 fix 4 - the REAL gate over the REAL grant store and the installed role
@@ -1102,7 +1102,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 ArchivedAt: null,
                 CreatedAtUtc: now,
                 UpdatedAtUtc: now),
-                new AuthorizationWriteContext(new ActorId("mtw2-bank-seed"), BankingTenant, Now));
+                new AuthorizationWriteContext(new ActorId("mtw2-bank-seed"), BankingTenant, AdmittedInstant.Read(new FixedTimeProvider(Now))));
             return id;
         }
 

@@ -171,7 +171,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             }
 
             decision = installer.AuthorizeOrAudit(context.Tenant,
-                principal, context.Now, claimed.PackKey, claimed.Version, context.CorrelationId);
+                principal, context.Instant, claimed.PackKey, claimed.Version, context.CorrelationId);
             return ValueTask.CompletedTask;
         }
 
@@ -437,7 +437,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return RunAsync(new Activation(this, context.Tenant, packKey, version, context.Now, context.Principal,
+        return RunAsync(new Activation(this, context.Tenant, packKey, version, context.Instant, context.Principal,
             context.OwnershipResolutions, context.CorrelationId), cancellationToken);
     }
 
@@ -446,7 +446,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return RunAsync(new Deactivation(this, context.Tenant, packKey, version, context.Now, context.Principal),
+        return RunAsync(new Deactivation(this, context.Tenant, packKey, version, context.Instant, context.Principal),
             cancellationToken);
     }
 
@@ -500,12 +500,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         TenantId tenant,
         string packKey,
         string version,
-        DateTimeOffset now,
+        AdmittedInstant instant,
         string? actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions,
         Guid? correlationId)
         : KernelWrite<ActivationBound, ActivationBound, ActivationBound, PackActivationOutcome>
     {
+        private DateTimeOffset now => instant.Value;
         private AuthorizationDecision decision = null!;
         private string principal = null!;
         private PackActivationOutcome outcome = null!;
@@ -538,7 +539,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             }
 
             principal = actingPrincipal;
-            decision = installer.AuthorizeOrAudit(tenant, principal, now, packKey, version, correlationId);
+            decision = installer.AuthorizeOrAudit(tenant, principal, instant, packKey, version, correlationId);
             return ValueTask.CompletedTask;
         }
 
@@ -686,10 +687,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         TenantId tenant,
         string packKey,
         string version,
-        DateTimeOffset now,
+        AdmittedInstant instant,
         string? actingPrincipal)
         : KernelWrite<DeactivationBound, DeactivationBound, DeactivationBound, PackDeactivationOutcome>
     {
+        private DateTimeOffset now => instant.Value;
         private AuthorizationDecision decision = null!;
         private string principal = null!;
         private string? refusal;
@@ -722,7 +724,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             }
 
             principal = actingPrincipal;
-            decision = installer.AuthorizeOrAudit(tenant, principal, now, packKey, version);
+            decision = installer.AuthorizeOrAudit(tenant, principal, instant, packKey, version);
             return ValueTask.CompletedTask;
         }
 
@@ -1149,7 +1151,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     private AuthorizationDecision AuthorizeOrAudit(
         TenantId tenant,
         string principal,
-        DateTimeOffset at,
+        AdmittedInstant at,
         string packKey,
         string version,
         Guid? correlationId = null)
@@ -1170,7 +1172,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         catch (AuthorizationDeniedException)
         {
             AuditPreDecisionRefusal(
-                tenant, packKey, version, at, principal, PackInstallCodes.RefusedAuthorizationDenied);
+                tenant, packKey, version, at.Value, principal, PackInstallCodes.RefusedAuthorizationDenied);
             throw;
         }
         return decision;
