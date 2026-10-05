@@ -69,7 +69,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(30, reads.Count);
+        Assert.Equal(31, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsALookalikeOverload", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandlerOwner.Handle", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
@@ -490,9 +491,10 @@ public sealed class KernelClockActReadArchTests
 
     /// <summary>A clock read: the kernel clock's <see cref="TimeProvider.GetUtcNow"/> or a fresh admitted instant.</summary>
     private static bool IsClockRead(MethodBase target) =>
-        (target.Name is nameof(TimeProvider.GetUtcNow) or nameof(TimeProvider.GetLocalNow)
-            && target.DeclaringType is { } declaring && typeof(TimeProvider).IsAssignableFrom(declaring))
-        || (target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read));
+        (target is MethodInfo { IsStatic: false, Name: nameof(TimeProvider.GetUtcNow) or nameof(TimeProvider.GetLocalNow) } read
+            && read.GetParameters().Length == 0 && read.DeclaringType is { } declaring && typeof(TimeProvider).IsAssignableFrom(declaring))
+        || (target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read)
+            && target.GetParameters() is [{ ParameterType: var clock }] && clock == typeof(TimeProvider)); // exact signatures, not overloads
 
     private static MethodBase? Resolve(MethodBase method, int token) =>
         ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveMethod(token, generics, methodGenerics));
@@ -589,6 +591,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/initializer-twice", ReadsAOnceInitializedStampTwice);
             app.MapGet("/planted/inherited-clock", UsesAnInheritedServiceClock);
             app.MapGet("/planted/handler-owner", HandlerOwner.Handle);
+            app.MapGet("/planted/lookalike-overload", CallsALookalikeOverload);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -642,6 +645,9 @@ public sealed class KernelClockActReadArchTests
         private static IResult ReadsAStaticallyInitializedStamp() => Results.Ok(StaticStamp.Value);
 
         private static IResult UsesAnInheritedServiceClock(PlantedDerivedService service) => Results.Ok(service.Window());
+
+        // A same-named overload on a TimeProvider subtype is ordinary code, walked like any other.
+        private static IResult CallsALookalikeOverload(TimeProvider time) => Results.Ok(new LookalikeClock().GetUtcNow(time));
 
         // Two accesses, one initializer run: one read.
         private static IResult ReadsAOnceInitializedStampTwice() => Results.Ok(new[] { OnceStamp.At, OnceStamp.At });
@@ -797,6 +803,15 @@ public sealed class KernelClockActReadArchTests
         internal static readonly DateTimeOffset At;
 
         static OnceStamp() => At = DateTimeOffset.UtcNow;
+    }
+
+    private sealed class LookalikeClock : TimeProvider
+    {
+        public DateTimeOffset GetUtcNow(TimeProvider clock)
+        {
+            _ = clock.GetUtcNow();
+            return clock.GetUtcNow();
+        }
     }
 
     // The handler's own type initializer runs on its first invocation.
