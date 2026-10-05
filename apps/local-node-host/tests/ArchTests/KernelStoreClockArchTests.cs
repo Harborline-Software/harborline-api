@@ -91,7 +91,7 @@ public sealed class KernelStoreClockArchTests
         var holders = PersistenceTypes([typeof(KernelStoreClockArchTests).Assembly], type => IsWithin(type, typeof(Planted)));
 
         Assert.Equal(
-            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.InheritsAClock), typeof(Planted.InheritsAStampingBase),
+            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.InheritsAClock), typeof(Planted.InheritsAStampingBase),
              typeof(Planted.ReadsAClockItIsHanded), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
              typeof(Planted.StoresBehindAnEncryptedStore)],
             ClockedStores(holders).OrderBy(type => type.Name, StringComparer.Ordinal).ToArray());
@@ -145,11 +145,15 @@ public sealed class KernelStoreClockArchTests
             yield return level;
     }
 
-    /// <summary>What a type takes or holds: every constructor parameter, and every instance field of it and its bases.</summary>
+    /// <summary>
+    /// What a type takes or holds: every constructor parameter, and every field (instance or static) of it and its
+    /// bases.
+    /// </summary>
     private static IEnumerable<Type> Inputs(Type type)
     {
-        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
-        foreach (var constructor in type.GetConstructors(Declared))
+        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
+            | BindingFlags.DeclaredOnly;
+        foreach (var constructor in type.GetConstructors(Declared & ~BindingFlags.Static))
             foreach (var parameter in constructor.GetParameters())
                 yield return parameter.ParameterType;
         for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
@@ -213,10 +217,10 @@ public sealed class KernelStoreClockArchTests
         return false;
     }
 
+    /// <summary>Every production assembly beside the tests. The fence reads IL only, so a missing PDB excludes nothing.</summary>
     private static Assembly[] ProductionAssemblies() =>
         Directory.EnumerateFiles(AppContext.BaseDirectory, "Harborline*.dll")
             .Where(path => !Path.GetFileName(path).Contains("Test", StringComparison.OrdinalIgnoreCase))
-            .Where(path => File.Exists(Path.ChangeExtension(path, ".pdb")))
             .Select(Assembly.LoadFrom)
             .ToArray();
 
@@ -261,6 +265,13 @@ public sealed class KernelStoreClockArchTests
         internal sealed class ReadsAClockItIsHanded(IDbContextFactory<DbContext> factory)
         {
             internal DateTimeOffset Stamp(TimeProvider handed) => factory is null ? default : handed.GetUtcNow();
+        }
+
+        internal static class HoldsAStaticConnection
+        {
+            private static readonly DbConnection? Connection = null;
+
+            internal static DateTimeOffset Stamp() => Connection is null ? DateTimeOffset.UtcNow : default;
         }
 
         internal abstract class StampsInItsBase
