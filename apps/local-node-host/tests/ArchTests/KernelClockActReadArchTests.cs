@@ -70,7 +70,9 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(6, reads.Count);
+        Assert.Equal(8, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("<HandlerFactory>", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsTwiceAsARequestDelegate", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughOneHelperTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsASeamThatReadsTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAfterTheGuard", StringComparison.Ordinal)).Value);
@@ -124,42 +126,12 @@ public sealed class KernelClockActReadArchTests
         var missing = new List<string>();
         foreach (var type in assemblies.SelectMany(assembly => assembly.GetTypes()).Where(type => typeFilter?.Invoke(type) ?? true))
         foreach (var method in Declared(type))
-        {
-            // The pointer is the delegate on top of the stack: freshly built (ldftn, newobj), reloaded from the
-            // local it was stored in, or returned by a helper that builds it. Anything else that could put a
-            // delegate there (an argument, a field, the result of another call) clears it, so a Map call whose
-            // handler cannot be traced is reported unpaired instead of being attributed to a stale pointer.
-            MethodBase? pointer = null;
-            var locals = new Dictionary<int, MethodBase?>();
-            foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
+            Trace(method, assemblies, onMap: (pointer, offset) =>
             {
-                var target = opCode.OperandType == OperandType.InlineMethod ? Resolve(method, operand) : null;
-                if (opCode == OpCodes.Ldftn)
-                    pointer = target;
-                else if (opCode == OpCodes.Newobj && target?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created))
-                    continue; // wraps the pointer just loaded
-                else if (IsStoreLocal(opCode))
-                {
-                    locals[LocalIndex(opCode, operand)] = pointer;
-                    pointer = null;
-                }
-                else if (IsLoadLocal(opCode))
-                    pointer = locals.GetValueOrDefault(LocalIndex(opCode, operand));
-                else if (target is not null && IsDelegateMap(target))
-                {
-                    var at = $"{Name(method)}+IL_{offset:x4}";
-                    if (pointer is null) missing.Add(at);
-                    else handlers.Add(new RouteHandler(pointer, at));
-                    pointer = null;
-                }
-                else if (target is MethodInfo { ReturnType: var returned } factory && typeof(Delegate).IsAssignableFrom(returned))
-                    pointer = assemblies.Contains(factory.DeclaringType?.Assembly!) ? BuiltDelegate(factory) : null; // a production helper that builds the handler
-                else if (target is not null && (opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj))
-                    pointer = null;
-                else if (LoadsDelegateFromElsewhere(method, opCode, operand))
-                    pointer = null;
-            }
-        }
+                var at = $"{Name(method)}+IL_{offset:x4}";
+                if (pointer is null) missing.Add(at);
+                else handlers.Add(new RouteHandler(pointer, at));
+            });
         unpaired = missing;
         return handlers;
     }
@@ -168,6 +140,9 @@ public sealed class KernelClockActReadArchTests
     /// The act's clock reads, path-insensitively: every read site its own code reaches, once per call site, so a
     /// helper or seam called twice counts twice and a seam that reads twice counts twice. A read inside a loop
     /// counts once; a read in either of two exclusive branches counts twice (read once, before the branch).
+    /// A delegate the act builds over its own code (<c>ldftn</c>) is counted as invoked once where it is built:
+    /// a clock-reading callback that is never invoked is reported (loud), and one invoked repeatedly counts once
+    /// (not multiplied); not counting it would let a read inside a lambda the act runs pass silently.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies) =>
         Reads(handler, assemblies, new Dictionary<MethodBase, IReadOnlyList<string>?>());
@@ -239,10 +214,55 @@ public sealed class KernelClockActReadArchTests
         }
     }
 
-    /// <summary>The handler a delegate-returning helper builds: the last method pointer it loads.</summary>
-    private static MethodBase? BuiltDelegate(MethodInfo factory) =>
-        RawMutationPortSymbolInventoryTests.MethodOperands(factory)
-            .LastOrDefault(operand => operand.OpCode == OpCodes.Ldftn).Target;
+    /// <summary>
+    /// Follows the delegate on top of the stack through one method body: freshly built (ldftn, newobj), reloaded
+    /// from the local it was stored in, or returned by a production helper that builds it. Anything else that could
+    /// put a delegate there (an argument, a field, the result of another call) clears it, so a Map call whose
+    /// handler cannot be traced reaches <paramref name="onMap"/> with null instead of a stale pointer. Returns the
+    /// one delegate every <c>ret</c> returns, or null when the returns disagree or cannot be traced.
+    /// </summary>
+    private static MethodBase? Trace(MethodBase method, IReadOnlyList<Assembly> assemblies,
+        Action<MethodBase?, int>? onMap = null, HashSet<MethodBase>? tracing = null)
+    {
+        tracing ??= [];
+        if (!tracing.Add(method))
+            return null;
+        MethodBase? pointer = null;
+        var locals = new Dictionary<int, MethodBase?>();
+        var returned = new HashSet<MethodBase?>();
+        foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
+        {
+            var target = opCode.OperandType == OperandType.InlineMethod ? Resolve(method, operand) : null;
+            if (opCode == OpCodes.Ldftn)
+                pointer = target;
+            else if (opCode == OpCodes.Newobj && target?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created))
+                continue; // wraps the pointer just loaded
+            else if (IsStoreLocal(opCode))
+            {
+                locals[operand] = pointer;
+                pointer = null;
+            }
+            else if (IsLoadLocal(opCode))
+                pointer = locals.GetValueOrDefault(operand);
+            else if (opCode == OpCodes.Ret)
+                returned.Add(pointer);
+            else if (target is not null && IsDelegateMap(target))
+            {
+                onMap?.Invoke(pointer, offset);
+                pointer = null;
+            }
+            else if (target is MethodInfo { ReturnType: var result } factory && typeof(Delegate).IsAssignableFrom(result))
+                pointer = factory.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly)
+                    ? Trace(factory, assemblies, tracing: tracing)
+                    : null;
+            else if (target is not null && (opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj))
+                pointer = null;
+            else if (LoadsDelegateFromElsewhere(method, opCode, operand))
+                pointer = null;
+        }
+        tracing.Remove(method);
+        return returned.Count == 1 ? returned.Single() : null;
+    }
 
     private static MethodBase? Resolve(MethodBase method, int token)
     {
@@ -256,13 +276,6 @@ public sealed class KernelClockActReadArchTests
             return null;
         }
     }
-
-    private static int LocalIndex(OpCode opCode, int operand) =>
-        opCode == OpCodes.Stloc_1 || opCode == OpCodes.Ldloc_1 ? 1
-        : opCode == OpCodes.Stloc_2 || opCode == OpCodes.Ldloc_2 ? 2
-        : opCode == OpCodes.Stloc_3 || opCode == OpCodes.Ldloc_3 ? 3
-        : opCode == OpCodes.Stloc_0 || opCode == OpCodes.Ldloc_0 ? 0
-        : operand;
 
     /// <summary>An argument or field load whose value is a delegate: a handler this discovery cannot trace.</summary>
     private static bool LoadsDelegateFromElsewhere(MethodBase method, OpCode opCode, int operand)
@@ -295,7 +308,7 @@ public sealed class KernelClockActReadArchTests
         && name.StartsWith("Map", StringComparison.Ordinal)
         && method.DeclaringType is { } declaring
         && (declaring == typeof(EndpointRouteBuilderExtensions) || declaring.FullName == "Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions")
-        && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(Delegate));
+        && method.GetParameters().Any(parameter => typeof(Delegate).IsAssignableFrom(parameter.ParameterType)); // Delegate or RequestDelegate
 
     private static IEnumerable<Type> ClockedSeams(IReadOnlyList<Assembly> assemblies, Func<Type, bool>? typeFilter = null) =>
         assemblies.SelectMany(assembly => assembly.GetTypes())
@@ -355,14 +368,31 @@ public sealed class KernelClockActReadArchTests
 
     private static class PlantedRoutes
     {
-        internal static void Map(IEndpointRouteBuilder app)
+        internal static void Map(IEndpointRouteBuilder app, TimeProvider time)
         {
+            app.MapGet("/planted/factory", HandlerFactory(time));
+            app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
             app.MapPost("/planted/seam-twice", HandsTheClockToASeamTwice);
             app.MapPost("/planted/harvest", HarvestsTheGuardInstant);
             app.MapGet("/planted/none", ReadsNothing);
             app.MapGet("/planted/helper-twice", ReadsThroughOneHelperTwice);
             app.MapGet("/planted/seam-reads-twice", CallsASeamThatReadsTwice);
+        }
+
+        // The factory builds the handler, then an unrelated callback, and returns the handler.
+        private static Delegate HandlerFactory(TimeProvider time)
+        {
+            Func<IResult> handler = () => Results.Ok(time.GetUtcNow() - time.GetUtcNow());
+            Func<int> unrelated = () => 1;
+            _ = unrelated();
+            return handler;
+        }
+
+        private static Task ReadsTwiceAsARequestDelegate(HttpContext http)
+        {
+            var time = http.RequestServices.GetRequiredService<TimeProvider>();
+            return http.Response.WriteAsync((time.GetUtcNow() - time.GetUtcNow()).ToString());
         }
 
         private static IResult ReadsThroughOneHelperTwice(TimeProvider time) => Results.Ok(Stamp(time) < Stamp(time));
