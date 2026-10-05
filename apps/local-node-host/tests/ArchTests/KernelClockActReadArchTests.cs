@@ -87,8 +87,11 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(15, reads.Count);
-        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAWallClockGetter", StringComparison.Ordinal)).Value);
+        Assert.Equal(17, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAContainerClockThroughAGetter", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsABranchMergedClock", StringComparison.Ordinal)).Value);
+        // The getter's two wall-clock reads, and its returned clock: not `return _clock;`, so not proven the service's own.
+        Assert.Equal(3, reads.Single(item => item.Key.Contains("ReadsThroughAWallClockGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockViaALocal", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandsTheClockOnAsAnObject", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByASuppliedType", StringComparison.Ordinal)).Value);
@@ -253,21 +256,15 @@ public sealed class KernelClockActReadArchTests
         if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
             && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
             reads.AddRange(Reads(moveNext, assemblies, known));
+        var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+        var injectedLocals = InjectedLocals(method, code);
         var injectedReceiver = false;
-        var injectedLocals = new HashSet<int>(); // locals holding the service's injected clock (`var clock = _clock;`)
-        foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
+        foreach (var (offset, opCode, operand) in code)
         {
             if (opCode.OperandType != OperandType.InlineMethod)
             {
-                if (IsStoreLocal(opCode))
-                {
-                    if (injectedReceiver) injectedLocals.Add(operand);
-                    else injectedLocals.Remove(operand);
-                    injectedReceiver = false;
-                }
-                else
-                    injectedReceiver = (opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand)))
-                        || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
+                injectedReceiver = ProducesInjectedClock(method, opCode, operand)
+                    || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                 continue;
             }
             var receiver = injectedReceiver;
@@ -276,13 +273,7 @@ public sealed class KernelClockActReadArchTests
                 injectedReceiver = false;
                 continue;
             }
-            // An instance getter on the service's own type that hands back its injected clock (`Clock => _clock`).
-            injectedReceiver = target is MethodInfo { IsStatic: false, IsSpecialName: true, ReturnType: var gotten } getter
-                && typeof(TimeProvider).IsAssignableFrom(gotten) && getter.DeclaringType is { } owner
-                && !owner.IsDefined(typeof(CompilerGeneratedAttribute), false)
-                && RawMutationPortSymbolInventoryTests.Instructions(getter).Any(instruction =>
-                    instruction.OpCode == OpCodes.Ldfld && ResolveField(getter, instruction.Operand) is { } field
-                    && field.DeclaringType == owner && IsInjectedClock(field));
+            injectedReceiver = IsInjectedClockGetter(target);
             if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
                 reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
             else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
@@ -290,6 +281,57 @@ public sealed class KernelClockActReadArchTests
         }
         known[method] = reads;
         return reads;
+    }
+
+    /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
+    private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand) =>
+        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand));
+
+    /// <summary>
+    /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
+    /// <c>ldfld</c> of it or its getter just before). A local also assigned anything else is not one.
+    /// </summary>
+    private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code)
+    {
+        var injected = new HashSet<int>();
+        var other = new HashSet<int>();
+        for (var index = 0; index < code.Length; index++)
+        {
+            if (!IsStoreLocal(code[index].OpCode))
+                continue;
+            var stored = index > 0 && (ProducesInjectedClock(method, code[index - 1].OpCode, code[index - 1].Operand)
+                || (code[index - 1].OpCode.OperandType == OperandType.InlineMethod
+                    && Resolve(method, code[index - 1].Operand) is { } source && IsInjectedClockGetter(source)));
+            (stored ? injected : other).Add(code[index].Operand);
+        }
+        injected.ExceptWith(other);
+        return injected;
+    }
+
+    /// <summary>
+    /// An instance getter of a real type whose body is exactly <c>return _clock;</c> or
+    /// <c>return _clock ?? throw new …(…);</c> over that type's injected clock, so what it returns is that clock.
+    /// </summary>
+    private static bool IsInjectedClockGetter(MethodBase target)
+    {
+        if (target is not MethodInfo { IsStatic: false, IsSpecialName: true, ReturnType: var gotten } getter
+            || !typeof(TimeProvider).IsAssignableFrom(gotten) || getter.DeclaringType is not { } owner
+            || owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
+            return false;
+        var code = RawMutationPortSymbolInventoryTests.Instructions(getter).Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray();
+        bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
+            && ResolveField(getter, code[at].Operand) is { } field && field.DeclaringType == owner && IsInjectedClock(field);
+        if (code.Length < 3 || code[0].OpCode != OpCodes.Ldarg_0 || !Field(1) || code[^1].OpCode != OpCodes.Ret)
+            return false;
+        if (code.Length == 3)
+            return true; // return _clock;
+        // return _clock ?? throw new X(...);  — the throw arm may only build the exception.
+        return code[2].OpCode == OpCodes.Dup
+            && (code[3].OpCode == OpCodes.Brtrue_S || code[3].OpCode == OpCodes.Brtrue) && code[3].Operand == code[^1].Offset
+            && code[4].OpCode == OpCodes.Pop && code[^2].OpCode == OpCodes.Throw
+            && code[5..^2].All(instruction => instruction.OpCode == OpCodes.Ldstr
+                || (instruction.OpCode == OpCodes.Newobj && Resolve(getter, instruction.Operand)?.DeclaringType is { } thrown
+                    && typeof(Exception).IsAssignableFrom(thrown)));
     }
 
     /// <summary>
@@ -301,18 +343,8 @@ public sealed class KernelClockActReadArchTests
         && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
         && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false);
 
-    private static FieldInfo? ResolveField(MethodBase method, int token)
-    {
-        try
-        {
-            return method.Module.ResolveField(token, method.DeclaringType?.GetGenericArguments(),
-                method is MethodInfo { IsGenericMethod: true } generic ? generic.GetGenericArguments() : null);
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-    }
+    private static FieldInfo? ResolveField(MethodBase method, int token) =>
+        ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveField(token, generics, methodGenerics));
 
     /// <summary>
     /// A static wall-clock read (<see cref="DateTime.UtcNow"/>, <see cref="DateTimeOffset.Now"/> and the like, or
@@ -330,11 +362,15 @@ public sealed class KernelClockActReadArchTests
             && target.DeclaringType is { } declaring && typeof(TimeProvider).IsAssignableFrom(declaring))
         || (target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read));
 
-    private static MethodBase? Resolve(MethodBase method, int token)
+    private static MethodBase? Resolve(MethodBase method, int token) =>
+        ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveMethod(token, generics, methodGenerics));
+
+    /// <summary>Resolves a metadata token in the method's generic context; an unresolvable token is null.</summary>
+    private static T? ResolveToken<T>(MethodBase method, int token, Func<Module, Type[]?, Type[]?, T?> resolve) where T : class
     {
         try
         {
-            return method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
+            return resolve(method.Module, method.DeclaringType?.GetGenericArguments(),
                 method is MethodInfo { IsGenericMethod: true } generic ? generic.GetGenericArguments() : null);
         }
         catch (ArgumentException)
@@ -425,6 +461,8 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/object-clock", HandsTheClockOnAsAnObject);
             app.MapGet("/planted/wall-getter", ReadsThroughAWallClockGetter);
             app.MapGet("/planted/service-local", UsesAServiceOwnClockViaALocal);
+            app.MapGet("/planted/container-getter", ReadsAContainerClockThroughAGetter);
+            app.MapGet("/planted/branch-merged", ReadsABranchMergedClock);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
@@ -456,11 +494,19 @@ public sealed class KernelClockActReadArchTests
         private static IResult ResolvesTheClockByTypeTwice(HttpContext http) =>
             Results.Ok(PlantedHelperGuard.Stamp(http) - PlantedHelperGuard.Stamp(http));
 
-        // The service's injected clock is not the act's, but the getter's own wall-clock reads are.
+        // The getter reads the wall clock twice before handing a clock back, so it is not a plain injected-clock getter.
         private static IResult ReadsThroughAWallClockGetter(PlantedService service) => Results.Ok(service.Clock.GetUtcNow());
 
         // Both reads are the service's own injected clock, held in a local: not the act's.
         private static IResult UsesAServiceOwnClockViaALocal(PlantedService service) => Results.Ok(service.Window());
+
+        // The getter touches the injected field but returns the request container's clock.
+        private static IResult ReadsAContainerClockThroughAGetter(PlantedService service) =>
+            Results.Ok(service.RequestClock.GetUtcNow() - service.RequestClock.GetUtcNow());
+
+        // One branch assigns the act's clock, the other the service's own.
+        private static IResult ReadsABranchMergedClock(PlantedService service, TimeProvider time, bool flag) =>
+            Results.Ok(service.EitherWindow(flag, time));
 
         private static IResult HandsTheClockOnAsAnObject(TimeProvider time) =>
             Results.Ok(PlantedHelperGuard.StampObject(time) - PlantedHelperGuard.StampObject(time));
@@ -561,6 +607,25 @@ public sealed class KernelClockActReadArchTests
         {
             var own = clock;
             return own.GetUtcNow() - own.GetUtcNow();
+        }
+
+        public HttpContext Http { get; init; } = null!;
+
+        public TimeProvider RequestClock
+        {
+            get
+            {
+                GC.KeepAlive(clock);
+                return Http.RequestServices.GetRequiredService<TimeProvider>();
+            }
+        }
+
+        public TimeSpan EitherWindow(bool flag, TimeProvider actClock)
+        {
+            TimeProvider chosen;
+            if (flag) chosen = actClock;
+            else chosen = clock;
+            return chosen.GetUtcNow() - chosen.GetUtcNow();
         }
     }
 
