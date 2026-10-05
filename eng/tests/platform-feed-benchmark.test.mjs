@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {readFileSync} from 'node:fs'
-import {benchmarkWork, compareMeasurements, measureCase} from '../platform-feed-benchmark.mjs'
+import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, measureCase} from '../platform-feed-benchmark.mjs'
 import {benchmarkCache} from '../platform-feed-benchmark-cache.mjs'
 
 const input = {source: 'literal source identity'}
@@ -39,6 +39,47 @@ test('actual measurement always runs full fresh work, includes transport/verific
   await assert.rejects(measureCase(f.args), /fresh test failed/)
 })
 
+test('failed actual measurement preserves completed timings and phase without a performance result', async () => {
+  const f = options('cold'), events = []; let tick = 0
+  const error = Object.assign(new Error('private-message'), {status: 1})
+  f.args.clock = () => ++tick
+  f.args.onFailure = row => events.push(row)
+  f.args.fullBuild = () => {throw error}
+  await assert.rejects(measureCase(f.args), value => value === error)
+  assert.equal(events.length, 1)
+  assert.equal(events[0].mode, 'cold'); assert.equal(events[0].stage, 'fullBuildMs')
+  assert.equal(events[0].route, 'fresh'); assert.equal(events[0].elapsedMs, 13)
+  assert.equal(events[0].timings.fullBuildMs, 1)
+  assert.equal(events[0].timings.cacheUploadMs, 1)
+  assert.deepEqual(events[0].failure, {kind: 'command-exit', exitCode: 1})
+  assert.doesNotMatch(JSON.stringify(events), /private-message/)
+  for (const thrown of [error, null, undefined]) {
+    const f = options('cold'); f.args.fullBuild = () => {throw thrown}
+    f.args.onFailure = () => {throw new Error('observer failed')}
+    let caught = false
+    try {await measureCase(f.args)} catch (actual) {caught = true; assert.equal(actual, thrown)}
+    assert.equal(caught, true)
+  }
+})
+
+test('actual diagnostic selection retains current stage, counts and test failure identity while excluding raw data and stale reports', () => {
+  const head = 'a'.repeat(40), id = 'Harborline.Api.LocalNodeHost.Tests.LiteralTests.RealFailure'
+  const proof = {apiCommit: head, status: 'FAIL', steps: [{id: 'host-baseline-match', passed: false,
+    durationMs: 12, observed: {total: 7, passed: 6, failed: 1, notExecuted: 0, private: 'private-value'},
+    newFailures: [id, 'https://private.example/signed?secret=private-value'],
+    fullOutput: 'private-value', tail: 'private-value', problems: ['private-value']}]}
+  const output = 'private-value\n[exact-clone] {"id":"dotnet-host-tests","state":"completed","elapsedMs":23,"exitCode":1,"diagnostics":{"private":"private-value"}}\n'
+  assert.deepEqual(benchmarkDiagnostics(head, proof, output), {
+    lastStage: {id: 'dotnet-host-tests', state: 'completed', elapsedMs: 23, exitCode: 1}, status: 'FAIL',
+    stages: [{id: 'host-baseline-match', passed: false, durationMs: 12,
+      observed: {total: 7, passed: 6, failed: 1, notExecuted: 0}, newFailures: [id]}]})
+  assert.doesNotMatch(JSON.stringify(benchmarkDiagnostics(head, proof, output)), /private-value|private\.example/)
+  assert.deepEqual(benchmarkDiagnostics('b'.repeat(40), proof), {stages: []})
+  assert.deepEqual(benchmarkDiagnostics(head, undefined, '[exact-clone] malformed'), {stages: []})
+  assert.deepEqual(benchmarkDiagnostics(head, {apiCommit: head, status: 'FAIL', steps: [null, 3, 'bad']},
+    '[exact-clone] null\n[exact-clone] 3\n[exact-clone] []'), {stages: [], status: 'FAIL'})
+})
+
 const rows = () => ['cold', 'warm', 'forcedmiss'].map((mode, index) => ({mode, route: index === 1 ? 'cached' : 'fresh',
   cacheState: index === 2 ? 'miss' : 'hit', inputFingerprint: 'literal-input', totalMs: [100, 110, 120][index],
   validationReused: false, fullBuild: {passed: true, workDigest: 'literal-full-work'}}))
@@ -64,6 +105,9 @@ function fullWork() {
 }
 test('actual gate evidence binds commit, every required stage and actual test identities; timestamps do not change work', () => {
   const f = fullWork(), before = benchmarkWork(f.proof, f.inventory, f.head).workDigest
+  const recorded = benchmarkWork(f.proof, f.inventory, f.head)
+  assert.equal(recorded.inventories.host.identityCount, 1)
+  assert.deepEqual(recorded.inventories.host.counts, {total: 1, passed: 1, failed: 0, notExecuted: 0})
   f.inventory.recordedAt = 'another timestamp'
   assert.equal(benchmarkWork(f.proof, f.inventory, f.head).workDigest, before)
   f.inventory.host.identities = ['different .NET test']

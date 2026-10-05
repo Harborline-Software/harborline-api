@@ -13,15 +13,17 @@ import {benchmarkCache} from './platform-feed-benchmark-cache.mjs'
 import {safeFailure} from './platform-feed-qualification.mjs'
 
 export async function measureCase({mode, prepare, cache, key, expectedDigest, publish, validate, fullBuild,
-  clock = () => performance.now()}) {
+  clock = () => performance.now(), onFailure = () => {}}) {
   if (!['cold', 'warm', 'forcedmiss'].includes(mode)) throw new Error('unsupported benchmark case')
   const started = clock(), timings = {}
+  let stage, route = 'fresh', cacheState = 'not-requested'
   const timed = async (name, operation) => {
-    const begin = clock()
+    const begin = clock(); stage = name
     try {return await operation()} finally {timings[name] = clock() - begin}
   }
+  try {
   const prepared = await timed('inputVerificationMs', prepare)
-  let bytes = null, files, route = 'fresh', cacheState = 'not-requested'
+  let bytes = null, files
   if (mode !== 'cold') {
     try {
       bytes = await timed('cacheDownloadMs', () => cache.get(key(prepared.input, mode)))
@@ -43,6 +45,39 @@ export async function measureCase({mode, prepare, cache, key, expectedDigest, pu
   const result = {mode, route, cacheState, bundleBytes: bytes.length, inputFingerprint: hash(canonical(prepared.input)),
     timings, totalMs: clock() - started, fullBuild: build, validationReused: false}
   return {result, digest: hash(bytes)}
+  } catch (error) {
+    try {onFailure({mode, stage, route, cacheState, timings, elapsedMs: clock() - started,
+      failure: safeFailure(error), ...(error?.benchmarkDiagnostics ? {validation: error.benchmarkDiagnostics} : {})})} catch {}
+    throw error
+  }
+}
+
+// Explicit field selection: never retain child log text, arguments, paths, URLs or exception messages.
+export function benchmarkDiagnostics(head, proof, output = '') {
+  const result = {stages: []}
+  const validId = id => typeof id === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(id)
+  const number = value => Number.isFinite(value) && value >= 0 && value <= 1e9
+  for (const line of String(output).slice(-262144).split('\n')) {
+    if (!line.startsWith('[exact-clone] ')) continue
+    let row; try {row = JSON.parse(line.slice(14))} catch {continue}
+    if (row && typeof row === 'object' && validId(row.id) && ['started', 'running', 'completed'].includes(row.state)) {
+      result.lastStage = {id: row.id, state: row.state,
+        ...(number(row.elapsedMs) ? {elapsedMs: row.elapsedMs} : {}),
+        ...(Number.isInteger(row.exitCode) && row.exitCode >= 0 && row.exitCode <= 255 ? {exitCode: row.exitCode} : {})}
+    }
+  }
+  // Reject the tracked historical report when the current invocation did not write one.
+  if (proof?.apiCommit !== head || !['PASS', 'FAIL'].includes(proof.status) || !Array.isArray(proof.steps)) return result
+  result.status = proof.status
+  result.stages = proof.steps.filter(row => row && typeof row === 'object' && validId(row.id) && typeof row.passed === 'boolean').slice(0, 64)
+    .map(row => ({id: row.id, passed: row.passed,
+      ...(number(row.durationMs) ? {durationMs: row.durationMs} : {}),
+      ...(Number.isInteger(row.exitCode) && row.exitCode >= 0 && row.exitCode <= 255 ? {exitCode: row.exitCode} : {}),
+      ...(row.observed ? {observed: Object.fromEntries(['total', 'passed', 'failed', 'notExecuted']
+        .filter(key => number(row.observed[key])).map(key => [key, row.observed[key]]))} : {}),
+      ...(Array.isArray(row.newFailures) ? {newFailures: row.newFailures.filter(id => typeof id === 'string'
+        && id.length <= 512 && /^Harborline\.[A-Za-z0-9_.]+\.Tests\.[A-Za-z0-9_.,: ()"'=-]+$/.test(id)).slice(0, 64)} : {})}))
+  return result
 }
 
 export function compareMeasurements(results) {
@@ -75,6 +110,8 @@ export function benchmarkWork(proof, inventory, head) {
     return [name, {counts: result.observed, identities: [...identities].sort()}]
   }))
   return {passed: true, workDigest: hash(canonical(observed)),
+    inventories: Object.fromEntries(Object.entries(observed).map(([name, value]) => [name,
+      {counts: value.counts, identityCount: value.identities.length, identityDigest: hash(canonical(value.identities))}])),
     stages: proof.steps.filter(row => required.includes(row.id)).map(row => ({id: row.id, durationMs: row.durationMs}))}
 }
 
@@ -116,6 +153,7 @@ export async function benchmark(platform, env = process.env) {
       const scratch = mkdtempSync(path.join(env.RUNNER_TEMP || tmpdir(), 'api-feed-benchmark-'))
       try {
         const measured = await measureCase({mode, expectedDigest: digest, cache,
+          onFailure: details => {evidence.failedCase = details; record()},
           key: (input, selected) => `api356-benchmark-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}-${pair}-${hash(canonical(input))}-${selected === 'forcedmiss' ? 'forcedmiss' : 'bundle'}`,
           prepare: () => {
             clone = path.join(scratch, 'source')
@@ -135,9 +173,15 @@ export async function benchmark(platform, env = process.env) {
               DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER: '1', UseSharedCompilation: 'false',
               HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: transfer.path,
               HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: transfer.sha256}
-            execute(process.execPath, ['eng/verify-preflight.mjs'], {cwd: clone, env: buildEnv})
-            execute(process.execPath, ['eng/run-exact-clone.mjs', '--record', '--host-baseline',
-              'eng/baselines/host-test-baseline.ubuntu.json'], {cwd: clone, env: buildEnv})
+            try {
+              execute(process.execPath, ['eng/verify-preflight.mjs'], {cwd: clone, env: buildEnv})
+              execute(process.execPath, ['eng/run-exact-clone.mjs', '--record', '--host-baseline',
+                'eng/baselines/host-test-baseline.ubuntu.json'], {cwd: clone, env: buildEnv})
+            } catch (error) {
+              let proof; try {proof = JSON.parse(readFileSync(path.join(clone, 'docs/evidence/exact-clone.json')))} catch {}
+              try {error.benchmarkDiagnostics = benchmarkDiagnostics(head, proof, error?.stdout)} catch {}
+              throw error
+            }
             const proof = JSON.parse(readFileSync(path.join(clone, 'docs/evidence/exact-clone.json')))
             // The gate always emits the actual candidate test inventory, including successful runs.
             const inventory = JSON.parse(readFileSync(path.join(clone, '.claude/gate-evidence/known-tests-candidate.json')))
