@@ -91,14 +91,14 @@ public sealed class KernelStoreClockArchTests
         var holders = PersistenceTypes([typeof(KernelStoreClockArchTests).Assembly], type => IsWithin(type, typeof(Planted)));
 
         Assert.Equal(
-            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.InheritsAClock),
+            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.HoldsAnUnreadStaticClock),
+             typeof(Planted.InheritsAClock),
              typeof(Planted.InheritsAClockParameter), typeof(Planted.InheritsAContextWriter), typeof(Planted.InheritsAStampingBase),
              typeof(Planted.ReadsAClockItIsHanded), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
              typeof(Planted.StoresBehindAnEncryptedStore), typeof(Planted.TakesAContextByReference),
              typeof(Planted.TakesAContextPerCall)],
             ClockedStores(holders).OrderBy(type => type.Name, StringComparer.Ordinal).ToArray());
         Assert.Contains(typeof(Planted.TakesTheActsInstant), holders);
-        Assert.Contains(typeof(Planted.HoldsAnUnreadStaticClock), holders);
         Assert.Contains(typeof(Planted.DatesItsOwnDecisions), holders);
         Assert.Contains(typeof(Planted.SweepsOutsideAnyAct), holders);
         Assert.False(IsClocked(typeof(Planted.StaleAuthority)));
@@ -149,8 +149,8 @@ public sealed class KernelStoreClockArchTests
     }
 
     /// <summary>
-    /// What a type holds as its own state: every constructor parameter and every instance field, its own and its
-    /// bases'. A store must hold no clock here.
+    /// What a type holds: every constructor parameter and every field (instance or static), its own and its bases'.
+    /// A store holds no clock here (T-1057: "no type classified as a store holds a TimeProvider").
     /// </summary>
     private static IEnumerable<Type> Holdings(Type type)
     {
@@ -160,13 +160,13 @@ public sealed class KernelStoreClockArchTests
             foreach (var constructor in level.GetConstructors(Declared))
                 foreach (var parameter in constructor.GetParameters())
                     yield return Unwrapped(parameter.ParameterType);
-            foreach (var field in level.GetFields(Declared))
+            foreach (var field in level.GetFields(Declared | BindingFlags.Static))
                 yield return field.FieldType;
         }
     }
 
     /// <summary>
-    /// Every way a type takes or holds a persistence handle: what it holds, its static fields, and the parameters of
+    /// Every way a type takes or holds a persistence handle: what it holds, and the parameters of
     /// its own and its solution bases' methods (by-reference ones unwrapped).
     /// </summary>
     private static IEnumerable<Type> Handles(Type type)
@@ -175,9 +175,6 @@ public sealed class KernelStoreClockArchTests
             | BindingFlags.DeclaredOnly;
         foreach (var held in Holdings(type))
             yield return held;
-        for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
-            foreach (var field in level.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                yield return field.FieldType;
         foreach (var method in Lineage(type).SelectMany(level => level.GetMethods(Declared)))
             foreach (var parameter in method.GetParameters())
                 yield return Unwrapped(parameter.ParameterType);
@@ -333,6 +330,7 @@ public sealed class KernelStoreClockArchTests
             internal DateTimeOffset Stamp() => DateTimeOffset.UtcNow;
         }
 
+        // Holding a clock is the defect, read or not: a static field counts.
         internal sealed class HoldsAnUnreadStaticClock(IDbContextFactory<DbContext> factory)
         {
             private static readonly TimeProvider? Unused = null;
