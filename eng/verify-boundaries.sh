@@ -67,6 +67,12 @@ node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-feed-reuse.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-consumer-launch.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-credential-boundary.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-crash-diagnostics.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-pid1-probe.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-qualification.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/reviewed-analyzer-suppressions.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1

@@ -18,7 +18,20 @@ runs:
       shell: bash
       env:
         CROSS_RUN_REUSE: ${{ inputs.cross-run-reuse }}
+        NODE_OPTIONS: ''
+        NODE_PATH: ''
+        NODE_REPL_EXTERNAL_MODULE: ''
+        LD_PRELOAD: ''
+        LD_LIBRARY_PATH: ''
+        DYLD_INSERT_LIBRARIES: ''
+        DYLD_LIBRARY_PATH: ''
+        DYLD_FRAMEWORK_PATH: ''
+        DYLD_FALLBACK_LIBRARY_PATH: ''
+        DYLD_FALLBACK_FRAMEWORK_PATH: ''
+        BASH_ENV: ''
+        ENV: ''
       run: |
+        unset NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FALLBACK_FRAMEWORK_PATH BASH_ENV ENV
         node_path=$(node -p 'process.execPath')
         printf 'node=%s\n' "$node_path" >> "$GITHUB_OUTPUT"
         if [[ "$CROSS_RUN_REUSE" == 'true' ]]; then
@@ -46,6 +59,18 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        NODE_OPTIONS: ''
+        NODE_PATH: ''
+        NODE_REPL_EXTERNAL_MODULE: ''
+        LD_PRELOAD: ''
+        LD_LIBRARY_PATH: ''
+        DYLD_INSERT_LIBRARIES: ''
+        DYLD_LIBRARY_PATH: ''
+        DYLD_FRAMEWORK_PATH: ''
+        DYLD_FALLBACK_LIBRARY_PATH: ''
+        DYLD_FALLBACK_FRAMEWORK_PATH: ''
+        BASH_ENV: ''
+        ENV: ''
         TRUSTED_FEED_ACTION_PATH: ${{ github.action_path }}
         TRUSTED_FEED_ACTION_REPOSITORY: ${{ github.action_repository }}
         TRUSTED_FEED_ACTION_REF: ${{ github.action_ref }}
@@ -53,6 +78,7 @@ runs:
         HARBORLINE_FEED_PYTHON: ${{ steps.feed_tools.outputs.python }}
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
       run: |
+        unset NODE_OPTIONS NODE_PATH NODE_REPL_EXTERNAL_MODULE LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_FALLBACK_FRAMEWORK_PATH BASH_ENV ENV
         [[ "$TRUSTED_FEED_ACTION_REPOSITORY" == 'Harborline-Software/harborline-api' && "$TRUSTED_FEED_ACTION_REF" == 'main' ]] || exit 1
         trusted_root=$(cd "$TRUSTED_FEED_ACTION_PATH/../../.." && pwd -P)
         [[ "$trusted_root" != "$GITHUB_WORKSPACE" ]] || exit 1

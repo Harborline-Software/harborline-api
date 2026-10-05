@@ -7,6 +7,33 @@ import {spawnSync,execFileSync} from 'node:child_process'
 import {pathToFileURL} from 'node:url'
 const {trustedConsumerEnvironment,launchConsumer}=await import(process.env.HARBORLINE_CONSUMER_LAUNCH_MODULE ? pathToFileURL(process.env.HARBORLINE_CONSUMER_LAUNCH_MODULE).href : '../platform-feed-consumer-launch.mjs')
 
+test('runner step environments remove startup loaders before shells and token-bearing Node launch', () => {
+  const root=path.resolve(import.meta.dirname,'../..')
+  const action=readFileSync(path.join(root,'.github/actions/platform-feed/action.yml'),'utf8')
+  const producer=readFileSync(path.join(root,'.github/workflows/platform-feed-producer.yml'),'utf8')
+  const steps=[action.slice(action.indexOf('    - name: Pin runner interpreters'),action.indexOf('    - name: Read the recorded')),
+    action.slice(action.indexOf('    - name: Prepare authenticated'),action.indexOf('    - name: Test the feed')),
+    producer.slice(producer.indexOf('      - name: Build isolated'),producer.indexOf('      - name: Dependency artifact'))]
+  for(const step of steps) {
+    const environment=step.slice(step.indexOf('      env:'),step.indexOf('      run:'))
+    for(const name of ['NODE_OPTIONS','NODE_PATH','NODE_REPL_EXTERNAL_MODULE','LD_PRELOAD','LD_LIBRARY_PATH',
+      'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH','DYLD_FRAMEWORK_PATH','DYLD_FALLBACK_LIBRARY_PATH',
+      'DYLD_FALLBACK_FRAMEWORK_PATH','BASH_ENV','ENV'])
+      assert.match(environment,new RegExp(`\\b${name}: ''(?:\\r?\\n|$)`),'literal startup variable must be cleared before shell startup')
+  }
+})
+
+test('required boundary gate registers every feed security suite with failure propagation', () => {
+  const root=path.resolve(import.meta.dirname,'../..')
+  const gate=readFileSync(path.join(root,'eng/verify-boundaries.sh'),'utf8')
+  const required=['platform-feed-consumer-launch','platform-feed-credential-boundary','platform-feed-crash-diagnostics',
+    'platform-feed-pid1-probe','platform-feed-qualification']
+  const invocation=gate.slice(gate.indexOf('node --test "$repo_root/eng/tests/platform-feed-reuse.test.mjs"'))
+    .split('|| exit 1')[0]
+  for(const suite of required) assert.ok(invocation.includes(`"$repo_root/eng/tests/${suite}.test.mjs"`))
+  assert.ok(gate.includes(invocation+'|| exit 1'))
+})
+
 test('actual authentication action resolves launcher and dependency from protected action, never candidate modules', t => {
   const root=path.resolve(import.meta.dirname,'../..'),directory=mkdtempSync(path.join(tmpdir(),'feed-trusted-action-'))
   t.after(()=>rmSync(directory,{recursive:true,force:true}))
@@ -32,6 +59,19 @@ test('actual authentication action resolves launcher and dependency from protect
   assert.equal(result.status,0,result.stderr);assert.equal(existsSync(stolen),false)
   assert.deepEqual(JSON.parse(readFileSync(witness,'utf8')),{provenance:'protected-definition',actions:'true',candidate:env.GITHUB_WORKSPACE})
   assert.equal(readFileSync(output,'utf8'),'reused=true\n')
+  // These hooks run before protected JS could filter its child environment. Use
+  // synthetic credentials and real Node startup to prove the outer shell boundary.
+  const preload=path.join(directory,'candidate-preload.cjs'), loader=path.join(directory,'candidate-loader.mjs')
+  writeFileSync(preload, `require('node:fs').writeFileSync(${JSON.stringify(stolen)},process.env.GH_TOKEN??'missing')`)
+  writeFileSync(loader, `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(stolen)},process.env.GH_TOKEN??'missing')`)
+  for(const hook of [`--require=${preload}`, `--import=${pathToFileURL(loader).href}`]) {
+    assert.equal(spawnSync(process.execPath,['-e',''],{env:{...env,NODE_OPTIONS:hook},encoding:'utf8'}).status,0)
+    assert.equal(readFileSync(stolen,'utf8'),'synthetic-action-only');rmSync(stolen)
+    const result=spawnSync(bash,['-c','set -eo pipefail\n'+run],{env:{...env,NODE_OPTIONS:hook,NODE_PATH:directory},cwd:candidate,encoding:'utf8',timeout:10000})
+    assert.equal(result.status,0,result.stderr);assert.equal(existsSync(stolen),false)
+    assert.equal(readFileSync(output,'utf8'),'reused=true\nreused=true\n')
+    writeFileSync(output,'reused=true\n')
+  }
   rmSync(witness);rmSync(output)
   for(const changed of [{TRUSTED_FEED_ACTION_REF:'candidate'},{TRUSTED_FEED_ACTION_REPOSITORY:'attacker/repo'}]) {
     assert.equal(spawnSync(bash,['-c','set -eo pipefail\n'+run],{env:{...env,...changed},cwd:candidate,encoding:'utf8'}).status,1)
