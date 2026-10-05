@@ -64,7 +64,7 @@ public sealed class AuthorizationDenialTranslationTests : IAsyncLifetime
         {
             var gate = http.RequestServices.GetRequiredService<AuthorizationGate>();
             var authority = new AuthorizationWriteContext(
-                new ActorId("stub-principal"), Tenant, TimeProvider.System.GetUtcNow());
+                new ActorId("stub-principal"), Tenant, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()));
             var decision = await gate
                 .DecideAsync(authority.Request(AuthorizationOperation.Parse("records:read"), "record", "stub-record"), ct)
                 .ConfigureAwait(false);

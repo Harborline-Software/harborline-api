@@ -102,7 +102,8 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
     /// </summary>
     public async Task TickAsync(CancellationToken ct = default)
     {
-        var at = _time.GetUtcNow();
+        var admitted = AdmittedInstant.Read(_time);
+        var at = admitted.Value;
         var due = await _source.GetDueTriggersAsync(at, ct).ConfigureAwait(false);
         foreach (var trigger in due)
         {
@@ -126,7 +127,7 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
             var authority = new AuthorizationWriteContext(
                 new ActorId(SchedulerPrincipal),
                 new TenantId(instance.TenantId),
-                at);
+                admitted);
             var workflowDecision = await _authorizationGate.DecideAsync(
                 authority.Request(
                     AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite),

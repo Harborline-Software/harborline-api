@@ -704,7 +704,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var act = AuthorizationOperation.Parse(operation);
         return await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
             new AuthorizationWriteContext(
-                    new ActorId(PrincipalId), new TenantId(System.Guid.Parse(TenantId).ToString("D")), Now)
+                    new ActorId(PrincipalId), new TenantId(System.Guid.Parse(TenantId).ToString("D")), AdmittedInstant.Read(new FixedTimeProvider(Now)))
                 .Request(act, AuthorizationGate.RecordKindFor(act), "record-1"));
     }
 

@@ -66,7 +66,7 @@ public sealed class GateEntryPointRefusalTests
         var principal = new ActorId("party");
         AuthorizationGateRequest Request(string atom, string kind, string id, string scope) =>
             new(PermissionAtom.Parse(atom), principal, Tenant,
-                new AuthorizationTarget(kind, id, ScopeExpression.Parse(scope)), at);
+                new AuthorizationTarget(kind, id, ScopeExpression.Parse(scope)), AdmittedInstant.FromRecordedAct(at));
 
         return new()
         {

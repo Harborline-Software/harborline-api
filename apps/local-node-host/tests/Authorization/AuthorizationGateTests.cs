@@ -54,7 +54,7 @@ public sealed class AuthorizationGateTests
             var scope = ScopeExpression.Parse($"/records/source/catalogue-fields/1/FormDefinition/{suffix}");
             await gate.DecideAsync(new AuthorizationGateRequest(
                 new PermissionAtom(AuthorizationOperation.Parse("catalogue:read"), scope), Principal, Tenant,
-                new AuthorizationTarget("catalogue", "source", scope), At));
+                new AuthorizationTarget("catalogue", "source", scope), AdmittedInstant.Read(new ManualTimeProvider(At))));
         });
         Assert.Empty(calls);
     }
@@ -81,7 +81,7 @@ public sealed class AuthorizationGateTests
     {
         const string target = "/records/tenant%3Aacme%2Fsource/catalogue-fields/1/FormDefinition/2.3.4/title";
         var request = new AuthorizationGateRequest(PermissionAtom.Parse($"catalogue:read@{target}"), Principal, Tenant,
-            new AuthorizationTarget("catalogue", "tenant:acme/source", ScopeExpression.Parse(target)), At);
+            new AuthorizationTarget("catalogue", "tenant:acme/source", ScopeExpression.Parse(target)), AdmittedInstant.Read(new ManualTimeProvider(At)));
         var decision = await Gate([Derivation($"catalogue:read@{grant}")]).DecideAsync(request);
         Assert.Equal(allowed ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied, decision.Verdict);
     }
@@ -137,7 +137,7 @@ public sealed class AuthorizationGateTests
         var gate = Gate([Derivation("records:write@/records/other")], calls);
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/other"), Principal, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/other")), At);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/other")), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
 
@@ -156,7 +156,7 @@ public sealed class AuthorizationGateTests
         var calls = new List<string>();
         var gate = Gate([Derivation(atom)], calls);
         var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
-            new AuthorizationTarget(recordKind, recordId, ScopeExpression.Parse(scope)), At);
+            new AuthorizationTarget(recordKind, recordId, ScopeExpression.Parse(scope)), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
 
@@ -168,7 +168,7 @@ public sealed class AuthorizationGateTests
     {
         var decision = await Gate([Derivation("tenant:read@/")]).DecideAsync(new AuthorizationGateRequest(
             PermissionAtom.Parse("tenant:read@/"), Principal, Tenant,
-            new AuthorizationTarget("tenant", Tenant.Value, ScopeExpression.Parse("/")), At));
+            new AuthorizationTarget("tenant", Tenant.Value, ScopeExpression.Parse("/")), AdmittedInstant.Read(new ManualTimeProvider(At))));
 
         Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
     }
@@ -186,7 +186,7 @@ public sealed class AuthorizationGateTests
         var calls = new List<string>();
         var gate = Gate([Derivation(atom)], calls);
         var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
-            new AuthorizationTarget(recordKind, recordId, PermissionAtom.Parse(atom).Scope), At);
+            new AuthorizationTarget(recordKind, recordId, PermissionAtom.Parse(atom).Scope), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => (entry == "membership"
             ? gate.DecideMembershipAdmissionAsync(request)
@@ -202,7 +202,7 @@ public sealed class AuthorizationGateTests
         var gate = Gate([], calls);
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("ledger:post@/records/a"), Principal, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), At);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
 
@@ -217,7 +217,7 @@ public sealed class AuthorizationGateTests
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/a"), Principal, Tenant,
             new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")),
-            clock.GetUtcNow());
+            AdmittedInstant.Read(new ManualTimeProvider(clock.GetUtcNow())));
         var decision = await Gate(source).DecideAsync(request);
         source.Clear();
         clock.Advance(TimeSpan.FromDays(1));
@@ -338,7 +338,7 @@ public sealed class AuthorizationGateTests
         var calls = new List<string>();
         var gate = Gate([Derivation("catalogue:read@/records/source")], calls);
         var request = new AuthorizationGateRequest(PermissionAtom.Parse($"catalogue:read@{actScope}"), Principal, Tenant,
-            new AuthorizationTarget("catalogue", recordId, ScopeExpression.Parse(field)), At);
+            new AuthorizationTarget("catalogue", recordId, ScopeExpression.Parse(field)), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
 
@@ -353,7 +353,7 @@ public sealed class AuthorizationGateTests
         var calls = new List<string>();
         var gate = Gate([Derivation("org:manage-settings@/")], calls);
         var request = new AuthorizationGateRequest(PermissionAtom.Parse("org:manage-settings@/"), Principal, Tenant,
-            new AuthorizationTarget("", "a", ScopeExpression.Parse("/")), At);
+            new AuthorizationTarget("", "a", ScopeExpression.Parse("/")), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
         await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
 
@@ -474,7 +474,7 @@ public sealed class AuthorizationGateTests
 
     private static AuthorizationGateRequest Request(string atom) =>
         new(PermissionAtom.Parse(atom), Principal, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), At);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.Read(new ManualTimeProvider(At)));
 
     private static AuthorizationAtomDerivation Derivation(
         string atom,

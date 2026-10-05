@@ -238,9 +238,10 @@ public static class FormDefinitionRoutes
             // decision, so the revision is stamped with that SAME admitted instant instead of a second
             // read that the act never decided on (ADR 0081, DES-0029 ck-9).
             var now = default(DateTimeOffset);
+            AdmittedInstant admitted = null!;
             var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
-                    decision => now = decision.Request.At);
+                    decision => { admitted = decision.Request.Instant; now = admitted.Value; });
             if (denied is not null)
                 return denied;
 
@@ -248,7 +249,7 @@ public static class FormDefinitionRoutes
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
-                now);
+                admitted);
             var decision = await store.DecideAsync(id.Value, authority, ct).ConfigureAwait(false);
 
             SaveFormDefinitionRequest? request;
@@ -560,9 +561,10 @@ public static class FormDefinitionRoutes
             // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
             // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
             var now = default(DateTimeOffset);
+            AdmittedInstant admitted = null!;
             var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
-                    decision => now = decision.Request.At);
+                    decision => { admitted = decision.Request.Instant; now = admitted.Value; });
             if (denied is not null)
                 return denied;
 
@@ -570,7 +572,7 @@ public static class FormDefinitionRoutes
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
-                now);
+                admitted);
             var decision = await store.DecideAsync(id.Value, authority, ct).ConfigureAwait(false);
 
             RestoreVersionRequest? request;

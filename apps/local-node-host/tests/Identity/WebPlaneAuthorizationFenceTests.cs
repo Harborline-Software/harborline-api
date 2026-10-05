@@ -332,7 +332,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ...seeded the way AuthorizationSeedHostedService seeds it at boot, so the desktop operator's
             // packages:operate holding is the real node-operator grant and not a fixture stub.
             await outerProvider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(OperatorTenant, TimeProvider.System.GetUtcNow(), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(OperatorTenant, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
             await using (var localDb = await outerProvider
                 .GetRequiredService<IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>()
@@ -487,7 +487,7 @@ public sealed class WebPlaneAuthorizationFenceTests
         {
             var decision = await _outerProvider.GetRequiredService<AuthorizationGate>().DecideAsync(
                 new AuthorizationWriteContext(TestDesktopOperator.Actor, OperatorTenant,
-                    TimeProvider.System.GetUtcNow()).Request(
+                    AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow())).Request(
                         AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "fence"));
             Assert.Equal(allowed, decision.Verdict == AuthorizationVerdict.Allowed);
             var grant = await _outerProvider.GetRequiredService<IGrantStore>().FindBySourceReferenceAsync(

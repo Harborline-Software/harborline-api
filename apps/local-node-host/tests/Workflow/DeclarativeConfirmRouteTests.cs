@@ -127,7 +127,7 @@ public sealed class DeclarativeConfirmRouteTests : IAsyncLifetime
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.RoleGate());
         var seedAuthority = new Harborline.Api.Foundation.Authorization.AuthorizationWriteContext(
             new ActorId("test-workflow-seed"), LocalTenantId,
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero));
+            AdmittedInstant.FromRecordedAct(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero)));
         var seedDecision = await lifecycle.DecideAsync(
             NodeThreeWayMatchWorkflowSeed.DefinitionKey, seedAuthority);
         await NodeThreeWayMatchWorkflowSeed.EnsurePublishedAsync(

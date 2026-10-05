@@ -121,7 +121,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
         var decision = await authority.AuthorizeAsync(new AuthorizationWriteContext(
             new ActorId(TestDesktopOperator.Principal),
             NodeTenant.Resolve(active),
-            At));
+            AdmittedInstant.Read(new FixedTimeProvider(At))));
 
         Assert.IsType<WorkshopUnlockDecision.Granted>(decision);
     }
@@ -138,7 +138,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
 
         var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(TestDesktopOperator.Principal), strangerTenant, At)
+                new ActorId(TestDesktopOperator.Principal), strangerTenant, AdmittedInstant.Read(new FixedTimeProvider(At)))
                 .InstallWide(AuthorizationOperation.Parse(Permission.PackagesOperate)));
 
         Assert.NotEqual(AuthorizationVerdict.Allowed, decision.Verdict);
@@ -148,7 +148,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
     {
         var decision = await gate.DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(TestDesktopOperator.Principal), tenant, At)
+                new ActorId(TestDesktopOperator.Principal), tenant, AdmittedInstant.Read(new FixedTimeProvider(At)))
                 .InstallWide(AuthorizationOperation.Parse(operation)));
 
         Assert.True(
@@ -164,7 +164,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
     {
         var decision = await gate.DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(TestDesktopOperator.Principal), tenant, At)
+                new ActorId(TestDesktopOperator.Principal), tenant, AdmittedInstant.Read(new FixedTimeProvider(At)))
                 .Request(AuthorizationOperation.Parse(operation), recordKind, "record-under-test"));
 
         Assert.True(

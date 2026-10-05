@@ -21,6 +21,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization-instant\Harborline.Foundation.Authorization.Instant.csproj" />
     <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
     <PackageReference Include="Harborline.Foundation.MultiTenancy" />
   </ItemGroup>

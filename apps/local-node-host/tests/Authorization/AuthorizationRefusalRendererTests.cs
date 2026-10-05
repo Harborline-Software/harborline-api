@@ -33,7 +33,7 @@ public sealed class AuthorizationRefusalRendererTests
     private static async Task<AuthorizationDecision> RefusedWriteAsync(AuthorizationGate gate, string principal)
     {
         var authority = new AuthorizationWriteContext(
-            new ActorId(principal), Tenant, DateTimeOffset.UnixEpoch.AddDays(1));
+            new ActorId(principal), Tenant, AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch.AddDays(1)));
         var decision = await gate.DecideAsync(
             authority.Request(Write, AuthorizationGate.RecordKindFor(Write), Record));
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
@@ -125,7 +125,7 @@ public sealed class AuthorizationRefusalRendererTests
     public async Task An_allowed_decision_is_not_rendered()
     {
         var authority = new AuthorizationWriteContext(
-            new ActorId("auditor"), Tenant, DateTimeOffset.UnixEpoch.AddDays(1));
+            new ActorId("auditor"), Tenant, AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch.AddDays(1)));
         var allowed = await TestRouteGate.AllowAll().DecideAsync(
             authority.Request(Write, AuthorizationGate.RecordKindFor(Write), Record));
 

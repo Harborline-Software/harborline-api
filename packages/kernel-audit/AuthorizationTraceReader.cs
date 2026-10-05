@@ -79,13 +79,13 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         TenantId tenant,
         ActorId caller,
         Guid auditId,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken ct = default)
         => (await ReadWithDecisionAsync(tenant, caller, auditId, at, ct).ConfigureAwait(false)).Read;
 
     /// <summary>Returns the same read and its gate decision for HTTP refusal rendering and audit.</summary>
     public async ValueTask<(AuthorizationTraceRead Read, AuthorizationDecision Decision)> ReadWithDecisionAsync(
-        TenantId tenant, ActorId caller, Guid auditId, DateTimeOffset at, CancellationToken ct = default)
+        TenantId tenant, ActorId caller, Guid auditId, AdmittedInstant at, CancellationToken ct = default)
     {
         var entry = await FindAsync(tenant, auditId, ct).ConfigureAwait(false);
         var snapshot = entry?.AuthoritySnapshot;

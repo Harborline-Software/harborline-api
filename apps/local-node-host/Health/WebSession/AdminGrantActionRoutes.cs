@@ -42,15 +42,15 @@ internal static partial class AdminTeamAccessRoutes
     {
         AccessHoldersRead.MapSelected(app, time);
         app.MapPost(ReviewGrantRequest.RouteTemplate, (GrantBody? request, HttpContext context) =>
-            ReviewGrantAsync(authority, antiforgery, request, context, time.GetUtcNow()));
+            ReviewGrantAsync(authority, antiforgery, request, context, AdmittedInstant.Read(time)));
         app.MapPost(RevokeGrantRequest.RouteTemplate, (GrantBody? request, HttpContext context) =>
-            RevokeGrantAsync(authority, antiforgery, request, context, time.GetUtcNow()));
+            RevokeGrantAsync(authority, antiforgery, request, context, AdmittedInstant.Read(time)));
         app.MapPost(NarrowScopeRequest.RouteTemplate, (NarrowScopeBody? request, HttpContext context) =>
-            NarrowScopeAsync(authority, antiforgery, request, context, time.GetUtcNow()));
+            NarrowScopeAsync(authority, antiforgery, request, context, AdmittedInstant.Read(time)));
     }
 
     internal static async Task<IResult> ReviewGrantAsync(IAdminTeamAccessAuthority authority,
-        IWebAntiforgeryPolicy antiforgery, GrantBody? request, HttpContext context, DateTimeOffset at)
+        IWebAntiforgeryPolicy antiforgery, GrantBody? request, HttpContext context, AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
@@ -74,7 +74,7 @@ internal static partial class AdminTeamAccessRoutes
     }
 
     internal static async Task<IResult> RevokeGrantAsync(IAdminTeamAccessAuthority authority,
-        IWebAntiforgeryPolicy antiforgery, GrantBody? request, HttpContext context, DateTimeOffset at)
+        IWebAntiforgeryPolicy antiforgery, GrantBody? request, HttpContext context, AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
@@ -105,7 +105,7 @@ internal static partial class AdminTeamAccessRoutes
     }
 
     internal static async Task<IResult> NarrowScopeAsync(IAdminTeamAccessAuthority authority,
-        IWebAntiforgeryPolicy antiforgery, NarrowScopeBody? request, HttpContext context, DateTimeOffset at)
+        IWebAntiforgeryPolicy antiforgery, NarrowScopeBody? request, HttpContext context, AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);

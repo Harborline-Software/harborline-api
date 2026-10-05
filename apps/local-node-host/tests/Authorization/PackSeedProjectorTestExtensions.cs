@@ -31,7 +31,7 @@ internal static class PackSeedProjectorTestExtensions
                 principal,
                 tenant,
                 new AuthorizationTarget("pack", pack.PackKey, scope),
-                at);
+                AdmittedInstant.FromRecordedAct(at));
             var decision = await TestAuthorization.AllowGate().DecideAsync(request, cancellationToken);
             var authority = new PackProjectionAuthority(
                 decision, pack.PackKey, pack.Version, tenant, principal, at);

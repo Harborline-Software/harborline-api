@@ -203,7 +203,7 @@ public sealed class TenantSwitchRoutesTests
             antiforgery,
             new AdminTeamAccessRoutes.IssueInvitationRequest(["records:read"], "idem-1"),
             context,
-            Now);
+            AdmittedInstant.FromRecordedAct(Now));
         await result.ExecuteAsync(context);
         return context.Response.StatusCode;
     }

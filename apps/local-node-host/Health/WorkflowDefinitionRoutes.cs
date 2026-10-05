@@ -126,7 +126,7 @@ public static class WorkflowDefinitionRoutes
         app.MapPut($"{RouteBase}/{{key}}", async (string key, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
-            var at = timeProvider.GetUtcNow();
+            var at = AdmittedInstant.Read(timeProvider);
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,

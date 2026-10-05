@@ -161,7 +161,7 @@ public sealed class AuditEventRouteAuthorizationTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             if (!grantAuditor)
             {
                 // The caller keeps every other holding the seed gives it and loses ONLY audit:read, by the

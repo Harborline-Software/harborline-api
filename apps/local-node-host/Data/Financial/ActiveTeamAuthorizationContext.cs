@@ -105,7 +105,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         var active = _activeTeam.Active;
         if (active is null || Operator is not { } actor) return null;
         var tenant = ActiveTeamTenantContext.ProjectTenantId(active.TeamId);
-        var at = _timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(_timeProvider);
         // The gate derives the actor's roster facts through its own constraint reader (T-519).
         AuthorizationDecision? decision = null;
         // A role label previously required at least one allowed act. Each candidate still asks the gate;

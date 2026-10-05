@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json.Nodes;
 
 using NSubstitute;
@@ -259,7 +260,7 @@ public sealed class RestrictingDefinitionKindAdmissionTests
             Tenant,
             trust,
             PackRevocationList.Empty,
-            Now,
+            AdmittedInstant.FromRecordedAct(Now),
             TimeSpan.FromDays(30),
             Principal: "test-operator");
         return (export.FileBytes!, context, keyPair);

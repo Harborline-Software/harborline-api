@@ -14,6 +14,6 @@ internal static class AuthorizationWriterTestExtensions
         new AuthorizationWriteContext(
             new ActorId("test:authorization-writer"),
             command is NarrowCapabilityRoleBinding narrow ? narrow.TenantId : new TenantId("test"),
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero)),
+            AdmittedInstant.FromRecordedAct(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero))),
         ct);
 }

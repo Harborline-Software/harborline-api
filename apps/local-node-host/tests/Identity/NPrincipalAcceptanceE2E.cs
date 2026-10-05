@@ -214,7 +214,7 @@ public sealed class NPrincipalAcceptanceE2E
 
     private static AuthorizationWriteContext Authority(
         SelectedSessionRequestPrincipal principal, TenantId tenant, DateTimeOffset at) =>
-        new(new ActorId(principal.PrincipalUserId.Value), tenant, at);
+        new(new ActorId(principal.PrincipalUserId.Value), tenant, AdmittedInstant.Read(new MutableTimeProvider(at)));
 
     private static async Task<string> LoginAsync(
         ComposedNode node, string username, string password, string tenantId)

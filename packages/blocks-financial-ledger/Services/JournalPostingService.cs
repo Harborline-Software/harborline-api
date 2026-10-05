@@ -85,7 +85,7 @@ public sealed class JournalPostingService : IJournalPostingService
             persist: true,
             cancellationToken,
             authorizeSoftClose: (snapshot, ct) => AuthorizeSoftCloseAsync(
-                authority.Principal, authority.Tenant, authority.At, snapshot, ct)).ConfigureAwait(false);
+                authority.Principal, authority.Tenant, authority.Instant, snapshot, ct)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -261,7 +261,7 @@ public sealed class JournalPostingService : IJournalPostingService
     private async Task<bool> AuthorizeSoftCloseAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         IPeriodResolver.PeriodSnapshot snapshot,
         CancellationToken cancellationToken)
     {
@@ -280,7 +280,7 @@ public sealed class JournalPostingService : IJournalPostingService
     private static AuthorizationGateRequest Request(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         AuthorizationOperation operation,
         string recordKind,
         string recordId)
