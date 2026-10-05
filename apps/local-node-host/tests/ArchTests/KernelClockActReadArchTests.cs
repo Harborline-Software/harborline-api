@@ -87,7 +87,9 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(17, reads.Count);
+        Assert.Equal(19, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsATernaryMergedClock", StringComparison.Ordinal)).Value);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughAThrowingGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAContainerClockThroughAGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsABranchMergedClock", StringComparison.Ordinal)).Value);
         // The getter's two wall-clock reads, and its returned clock: not `return _clock;`, so not proven the service's own.
@@ -257,7 +259,9 @@ public sealed class KernelClockActReadArchTests
             && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
             reads.AddRange(Reads(moveNext, assemblies, known));
         var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
-        var injectedLocals = InjectedLocals(method, code);
+        // A join point merges values from several paths, so the value on the stack there is not provably one source.
+        var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
+        var injectedLocals = InjectedLocals(method, code, joins);
         var injectedReceiver = false;
         foreach (var (offset, opCode, operand) in code)
         {
@@ -267,7 +271,7 @@ public sealed class KernelClockActReadArchTests
                     || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                 continue;
             }
-            var receiver = injectedReceiver;
+            var receiver = injectedReceiver && !joins.Contains(offset);
             if (Resolve(method, operand) is not { } target)
             {
                 injectedReceiver = false;
@@ -289,9 +293,10 @@ public sealed class KernelClockActReadArchTests
 
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
-    /// <c>ldfld</c> of it or its getter just before). A local also assigned anything else is not one.
+    /// <c>ldfld</c> of it or its getter just before, not at a join point). A local also assigned anything else,
+    /// or assigned a value merged from a conditional, is not one.
     /// </summary>
-    private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code)
+    private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, HashSet<int> joins)
     {
         var injected = new HashSet<int>();
         var other = new HashSet<int>();
@@ -299,7 +304,7 @@ public sealed class KernelClockActReadArchTests
         {
             if (!IsStoreLocal(code[index].OpCode))
                 continue;
-            var stored = index > 0 && (ProducesInjectedClock(method, code[index - 1].OpCode, code[index - 1].Operand)
+            var stored = index > 0 && !joins.Contains(code[index].Offset) && (ProducesInjectedClock(method, code[index - 1].OpCode, code[index - 1].Operand)
                 || (code[index - 1].OpCode.OperandType == OperandType.InlineMethod
                     && Resolve(method, code[index - 1].Operand) is { } source && IsInjectedClockGetter(source)));
             (stored ? injected : other).Add(code[index].Operand);
@@ -325,13 +330,13 @@ public sealed class KernelClockActReadArchTests
             return false;
         if (code.Length == 3)
             return true; // return _clock;
-        // return _clock ?? throw new X(...);  — the throw arm may only build the exception.
+        // return _clock ?? throw new X(...);  — the throw arm ends in throw with no ret and no branch, so whatever it
+        // computes never reaches the return value: only the field does.
         return code[2].OpCode == OpCodes.Dup
             && (code[3].OpCode == OpCodes.Brtrue_S || code[3].OpCode == OpCodes.Brtrue) && code[3].Operand == code[^1].Offset
             && code[4].OpCode == OpCodes.Pop && code[^2].OpCode == OpCodes.Throw
-            && code[5..^2].All(instruction => instruction.OpCode == OpCodes.Ldstr
-                || (instruction.OpCode == OpCodes.Newobj && Resolve(getter, instruction.Operand)?.DeclaringType is { } thrown
-                    && typeof(Exception).IsAssignableFrom(thrown)));
+            && code[5..^2].All(instruction => instruction.OpCode != OpCodes.Ret
+                && instruction.OpCode.FlowControl is not (FlowControl.Branch or FlowControl.Cond_Branch));
     }
 
     /// <summary>
@@ -463,6 +468,8 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/service-local", UsesAServiceOwnClockViaALocal);
             app.MapGet("/planted/container-getter", ReadsAContainerClockThroughAGetter);
             app.MapGet("/planted/branch-merged", ReadsABranchMergedClock);
+            app.MapGet("/planted/ternary-merged", ReadsATernaryMergedClock);
+            app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
@@ -507,6 +514,13 @@ public sealed class KernelClockActReadArchTests
         // One branch assigns the act's clock, the other the service's own.
         private static IResult ReadsABranchMergedClock(PlantedService service, TimeProvider time, bool flag) =>
             Results.Ok(service.EitherWindow(flag, time));
+
+        private static IResult ReadsATernaryMergedClock(PlantedService service, TimeProvider time, bool flag) =>
+            Results.Ok(service.TernaryWindow(flag, time));
+
+        // `_clock ?? throw new Exception(null)`: the service's own clock both times.
+        private static IResult UsesAServiceOwnClockThroughAThrowingGetter(PlantedNullableClockService service) =>
+            Results.Ok(service.OwnClock.GetUtcNow() - service.OwnClock.GetUtcNow());
 
         private static IResult HandsTheClockOnAsAnObject(TimeProvider time) =>
             Results.Ok(PlantedHelperGuard.StampObject(time) - PlantedHelperGuard.StampObject(time));
@@ -599,6 +613,13 @@ public sealed class KernelClockActReadArchTests
             ((TimeProvider)http.RequestServices.GetRequiredService(typeof(TimeProvider))).GetUtcNow();
     }
 
+    private sealed class PlantedNullableClockService(TimeProvider? clock)
+    {
+        private readonly TimeProvider? _clock = clock;
+
+        public TimeProvider OwnClock => _clock ?? throw new InvalidOperationException(null);
+    }
+
     private sealed class PlantedService(TimeProvider clock)
     {
         public TimeProvider Clock => DateTimeOffset.UtcNow < DateTimeOffset.UtcNow ? throw new InvalidOperationException() : clock;
@@ -618,6 +639,12 @@ public sealed class KernelClockActReadArchTests
                 GC.KeepAlive(clock);
                 return Http.RequestServices.GetRequiredService<TimeProvider>();
             }
+        }
+
+        public TimeSpan TernaryWindow(bool flag, TimeProvider actClock)
+        {
+            var chosen = flag ? actClock : clock;
+            return chosen.GetUtcNow() - chosen.GetUtcNow();
         }
 
         public TimeSpan EitherWindow(bool flag, TimeProvider actClock)
