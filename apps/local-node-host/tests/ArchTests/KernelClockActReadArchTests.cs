@@ -68,7 +68,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(27, reads.Count);
+        Assert.Equal(28, reads.Count);
+        Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("MappedAtTypeInitialization", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAStaticallyInitializedStamp", StringComparison.Ordinal)).Value);
@@ -230,28 +231,55 @@ public sealed class KernelClockActReadArchTests
     /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
-        (graph ?? new ReadGraph(assemblies)).Reads(handler);
+        (graph ?? new ReadGraph(assemblies)).ActReads(handler);
 
     /// <summary>
     /// The production call graph's clock reads, by method. Methods that call each other recursively form one
     /// strongly connected component (Tarjan), and every member reads what the component's own code reads once,
     /// plus what each call leaving the component reads, the same way a loop counts once. Each component is
     /// computed once and is independent of the order handlers are walked in, so one graph serves every handler.
+    /// A type initializer runs at most once, so it is not a call: each method records the initializers it can
+    /// trigger, and an act adds each one's reads once, however many accesses reach it.
     /// </summary>
     internal sealed class ReadGraph(IReadOnlyList<Assembly> assemblies)
     {
         private readonly Dictionary<MethodBase, IReadOnlyList<string>> _reads = [];
-        private readonly Dictionary<MethodBase, (List<string> Direct, List<MethodBase> Calls)> _local = [];
+        private readonly Dictionary<MethodBase, IReadOnlySet<MethodBase>> _initializers = [];
+        private readonly Dictionary<MethodBase, (List<string> Direct, List<MethodBase> Calls, HashSet<MethodBase> Initializers)> _local = [];
         private readonly Dictionary<MethodBase, (int Index, int Low)> _visit = [];
         private readonly Stack<MethodBase> _stack = new();
         private readonly HashSet<MethodBase> _onStack = [];
         private int _next;
 
-        internal IReadOnlyList<string> Reads(MethodBase method)
+        /// <summary>The act's reads: its call closure's, plus each type initializer it can trigger, once.</summary>
+        internal IReadOnlyList<string> ActReads(MethodBase handler)
+        {
+            var reads = new List<string>(Reads(handler));
+            var seen = new HashSet<MethodBase>();
+            var pending = new Queue<MethodBase>(Initializers(handler));
+            while (pending.TryDequeue(out var initializer))
+            {
+                if (!seen.Add(initializer))
+                    continue;
+                reads.AddRange(Reads(initializer).Select(read => $"type initializer {Name(initializer)} -> {read}"));
+                foreach (var next in Initializers(initializer))
+                    pending.Enqueue(next);
+            }
+            return reads;
+        }
+
+        private IReadOnlyList<string> Reads(MethodBase method)
         {
             if (!_reads.ContainsKey(method))
                 Connect(method);
             return _reads[method];
+        }
+
+        private IReadOnlySet<MethodBase> Initializers(MethodBase method)
+        {
+            if (!_reads.ContainsKey(method))
+                Connect(method);
+            return _initializers[method];
         }
 
         private void Connect(MethodBase method)
@@ -285,24 +313,36 @@ public sealed class KernelClockActReadArchTests
             while (member != method);
             var members = component.ToHashSet();
             var reads = new List<string>();
+            var initializers = new HashSet<MethodBase>();
             foreach (var each in component)
             {
-                var (direct, calls) = Local(each);
+                var (direct, calls, triggered) = Local(each);
                 reads.AddRange(direct);
+                initializers.UnionWith(triggered);
                 foreach (var callee in calls.Where(callee => !members.Contains(callee)))
+                {
                     reads.AddRange(_reads[callee]);
+                    initializers.UnionWith(_initializers[callee]);
+                }
             }
             foreach (var each in component)
+            {
                 _reads[each] = reads;
+                _initializers[each] = initializers;
+            }
         }
 
-        /// <summary>The method's own read sites, and its production callees once per call site.</summary>
-        private (List<string> Direct, List<MethodBase> Calls) Local(MethodBase method)
+        /// <summary>
+        /// The method's own read sites, its production callees once per call site, and the type initializers its
+        /// static accesses can trigger.
+        /// </summary>
+        private (List<string> Direct, List<MethodBase> Calls, HashSet<MethodBase> Initializers) Local(MethodBase method)
         {
             if (_local.TryGetValue(method, out var known))
                 return known;
             var direct = new List<string>();
             var calls = new List<MethodBase>();
+            var initializers = new HashSet<MethodBase>();
             if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
                 && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
                 calls.Add(moveNext);
@@ -316,7 +356,7 @@ public sealed class KernelClockActReadArchTests
                 if (opCode.OperandType != OperandType.InlineMethod)
                 {
                     if (opCode.OperandType == OperandType.InlineField && ResolveField(method, operand) is { IsStatic: true } staticField)
-                        AddInitializer(calls, staticField.DeclaringType);
+                        AddInitializer(initializers, staticField.DeclaringType);
                     injectedReceiver = ProducesInjectedClock(method, opCode, operand)
                         || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                     continue;
@@ -328,24 +368,24 @@ public sealed class KernelClockActReadArchTests
                     continue;
                 }
                 if (target.IsStatic || target.IsConstructor)
-                    AddInitializer(calls, target.DeclaringType);
+                    AddInitializer(initializers, target.DeclaringType);
                 injectedReceiver = IsInjectedClockGetter(target);
                 if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
                     direct.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
                 else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
                     calls.Add(target);
             }
-            return _local[method] = (direct, calls);
+            return _local[method] = (direct, calls, initializers);
         }
 
         /// <summary>
         /// A static member access or construction can run the type's initializer on first use, inside whichever
-        /// act touches it first, so the initializer is a callee of every such access.
+        /// act touches it first; it runs at most once, so it is recorded once rather than called per access.
         /// </summary>
-        private void AddInitializer(List<MethodBase> calls, Type? type)
+        private void AddInitializer(HashSet<MethodBase> initializers, Type? type)
         {
             if (type is not null && assemblies.Contains(type.Assembly) && type.TypeInitializer is { } initializer)
-                calls.Add(initializer);
+                initializers.Add(initializer);
         }
     }
 
@@ -538,6 +578,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/recursion-b", EntersTheCycleAtBTwice);
             app.MapGet("/planted/recursion-a-then-b", EntersTheCycleAtAThenB);
             app.MapGet("/planted/static-initializer", ReadsAStaticallyInitializedStamp);
+            app.MapGet("/planted/initializer-twice", ReadsAOnceInitializedStampTwice);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -589,6 +630,9 @@ public sealed class KernelClockActReadArchTests
             Results.Ok(service.SwappedWindow(time));
 
         private static IResult ReadsAStaticallyInitializedStamp() => Results.Ok(StaticStamp.Value);
+
+        // Two accesses, one initializer run: one read.
+        private static IResult ReadsAOnceInitializedStampTwice() => Results.Ok(new[] { OnceStamp.At, OnceStamp.At });
 
         private static Task FallsBackReadingTwice(HttpContext http)
         {
@@ -734,6 +778,13 @@ public sealed class KernelClockActReadArchTests
 
         // An explicit static constructor runs at first access: inside whichever act touches Value first.
         static StaticStamp() => Value = DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
+    }
+
+    private static class OnceStamp
+    {
+        internal static readonly DateTimeOffset At;
+
+        static OnceStamp() => At = DateTimeOffset.UtcNow;
     }
 
     private sealed class PlantedNullableClockService(TimeProvider? clock)
