@@ -51,7 +51,7 @@ public sealed class KernelClockActReadArchTests
 
         Assert.Empty(unpaired);
         Assert.True(handlers.Count > 200, $"Handler discovery found only {handlers.Count} route handlers.");
-        var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
+        var graph = new ReadGraph(assemblies, ActOwnedTypes(assemblies, [.. handlers.Select(handler => handler.Handler)]));
         var violations = handlers
             .Select(handler => (handler, reads: ActReads(handler.Handler, assemblies, graph)))
             .Where(item => item.reads.Count > 1)
@@ -72,9 +72,9 @@ public sealed class KernelClockActReadArchTests
             type => IsWithin(type, typeof(PlantedRoutes)) || IsWithin(type, typeof(PlantedInstanceRoute)) || IsWithin(type, typeof(PlantedNestedRoute)));
 
         // One graph over every planted handler, as in production, so the route objects are known to every act.
-        var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
+        var graph = new ReadGraph(assemblies, ActOwnedTypes(assemblies, [.. handlers.Select(handler => handler.Handler)]));
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
-        Assert.Equal(47, reads.Count);
+        Assert.Equal(48, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -104,6 +104,7 @@ public sealed class KernelClockActReadArchTests
         // The getter's two wall-clock reads, and its returned clock: not `return _clock;`, so not proven the service's own.
         Assert.Equal(3, reads.Single(item => item.Key.Contains("ReadsThroughAWallClockGetter", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockViaALocal", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAHelperItBuilds", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughADelegate", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughChainedLocals", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughAnAssignedReceiver", StringComparison.Ordinal)).Value);
@@ -256,7 +257,19 @@ public sealed class KernelClockActReadArchTests
     /// <c>dynamic</c> or compiled-expression calls.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
-        (graph ?? new ReadGraph(assemblies, RouteTypes([handler]))).ActReads(handler);
+        (graph ?? new ReadGraph(assemblies, ActOwnedTypes(assemblies, [handler]))).ActReads(handler);
+
+    /// <summary>
+    /// The types whose instances belong to an act rather than to the service container: route objects
+    /// (<see cref="RouteTypes"/>), and every type an act constructs itself anywhere in its call closure. A clock such
+    /// an object holds was handed to it by the act (<c>new ClockHolder(time).ReadTwice()</c>), so its reads are the
+    /// act's and count; only a clock held by an object the act did not build is a service's own.
+    /// </summary>
+    internal static IReadOnlySet<Type> ActOwnedTypes(IReadOnlyList<Assembly> assemblies, IReadOnlyCollection<MethodBase> handlers)
+    {
+        var routes = RouteTypes(handlers);
+        return routes.Concat(new ReadGraph(assemblies, routes).ConstructedTypes(handlers)).ToHashSet();
+    }
 
     /// <summary>
     /// The types whose instances can be route objects: the type of every instance method mapped as a handler, and the
@@ -288,6 +301,33 @@ public sealed class KernelClockActReadArchTests
         private readonly Stack<MethodBase> _stack = new();
         private readonly HashSet<MethodBase> _onStack = [];
         private int _next;
+
+        /// <summary>
+        /// Every type constructed (<c>newobj</c>) in the call closure of <paramref name="roots"/>, type initializers
+        /// included; compiler-generated closures and state machines are not objects an act hands a clock to.
+        /// </summary>
+        internal IReadOnlySet<Type> ConstructedTypes(IEnumerable<MethodBase> roots)
+        {
+            var types = new HashSet<Type>();
+            var seen = new HashSet<MethodBase>();
+            var pending = new Queue<MethodBase>(roots);
+            while (pending.TryDequeue(out var method))
+            {
+                if (!seen.Add(method))
+                    continue;
+                var (_, calls, initializers) = Local(method);
+                foreach (var (target, _) in calls)
+                {
+                    if (target is ConstructorInfo { IsStatic: false, DeclaringType: { } constructed }
+                        && !constructed.IsDefined(typeof(CompilerGeneratedAttribute), false) && !constructed.Name.StartsWith('<'))
+                        types.Add(constructed);
+                    pending.Enqueue(target);
+                }
+                foreach (var initializer in initializers)
+                    pending.Enqueue(initializer);
+            }
+            return types;
+        }
 
         /// <summary>The act's reads: its call closure's, plus each type initializer it can trigger, once.</summary>
         internal IReadOnlyList<string> ActReads(MethodBase handler)
@@ -692,6 +732,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/object-clock", HandsTheClockOnAsAnObject);
             app.MapGet("/planted/wall-getter", ReadsThroughAWallClockGetter);
             app.MapGet("/planted/service-local", UsesAServiceOwnClockViaALocal);
+            app.MapGet("/planted/built-holder", ReadsThroughAHelperItBuilds);
             app.MapGet("/planted/service-delegate", UsesAServiceOwnClockThroughADelegate);
             app.MapGet("/planted/service-chained-locals", UsesAServiceOwnClockThroughChainedLocals);
             app.MapGet("/planted/service-assigned-receiver", UsesAServiceOwnClockThroughAnAssignedReceiver);
@@ -757,6 +798,9 @@ public sealed class KernelClockActReadArchTests
 
         // Both reads are the service's own injected clock, held in a local: not the act's.
         private static IResult UsesAServiceOwnClockViaALocal(PlantedService service) => Results.Ok(service.Window());
+
+        // The act builds the holder and hands it its clock: both reads are the act's.
+        private static IResult ReadsThroughAHelperItBuilds(TimeProvider time) => Results.Ok(new PlantedClockHolder(time).ReadTwice());
 
         // `Func<DateTimeOffset> read = _clock.GetUtcNow;`: a delegate over the service's own clock (ldfld; dup; ldvirtftn).
         private static IResult UsesAServiceOwnClockThroughADelegate(PlantedService service) => Results.Ok(service.DelegateRead());
@@ -1048,6 +1092,14 @@ public sealed class KernelClockActReadArchTests
             };
             register();
         }
+    }
+
+    // A helper the act builds and hands its own clock: its field is the act's clock, not a service's.
+    private sealed class PlantedClockHolder(TimeProvider clock)
+    {
+        private readonly TimeProvider _clock = clock;
+
+        internal TimeSpan ReadTwice() => _clock.GetUtcNow() - _clock.GetUtcNow();
     }
 
     private static class PlantedRouteHelper
