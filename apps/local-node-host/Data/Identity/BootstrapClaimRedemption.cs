@@ -72,6 +72,7 @@ internal interface IBootstrapClaimIssuer
         CancellationToken cancellationToken = default);
 }
 
+[ClockAuthority("Shared bootstrap-claim issuer seam: dates the claim window (issue and deadline) for the issuer authorities that call it.")]
 internal static class BootstrapClaimIssuerSeam
 {
     private static readonly object Acceptance = new();

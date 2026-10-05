@@ -93,9 +93,11 @@ public sealed class KernelStoreClockArchTests
         Assert.Equal(
             [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.InheritsAClock), typeof(Planted.InheritsAStampingBase),
              typeof(Planted.ReadsAClockItIsHanded), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
-             typeof(Planted.StoresBehindAnEncryptedStore)],
+             typeof(Planted.StoresBehindAnEncryptedStore), typeof(Planted.TakesAContextByReference),
+             typeof(Planted.TakesAContextPerCall)],
             ClockedStores(holders).OrderBy(type => type.Name, StringComparer.Ordinal).ToArray());
         Assert.Contains(typeof(Planted.TakesTheActsInstant), holders);
+        Assert.Contains(typeof(Planted.HoldsAnUnreadStaticClock), holders);
         Assert.Contains(typeof(Planted.DatesItsOwnDecisions), holders);
         Assert.Contains(typeof(Planted.SweepsOutsideAnyAct), holders);
         Assert.False(IsClocked(typeof(Planted.StaleAuthority)));
@@ -106,7 +108,7 @@ public sealed class KernelStoreClockArchTests
         assemblies.SelectMany(Types)
             .Where(type => !type.IsInterface && !IsCompilerGenerated(type))
             .Where(type => filter?.Invoke(type) ?? true)
-            .Where(type => Inputs(type).Any(IsPersistenceHandle))
+            .Where(type => Handles(type).Any(IsPersistenceHandle))
             .ToHashSet();
 
     /// <summary>
@@ -133,7 +135,7 @@ public sealed class KernelStoreClockArchTests
     /// a fresh admitted instant.
     /// </summary>
     private static bool IsClocked(Type type) =>
-        Inputs(type).Any(input => typeof(TimeProvider).IsAssignableFrom(input))
+        Holdings(type).Any(input => typeof(TimeProvider).IsAssignableFrom(input))
         || Lineage(type).SelectMany(Code).Any(method =>
             RawMutationPortSymbolInventoryTests.CalledMethods(method).Any(call => IsClockRead(call.Target)));
 
@@ -146,20 +148,39 @@ public sealed class KernelStoreClockArchTests
     }
 
     /// <summary>
-    /// What a type takes or holds: every constructor parameter, and every field (instance or static) of it and its
-    /// bases.
+    /// What a type holds as its own state: every constructor parameter, and every instance field of it and its bases.
+    /// A store must hold no clock here.
     /// </summary>
-    private static IEnumerable<Type> Inputs(Type type)
+    private static IEnumerable<Type> Holdings(Type type)
     {
-        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
-            | BindingFlags.DeclaredOnly;
-        foreach (var constructor in type.GetConstructors(Declared & ~BindingFlags.Static))
+        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        foreach (var constructor in type.GetConstructors(Declared))
             foreach (var parameter in constructor.GetParameters())
-                yield return parameter.ParameterType;
+                yield return Unwrapped(parameter.ParameterType);
         for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
             foreach (var field in level.GetFields(Declared))
                 yield return field.FieldType;
     }
+
+    /// <summary>
+    /// Every way a type takes or holds a persistence handle: what it holds, its static fields, and the parameters of
+    /// its own methods (by-reference ones unwrapped).
+    /// </summary>
+    private static IEnumerable<Type> Handles(Type type)
+    {
+        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
+            | BindingFlags.DeclaredOnly;
+        foreach (var held in Holdings(type))
+            yield return held;
+        for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
+            foreach (var field in level.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                yield return field.FieldType;
+        foreach (var method in type.GetMethods(Declared))
+            foreach (var parameter in method.GetParameters())
+                yield return Unwrapped(parameter.ParameterType);
+    }
+
+    private static Type Unwrapped(Type type) => type.IsByRef ? type.GetElementType()! : type;
 
     private static bool IsPersistenceHandle(Type type) =>
         typeof(DbContext).IsAssignableFrom(type)
@@ -272,6 +293,25 @@ public sealed class KernelStoreClockArchTests
             private static readonly DbConnection? Connection = null;
 
             internal static DateTimeOffset Stamp() => Connection is null ? DateTimeOffset.UtcNow : default;
+        }
+
+        internal sealed class TakesAContextPerCall
+        {
+            internal static DateTimeOffset Write(DbContext context) => context is null ? default : DateTimeOffset.UtcNow;
+        }
+
+        internal sealed class TakesAContextByReference(ref DbContext context)
+        {
+            private readonly bool _bound = context is not null;
+
+            internal DateTimeOffset Stamp() => _bound ? DateTimeOffset.UtcNow : default;
+        }
+
+        internal sealed class HoldsAnUnreadStaticClock(IDbContextFactory<DbContext> factory)
+        {
+            private static readonly TimeProvider? Unused = null;
+
+            internal bool Has() => factory is not null && Unused is null;
         }
 
         internal abstract class StampsInItsBase
