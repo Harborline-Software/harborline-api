@@ -62,6 +62,23 @@ public sealed class AccountSetupAcceptanceServiceTests
         Assert.Single(await grants.Grants.ToArrayAsync());
     }
 
+    [Fact(DisplayName = "T-1057 ck-9: the joiner account is dated with the accepting act's instant, never a clock of the minter's own")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Joiner_account_is_dated_with_the_acceptance_instant()
+    {
+        await using var fixture = await AcceptanceFixture.CreateAsync([ShipRole.Captain],
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty),
+            initialRole: AdmittedRole.Role.ToString(), installedRole: AdmittedRole,
+            roleDigest: InvitationInitialRole.Digest(AdmittedRole, PermissionAtomSet.Empty));
+        Assert.Equal(AccountSetupAcceptStatus.Accepted, (await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
+            fixture.RawCode, "holder", ArgonHash, Guid.NewGuid().ToString("N")))).Status);
+
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var account = await identity.Accounts.SingleAsync(row => row.AccountId == WebJoinerAccountMinter.AccountIdFor("invitation-1"));
+        Assert.Equal(new DateTimeOffset(2026, 7, 22, 9, 25, 0, TimeSpan.Zero), account.CreatedAtUtc);
+        Assert.Equal(new DateTimeOffset(2026, 7, 22, 9, 25, 0, TimeSpan.Zero), account.UpdatedAtUtc);
+    }
+
     [Theory]
     [InlineData("unknown")]
     [InlineData("changed")]
@@ -506,7 +523,8 @@ public sealed class AccountSetupAcceptanceServiceTests
 
             var minterServices = new ServiceCollection();
             minterServices.AddSingleton<IDbContextFactory<NodeLocalInstallationIdentityDbContext>>(identityFactory);
-            minterServices.AddFrozenKernelClock(time);
+            // A clock a day ahead of the act: the minter holds no clock, so nothing it writes may carry this instant.
+            minterServices.AddFrozenKernelClock(new FixedTimeProvider(Now.AddDays(1)));
             minterServices.AddTransient<WebJoinerAccountMinter>();
             var minterProvider = minterServices.BuildServiceProvider();
 

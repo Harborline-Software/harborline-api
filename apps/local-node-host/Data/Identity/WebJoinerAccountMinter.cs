@@ -67,14 +67,11 @@ internal sealed class WebJoinerAccountMinter
     private const int BusyRetryCount = 8;
 
     private readonly IDbContextFactory<NodeLocalInstallationIdentityDbContext> _contextFactory;
-    private readonly TimeProvider _timeProvider;
 
-    public WebJoinerAccountMinter(
-        IDbContextFactory<NodeLocalInstallationIdentityDbContext> contextFactory,
-        TimeProvider timeProvider)
+    // T-1057: no clock. The account and its audit are dated with the accepting act's instant.
+    public WebJoinerAccountMinter(IDbContextFactory<NodeLocalInstallationIdentityDbContext> contextFactory)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     /// <summary>
@@ -90,6 +87,7 @@ internal sealed class WebJoinerAccountMinter
 
     public async Task<WebJoinerAccountMintResult> MintAsync(
         WebJoinerAccountMintCommand command,
+        DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -117,7 +115,7 @@ internal sealed class WebJoinerAccountMinter
                         normalizedUsername,
                         credentialCeremonyId,
                         commandFingerprint,
-                        _timeProvider.GetUtcNow(),
+                        occurredAtUtc,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
