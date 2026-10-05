@@ -406,33 +406,19 @@ public sealed class RawMutationPortSymbolInventoryTests
     /// <summary>Every method-token operand with its opcode, so a caller can tell <c>ldftn</c> from a call (T-690).</summary>
     internal static IEnumerable<(MethodBase Target, int Offset, OpCode OpCode)> MethodOperands(MethodBase method)
     {
-        var il = method.GetMethodBody()?.GetILAsByteArray();
-        if (il is null)
-            yield break;
-        var position = 0;
-        while (position < il.Length)
+        foreach (var (offset, opCode, token) in Instructions(method))
         {
-            var instructionOffset = position;
-            OpCode opCode;
-            var first = il[position++];
-            if (first == 0xfe)
-                opCode = MultiByteOpCodes[il[position++]];
-            else
-                opCode = SingleByteOpCodes[first];
-            if (opCode.OperandType == OperandType.InlineMethod)
+            if (opCode.OperandType != OperandType.InlineMethod)
+                continue;
+            MethodBase? target = null;
+            try
             {
-                var token = BitConverter.ToInt32(il, position);
-                MethodBase? target = null;
-                try
-                {
-                    target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
-                        method is MethodInfo info ? info.GetGenericArguments() : null);
-                }
-                catch (ArgumentException) { }
-                if (target is not null)
-                    yield return (target, instructionOffset, opCode);
+                target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
+                    method is MethodInfo info ? info.GetGenericArguments() : null);
             }
-            position += OperandSize(opCode.OperandType, il, position);
+            catch (ArgumentException) { }
+            if (target is not null)
+                yield return (target, offset, opCode);
         }
     }
 
