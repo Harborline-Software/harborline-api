@@ -91,7 +91,8 @@ public sealed class KernelStoreClockArchTests
         var holders = PersistenceTypes([typeof(KernelStoreClockArchTests).Assembly], type => IsWithin(type, typeof(Planted)));
 
         Assert.Equal(
-            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.InheritsAClock), typeof(Planted.InheritsAStampingBase),
+            [typeof(Planted.HoldsAConcreteFactory), typeof(Planted.HoldsAStaticConnection), typeof(Planted.InheritsAClock),
+             typeof(Planted.InheritsAClockParameter), typeof(Planted.InheritsAContextWriter), typeof(Planted.InheritsAStampingBase),
              typeof(Planted.ReadsAClockItIsHanded), typeof(Planted.ReadsTheWallClockWhenAwaited), typeof(Planted.StampsFromItsOwnClock),
              typeof(Planted.StoresBehindAnEncryptedStore), typeof(Planted.TakesAContextByReference),
              typeof(Planted.TakesAContextPerCall)],
@@ -148,23 +149,25 @@ public sealed class KernelStoreClockArchTests
     }
 
     /// <summary>
-    /// What a type holds as its own state: every constructor parameter, and every instance field of it and its bases.
-    /// A store must hold no clock here.
+    /// What a type holds as its own state: every constructor parameter and every instance field, its own and its
+    /// bases'. A store must hold no clock here.
     /// </summary>
     private static IEnumerable<Type> Holdings(Type type)
     {
         const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
-        foreach (var constructor in type.GetConstructors(Declared))
-            foreach (var parameter in constructor.GetParameters())
-                yield return Unwrapped(parameter.ParameterType);
         for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
+        {
+            foreach (var constructor in level.GetConstructors(Declared))
+                foreach (var parameter in constructor.GetParameters())
+                    yield return Unwrapped(parameter.ParameterType);
             foreach (var field in level.GetFields(Declared))
                 yield return field.FieldType;
+        }
     }
 
     /// <summary>
     /// Every way a type takes or holds a persistence handle: what it holds, its static fields, and the parameters of
-    /// its own methods (by-reference ones unwrapped).
+    /// its own and its solution bases' methods (by-reference ones unwrapped).
     /// </summary>
     private static IEnumerable<Type> Handles(Type type)
     {
@@ -175,7 +178,7 @@ public sealed class KernelStoreClockArchTests
         for (var level = type; level is not null && level != typeof(object); level = level.BaseType)
             foreach (var field in level.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 yield return field.FieldType;
-        foreach (var method in type.GetMethods(Declared))
+        foreach (var method in Lineage(type).SelectMany(level => level.GetMethods(Declared)))
             foreach (var parameter in method.GetParameters())
                 yield return Unwrapped(parameter.ParameterType);
     }
@@ -305,6 +308,29 @@ public sealed class KernelStoreClockArchTests
             private readonly bool _bound = context is not null;
 
             internal DateTimeOffset Stamp() => _bound ? DateTimeOffset.UtcNow : default;
+        }
+
+        internal abstract class TakesAClockAtConstruction
+        {
+            protected TakesAClockAtConstruction(TimeProvider clock) => ArgumentNullException.ThrowIfNull(clock);
+        }
+
+        // The clock is a parameter of the base constructor only; the derived constructor neither takes nor keeps one.
+        internal sealed class InheritsAClockParameter(IDbContextFactory<DbContext> factory)
+            : TakesAClockAtConstruction(null!)
+        {
+            internal bool Has() => factory is not null;
+        }
+
+        [ClockAuthority("Planted: dates its own decisions through a context it is handed.")]
+        internal class WritesThroughAContext
+        {
+            internal static DateTimeOffset Write(DbContext context) => context is null ? default : DateTimeOffset.UtcNow;
+        }
+
+        internal sealed class InheritsAContextWriter : WritesThroughAContext
+        {
+            internal DateTimeOffset Stamp() => DateTimeOffset.UtcNow;
         }
 
         internal sealed class HoldsAnUnreadStaticClock(IDbContextFactory<DbContext> factory)
