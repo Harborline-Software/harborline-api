@@ -32,10 +32,10 @@ public sealed partial class TenantMembershipAuthorityStoreTests
 
         var membership = await authority.GetMembershipAsync("account-1", CancellationToken.None);
 
+        // Literal oracles: the updated membership is revoked and command-3 stays aborted.
         Assert.NotNull(membership);
-        Assert.Equal(TenantMembershipStatus.Revoked, membership.Status);
-        Assert.Equal(TenantMembershipIntentState.Aborted,
-            await authority.GetIntentStateAsync("command-3", CancellationToken.None));
+        Assert.Equal("Revoked", membership.Status.ToString());
+        Assert.Equal("Aborted", (await authority.GetIntentStateAsync("command-3", CancellationToken.None)).ToString());
     }
 
     /// <summary>Uniqueness (mutants 14855, 14856): each collection refuses a duplicate on its own.</summary>
