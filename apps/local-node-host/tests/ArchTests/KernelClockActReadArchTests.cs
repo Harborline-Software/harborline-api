@@ -68,7 +68,9 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(25, reads.Count);
+        Assert.Equal(27, reads.Count);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("MappedAtTypeInitialization", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAStaticallyInitializedStamp", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsARefSwappedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("FallsBackReadingTwice", StringComparison.Ordinal)).Value);
@@ -412,7 +414,7 @@ public sealed class KernelClockActReadArchTests
         if (code.Length >= 4 && code[^1].OpCode == OpCodes.Ret && IsLoadLocal(code[^2].OpCode)
             && (code[^3].OpCode == OpCodes.Br_S || code[^3].OpCode == OpCodes.Br) && code[^3].Operand == code[^2].Offset
             && IsStoreLocal(code[^4].OpCode) && code[^4].Operand == code[^2].Operand)
-            return [.. code[..^4], code[^1]];
+            return [.. code[..^4], (code[^4].Offset, OpCodes.Ret, 0)]; // the ret takes the tail's entry offset
         return code;
     }
 
@@ -484,7 +486,7 @@ public sealed class KernelClockActReadArchTests
         && parameters.Any(parameter => typeof(Delegate).IsAssignableFrom(parameter.ParameterType)); // Delegate or RequestDelegate
 
     private static ConstructorInfo[] Constructors(Type type) =>
-        type.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        type.GetConstructors(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic); // the type initializer too
 
     private static IEnumerable<MethodBase> Declared(Type type) =>
         type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
@@ -537,6 +539,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/recursion-a-then-b", EntersTheCycleAtAThenB);
             app.MapGet("/planted/static-initializer", ReadsAStaticallyInitializedStamp);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
+            app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
@@ -611,6 +614,21 @@ public sealed class KernelClockActReadArchTests
         // `_clock ?? throw new Exception(null)`: the service's own clock both times.
         private static IResult UsesAServiceOwnClockThroughAThrowingGetter(PlantedNullableClockService service) =>
             Results.Ok(service.OwnClock.GetUtcNow() - service.OwnClock.GetUtcNow());
+
+        // A block-bodied `get { return _clock ?? throw ...; }`, whose Debug IL returns through a local.
+        private static IResult UsesAServiceOwnClockThroughABlockGetter(PlantedNullableClockService service) =>
+            Results.Ok(service.BlockClock.GetUtcNow() - service.BlockClock.GetUtcNow());
+
+        // A route mapped from a static constructor.
+        private static class MappedAtTypeInitialization
+        {
+            internal static IEndpointRouteBuilder? App = Builder();
+
+            private static IEndpointRouteBuilder? Builder() => null;
+
+            static MappedAtTypeInitialization() =>
+                App?.MapGet("/planted/type-initializer", (TimeProvider time) => Results.Ok(time.GetUtcNow() - time.GetUtcNow()));
+        }
 
         private static IResult HandsTheClockOnAsAnObject(TimeProvider time) =>
             Results.Ok(PlantedHelperGuard.StampObject(time) - PlantedHelperGuard.StampObject(time));
@@ -723,6 +741,11 @@ public sealed class KernelClockActReadArchTests
         private readonly TimeProvider? _clock = clock;
 
         public TimeProvider OwnClock => _clock ?? throw new InvalidOperationException(null);
+
+        public TimeProvider BlockClock
+        {
+            get { return _clock ?? throw new InvalidOperationException(); }
+        }
     }
 
     private sealed class PlantedService(TimeProvider clock)
