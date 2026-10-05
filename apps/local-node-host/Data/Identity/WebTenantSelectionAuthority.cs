@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Session;
 using Harborline.Api.Kernel.Lease;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -36,6 +37,7 @@ public interface IWebTenantSelectionAuthority
 /// Challenge-only tenant selection. The challenge nonce is the replay key for one durable R3-H
 /// transition; a selected handle is returned only after tenant and installation audit heads complete.
 /// </summary>
+[ClockAuthority("Decides tenant selection, issues the session, and dates its saga and audit rows (also during recovery).")]
 internal sealed class WebTenantSelectionAuthority
     : IWebTenantSelectionAuthority, IInstallationIdentityHomeRecovery
 {

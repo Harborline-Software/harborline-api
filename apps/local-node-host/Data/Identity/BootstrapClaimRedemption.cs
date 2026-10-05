@@ -15,6 +15,7 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Kernel.Core;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -169,6 +170,7 @@ internal interface IHostedControlPlaneBootstrapClaimSource
         CancellationToken cancellationToken);
 }
 
+[ClockAuthority("Issues a bootstrap claim and checks the signed authority's validity window at its own decision instant.")]
 internal sealed class HostedControlPlaneBootstrapClaimIssuer : IBootstrapClaimIssuer
 {
     private readonly TimeProvider _timeProvider;
@@ -332,6 +334,7 @@ internal sealed partial class ProcessFileSystemOwnerEvidence : IFileSystemOwnerE
     private static partial uint geteuid();
 }
 
+[ClockAuthority("Issues the filesystem-owner bootstrap claim; the shared issuer seam dates the claim window.")]
 internal sealed class SelfHostedFileSystemOwnerBootstrapClaimIssuer : IBootstrapClaimIssuer
 {
     private readonly TimeProvider _timeProvider;
@@ -382,6 +385,7 @@ internal sealed class ProcessDesktopOsSessionEvidence : IDesktopOsSessionEvidenc
     public string UserName => Environment.UserName;
 }
 
+[ClockAuthority("Issues the desktop founder bootstrap claim; the shared issuer seam dates the claim window.")]
 internal sealed class DesktopOsSessionBootstrapClaimIssuer : IBootstrapClaimIssuer
 {
     private readonly TimeProvider _timeProvider;
@@ -443,6 +447,7 @@ internal sealed record BootstrapClaimRedemptionResult(
     AccessGrant? Grant = null,
     long? AuthorizationEpoch = null);
 
+[ClockAuthority("Redeems bootstrap claims at startup: checks the claim window and dates its own redemption.")]
 internal sealed class BootstrapClaimRedemptionService
 {
     private const int BusyRetryCount = 100;

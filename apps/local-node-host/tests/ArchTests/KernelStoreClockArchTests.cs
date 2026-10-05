@@ -41,7 +41,15 @@ public sealed class KernelStoreClockArchTests
     /// Stores whose own-clock reads are owed to a later slice, each with its reason. Shorter than the
     /// KernelClockIntegrationTests theory it backs, and every row must still be a clocked store (no stale rows).
     /// </summary>
-    private static readonly (string Type, string Reason)[] Owed = [];
+    private static readonly (string Type, string Reason)[] Owed =
+    [
+        ("Harborline.Api.Foundation.Events.SqliteDomainEventStore",
+            "Not composed by the node host (it never calls AddFoundationEvents); its recorded_at_utc needs an instant on "
+            + "IDomainEventStore.AppendAsync and DefaultDomainEventPublisher.PublishAsync, about 30 call sites (T-1057 slice 2)."),
+        ("Harborline.Api.LocalNodeHost.Enrollment.KernelAuditEnrollmentCompensatingControlRecorder",
+            "Its bare-DbContext Within branch stamps the audit from its own clock; the two enrollment admitters must hand it "
+            + "the act's instant through the foundation-identity-atlas IEnrollmentCompensatingControlRecorder contract (T-1057 slice 2)."),
+    ];
 
     [Fact(DisplayName = "T-1057 ck-9: no store holds a clock or reads the wall clock; authorities say why they date their own rows")]
     public void StoresTakeTheirInstantFromTheAct()

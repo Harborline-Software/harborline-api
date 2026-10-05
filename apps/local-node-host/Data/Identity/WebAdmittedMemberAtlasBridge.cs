@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Ship.Common;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -60,6 +61,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// verification over web-plane state that GATES the already-reviewed signed-admission path.
 /// </para>
 /// </remarks>
+[ClockAuthority("Decides whether a web-admitted member is admitted and dates the grant it confers (its repeated reads are owed, T-1057 item 2).")]
 internal sealed class WebAdmittedMemberAtlasBridge
 {
     private readonly ICanonicalPrincipalPartyReader _partyReader;

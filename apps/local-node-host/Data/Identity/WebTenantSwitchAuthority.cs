@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Session;
 using Harborline.Api.Kernel.Lease;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -29,6 +30,7 @@ public interface IWebTenantSwitchAuthority
 /// handle remains live and the destination handle remains absent until every audit owner has
 /// durably finalized. One final session-store transaction then makes the rotation visible.
 /// </summary>
+[ClockAuthority("Decides the tenant switch and recovers it, dating its own saga and audit rows.")]
 internal sealed class WebTenantSwitchAuthority
     : IWebTenantSwitchAuthority, IInstallationIdentityHomeRecovery
 {

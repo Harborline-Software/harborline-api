@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -106,6 +107,7 @@ public sealed class InstallationFounderCompletedReceiptLocator
 /// <c>POST /api/session/founder-bind</c> route. No other route, service, or DI registration may
 /// reach it.
 /// </summary>
+[ClockAuthority("Decides the first-come root founder designation and dates that decision row and its audit envelope.")]
 public sealed class InstallationFounderBindingService
 {
     private const int BusyRetryCount = 8;

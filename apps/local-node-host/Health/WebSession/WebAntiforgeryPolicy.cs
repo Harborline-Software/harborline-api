@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -74,6 +75,7 @@ public interface IWebAntiforgeryPolicy
 /// cookie; authenticated tokens bind to the exact digest-resolved cookie subject and never fall
 /// through to another audience.
 /// </summary>
+[ClockAuthority("Issues and refuses antiforgery tokens, judges the subject's session liveness, and sets token expiry from its own clock.")]
 internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
 {
     internal const string HeaderName = "X-Harborline-Antiforgery";

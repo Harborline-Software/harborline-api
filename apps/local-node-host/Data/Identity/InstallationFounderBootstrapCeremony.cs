@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.PasswordHashing;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -96,6 +97,7 @@ public sealed record InstallationFounderBootstrapCeremonyOutcome(
 /// an account exist?" and then writes.
 /// </para>
 /// </remarks>
+[ClockAuthority("Startup ceremony: forwards its clock to the bootstrap-claim issuers it builds, which date their claims.")]
 public sealed class InstallationFounderBootstrapCeremony
 {
     /// <summary>
