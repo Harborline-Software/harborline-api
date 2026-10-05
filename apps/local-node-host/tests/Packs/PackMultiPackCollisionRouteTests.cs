@@ -49,6 +49,8 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
     private const string AssetTypesRoute = "/api/local-node/asset-registry/types";
     private const string SharedKey = "shared.equipment";
+    // T-1014 oracle: the refusal's wire code as a literal (AGENTS.md test oracles), not the production constant.
+    private const string UnresolvedCollisionWireCode = "pack.install.activate.unresolved_collision";
 
     private WebApplication _app = null!;
     private HttpClient _client = null!;
@@ -278,7 +280,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         var body = await ReadJsonAsync(refused);
-        Assert.Equal(PackInstallCodes.ActivateUnresolvedCollision, body.GetProperty("error").GetString());
+        Assert.Equal(UnresolvedCollisionWireCode, body.GetProperty("error").GetString());
         var detail = body.GetProperty("detail").GetString();
         Assert.Contains(SharedKey, detail);
         Assert.Contains("pack.a", detail);
@@ -300,7 +302,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
         Assert.False(refused.Activated);
         Assert.Equal("pack.a", refused.PackKey);
-        Assert.Equal(PackInstallCodes.ActivateUnresolvedCollision, refused.Error);
+        Assert.Equal(UnresolvedCollisionWireCode, refused.Error);
         Assert.Contains($"content key '{SharedKey}'", refused.Detail);
         Assert.Contains("[pack.b, pack.c]", refused.Detail);
         Assert.Null(_store.GetActive(NodeTenantFor(), "pack.a"));
