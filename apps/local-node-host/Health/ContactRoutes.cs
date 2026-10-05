@@ -92,22 +92,23 @@ public static class ContactRoutes
 
         MapList(app, parties, activeTeam);
         MapDetail(app, parties, activeTeam);
-        MapCreate(app, parties, crdt, activeTeam, identityFactory);
-        MapUpdate(app, parties, crdt, activeTeam);
-        MapRoles(app, parties, activeTeam);
-        MapDelete(app, parties, crdt, activeTeam);
+        MapCreate(app, parties, crdt, activeTeam, identityFactory, timeProvider);
+        MapUpdate(app, parties, crdt, activeTeam, timeProvider);
+        MapRoles(app, parties, activeTeam, timeProvider);
+        MapDelete(app, parties, crdt, activeTeam, timeProvider);
     }
 
     private static void MapRoles(IEndpointRouteBuilder app, NodeEfPartyRepository parties,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam, TimeProvider timeProvider)
     {
         app.MapPost($"{RouteBase}/{{id}}/roles", async (string id, AttachRoleBody body, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
-            // T-690: the guard's decision is this act's one clock read; the write is stamped with its instant.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
@@ -135,10 +136,11 @@ public static class ContactRoutes
             string id, string roleId, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
-            // T-690: the guard's decision is this act's one clock read; the write is stamped with its instant.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
@@ -214,15 +216,17 @@ public static class ContactRoutes
         NodeEfPartyRepository parties,
         ContactCrdtProjection crdt,
         IActiveTeamAccessor activeTeam,
-        IDbContextFactory<NodeLocalInstallationIdentityDbContext> identityFactory)
+        IDbContextFactory<NodeLocalInstallationIdentityDbContext> identityFactory,
+        TimeProvider timeProvider)
     {
         app.MapPost(RouteBase, async (CreateContactBody body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            // T-690: the guard's decision is this act's one clock read; the write is stamped with its instant.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsCreate, RouteRecord.TheInstall, ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.ContactsCreate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -366,15 +370,17 @@ public static class ContactRoutes
         IEndpointRouteBuilder app,
         NodeEfPartyRepository parties,
         ContactCrdtProjection crdt,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam,
+        TimeProvider timeProvider)
     {
         app.MapPost($"{RouteBase}/{{id}}/update", async (string id, UpdateContactBody body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            // T-690: the guard's decision is this act's one clock read; the write is stamped with its instant.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsWrite, RouteRecord.Of(id), ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var repo = parties;
@@ -422,7 +428,8 @@ public static class ContactRoutes
         IEndpointRouteBuilder app,
         NodeEfPartyRepository parties,
         ContactCrdtProjection crdt,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam,
+        TimeProvider timeProvider)
     {
         // ARCHIVE (soft-delete / tombstone), NOT a hard row-DELETE. Contacts are a master/Party, so per the
         // CIC MVP delete-semantics ruling (2026-06-03) they archive — DeleteAsync stamps DeletedAt (the
@@ -432,7 +439,7 @@ public static class ContactRoutes
         // to peers exactly as the multi-device harness proved. Both verbs map to the same handler: the live
         // 3-way-test probe found DELETE → 405 and POST .../delete → 404 (neither existed), and the other node
         // routes use POST .../<verb> while the Bridge/REST clients expect DELETE — so we serve both.
-        var handler = DeleteHandler(parties, crdt, activeTeam);
+        var handler = DeleteHandler(parties, crdt, activeTeam, timeProvider);
         app.MapPost($"{RouteBase}/{{id}}/delete", handler);
         app.MapDelete($"{RouteBase}/{{id}}", handler);
     }
@@ -440,14 +447,16 @@ public static class ContactRoutes
     private static Func<string, HttpContext, CancellationToken, Task<IResult>> DeleteHandler(
         NodeEfPartyRepository parties,
         ContactCrdtProjection crdt,
-        IActiveTeamAccessor activeTeam) =>
+        IActiveTeamAccessor activeTeam,
+        TimeProvider timeProvider) =>
         async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            // T-690: the guard's decision is this act's one clock read; the write is stamped with its instant.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsArchive, RouteRecord.Of(id), ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.ContactsArchive, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var repo = parties;

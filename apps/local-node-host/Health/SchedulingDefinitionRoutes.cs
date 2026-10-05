@@ -211,10 +211,11 @@ public static class SchedulingDefinitionRoutes
             var addressed = string.IsNullOrWhiteSpace(definitionId)
                 ? RouteRecord.TheInstall
                 : RouteRecord.Of(definitionId);
-            // T-690: the guard's decision is this act's one clock read; the lead-time floor is measured from it.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the lead-time floor is measured from it.
+            var actAuthority = RequestAuthorization.Authority(http, Tenant(), timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, addressed, ct, decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.SchedulingOperate, addressed, ct);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -271,11 +272,11 @@ public static class SchedulingDefinitionRoutes
 
         app.MapPost(EventRoute, async (SchedulingEventRequest request, HttpContext http, CancellationToken ct) =>
         {
-            // T-690: the event is stamped with the guard's decision instant, the act's one clock read.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; the guard decides on its instant and the event is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, Tenant(), timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct,
-                    decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -388,11 +389,11 @@ public static class SchedulingDefinitionRoutes
         app.MapPost(ResourceAvailabilityRoute, async (
             SchedulingResourceAvailabilityRequest request, HttpContext http, CancellationToken ct) =>
         {
-            // T-690: "today" is the guard's decision instant, the act's one clock read.
-            var admittedAt = default(DateTimeOffset);
+            // T-690: one authority, one clock read; "today" is the instant the guard decided on.
+            var actAuthority = RequestAuthorization.Authority(http, Tenant(), timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct,
-                    decision => admittedAt = decision.Request.At);
+                    http, actAuthority, Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
             var resource = ParseParticipant(request.Resource);

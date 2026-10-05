@@ -346,8 +346,10 @@ public static class AssetRegistryRoutes
             AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
+            // T-690: one authority, one clock read; the containment reads are as of the instant the guard decided on.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
                     decision => accepted = decision)
                 .ConfigureAwait(false);
             if (denied is not null)
@@ -356,8 +358,7 @@ public static class AssetRegistryRoutes
             if (entity is null)
                 return Results.NotFound();
 
-            // T-690: the containment reads are as of the guard's decision instant, the act's one clock read.
-            var now = new Instant(accepted!.Request.At);
+            var now = new Instant(actAuthority.At);
             var container = await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var path = await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var values = boundRecords is null
