@@ -354,7 +354,9 @@ public sealed class KernelClockActReadArchTests
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
     /// <c>ldfld</c> of it or its getter just before, not at a join point). A local also assigned anything else,
-    /// assigned a value merged from a conditional, or whose address is taken, is not one.
+    /// assigned a value merged from a conditional, or whose address is taken, is not one. Such a local holds the
+    /// service's clock wherever it is loaded, a join point included: only a value merged on the evaluation stack
+    /// (a conditional expression feeding the store or the read) is never proven to be that clock.
     /// </summary>
     private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, HashSet<int> joins)
     {
@@ -384,7 +386,8 @@ public sealed class KernelClockActReadArchTests
             || !typeof(TimeProvider).IsAssignableFrom(gotten) || getter.DeclaringType is not { } owner
             || owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
             return false;
-        var code = RawMutationPortSymbolInventoryTests.Instructions(getter).Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray();
+        var code = WithoutReturnLocal(RawMutationPortSymbolInventoryTests.Instructions(getter)
+            .Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
         bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
             && ResolveField(getter, code[at].Operand) is { } field && field.DeclaringType == owner && IsInjectedClock(field);
         if (code.Length < 3 || code[0].OpCode != OpCodes.Ldarg_0 || !Field(1) || code[^1].OpCode != OpCodes.Ret)
@@ -398,6 +401,19 @@ public sealed class KernelClockActReadArchTests
             && code[4].OpCode == OpCodes.Pop && code[^2].OpCode == OpCodes.Throw
             && code[5..^2].All(instruction => instruction.OpCode != OpCodes.Ret
                 && instruction.OpCode.FlowControl is not (FlowControl.Branch or FlowControl.Cond_Branch));
+    }
+
+    /// <summary>
+    /// A Debug build returns through a local (<c>stloc k; br next; next: ldloc k; ret</c>); collapse that tail to a
+    /// plain <c>ret</c> so a getter is recognised the same way in Debug and Release.
+    /// </summary>
+    private static (int Offset, OpCode OpCode, int Operand)[] WithoutReturnLocal((int Offset, OpCode OpCode, int Operand)[] code)
+    {
+        if (code.Length >= 4 && code[^1].OpCode == OpCodes.Ret && IsLoadLocal(code[^2].OpCode)
+            && (code[^3].OpCode == OpCodes.Br_S || code[^3].OpCode == OpCodes.Br) && code[^3].Operand == code[^2].Offset
+            && IsStoreLocal(code[^4].OpCode) && code[^4].Operand == code[^2].Operand)
+            return [.. code[..^4], code[^1]];
+        return code;
     }
 
     /// <summary>
