@@ -31,6 +31,15 @@ Artifact fields do not grant authority or replace protected-main policy. Missing
 unknown, changed or unavailable evidence requests fresh canonical pack. The broker
 retains metadata credentials only in its parent; build/download subprocesses and
 fallback environments strip metadata, enterprise and runner credentials.
+Runner step environments clear Node preload/import and native/shell startup
+variables before interpreter pinning and credential-bearing process startup;
+shell commands also unset them before invoking Node. In-process child filtering
+cannot prevent a hook that runs before protected JavaScript starts. Literal
+synthetic-credential controls exercise actual Node require/import startup.
+Shell/native loader exclusions are checked by literal step-environment assertions;
+the executable theft controls exercise Node hooks, not injected native libraries.
+The required boundary gate executes all five launcher/credential/diagnostic/
+PID1/qualification security suites, with failure propagation.
 
 These are authenticated artifact provenance and byte-consistency checks. Mutable
 same-job path/digest variables are not an authority boundary against arbitrary API
