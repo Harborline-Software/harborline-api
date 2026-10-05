@@ -31,7 +31,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// </para>
 /// <para>
 /// Deliberate limits. The count is path-insensitive: a read in either of two exclusive branches counts twice
-/// (read once, before the branch) and a read in a loop counts once. Interface and virtual dispatch are not
+/// (read once, before the branch), and a read that can repeat (inside a loop, in a recursive cycle, or in a
+/// delegate the act builds, which may be invoked any number of times) counts as more than one. Interface and virtual dispatch are not
 /// resolved to implementations, and neither is any call made by reflection, <c>dynamic</c> or a compiled
 /// expression (<c>MethodInfo.Invoke</c>, <c>Activator</c>): the graph follows call instructions only. A delegate the act builds over its own code counts as invoked once where it is
 /// built. A clock injected into a service instance is that service's own and is not counted; the runtime theory
@@ -69,7 +70,9 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(32, reads.Count);
+        Assert.Equal(34, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ProjectsTheClockPerItem", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsAHiddenGetUtcNow", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsALookalikeOverload", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandlerOwner.Handle", StringComparison.Ordinal)).Value);
@@ -110,12 +113,13 @@ public sealed class KernelClockActReadArchTests
         var entersAtB = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtBTwice), BindingFlags.Static | BindingFlags.NonPublic)!;
 
         var shared = new ReadGraph(assemblies);
-        Assert.Single(ActReads(entersAtA, assemblies, shared));
-        Assert.Equal(2, ActReads(entersAtB, assemblies, shared).Count);
-        Assert.Equal(2, ActReads(entersAtB, assemblies).Count);
+        // The recursive component can repeat, so its one read counts twice per call into it.
+        Assert.Equal(2, ActReads(entersAtA, assemblies, shared).Count);
+        Assert.Equal(4, ActReads(entersAtB, assemblies, shared).Count);
+        Assert.Equal(4, ActReads(entersAtB, assemblies).Count);
         // Calling into the cycle at two members reads at each call.
         var entersBoth = typeof(PlantedRoutes).GetMethod(nameof(PlantedRoutes.EntersTheCycleAtAThenB), BindingFlags.Static | BindingFlags.NonPublic)!;
-        Assert.Equal(2, ActReads(entersBoth, assemblies, shared).Count);
+        Assert.Equal(4, ActReads(entersBoth, assemblies, shared).Count);
     }
 
     [Fact(DisplayName = "T-690: a Map call whose handler cannot be traced is reported unpaired, never attributed to a stale pointer")]
@@ -229,11 +233,10 @@ public sealed class KernelClockActReadArchTests
     /// injected into a service instance (the read's receiver is a <see cref="TimeProvider"/> field of a real type),
     /// which is that service's own clock, not the act's; the runtime theory covers those for the acts it drives,
     /// and a structural store rule is owed (T-690 slice 2). A clock the act hands on (a parameter, an <c>object</c>, a captured variable) or that is pulled from
-    /// the request container counts wherever it is read. A read inside a loop counts once; a read in either of two
-    /// exclusive branches counts twice (read once, before the branch). A delegate the act builds over its own code
-    /// (<c>ldftn</c>) is counted as invoked once where it is built: a clock-reading callback that is never invoked
-    /// is reported (loud), and one invoked repeatedly counts once; not counting it would let a read inside a
-    /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved, nor are reflection,
+    /// the request container counts wherever it is read. A read in either of two exclusive branches counts twice
+    /// (read once, before the branch). A read that can repeat counts as more than one: one inside a loop, in a
+    /// recursive cycle, or in a delegate the act builds over its own code (<c>ldftn</c>), which may be invoked
+    /// any number of times; a clock-reading callback is therefore reported even if it is never invoked (loud). Interface and virtual dispatch are not resolved, nor are reflection,
     /// <c>dynamic</c> or compiled-expression calls.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
@@ -241,8 +244,8 @@ public sealed class KernelClockActReadArchTests
 
     /// <summary>
     /// The production call graph's clock reads, by method. Methods that call each other recursively form one
-    /// strongly connected component (Tarjan), and every member reads what the component's own code reads once,
-    /// plus what each call leaving the component reads, the same way a loop counts once. Each component is
+    /// strongly connected component (Tarjan), and every member reads what the component's own code reads, plus
+    /// what each call leaving the component reads; a recursive component can repeat, so its reads count twice. Each component is
     /// computed once and is independent of the order handlers are walked in, so one graph serves every handler.
     /// A type initializer runs at most once, so it is not a call: each method records the initializers it can
     /// trigger, and an act adds each one's reads once, however many accesses reach it.
@@ -251,7 +254,10 @@ public sealed class KernelClockActReadArchTests
     {
         private readonly Dictionary<MethodBase, IReadOnlyList<string>> _reads = [];
         private readonly Dictionary<MethodBase, IReadOnlySet<MethodBase>> _initializers = [];
-        private readonly Dictionary<MethodBase, (List<string> Direct, List<MethodBase> Calls, HashSet<MethodBase> Initializers)> _local = [];
+        private readonly Dictionary<MethodBase, (List<string> Direct, List<(MethodBase Target, bool Repeats)> Calls, HashSet<MethodBase> Initializers)> _local = [];
+
+        /// <summary>Only "more than one" matters, so a method's site list is capped to keep repeats from compounding.</summary>
+        private const int SiteCap = 16;
         private readonly Dictionary<MethodBase, (int Index, int Low)> _visit = [];
         private readonly Stack<MethodBase> _stack = new();
         private readonly HashSet<MethodBase> _onStack = [];
@@ -297,7 +303,7 @@ public sealed class KernelClockActReadArchTests
             _next++;
             _stack.Push(method);
             _onStack.Add(method);
-            foreach (var callee in Local(method).Calls)
+            foreach (var (callee, _) in Local(method).Calls)
             {
                 if (_reads.ContainsKey(callee))
                     continue;
@@ -323,17 +329,26 @@ public sealed class KernelClockActReadArchTests
             var members = component.ToHashSet();
             var reads = new List<string>();
             var initializers = new HashSet<MethodBase>();
+            var recursive = component.Count > 1;
             foreach (var each in component)
             {
                 var (direct, calls, triggered) = Local(each);
                 reads.AddRange(direct);
                 initializers.UnionWith(triggered);
-                foreach (var callee in calls.Where(callee => !members.Contains(callee)))
+                recursive |= calls.Any(call => call.Target == each);
+                foreach (var (callee, repeats) in calls.Where(call => !members.Contains(call.Target)))
                 {
                     reads.AddRange(_reads[callee]);
+                    if (repeats)
+                        reads.AddRange(_reads[callee].Select(read => $"{read} (can repeat)"));
                     initializers.UnionWith(_initializers[callee]);
                 }
             }
+            // A recursive component can run its own reads any number of times.
+            if (recursive)
+                reads.AddRange(reads.ToArray().Select(read => $"{read} (recursion can repeat)"));
+            if (reads.Count > SiteCap)
+                reads.RemoveRange(SiteCap, reads.Count - SiteCap);
             foreach (var each in component)
             {
                 _reads[each] = reads;
@@ -345,17 +360,22 @@ public sealed class KernelClockActReadArchTests
         /// The method's own read sites, its production callees once per call site, and the type initializers its
         /// static accesses can trigger.
         /// </summary>
-        private (List<string> Direct, List<MethodBase> Calls, HashSet<MethodBase> Initializers) Local(MethodBase method)
+        private (List<string> Direct, List<(MethodBase Target, bool Repeats)> Calls, HashSet<MethodBase> Initializers) Local(MethodBase method)
         {
             if (_local.TryGetValue(method, out var known))
                 return known;
             var direct = new List<string>();
-            var calls = new List<MethodBase>();
+            var calls = new List<(MethodBase Target, bool Repeats)>();
             var initializers = new HashSet<MethodBase>();
             if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
                 && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
-                calls.Add(moveNext);
+                calls.Add((moveNext, false));
             var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+            // A backward branch closes a loop: whatever lies between its target and itself can run more than once.
+            var loops = code.Where(instruction => instruction.OpCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget
+                    && instruction.Operand <= instruction.Offset)
+                .Select(instruction => (Start: instruction.Operand, End: instruction.Offset)).ToArray();
+            bool InLoop(int at) => loops.Any(loop => at >= loop.Start && at <= loop.End);
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
             var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
             var injectedLocals = InjectedLocals(method, code, joins);
@@ -380,9 +400,15 @@ public sealed class KernelClockActReadArchTests
                     AddInitializer(initializers, target.DeclaringType);
                 injectedReceiver = IsInjectedClockGetter(target);
                 if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
-                    direct.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
+                {
+                    var site = $"{Name(target)} in {Name(method)}+IL_{offset:x4}";
+                    direct.Add(site);
+                    if (InLoop(offset))
+                        direct.Add($"{site} (in a loop, can repeat)");
+                }
                 else if (!IsClockRead(target) && target.DeclaringType is { } declaring && assemblies.Contains(declaring.Assembly))
-                    calls.Add(target);
+                    // A delegate the act builds (ldftn) may be invoked any number of times; a call in a loop may repeat.
+                    calls.Add((target, InLoop(offset) || opCode == OpCodes.Ldftn || opCode == OpCodes.Ldvirtftn));
             }
             return _local[method] = (direct, calls, initializers);
         }
@@ -594,6 +620,8 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/handler-owner", HandlerOwner.Handle);
             app.MapGet("/planted/lookalike-overload", CallsALookalikeOverload);
             app.MapGet("/planted/hidden-get-utc-now", CallsAHiddenGetUtcNow);
+            app.MapGet("/planted/loop", ReadsInALoop);
+            app.MapGet("/planted/projection", ProjectsTheClockPerItem);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -651,6 +679,19 @@ public sealed class KernelClockActReadArchTests
         // A same-named overload on a TimeProvider subtype is ordinary code, walked like any other.
         private static IResult CallsALookalikeOverload(TimeProvider time) => Results.Ok(new LookalikeClock().GetUtcNow(time));
 
+        // One read site, run twice.
+        private static IResult ReadsInALoop(TimeProvider time)
+        {
+            var stamps = new List<DateTimeOffset>();
+            for (var pass = 0; pass < 2; pass++)
+                stamps.Add(time.GetUtcNow());
+            return Results.Ok(stamps);
+        }
+
+        // A clock-reading lambda the act builds: the projection runs it once per item.
+        private static IResult ProjectsTheClockPerItem(TimeProvider time) =>
+            Results.Ok(Enumerable.Range(0, 2).Select(_ => time.GetUtcNow()).ToArray());
+
         // A `new GetUtcNow()` hides the primitive: its body is walked, not taken as one read.
         private static IResult CallsAHiddenGetUtcNow() => Results.Ok(new HiddenClock().GetUtcNow());
 
@@ -663,8 +704,8 @@ public sealed class KernelClockActReadArchTests
             return http.Response.WriteAsync((time.GetUtcNow() - time.GetUtcNow()).ToString());
         }
 
-        // A and B call each other; A reads once. The handler entering at B twice reads twice, whichever handler
-        // the fence walks first.
+        // A and B call each other; A reads once per pass, and the cycle can repeat. Counts do not depend on which
+        // handler the fence walks first.
         internal static IResult EntersTheCycleAtA(TimeProvider time) => Results.Ok(CycleA(0, time));
 
         internal static IResult EntersTheCycleAtBTwice(TimeProvider time) => Results.Ok(CycleB(1, time) + CycleB(1, time));
