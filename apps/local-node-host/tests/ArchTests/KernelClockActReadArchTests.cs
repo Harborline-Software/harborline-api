@@ -68,7 +68,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(24, reads.Count);
+        Assert.Equal(25, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAStaticallyInitializedStamp", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsARefSwappedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("FallsBackReadingTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsATernaryMergedClock", StringComparison.Ordinal)).Value);
@@ -312,6 +313,8 @@ public sealed class KernelClockActReadArchTests
             {
                 if (opCode.OperandType != OperandType.InlineMethod)
                 {
+                    if (opCode.OperandType == OperandType.InlineField && ResolveField(method, operand) is { IsStatic: true } staticField)
+                        AddInitializer(calls, staticField.DeclaringType);
                     injectedReceiver = ProducesInjectedClock(method, opCode, operand)
                         || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
                     continue;
@@ -322,6 +325,8 @@ public sealed class KernelClockActReadArchTests
                     injectedReceiver = false;
                     continue;
                 }
+                if (target.IsStatic || target.IsConstructor)
+                    AddInitializer(calls, target.DeclaringType);
                 injectedReceiver = IsInjectedClockGetter(target);
                 if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
                     direct.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
@@ -329,6 +334,16 @@ public sealed class KernelClockActReadArchTests
                     calls.Add(target);
             }
             return _local[method] = (direct, calls);
+        }
+
+        /// <summary>
+        /// A static member access or construction can run the type's initializer on first use, inside whichever
+        /// act touches it first, so the initializer is a callee of every such access.
+        /// </summary>
+        private void AddInitializer(List<MethodBase> calls, Type? type)
+        {
+            if (type is not null && assemblies.Contains(type.Assembly) && type.TypeInitializer is { } initializer)
+                calls.Add(initializer);
         }
     }
 
@@ -504,6 +519,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/recursion-a", EntersTheCycleAtA);
             app.MapGet("/planted/recursion-b", EntersTheCycleAtBTwice);
             app.MapGet("/planted/recursion-a-then-b", EntersTheCycleAtAThenB);
+            app.MapGet("/planted/static-initializer", ReadsAStaticallyInitializedStamp);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
@@ -552,6 +568,8 @@ public sealed class KernelClockActReadArchTests
 
         private static IResult ReadsARefSwappedClock(PlantedService service, TimeProvider time) =>
             Results.Ok(service.SwappedWindow(time));
+
+        private static IResult ReadsAStaticallyInitializedStamp() => Results.Ok(StaticStamp.Value);
 
         private static Task FallsBackReadingTwice(HttpContext http)
         {
@@ -674,6 +692,14 @@ public sealed class KernelClockActReadArchTests
         // Pulls the clock from the request container by type, then reads it.
         internal static DateTimeOffset Stamp(HttpContext http) =>
             ((TimeProvider)http.RequestServices.GetRequiredService(typeof(TimeProvider))).GetUtcNow();
+    }
+
+    private static class StaticStamp
+    {
+        internal static readonly TimeSpan Value;
+
+        // An explicit static constructor runs at first access: inside whichever act touches Value first.
+        static StaticStamp() => Value = DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
     }
 
     private sealed class PlantedNullableClockService(TimeProvider? clock)
