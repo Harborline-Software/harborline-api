@@ -231,4 +231,3 @@ test('feed CLI invokes the builder inside the clone with the selected checkout a
     assert.match(tail, /platform-feed: used sibling .* \(clean checkout\)/)
   }
 })
-
