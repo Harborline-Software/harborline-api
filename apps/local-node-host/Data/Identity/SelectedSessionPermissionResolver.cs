@@ -132,7 +132,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
                 .ReadAsync(principal.TenantId, cancellationToken)
                 .ConfigureAwait(false);
             // Derive the live inputs once; the gate decides each permission projected into this session.
-            var evaluatedAt = _timeProvider.GetUtcNow();
+            var evaluatedAt = AdmittedInstant.Read(_timeProvider);
             // Ticket 293 slice 4 fix 4 — ONE key across planes. The edge is looked up under the SAME actor
             // id the gate is asked about: since ticket 294 slice 2a the roster's PartyId carries
             // CanonicalPartyBinding.PrincipalUserId.Value, while principal.CanonicalParty is the People

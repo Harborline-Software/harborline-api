@@ -56,7 +56,7 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
         Assert.Null(await reader.ReadAsync(Founder, Tenant, Now));
 
         var decision = await TestAuthorization.Gate(_ => true, reader).DecideAsync(
-            new AuthorizationWriteContext(Founder, Tenant, Now)
+            new AuthorizationWriteContext(Founder, Tenant, AdmittedInstant.FromRecordedAct(Now))
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite), "record", "ck11"));
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
         Assert.True(decision.Evidence.Roster!.Ejected);

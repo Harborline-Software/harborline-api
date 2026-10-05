@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json.Nodes;
 using System.Text.Json;
 using Harborline.Api.Foundation.Assets.Entities;
@@ -211,7 +212,7 @@ public sealed class CatalogueFieldSourceInstallTests
 
     private static PackInstallContext Context(KeyPair keys) => new(Tenant,
         new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, 1, TrustRootStatus.Current)]),
-        PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), TimeSpan.FromDays(30), Principal: "test-operator");
+        PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), TimeSpan.FromDays(30), Principal: "test-operator");
 
     private static async Task<byte[]> Export(KeyPair keys, PackFileCodec codec, JsonNode content, string version, IReadOnlyList<string> requirements,
         IReadOnlyList<PackContentSource>? additional = null)

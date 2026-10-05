@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -46,7 +47,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
             {
                 var services = host.Services;
                 await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(
-                    Tenant, services.GetRequiredService<TimeProvider>().GetUtcNow(), AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
+                    Tenant, AdmittedInstant.FromRecordedAct(services.GetRequiredService<TimeProvider>().GetUtcNow()), AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
                 // D5: the platform pack roots every closure, so it is Active before the previous Access version.
                 await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
                     .OfType<PlatformPackPreloadHostedService>()
@@ -110,7 +111,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
 
     private static PackInstallContext Context(IServiceProvider services) => new(
         Tenant, services.GetRequiredService<IPackTrustStore>(), services.GetRequiredService<IPackRevocationList>(),
-        services.GetRequiredService<TimeProvider>().GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+        AdmittedInstant.FromRecordedAct(services.GetRequiredService<TimeProvider>().GetUtcNow()), PackInstallRoutes.RevocationMaxAge,
         Principal: Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services)?.Value);
 
     private static async Task AssertNavigationAsync(IServiceProvider services)

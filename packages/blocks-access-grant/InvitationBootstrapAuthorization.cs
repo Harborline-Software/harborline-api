@@ -28,7 +28,7 @@ internal sealed class InvitationBootstrapAuthorization
     internal InvitationBootstrapAuthorization(
         string accountId,
         TenantId tenant,
-        DateTimeOffset acceptanceInstant,
+        AdmittedInstant acceptanceInstant,
         string invitationId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);

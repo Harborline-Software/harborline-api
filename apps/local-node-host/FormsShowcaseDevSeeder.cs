@@ -145,23 +145,24 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
             return;
         }
 
-        var now = _timeProvider.GetUtcNow();
+        var admitted = AdmittedInstant.Read(_timeProvider);
+        var now = admitted.Value;
 
         // L3's backing reusable unit MUST exist (published) before the L3 definition references it.
         await SeedAddressBlockUnitAsync(tenantId, now, cancellationToken).ConfigureAwait(false);
 
         try
         {
-            await SeedFormAsync(L0ContactEnquiryFormId, BuildL0ContactEnquiry, tenantId, now, cancellationToken)
+            await SeedFormAsync(L0ContactEnquiryFormId, BuildL0ContactEnquiry, tenantId, admitted, cancellationToken)
                 .ConfigureAwait(false);
-            await SeedFormAsync(L1RentalApplicationFormId, BuildL1RentalApplication, tenantId, now, cancellationToken)
+            await SeedFormAsync(L1RentalApplicationFormId, BuildL1RentalApplication, tenantId, admitted, cancellationToken)
                 .ConfigureAwait(false);
-            await SeedFormAsync(L2InvoiceLinesFormId, BuildL2InvoiceLines, tenantId, now, cancellationToken)
+            await SeedFormAsync(L2InvoiceLinesFormId, BuildL2InvoiceLines, tenantId, admitted, cancellationToken)
                 .ConfigureAwait(false);
-            await SeedFormAsync(L3CatalogReferenceFormId, BuildL3CatalogReference, tenantId, now, cancellationToken)
+            await SeedFormAsync(L3CatalogReferenceFormId, BuildL3CatalogReference, tenantId, admitted, cancellationToken)
                 .ConfigureAwait(false);
             await SeedFormAsync(
-                    L4LivingStandardInspectionFormId, BuildL4LivingStandardInspection, tenantId, now, cancellationToken)
+                    L4LivingStandardInspectionFormId, BuildL4LivingStandardInspection, tenantId, admitted, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (AuthorizationDeniedException ex)
@@ -233,11 +234,12 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
         string formId,
         Func<TenantId, SchemaId, DateTimeOffset, FormDefinition> build,
         TenantId tenant,
-        DateTimeOffset now,
+        AdmittedInstant admitted,
         CancellationToken ct)
     {
+        var now = admitted.Value;
         var authority = new AuthorizationWriteContext(
-            new ActorId("installer:development-form-showcase-seed"), tenant, now);
+            new ActorId("installer:development-form-showcase-seed"), tenant, admitted);
         var decision = await _formStore.DecideAsync(formId, authority, ct).ConfigureAwait(false);
         var existing = await _formStore
             .GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId), ct)

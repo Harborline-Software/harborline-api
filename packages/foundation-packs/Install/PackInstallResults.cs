@@ -540,7 +540,7 @@ public static class PackScopePolicy
 /// <param name="Tenant">The tenant the install is scoped to.</param>
 /// <param name="TrustStore">The trust roots (own-roster + Harborline channel).</param>
 /// <param name="Revocation">The revocation list checked at install (S-11).</param>
-/// <param name="Now">The current instant (audit + staleness).</param>
+/// <param name="Instant">The server-admitted current instant (audit + staleness + the decision instant, T-1015).</param>
 /// <param name="RevocationMaxAge">The staleness horizon for the revocation list.</param>
 /// <param name="BreakGlass">The break-glass ceremony token, or null (the common case).</param>
 /// <param name="Principal">The ACTING principal — server-derived from the authenticated identity at the
@@ -554,9 +554,13 @@ public sealed record PackInstallContext(
     TenantId Tenant,
     IPackTrustStore TrustStore,
     IPackRevocationList Revocation,
-    DateTimeOffset Now,
+    AdmittedInstant Instant,
     TimeSpan RevocationMaxAge,
     BreakGlass? BreakGlass = null,
     string? Principal = null,
     IReadOnlyDictionary<string, string>? OwnershipResolutions = null,
-    Guid? CorrelationId = null);
+    Guid? CorrelationId = null)
+{
+    /// <summary>The current instant as a plain value (audit + staleness).</summary>
+    public DateTimeOffset Now => Instant.Value;
+}

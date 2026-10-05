@@ -448,7 +448,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     private AuthorizationWriteContext Authority() => new(
         new ActorId("compiled-schema-tests"),
         Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext.ProjectTenantId(_team.TeamId),
-        TimeProvider.System.GetUtcNow());
+        AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()));
 
     private async Task AssertNothingPersisted()
     {

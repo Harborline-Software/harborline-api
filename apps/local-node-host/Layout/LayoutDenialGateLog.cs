@@ -121,7 +121,7 @@ public sealed class LayoutDenialReader(IAuditTrail trail, AuthorizationGate gate
     /// in <paramref name="requestId"/> that <paramref name="reader"/> may read at <paramref name="at"/>.</summary>
     public async ValueTask<IReadOnlyList<LayoutRelatedDenial>> ReadAsync(
         TenantId tenant, ActorId reader, string blockId, string relationshipKey, string requestId,
-        DateTimeOffset at, CancellationToken ct = default)
+        AdmittedInstant at, CancellationToken ct = default)
     {
         var context = new AuthorizationWriteContext(reader, tenant, at);
         var found = new List<LayoutRelatedDenial>();

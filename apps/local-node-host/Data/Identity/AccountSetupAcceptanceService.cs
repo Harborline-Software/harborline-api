@@ -158,7 +158,8 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
             return Refused(AccountSetupAcceptStatus.InvitationRefused);
         }
 
-        var now = _timeProvider.GetUtcNow();
+        var admitted = AdmittedInstant.Read(_timeProvider);
+        var now = admitted.Value;
 
         // ── GATE 1: validate the still-unconsumed invitation and read its SIGNED inviter pins. ──
         var invitation = await _invitationStore
@@ -198,7 +199,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
             return Refused(AccountSetupAcceptStatus.AuthorityRefused);
         }
         var mandate = await _gate.DecideMembershipAdmissionAsync(
-            new AuthorizationWriteContext(inviterAuthorityPrincipal, tenant, now).Request(
+            new AuthorizationWriteContext(inviterAuthorityPrincipal, tenant, admitted).Request(
                 AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", invitation.InvitationId) with
             {
                 RequiredGrantAtoms = requestedPermissions,
@@ -256,7 +257,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
         var bootstrapAuthorization = new InvitationBootstrapAuthorization(
             accountId,
             tenant,
-            now,
+            admitted,
             invitation.InvitationId);
         var acceptanceAuthority = bootstrapAuthorization.Authority;
         var canonicalPrincipalValue = acceptanceAuthority.Principal.Value;

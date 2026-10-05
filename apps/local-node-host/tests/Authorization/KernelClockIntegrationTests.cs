@@ -665,7 +665,7 @@ public sealed class KernelClockIntegrationTests
                     instanceId,
                     "approve",
                     null,
-                    authority: new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, FrozenAt));
+                    authority: new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, AdmittedInstant.Read(new MutableHostClock(FrozenAt))));
             Assert.Equal(WorkflowDispatchResult.Advanced, result);
             await using var context = await _nodeFactory.CreateDbContextAsync();
             var instance = await context.Set<WorkflowInstanceRecord>().AsNoTracking()
@@ -1118,7 +1118,7 @@ public sealed class KernelClockIntegrationTests
                 session.CoordinationCorrelationId);
 
             var probe = await Services.GetRequiredService<AuthorizationGate>().DecideAsync(
-                new AuthorizationWriteContext(adminPrincipal, tenant, FrozenAt).Request(
+                new AuthorizationWriteContext(adminPrincipal, tenant, AdmittedInstant.Read(new MutableHostClock(FrozenAt))).Request(
                     AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
                     "members",
                     "kernel-clock-identity"));
@@ -1130,7 +1130,7 @@ public sealed class KernelClockIntegrationTests
                 tenant.Value,
                 PermissionCompositions.Member.Permissions,
                 "ticket-238-target-invitation",
-                new AuthorizationWriteContext(adminPrincipal, tenant, FrozenAt));
+                new AuthorizationWriteContext(adminPrincipal, tenant, AdmittedInstant.Read(new MutableHostClock(FrozenAt))));
             Assert.NotNull(issued);
             var credential = Services.GetRequiredService<IWebChosenCredentialFactory>()
                 .Create("ticket-238-target-password");
@@ -1226,7 +1226,7 @@ public sealed class KernelClockIntegrationTests
                 new PassingAntiforgeryPolicy(),
                 new AdminTeamAccessRoutes.RevokeMemberRequest(_identityTargetGrantId),
                 context,
-                _clock.GetUtcNow());
+                AdmittedInstant.Read(new MutableHostClock(_clock.GetUtcNow())));
             await result.ExecuteAsync(context);
             Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
 
@@ -1393,7 +1393,7 @@ public sealed class KernelClockIntegrationTests
             var principal = Assert.IsType<SelectedSessionRequestPrincipal>(_identityPrincipal);
             var decision = await Services.GetRequiredService<AuthorizationGate>().DecideAsync(
                 new AuthorizationWriteContext(
-                    new ActorId(principal.PrincipalUserId.Value), principal.TenantId, FrozenAt)
+                    new ActorId(principal.PrincipalUserId.Value), principal.TenantId, AdmittedInstant.Read(new MutableHostClock(FrozenAt)))
                     .Request(
                         AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
                         "members",

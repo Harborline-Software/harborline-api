@@ -268,7 +268,7 @@ public sealed class NodeServingPipelineAttributionTests
                     var authority = new AuthorizationWriteContext(
                         new ActorId(NodeCallerParty.Resolve(http).Value),
                         LedgerTenant,
-                        clock.GetUtcNow());
+                        AdmittedInstant.Read(new AdvancingClock(clock.GetUtcNow())));
                     await journalStore.SaveAtomicForTestAsync(
                         LedgerTenant,
                         BalancedPosted(id, authority.At),

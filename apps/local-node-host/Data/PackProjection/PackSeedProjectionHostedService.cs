@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -69,7 +70,7 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
                     // Completed admission does not mean the process-local registries survived restart.
                     // Re-enter ordinary activation with a fresh gate decision and projection authority.
                     var result = await installer.ActivateAsync(new PackInstallContext(
-                        tenant, trust, revocation, time.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+                        tenant, trust, revocation, AdmittedInstant.Read(time), PackInstallRoutes.RevocationMaxAge,
                         Principal: nodeOperator?.Principal?.Value), pack.PackKey, pack.Version, ct).ConfigureAwait(false);
                     if (!result.Activated || !result.Projected || result.ProjectionResult is IPackProjectionRefusalReport { ProjectionRefused: true })
                     {

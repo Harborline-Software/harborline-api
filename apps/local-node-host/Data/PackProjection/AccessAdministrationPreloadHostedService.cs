@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -167,7 +168,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             // revoked signature is refused on this path exactly as it is on POST /packs/install.
             _trustStore,
             _revocation,
-            _time.GetUtcNow(),
+            AdmittedInstant.Read(_time),
             PackInstallRoutes.RevocationMaxAge,
             // The preload acts as the node operator (the desktop actor), whose ordinary `packages:operate`
             // holding the authorization seed already grants — not as a privileged installer of "our own" package.

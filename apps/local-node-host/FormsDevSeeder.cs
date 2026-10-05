@@ -138,9 +138,10 @@ public sealed class FormsDevSeeder : IHostedService
             return;
         }
 
-        var now = _timeProvider.GetUtcNow();
+        var admitted = AdmittedInstant.Read(_timeProvider);
+        var now = admitted.Value;
         var authority = new AuthorizationWriteContext(
-            new ActorId("installer:development-form-seed"), tenantId, now);
+            new ActorId("installer:development-form-seed"), tenantId, admitted);
         AuthorizedFormDefinitionLifecycle.WriteAuthority decision;
         try
         {

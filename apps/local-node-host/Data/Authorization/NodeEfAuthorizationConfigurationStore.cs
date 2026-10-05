@@ -150,7 +150,9 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     /// derivation (the conferral pipeline <see cref="ConferAdmissionGrantAsync"/> also runs, so nothing derives
     /// an admission grant twice), inside one BEGIN IMMEDIATE fence committed by a single SaveChanges. A failure
     /// anywhere rolls both legs back, so the member is never left holding both sets or neither. Returns null
-    /// when the grant is not a live install-root grant of this tenant.
+    /// when the grant is not a live install-root grant of this tenant. T-1048 (DES-0029 ck-6): <paramref name="stage"/>
+    /// adds the caller's revoke and delegate audit entries to the same context, so the reissue's single save commits
+    /// them with both legs and the conferral's own audit, or not at all.
     /// </summary>
     internal async Task<AdmissionGrantNarrowing?> NarrowAdmissionGrantAsync(
         TenantId tenant,
@@ -159,6 +161,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         GrantRevocation revocation,
         Guid correlationId,
         AuthorizationDecision admittedDecision,
+        Action<NodeLocalSearchDbContext>? stage = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(narrowed);
@@ -187,7 +190,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                 || existing.Role.Vocabulary != RoleVocabularies.Domain
                 || !existing.Role.Name.StartsWith(AccessGrantAuthorizationSeed.AdmissionRolePrefix, StringComparison.Ordinal)) return;
             var at = revocation.RevokedAt;
-            var id = StableId(tenant.Value + ":narrowed:" + key + ":" + correlationId.ToString("D"));
+            var id = NarrowedGrantId(tenant, current, correlationId).Value;
             var revoked = existing with { Status = GrantStatus.Revoked, Revocation = revocation };
             db.Entry(row).CurrentValues.SetValues(
                 NodeEfGrantStore.ToRow(revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
@@ -196,7 +199,11 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             // member's pins — the opposite of the live admission conferral, which must not, because there
             // the pins being bumped are the ones that authorized the admission itself (293 s4 fix 4).
             await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, existing.Subject, ct).ConfigureAwait(false);
-            // The reissue's commit stage saves the revoked leg and the epoch with it, in this fence.
+            if (stage is not null)
+            {
+                stage.Invoke(db);
+            }
+            // The reissue's commit stage saves the revoked leg, the epoch and the staged audit with it, in this fence.
             var reissued = await AuthorizationDefinitionWriter.ConferAdmissionAsync(
                     new AdmissionConferral(tenant, id, existing.Subject.Value, revocation.RevokedBy.Value, narrowed,
                         at, correlationId, "member-narrowed:" + id.ToString("D")),
@@ -207,6 +214,10 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         }, ct).ConfigureAwait(false);
         return result;
     }
+
+    /// <summary>The narrowing reissue's deterministic grant id, known before the write so its audit can be signed first.</summary>
+    internal static GrantId NarrowedGrantId(TenantId tenant, GrantId current, Guid correlationId) =>
+        new(StableId(tenant.Value + ":narrowed:" + current + ":" + correlationId.ToString("D")));
 
     private static Guid StableId(string value) => AdmissionConferral.StableId(value);
 

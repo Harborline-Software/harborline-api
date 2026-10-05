@@ -100,7 +100,7 @@ public sealed class AuthorizationWriteStageTests
         using var body = JsonDocument.Parse("{}");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
-            await writer.AuthorizeAsync("denied", authority.Principal, authority.Tenant, authority.At));
+            await writer.AuthorizeAsync("denied", authority.Principal, authority.Tenant, AdmittedInstant.Read(new FixedTimeProvider(authority.At))));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
             await writer.CreateLegalEntityAsync(
                 new CreateLegalEntityCommand(new LegalEntityId("denied"), null, null, null, null), authority));
@@ -514,7 +514,7 @@ public sealed class AuthorizationWriteStageTests
             var options = Options("unrelated", actor, tenant, at.AddMinutes(1));
             var id = await productionWriter.CreateAsync(
                 new SchemaId("schema"), unrelatedBody, options,
-                new AuthorizationWriteContext(actor, tenant, at.AddMinutes(1)));
+                new AuthorizationWriteContext(actor, tenant, AdmittedInstant.Read(new FixedTimeProvider(at.AddMinutes(1)))));
             using var payload = JsonDocument.Parse("{\"source\":\"concurrent\"}");
             await innerAudit.AppendAsync(new AuditAppend(
                 id, null, Op.Mint, actor, tenant, at.AddMinutes(1), payload, "concurrent"));
@@ -943,7 +943,7 @@ public sealed class AuthorizationWriteStageTests
             new TenantId("pack-tenant"),
             Substitute.For<IPackTrustStore>(),
             Substitute.For<IPackRevocationList>(),
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero),
+            AdmittedInstant.Read(new FixedTimeProvider(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero))),
             TimeSpan.FromHours(1),
             Principal: "pack-operator");
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
@@ -953,7 +953,7 @@ public sealed class AuthorizationWriteStageTests
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
             installer.DeactivateAsync(context, "pack", "1.0.0")));
         var deniedNarrowing = await TestAuthorization.Gate(false).DecideAsync(
-            new AuthorizationWriteContext(new ActorId(context.Principal!), context.Tenant, context.Now)
+            new AuthorizationWriteContext(new ActorId(context.Principal!), context.Tenant, AdmittedInstant.Read(new FixedTimeProvider(context.Now)))
                 .Request(AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "pack"));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => installer.NarrowAsync(
             context, "pack", "content", new JsonObject(), deniedNarrowing));
@@ -994,7 +994,7 @@ public sealed class AuthorizationWriteStageTests
             new TenantId("pack-tenant"),
             Substitute.For<IPackTrustStore>(),
             Substitute.For<IPackRevocationList>(),
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero),
+            AdmittedInstant.Read(new FixedTimeProvider(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero))),
             TimeSpan.FromHours(1),
             Principal: "pack-operator");
 
@@ -1049,7 +1049,7 @@ public sealed class AuthorizationWriteStageTests
             new TenantId("pack-tenant"),
             Substitute.For<IPackTrustStore>(),
             Substitute.For<IPackRevocationList>(),
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero),
+            AdmittedInstant.Read(new FixedTimeProvider(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero))),
             TimeSpan.FromHours(1),
             Principal: "pack-operator");
 
@@ -1078,7 +1078,7 @@ public sealed class AuthorizationWriteStageTests
             new ActorId("denied-projector"),
             tenant,
             new AuthorizationTarget("pack", "named-pack", scope),
-            at);
+            AdmittedInstant.Read(new FixedTimeProvider(at)));
         var decision = await TestAuthorization.Gate(false).DecideAsync(request);
         var store = Substitute.For<IPackInstallStore>();
         var types = Substitute.For<IEntityTypeRegistry>();
@@ -1101,7 +1101,7 @@ public sealed class AuthorizationWriteStageTests
             request.Principal,
             tenant,
             new AuthorizationTarget("pack", "foreign-pack", foreignScope),
-            at));
+            AdmittedInstant.Read(new FixedTimeProvider(at))));
         var mismatched = new PackProjectionAuthority(
             foreignDecision, "named-pack", "1.0.0", tenant, request.Principal, at);
         await Assert.ThrowsAsync<PackProjectionAuthorityException>(() =>
@@ -1119,7 +1119,7 @@ public sealed class AuthorizationWriteStageTests
         var scope = ScopeExpression.Parse("/records/pack-a");
         var request = new AuthorizationGateRequest(
             new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
-            principal, tenant, new AuthorizationTarget("pack", "pack-a", scope), at);
+            principal, tenant, new AuthorizationTarget("pack", "pack-a", scope), AdmittedInstant.Read(new FixedTimeProvider(at)));
         var allowed = Decision(request, AuthorizationVerdict.Allowed);
         new PackProjectionAuthority(allowed, "pack-a", "1.0.0", tenant, principal, at).RequireValid();
 
@@ -1189,7 +1189,7 @@ public sealed class AuthorizationWriteStageTests
     {
         var tenant = new TenantId("one-shot-tenant");
         var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
-        var context = new AuthorizationWriteContext(new ActorId("operator"), tenant, at);
+        var context = new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(at)));
         var authority = await PackAuthority(context, "one-shot-pack", "1.0.0");
         var store = Substitute.For<IPackInstallStore>();
         store.ListInstalled(tenant).Returns(Array.Empty<InstalledPack>());
@@ -1230,7 +1230,7 @@ public sealed class AuthorizationWriteStageTests
             Substitute.For<IPackInstallAudit>(), TestAuthorization.AllowGate(), dispatcher);
         var context = new PackInstallContext(
             tenant, Substitute.For<IPackTrustStore>(), Substitute.For<IPackRevocationList>(),
-            at, TimeSpan.FromHours(1), Principal: "operator");
+            AdmittedInstant.Read(new FixedTimeProvider(at)), TimeSpan.FromHours(1), Principal: "operator");
 
         var outcome = installer.Activate(context, pack.PackKey, pack.Version);
         Assert.True(outcome.Activated);
@@ -1244,7 +1244,7 @@ public sealed class AuthorizationWriteStageTests
 
         await AssertRetiredAtBothLifecycles(leaked);
 
-        var deactivated = await installer.DeactivateAsync(context with { Now = at.AddMinutes(1) }, pack.PackKey, pack.Version);
+        var deactivated = await installer.DeactivateAsync(context with { Instant = AdmittedInstant.FromRecordedAct(at.AddMinutes(1)) }, pack.PackKey, pack.Version);
         Assert.True(deactivated.Deactivated);
         Assert.True(deactivated.Projected);
         var deactivationAuthority = dispatcher.Captured[1];
@@ -1257,7 +1257,7 @@ public sealed class AuthorizationWriteStageTests
         var tenant = new TenantId("first-publish-tenant");
         var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
         var authority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, at), "pack-a", "1.0.0");
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(at))), "pack-a", "1.0.0");
 
         using var formStore = new InMemoryFormDefinitionStore(TimeProvider.System);
         var forms = TestAuthorization.FormLifecycle(formStore, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
@@ -1315,7 +1315,7 @@ public sealed class AuthorizationWriteStageTests
         };
 
         var publishAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, publishAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(publishAt))),
             "instant-pack", "1.0.0");
         await lifecycle.RegisterAsync(definition, publishAuthority);
         var published = await lifecycle.PublishAsync(definition, publishAuthority);
@@ -1324,7 +1324,7 @@ public sealed class AuthorizationWriteStageTests
             new DefinitionCoordinates(tenant, definition.Id.Value, definition.Version.ToString()))).UpdatedAt);
 
         var withdrawAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, withdrawAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(withdrawAt))),
             "instant-pack", "1.0.0");
         var withdrawalModel = definition with { CreatedAt = withdrawAt, UpdatedAt = withdrawAt };
         var withdrawn = await lifecycle.WithdrawAsync(withdrawalModel, withdrawAuthority);
@@ -1333,7 +1333,7 @@ public sealed class AuthorizationWriteStageTests
             new DefinitionCoordinates(tenant, definition.Id.Value, definition.Version.ToString()))).UpdatedAt);
 
         var restoreAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, restoreAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(restoreAt))),
             "instant-pack", "1.0.0");
         var restoreModel = definition with { CreatedAt = restoreAt, UpdatedAt = restoreAt };
         var restored = await lifecycle.RestorePackProjectionAsync(restoreModel, restoreAuthority);
@@ -1363,7 +1363,7 @@ public sealed class AuthorizationWriteStageTests
         using var authored = WorkflowAuthored("pack-instant-workflow", "1.0.0", tenant.Value);
 
         var publishAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, publishAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(publishAt))),
             "instant-pack", "1.0.0");
         await lifecycle.RegisterAsync(authored.RootElement, publishAuthority);
         var model = PackModel(authored.RootElement, publishAuthority);
@@ -1373,7 +1373,7 @@ public sealed class AuthorizationWriteStageTests
             new DefinitionCoordinates(tenant, model.Key, model.Version))).UpdatedAt);
 
         var withdrawAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, withdrawAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(withdrawAt))),
             "instant-pack", "1.0.0");
         var withdrawn = await lifecycle.WithdrawAsync(authored.RootElement, withdrawAuthority);
         Assert.Equal(withdrawAt, withdrawn.UpdatedAt);
@@ -1381,7 +1381,7 @@ public sealed class AuthorizationWriteStageTests
             new DefinitionCoordinates(tenant, model.Key, model.Version))).UpdatedAt);
 
         var restoreAuthority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, restoreAt),
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(restoreAt))),
             "instant-pack", "1.0.0");
         var restored = await lifecycle.RestorePackProjectionAsync(authored.RootElement, restoreAuthority);
         Assert.Equal(restoreAt, restored.UpdatedAt);
@@ -1405,7 +1405,7 @@ public sealed class AuthorizationWriteStageTests
         await store.RegisterAsync(persisted);
         var fabricated = persisted with { PackSource = new PackProjectionSource("pack-a", "1.0.0") };
         var authority = await PackAuthority(
-            new AuthorizationWriteContext(new ActorId("operator"), tenant, at), "pack-a", "1.0.0");
+            new AuthorizationWriteContext(new ActorId("operator"), tenant, AdmittedInstant.Read(new FixedTimeProvider(at))), "pack-a", "1.0.0");
         var lifecycle = TestAuthorization.FormLifecycle(store, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
 
         foreach (var transition in new Func<Task>[]
@@ -1696,7 +1696,7 @@ public sealed class AuthorizationWriteStageTests
             grants);
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
+            await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(at)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Contains("sealed", refusal.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1733,7 +1733,7 @@ public sealed class AuthorizationWriteStageTests
             authority.Principal,
             authority.Tenant,
             new AuthorizationTarget("grant", definition.DefinitionId.Value.ToString(), scope),
-            authority.At));
+            AdmittedInstant.Read(new FixedTimeProvider(authority.At))));
         Assert.Throws<ArgumentException>(() => PlatformBootstrapDecision.Mint(deniedBootstrap));
         Assert.Empty(store.ReceivedCalls());
         Assert.Empty(states.ReceivedCalls());
@@ -1758,7 +1758,7 @@ public sealed class AuthorizationWriteStageTests
 
         var (seed, configuration) = Seed(grants);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
+            await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(at)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Null((await configuration.ReadStateAsync(DefinitionId(Permission.ContactsRead))).Definition);
     }
 
@@ -1778,7 +1778,7 @@ public sealed class AuthorizationWriteStageTests
             TestAuthorization.AllowGate(),
             grants);
         var administrator = AdministratorGrant(tenant, at);
-        var administratorAuthority = new AuthorizationWriteContext(administrator.Subject, tenant, at);
+        var administratorAuthority = new AuthorizationWriteContext(administrator.Subject, tenant, AdmittedInstant.Read(new FixedTimeProvider(at)));
 
         foreach (var definition in AccessGrantAuthorizationSeed.FoundingDefinitions)
             await writer.WriteAsync(new InstallAuthorizationDefinition(definition), administratorAuthority);
@@ -1790,7 +1790,7 @@ public sealed class AuthorizationWriteStageTests
         var grantsBefore = (await grants.SnapshotAsync(tenant)).Count;
 
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
-        await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(at)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
         Assert.Equal(definitionsBefore + 3, (await configuration.ListAsync(tenant)).Count);
         // Two installer seed grants now: the scheduler, and the desktop node operator's workshop:unlock.
@@ -1810,7 +1810,7 @@ public sealed class AuthorizationWriteStageTests
         Assert.Null(await grants.FindBySourceReferenceAsync(
             tenant, AccessGrantAuthorizationSeed.DevIndexerGrantSource));
 
-        await seed.InstallAsync(tenant, at.AddMinutes(1), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(at.AddMinutes(1))), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
         Assert.Equal(definitionsBefore + 3, (await configuration.ListAsync(tenant)).Count);
         // Two installer seed grants now: the scheduler, and the desktop node operator's workshop:unlock.
@@ -1837,7 +1837,7 @@ public sealed class AuthorizationWriteStageTests
         var (seed, configuration) = Seed(grants);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await seed.InstallAsync(
-                new TenantId("second-tenant"), at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
+                new TenantId("second-tenant"), AdmittedInstant.Read(new FixedTimeProvider(at)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Null((await configuration.ReadStateAsync(DefinitionId(Permission.ContactsRead))).Definition);
     }
 
@@ -1870,7 +1870,7 @@ public sealed class AuthorizationWriteStageTests
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, racingGrants);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
+            async () => await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(at)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Equal(InMemoryAuthorizationConfigurationStore.BootstrapFenceMismatchMessage, error.Message);
         Assert.False(await grants.HasAdministratorGrantEverAsync());
         Assert.Equal(1, checks);
@@ -2119,7 +2119,7 @@ public sealed class AuthorizationWriteStageTests
         return new(
         new ActorId("test-actor"),
         new TenantId("test-tenant"),
-        new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero));
+        AdmittedInstant.Read(new FixedTimeProvider(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero))));
     }
 
     private static JsonDocument WorkflowAuthored(string key, string version, string tenant) =>
@@ -2175,7 +2175,7 @@ public sealed class AuthorizationWriteStageTests
             authority.Principal,
             authority.Tenant,
             new AuthorizationTarget("pack", packId, scope),
-            authority.At));
+            AdmittedInstant.Read(new FixedTimeProvider(authority.At))));
     }
 
     private static AuthorizationDecision Decision(

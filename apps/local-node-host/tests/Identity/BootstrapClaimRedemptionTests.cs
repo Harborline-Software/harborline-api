@@ -71,7 +71,7 @@ public sealed class BootstrapClaimRedemptionTests
                     "founder", InstallationFounderBootstrapCeremony.CorrelationId));
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(
                 Tenant,
-                Now,
+                AdmittedInstant.Read(new MutableClock(Now)),
                 persistedDevelopmentSet
                     ? AuthorizationSeedProfile.Development
                     : AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(provider));
@@ -747,7 +747,7 @@ public sealed class BootstrapClaimRedemptionTests
         await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
             .InstallAsync(
                 Tenant,
-                Now,
+                AdmittedInstant.Read(new MutableClock(Now)),
                 includeDevelopmentGrants
                     ? AuthorizationSeedProfile.Development
                     : AuthorizationSeedProfile.Production,

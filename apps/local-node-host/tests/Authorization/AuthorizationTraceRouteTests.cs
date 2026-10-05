@@ -104,7 +104,7 @@ public sealed class AuthorizationTraceRouteTests
         await host.Services.GetRequiredService<AuthorizationDefinitionWriter>().WriteAsync(
             new NarrowCapabilityRoleBinding(host.Tenant, definition.Definition.DefinitionId, RoleBindingSet.Empty,
                 host.Actor, host.Now, new BindingChangeReason("331 refused read")),
-            new AuthorizationWriteContext(host.Actor, host.Tenant, host.Now));
+            new AuthorizationWriteContext(host.Actor, host.Tenant, AdmittedInstant.FromRecordedAct(host.Now)));
         // Reopen the real persisted closure and the listener, rather than trusting an in-memory seed.
         await host.RestartAsync();
         var (id, _) = await host.RecordAsync(false);
@@ -157,7 +157,7 @@ public sealed class AuthorizationTraceRouteTests
         await host.Services.GetRequiredService<AuthorizationDefinitionWriter>().WriteAsync(
             new NarrowCapabilityRoleBinding(host.Tenant, grants.Definition.DefinitionId, RoleBindingSet.Empty,
                 host.Actor, at, new BindingChangeReason("331 refused binding write")),
-            new AuthorizationWriteContext(host.Actor, host.Tenant, at));
+            new AuthorizationWriteContext(host.Actor, host.Tenant, AdmittedInstant.FromRecordedAct(at)));
         host.Client.DefaultRequestHeaders.Remove("Idempotency-Key");
         host.Client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
         using var denied = await host.Client.PostAsJsonAsync(
@@ -209,7 +209,7 @@ public sealed class AuthorizationTraceRouteTests
         // 331.A6/H13: a second principal holds no read coverage over this entry and is refused; nothing
         // about the entry is disclosed, its steps included.
         var stranger = await host.Services.GetRequiredService<AuthorizationTraceReader>()
-            .ReadAsync(host.Tenant, new ActorId("s331-s2-stranger"), auditId, host.Now);
+            .ReadAsync(host.Tenant, new ActorId("s331-s2-stranger"), auditId, AdmittedInstant.FromRecordedAct(host.Now));
         Assert.Equal(AuthorizationTraceAvailability.Refused, stranger.Availability);
         Assert.Empty(stranger.Steps);
 
@@ -237,7 +237,7 @@ public sealed class AuthorizationTraceRouteTests
                 new NarrowCapabilityRoleBinding(host.Tenant, definition.Definition.DefinitionId,
                     RoleBindingSet.Empty, host.Actor, host.Now,
                     new BindingChangeReason("331 s2 trace read unbound")),
-                new AuthorizationWriteContext(host.Actor, host.Tenant, host.Now));
+                new AuthorizationWriteContext(host.Actor, host.Tenant, AdmittedInstant.FromRecordedAct(host.Now)));
         }
 
         await host.RestartAsync();
@@ -342,7 +342,7 @@ public sealed class AuthorizationTraceRouteTests
             var at = Now;
             var principal = allowed ? Actor : new ActorId("s331-no-authority");
             var operation = AuthorizationOperation.Parse(Permission.AuditRead);
-            var request = new AuthorizationWriteContext(principal, Tenant, at).Request(operation, "audit", Guid.NewGuid().ToString());
+            var request = new AuthorizationWriteContext(principal, Tenant, AdmittedInstant.FromRecordedAct(at)).Request(operation, "audit", Guid.NewGuid().ToString());
             var decision = await Services.GetRequiredService<AuthorizationGate>().DecideAsync(request);
             Assert.Equal(allowed, decision.Verdict == AuthorizationVerdict.Allowed);
             var payload = await Services.GetRequiredService<IOperationSigner>().SignAsync(

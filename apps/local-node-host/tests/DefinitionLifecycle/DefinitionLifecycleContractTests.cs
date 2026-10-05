@@ -267,7 +267,7 @@ public sealed class DefinitionLifecycleContractTests
         var authority = new AuthorizationWriteContext(
             new ActorId("installer:authorization-definition-seed"),
             tenant,
-            DateTimeOffset.UnixEpoch);
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch));
         var target = Guid.Parse("21800000-0000-0000-0000-000000000218").ToString();
         var request = authority.Request(
             AuthorizationOperation.Parse(Harborline.Api.Foundation.IdentityAtlas.Permissions.Permission.GrantPermissions),

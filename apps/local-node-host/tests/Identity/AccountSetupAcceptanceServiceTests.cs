@@ -183,7 +183,7 @@ public sealed class AccountSetupAcceptanceServiceTests
     public void InvitationBootstrapAuthorization_AuthorizesEachActExactlyOnce()
     {
         var capability = new InvitationBootstrapAuthorization(
-            "account-1", new TenantId("tenant-1"), Now, "invitation-1");
+            "account-1", new TenantId("tenant-1"), AdmittedInstant.Read(new FixedTimeProvider(Now)), "invitation-1");
         var ceremonyDecisions = new List<AuthorizationDecision>();
 
         void Observe(Func<AuthorizationDecision> authorize) => ceremonyDecisions.Add(authorize());

@@ -208,7 +208,7 @@ public sealed class ReleasedPackInstaller
         if (refusals.Count > 0)
             return new(false, offer.Released.Digest, releaseKey, version, refusals);
 
-        var context = new PackInstallContext(tenant, _trustStore, _revocation, authority.At,
+        var context = new PackInstallContext(tenant, _trustStore, _revocation, authority.Instant,
             PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value,
             CorrelationId: authority.CorrelationId);
         // ponytail: install-then-narrow is two writes, not one transaction. The pre-check above runs the

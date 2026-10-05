@@ -150,7 +150,7 @@ public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             return new Harness(provider, logger);
         }
 

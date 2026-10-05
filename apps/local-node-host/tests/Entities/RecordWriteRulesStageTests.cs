@@ -181,7 +181,7 @@ public sealed class RecordWriteRulesStageTests
             app.Services.GetRequiredKeyedService<IEntityValidator>(CompiledSchemaEntityValidator.RecordWriteKey);
         internal NodeEntityWriter Writer => app.Services.GetRequiredService<NodeEntityWriter>();
 
-        internal AuthorizationWriteContext Authority() => new(new ActorId("t978"), Tenant, Now);
+        internal AuthorizationWriteContext Authority() => new(new ActorId("t978"), Tenant, AdmittedInstant.FromRecordedAct(Now));
 
         internal CreateOptions Options(string localPart) => new(
             "record", "t978", localPart, new ActorId("t978"), Tenant, Now, ExplicitLocalPart: localPart,

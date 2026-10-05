@@ -149,11 +149,11 @@ public sealed class NodeAuditAtomicWriteTests : IAsyncLifetime
         await store.SaveAtomicForTestAsync(
             LocalTenantId,
             BalancedPostedAt("JE-CHAIN-NEWER", 10m, newer),
-            new AuthorizationWriteContext(new ActorId("test:audit-chain"), LocalTenantId, newer));
+            new AuthorizationWriteContext(new ActorId("test:audit-chain"), LocalTenantId, AdmittedInstant.FromRecordedAct(newer)));
         await store.SaveAtomicForTestAsync(
             LocalTenantId,
             BalancedPostedAt("JE-CHAIN-OLDER", 20m, older),
-            new AuthorizationWriteContext(new ActorId("test:audit-chain"), LocalTenantId, older));
+            new AuthorizationWriteContext(new ActorId("test:audit-chain"), LocalTenantId, AdmittedInstant.FromRecordedAct(older)));
 
         await using var ctx = await _factory.CreateDbContextAsync();
         var appendOrder = await ctx.Set<NodeAuditEventRow>()
