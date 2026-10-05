@@ -1394,59 +1394,72 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
         }
         await using var context = await _homeFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
-        var page = await ReadRecoveryPageAsync(context.Coordinators.AsNoTracking()
+        var owed = context.Coordinators.AsNoTracking()
             .Where(item =>
                 item.CommandType == "TenantMembershipMutation" &&
                 (item.State == InstallationIdentityCoordinatorState.Preparing ||
                  item.State == InstallationIdentityCoordinatorState.Committing ||
                  item.State == InstallationIdentityCoordinatorState.Finalizing ||
-                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null))),
-            _membershipCursor, _membershipCycleEnd, limit, cancellationToken).ConfigureAwait(false);
-        _membershipCycleEnd = page.CycleEnd;
-        var homes = page.Homes;
-        var results = new List<InstallationIdentityCoordinationResult>(homes.Length);
-        foreach (var home in homes)
+                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null)));
+        var results = new List<InstallationIdentityCoordinationResult>();
+        // A home still in its backoff window is passed over without counting toward the limit, so the sweep reads on
+        // until it has attempted `limit` due homes or finished the cycle: backed-off homes never hold the page.
+        var attempted = 0;
+        var cycleEnded = false;
+        while (attempted < limit && !cycleEnded)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var correlationId = home.CorrelationId;
-            _membershipCursor = new(home.CreatedAtUtc, correlationId);
-            _membershipSeen.Add(correlationId);
-            if (_backoffClock is not null && _membershipBackoff.TryGetValue(correlationId, out var backoff)
-                && backoff.Due > _backoffClock.GetUtcNow())
+            var page = await ReadRecoveryPageAsync(owed, _membershipCursor, _membershipCycleEnd, limit, cancellationToken)
+                .ConfigureAwait(false);
+            _membershipCycleEnd = page.CycleEnd;
+            foreach (var home in page.Homes)
             {
-                continue;
+                if (attempted == limit)
+                {
+                    break;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                var correlationId = home.CorrelationId;
+                _membershipCursor = new(home.CreatedAtUtc, correlationId);
+                _membershipSeen.Add(correlationId);
+                if (_backoffClock is not null && _membershipBackoff.TryGetValue(correlationId, out var backoff)
+                    && backoff.Due > _backoffClock.GetUtcNow())
+                {
+                    continue;
+                }
+                attempted++;
+                InstallationIdentityCoordinationResult? result = null;
+                try
+                {
+                    result = await _coordinator.ResumeAsync(
+                            correlationId,
+                            InstallationIdentityCoordinatorContinuation.Recovery,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    results.Add(result);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    _logger?.LogError(
+                        exception,
+                        "Identity coordinator recovery row {CorrelationId} failed; continuing the drain.",
+                        correlationId);
+                }
+                RecordMembershipAttempt(correlationId, result);
             }
-            InstallationIdentityCoordinationResult? result = null;
-            try
+            if (_membershipCycleEnd is null || _membershipCursor == _membershipCycleEnd)
             {
-                result = await _coordinator.ResumeAsync(
-                        correlationId,
-                        InstallationIdentityCoordinatorContinuation.Recovery,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                results.Add(result);
+                _membershipCursor = null;
+                _membershipCycleEnd = null;
+                // A home that left the scan (completed by its client, say) no longer needs its backoff entry.
+                foreach (var stale in _membershipBackoff.Keys.Where(key => !_membershipSeen.Contains(key)).ToArray())
+                    _membershipBackoff.Remove(stale);
+                _membershipSeen.Clear();
+                cycleEnded = true; // one cycle per sweep at most: the next sweep starts a fresh bounded cycle
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                _logger?.LogError(
-                    exception,
-                    "Identity coordinator recovery row {CorrelationId} failed; continuing the drain.",
-                    correlationId);
-            }
-            RecordMembershipAttempt(correlationId, result);
-        }
-        if (_membershipCycleEnd is null || _membershipCursor == _membershipCycleEnd)
-        {
-            _membershipCursor = null;
-            _membershipCycleEnd = null;
-            // A home that left the scan (completed by its client, say) no longer needs its backoff entry.
-            foreach (var stale in _membershipBackoff.Keys.Where(key => !_membershipSeen.Contains(key)).ToArray())
-                _membershipBackoff.Remove(stale);
-            _membershipSeen.Clear();
         }
         await RecoverWebHomesAsync(context, limit, cancellationToken).ConfigureAwait(false);
         return results;

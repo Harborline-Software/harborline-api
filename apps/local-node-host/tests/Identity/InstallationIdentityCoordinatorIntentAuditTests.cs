@@ -118,7 +118,12 @@ public sealed partial class InstallationIdentityCoordinatorServiceTests
             elapsed += advance;
             var owed = await OwedNewerHomeAsync();
             var results = await recovery.RecoverPendingAsync(limit: 1);
-            // limit 1 still reaches the newer home: the stuck home never holds the page.
+            // A backed-off stuck home is passed over without using the limit: one sweep reaches the newer home.
+            if (!results.Any(result => result.CorrelationId == stuck.CorrelationId))
+            {
+                Assert.Contains(results, result => result.CorrelationId == owed && result.Status == InstallationIdentityCoordinationStatus.Completed);
+            }
+            // When the stuck home was due, it took the sweep's one attempt; the next sweep reaches the newer home.
             results = [.. results, .. await recovery.RecoverPendingAsync(limit: 1)];
             Assert.Contains(results, result => result.CorrelationId == owed && result.Status == InstallationIdentityCoordinationStatus.Completed);
             if (results.Any(result => result.CorrelationId == stuck.CorrelationId))
