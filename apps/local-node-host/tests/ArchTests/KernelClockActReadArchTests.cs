@@ -68,7 +68,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(22, reads.Count);
+        Assert.Equal(23, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsARefSwappedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("FallsBackReadingTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsATernaryMergedClock", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughAThrowingGetter", StringComparison.Ordinal)).Value);
@@ -112,7 +113,7 @@ public sealed class KernelClockActReadArchTests
             type => IsWithin(type, typeof(PlantedUntraceableRoutes)));
 
         Assert.Empty(handlers);
-        Assert.Equal(5, unpaired.Count);
+        Assert.Equal(6, unpaired.Count);
     }
 
     internal sealed record RouteHandler(MethodBase Handler, string MappedAt);
@@ -120,7 +121,8 @@ public sealed class KernelClockActReadArchTests
     /// <summary>
     /// Each <c>Map*(…, Delegate)</c> call's handler, recognised only in the shapes the compiler emits for a handler
     /// argument: a fresh delegate (<c>ldftn; newobj</c>), the compiler's cached lambda or method-group delegate, a
-    /// delegate local assigned once from one of those, or a production helper whose single <c>ret</c> returns one.
+    /// delegate local assigned once from one of those (and never passed by reference), or a production helper
+    /// whose single <c>ret</c> returns one.
     /// A branch into any of those instructions from outside the shape (a conditional or if/else choosing the
     /// handler) rejects it. Anything else is returned as unpaired, so a handler this fence cannot name fails loudly
     /// instead of escaping or being attributed to the wrong delegate.
@@ -189,8 +191,11 @@ public sealed class KernelClockActReadArchTests
         // A delegate local assigned exactly once from one of these shapes.
         if (c >= 1 && IsLoadLocal(code[c - 1].OpCode) && body.Straight(c - 1, c))
         {
+            var local = code[c - 1].Operand;
+            if (AddressTaken(code, local))
+                return null; // a ref to it can replace the handler out of sight
             var stores = Enumerable.Range(0, code.Length)
-                .Where(at => IsStoreLocal(code[at].OpCode) && code[at].Operand == code[c - 1].Operand).ToArray();
+                .Where(at => IsStoreLocal(code[at].OpCode) && code[at].Operand == local).ToArray();
             return stores is [var store] ? HandlerArgument(body, store, assemblies, tracing) : null;
         }
         // A production helper that builds the delegate and returns it from its only ret.
@@ -288,7 +293,7 @@ public sealed class KernelClockActReadArchTests
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
     /// <c>ldfld</c> of it or its getter just before, not at a join point). A local also assigned anything else,
-    /// or assigned a value merged from a conditional, is not one.
+    /// assigned a value merged from a conditional, or whose address is taken, is not one.
     /// </summary>
     private static HashSet<int> InjectedLocals(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, HashSet<int> joins)
     {
@@ -304,6 +309,7 @@ public sealed class KernelClockActReadArchTests
             (stored ? injected : other).Add(code[index].Operand);
         }
         injected.ExceptWith(other);
+        injected.RemoveWhere(local => AddressTaken(code, local)); // a ref to it can swap the clock out of sight
         return injected;
     }
 
@@ -378,6 +384,11 @@ public sealed class KernelClockActReadArchTests
         }
     }
 
+    /// <summary>Whether the method takes the local's address (<c>ldloca</c>), so code elsewhere can overwrite it.</summary>
+    private static bool AddressTaken((int Offset, OpCode OpCode, int Operand)[] code, int local) =>
+        code.Any(instruction => (instruction.OpCode == OpCodes.Ldloca || instruction.OpCode == OpCodes.Ldloca_S)
+            && instruction.Operand == local);
+
     private static bool IsStoreLocal(OpCode opCode) =>
         opCode == OpCodes.Stloc || opCode == OpCodes.Stloc_S || opCode == OpCodes.Stloc_0
         || opCode == OpCodes.Stloc_1 || opCode == OpCodes.Stloc_2 || opCode == OpCodes.Stloc_3;
@@ -443,6 +454,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/branch-merged", ReadsABranchMergedClock);
             app.MapGet("/planted/ternary-merged", ReadsATernaryMergedClock);
             app.MapFallback(FallsBackReadingTwice);
+            app.MapGet("/planted/ref-swapped-clock", ReadsARefSwappedClock);
             app.MapGet("/planted/recursion-a", EntersTheCycleAtA);
             app.MapGet("/planted/recursion-b", EntersTheCycleAtBTwice);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
@@ -490,6 +502,9 @@ public sealed class KernelClockActReadArchTests
         // One branch assigns the act's clock, the other the service's own.
         private static IResult ReadsABranchMergedClock(PlantedService service, TimeProvider time, bool flag) =>
             Results.Ok(service.EitherWindow(flag, time));
+
+        private static IResult ReadsARefSwappedClock(PlantedService service, TimeProvider time) =>
+            Results.Ok(service.SwappedWindow(time));
 
         private static Task FallsBackReadingTwice(HttpContext http)
         {
@@ -571,6 +586,11 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/supplied-or-known", supplied);
             app.MapGet("/planted/conditional", flag ? ReadsTwice : (Func<IResult>)ReadsNothing);
 
+            // A handler local replaced through a ref.
+            Func<IResult> replaced = ReadsNothing;
+            Replace(ref replaced);
+            app.MapGet("/planted/ref-replaced", replaced);
+
             // One arm is a known handler, the other an object field cast back to a delegate.
             app.MapGet("/planted/object-field", flag ? (Func<IResult>)ReadsNothing : (Func<IResult>)Holder.Handler);
             return unrelated;
@@ -579,6 +599,8 @@ public sealed class KernelClockActReadArchTests
         private static IResult ReadsTwice() => Results.Ok(TimeProvider.System.GetUtcNow() - TimeProvider.System.GetUtcNow());
 
         private static IResult ReadsNothing() => Results.Ok();
+
+        private static void Replace(ref Func<IResult> handler) => handler = ReadsTwice;
 
         private static class Holder
         {
@@ -638,6 +660,15 @@ public sealed class KernelClockActReadArchTests
             var chosen = flag ? actClock : clock;
             return chosen.GetUtcNow() - chosen.GetUtcNow();
         }
+
+        public TimeSpan SwappedWindow(TimeProvider actClock)
+        {
+            var current = clock;
+            Swap(ref current, actClock);
+            return current.GetUtcNow() - current.GetUtcNow();
+        }
+
+        private static void Swap(ref TimeProvider target, TimeProvider value) => target = value;
 
         public TimeSpan EitherWindow(bool flag, TimeProvider actClock)
         {
