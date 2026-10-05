@@ -111,7 +111,7 @@ export function readBoundaryTail(file) {
 
 export function compareMeasurements(results) {
   if (results.length !== 3 || results.map(row => row.mode).join(',') !== 'cold,warm,forcedmiss'
-    || results.some(row => row.fullBuild?.passed !== true || row.validationReused !== false
+    || results.some(row => row.fullBuild?.passed !== true || row.fullBuild?.diagnosticOnly === true || row.validationReused !== false
       || !Number.isFinite(row.totalMs) || row.totalMs <= 0)
     || results[0].route !== 'fresh' || results[1].route !== 'cached'
     || results[2].route !== 'fresh' || results[2].cacheState !== 'miss'
@@ -122,6 +122,37 @@ export function compareMeasurements(results) {
     coldConsumerMs: results[0].totalMs - (results[0].timings?.cacheUploadMs || 0),
     improvementPercent: 100 * (results[0].totalMs - (results[0].timings?.cacheUploadMs || 0) - results[1].totalMs)
       / (results[0].totalMs - (results[0].timings?.cacheUploadMs || 0))}
+}
+
+// A smaller causal probe uses the same fresh handoff and required boundary runner,
+// but deliberately omits the full host/capability suites. It can never qualify measurement work.
+export function runBoundaryDiagnostic({execute, clone, scratch, env, head}) {
+  const stages = []
+  let stage
+  const run = (id, command, args) => {
+    stage = id
+    const started = performance.now()
+    try {
+      execute(command, args, {cwd: clone, env})
+      stages.push({id, passed: true, durationMs: performance.now() - started, exitCode: 0})
+    } catch (error) {
+      stages.push({id, passed: false, durationMs: performance.now() - started,
+        ...(Number.isInteger(error?.status) ? {exitCode: error.status} : {})})
+      throw error
+    }
+  }
+  try {
+    run('preflight', process.execPath, ['eng/verify-preflight.mjs'])
+    run('platform-feed-materialization', process.execPath, ['eng/exact-clone-platform-feed.mjs', clone, scratch])
+    run('boundary-check', 'bash', ['eng/verify-boundaries.sh'])
+    return {passed: false, diagnosticOnly: true, boundaryPassed: true, stages}
+  } catch (error) {
+    try {
+      error.benchmarkDiagnostics = benchmarkDiagnostics(head, {apiCommit: head, status: 'FAIL', steps: stages}, '',
+        stage === 'boundary-check' ? error?.stdout ?? '' : '')
+    } catch {}
+    throw error
+  }
 }
 
 export function benchmarkWork(proof, inventory, head) {
@@ -146,6 +177,9 @@ export function benchmarkWork(proof, inventory, head) {
 
 export async function benchmark(platform, env = process.env) {
   const pair = env.BENCHMARK_PAIR
+  if (env.BENCHMARK_BOUNDARY_DIAGNOSTIC !== undefined && !['true', 'false'].includes(env.BENCHMARK_BOUNDARY_DIAGNOSTIC))
+    throw new Error('unsupported boundary diagnostic mode')
+  const diagnosticOnly = env.BENCHMARK_BOUNDARY_DIAGNOSTIC === 'true'
   if (process.platform !== 'linux' || Number(process.versions.node.split('.')[0]) !== 24
     || !/^[1-3]$/.test(pair || '') || !/^[1-9][0-9]{0,19}$/.test(env.GITHUB_RUN_ID || '')
     || !/^[1-9][0-9]{0,9}$/.test(env.GITHUB_RUN_ATTEMPT || '')
@@ -167,17 +201,18 @@ export async function benchmark(platform, env = process.env) {
     throw new Error('benchmark common setup timing unavailable')
   execute('docker', ['pull', '--platform=linux/amd64', profile.image])
   const commonSetupMs = Date.now() - setupStarted
-  const cache = benchmarkCache(env)
+  const cache = diagnosticOnly ? {put: () => {}} : benchmarkCache(env)
   const destination = path.join(root, '.claude/platform-feed-benchmark/evidence.json')
   mkdirSync(path.dirname(destination), {recursive: true})
   const evidence = {schemaVersion: 1, apiCommit: head, sdk, node: process.version, image: profile.image,
     runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT,
-    pair: Number(pair), commonSetupMs, results: [], reuseAuthorized: false, verdictReused: false,
-    scope: 'controlled disposable transport measurement; production authority remains unqualified'}
+    pair: Number(pair), commonSetupMs, results: [], reuseAuthorized: false, verdictReused: false, diagnosticOnly,
+    scope: diagnosticOnly ? 'boundary diagnostic only; full host/capability suites and cache-service operations omitted'
+      : 'controlled disposable transport measurement; production authority remains unqualified'}
   const record = () => writeFileSync(destination, `${JSON.stringify(evidence, null, 2)}\n`)
   let digest
   try {
-    for (const mode of ['cold', 'warm', 'forcedmiss']) {
+    for (const mode of diagnosticOnly ? ['cold'] : ['cold', 'warm', 'forcedmiss']) {
       let prepared, handoff, clone
       const scratch = mkdtempSync(path.join(env.RUNNER_TEMP || tmpdir(), 'api-feed-benchmark-'))
       try {
@@ -202,6 +237,7 @@ export async function benchmark(platform, env = process.env) {
               DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER: '1', UseSharedCompilation: 'false',
               HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: transfer.path,
               HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256: transfer.sha256}
+            if (diagnosticOnly) return runBoundaryDiagnostic({execute, clone, scratch, env: buildEnv, head})
             try {
               execute(process.execPath, ['eng/verify-preflight.mjs'], {cwd: clone, env: buildEnv})
               execute(process.execPath, ['eng/run-exact-clone.mjs', '--record', '--host-baseline',
@@ -233,6 +269,7 @@ export async function benchmark(platform, env = process.env) {
         rmSync(scratch, {recursive: true, force: true})
       }
     }
+    if (diagnosticOnly) {evidence.completed = true; record(); return evidence}
     evidence.measurement = compareMeasurements(evidence.results)
     const cold = evidence.measurement.coldConsumerMs + commonSetupMs
     const warm = evidence.measurement.warmMs + commonSetupMs

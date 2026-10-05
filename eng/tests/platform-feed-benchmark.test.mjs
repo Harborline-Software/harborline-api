@@ -3,7 +3,7 @@ import test from 'node:test'
 import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, failureIdentity, measureCase, readBoundaryTail} from '../platform-feed-benchmark.mjs'
+import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, failureIdentity, measureCase, readBoundaryTail, runBoundaryDiagnostic} from '../platform-feed-benchmark.mjs'
 import {benchmarkCache} from '../platform-feed-benchmark-cache.mjs'
 
 const input = {source: 'literal source identity'}
@@ -118,6 +118,37 @@ test('actual boundary capture bounds the disk read and marks partial evidence', 
 const rows = () => ['cold', 'warm', 'forcedmiss'].map((mode, index) => ({mode, route: index === 1 ? 'cached' : 'fresh',
   cacheState: index === 2 ? 'miss' : 'hit', inputFingerprint: 'literal-input', totalMs: [100, 110, 120][index],
   validationReused: false, fullBuild: {passed: true, workDigest: 'literal-full-work'}}))
+test('smaller boundary diagnostic materializes the fresh handoff and runs mandatory boundaries without qualifying full work', () => {
+  const calls = [], env = {literal: 'environment'}, head = 'a'.repeat(40)
+  const execute = (command, args, options) => {calls.push({command, args, options}); return ''}
+  const result = runBoundaryDiagnostic({execute, clone: 'literal-clone', scratch: 'literal-scratch', env, head})
+  assert.deepEqual(calls.map(row => [row.command, row.args]), [
+    [process.execPath, ['eng/verify-preflight.mjs']],
+    [process.execPath, ['eng/exact-clone-platform-feed.mjs', 'literal-clone', 'literal-scratch']],
+    ['bash', ['eng/verify-boundaries.sh']]])
+  for (const row of calls) assert.deepEqual(row.options, {cwd: 'literal-clone', env})
+  assert.equal(result.passed, false); assert.equal(result.diagnosticOnly, true); assert.equal(result.boundaryPassed, true)
+  assert.equal(Object.hasOwn(result, 'workDigest'), false)
+  const data = rows(); data[1].fullBuild.diagnosticOnly = true
+  assert.throws(() => compareMeasurements(data), /controls incomplete/)
+})
+
+test('smaller boundary diagnostic preserves the constituent failure and bounded safe test identities', () => {
+  for (const thrown of [Object.assign(new Error('private-value'), {status: 1,
+    stdout: 'not ok 1 - actual boundary title\nhttps://private.example/?token=private-value'}), null, undefined]) {
+    let calls = 0, caught = false
+    const execute = () => {if (++calls === 3) throw thrown}
+    try {runBoundaryDiagnostic({execute, clone: 'literal-clone', scratch: 'literal-scratch', env: {}, head: 'a'.repeat(40)})}
+    catch (actual) {caught = true; assert.equal(actual, thrown)}
+    assert.equal(caught, true); assert.equal(calls, 3)
+    if (thrown) {
+      assert.deepEqual(thrown.benchmarkDiagnostics.stages.map(row => [row.id, row.passed]), [
+        ['preflight', true], ['platform-feed-materialization', true], ['boundary-check', false]])
+      assert.deepEqual(thrown.benchmarkDiagnostics.boundary.failedTests.map(row => row.display), ['actual boundary title'])
+      assert.doesNotMatch(JSON.stringify(thrown.benchmarkDiagnostics), /private-value|private\.example/)
+    }
+  }
+})
 test('measurement refuses missing hits, fallback misses, changed inputs/work and reused verdicts; negative benefit remains negative', () => {
   assert.deepEqual(compareMeasurements(rows()), {coldMs: 100, coldConsumerMs: 100, warmMs: 110, forcedMissMs: 120, improvementPercent: -10})
   const seeded = rows(); seeded[0].timings = {cacheUploadMs: 20}
@@ -191,7 +222,9 @@ test('actual workflow restricts benchmark writers to manual dispatch and runs th
   const workflow = readFileSync(new URL('../../.github/workflows/platform-feed-qualification.yml', import.meta.url), 'utf8')
   const job = workflow.slice(workflow.indexOf('  benchmark-linux:'))
   assert.match(job, /if: github.event_name == 'workflow_dispatch' && inputs.benchmark/)
-  assert.match(job, /pair: \[1, 2, 3\]/)
+  assert.ok(job.includes("pair: ${{ inputs.boundary_diagnostic && fromJSON('[1]') || fromJSON('[1,2,3]') }}"))
+  assert.match(workflow, /boundary_diagnostic:\n\s+description: [^\n]+\n\s+type: boolean\n\s+default: false/)
+  assert.ok(job.includes('BENCHMARK_BOUNDARY_DIAGNOSTIC: ${{ inputs.boundary_diagnostic }}'))
   assert.match(job, /cache-mode: write/)
   assert.doesNotMatch(job, /github\.event\.pull_request|secrets\.|GH_TOKEN|GITHUB_TOKEN|@v[0-9]/)
   assert.match(job, /persist-credentials: false/)

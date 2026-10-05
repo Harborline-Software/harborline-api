@@ -6,6 +6,10 @@ on:
         description: Run three full cold/warm/forced-miss measurement pairs using disposable entries
         type: boolean
         default: false
+      boundary_diagnostic:
+        description: With benchmark enabled, run one boundary diagnostic without full suites or cache-service operations
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/platform-feed-qualification.yml'
@@ -63,9 +67,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pair: [1, 2, 3]
+        pair: ${{ inputs.boundary_diagnostic && fromJSON('[1]') || fromJSON('[1,2,3]') }}
     env:
       BENCHMARK_PAIR: ${{ matrix.pair }}
+      BENCHMARK_BOUNDARY_DIAGNOSTIC: ${{ inputs.boundary_diagnostic }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
     steps:
       - name: Start common setup clock
