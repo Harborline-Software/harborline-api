@@ -32,7 +32,7 @@ public sealed class MalformedSelectedSessionMaterializationTests
             new AccountSetupInvitationIssueRequest(
                 Fixture.TenantId,
                 ["records:read"],
-                "account-setup-two-pin")));
+                "account-setup-two-pin"), Now));
 
         Assert.Equal(HttpStatusCode.Unauthorized, status);
         await using var identity = fixture.IdentityFactory.CreateDbContext();
@@ -205,8 +205,7 @@ public sealed class MalformedSelectedSessionMaterializationTests
                 partyReader,
                 rosterReader,
                 accountSetupStore,
-                TestAuthorization.AllowGate(),
-                clock);
+                TestAuthorization.AllowGate());
             var adminGrantStore = TestInMemoryAuthorizationStores.GrantStore();
             var adminAuthority = new AdminTeamAccessAuthority(
                 sessionFactory,

@@ -43,7 +43,6 @@ internal sealed class AccountSetupInvitationIssuer(
     IVerifiedTenantRosterReader rosterReader,
     AccountSetupInvitationStore store,
     AuthorizationGate gate,
-    TimeProvider timeProvider,
     AuthorizationRefusalAudit? refusalAudit = null,
     IRoleVocabularyReader? roles = null,
     IAuthorizationDefinitionAtomReader? roleDefinitions = null) : IAccountSetupInvitationIssuer
@@ -68,10 +67,7 @@ internal sealed class AccountSetupInvitationIssuer(
         store ?? throw new ArgumentNullException(nameof(store));
     private readonly AuthorizationGate _gate =
         gate ?? throw new ArgumentNullException(nameof(gate));
-    private readonly TimeProvider _timeProvider =
-        timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-
-    internal DateTimeOffset CurrentInstant => _timeProvider.GetUtcNow();
+    // T-1057: no clock. An invitation is dated from the issuing act's authority (authority.At).
 
     public async Task<AccountSetupInvitationIssueResult?> IssueAsync(
         string selectedSessionHandle,

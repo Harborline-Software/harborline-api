@@ -54,12 +54,14 @@ public static class AccountingPeriodRoutes
 
     /// <summary>
     /// Maps the accounting-period routes onto <paramref name="app"/>, closing over the
-    /// <paramref name="service"/> from the outer host container.
+    /// <paramref name="service"/> from the outer host container. Each write act reads <paramref name="time"/> once
+    /// and hands that instant to the service, which holds no clock (T-1057, ck-9).
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, NodeAccountingPeriodService service)
+    public static void Map(IEndpointRouteBuilder app, NodeAccountingPeriodService service, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(time);
 
         // GET /api/local-node/accounting-periods
         app.MapGet(RouteBase, async (CancellationToken ct) =>
@@ -86,9 +88,8 @@ public static class AccountingPeriodRoutes
                 }
                 date = parsed;
             }
-            // An omitted date defaults inside the service from the host clock (T-909 ck-9).
-
-            var result = await service.OpenForDateAsync(date, ct).ConfigureAwait(false);
+            // The act's one clock read: it stamps the write, and an omitted date is its UTC day (T-909, T-1057 ck-9).
+            var result = await service.OpenForDateAsync(date, time.GetUtcNow(), ct).ConfigureAwait(false);
             return result.Outcome switch
             {
                 NodeAccountingPeriodService.Outcome.Ok =>
@@ -105,7 +106,7 @@ public static class AccountingPeriodRoutes
         app.MapPost($"{RouteBase}/{{id}}/close", async (
             string id, ClosePeriodRequest? body, CancellationToken ct) =>
         {
-            var result = await service.CloseAsync(id, @lock: body?.Lock ?? false, ct).ConfigureAwait(false);
+            var result = await service.CloseAsync(id, @lock: body?.Lock ?? false, time.GetUtcNow(), ct).ConfigureAwait(false);
             return result.Outcome switch
             {
                 NodeAccountingPeriodService.Outcome.Ok =>

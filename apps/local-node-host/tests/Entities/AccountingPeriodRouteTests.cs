@@ -35,6 +35,7 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private string _dir = null!;
+    private IDbContextFactory<LocalNodeDbContext> _factory = null!;
 
     public async Task InitializeAsync()
     {
@@ -61,7 +62,7 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
 
         _app = builder.Build();
 
-        var factory = _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+        var factory = _factory = _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
         await using (var ctx = await factory.CreateDbContextAsync())
         {
             await ctx.Database.EnsureCreatedAsync();
@@ -77,7 +78,7 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
             new Data.Entities.NodeEntityWriter(factory, Harborline.Api.Foundation.Assets.Entities.NullEntityValidator.Instance, Authorization.TestAuthorization.AllowGate()),
             TimeProvider.System);
         ChartOfAccountsRoutes.Map(deviceReachable, factory, NodeTestActiveTeam.Accessor, TimeProvider.System);
-        AccountingPeriodRoutes.Map(deviceReachable, new NodeAccountingPeriodService(factory, TimeProvider.System));
+        AccountingPeriodRoutes.Map(deviceReachable, new NodeAccountingPeriodService(factory), TimeProvider.System);
 
         await _app.StartAsync();
 
@@ -106,6 +107,24 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
         var entityId = (await entResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
         var seedResp = await _client.PostAsJsonAsync(SeedRoute, new { entityId, templateId = "rental-real-estate" });
         seedResp.EnsureSuccessStatusCode();
+    }
+
+    [Fact(DisplayName = "T-1057 ck-9: the period service holds no clock; it dates the open and the close with the instants its acts hand it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task The_period_service_is_dated_by_its_acts()
+    {
+        await SeedChartAsync();
+        var service = new NodeAccountingPeriodService(_factory);
+
+        // An omitted date is the act instant's UTC day; the created period is stamped with that instant.
+        var opened = await service.OpenForDateAsync(null, new DateTimeOffset(2020, 2, 15, 12, 0, 0, TimeSpan.Zero));
+        Assert.Equal(NodeAccountingPeriodService.Outcome.Ok, opened.Outcome);
+        Assert.Equal("2020-02", opened.Period!.Label);
+        Assert.Equal(new DateTimeOffset(2020, 2, 15, 12, 0, 0, TimeSpan.Zero), opened.Period.CreatedAtUtc.Value);
+
+        var closed = await service.CloseAsync(opened.Period.Id.Value, @lock: false, new DateTimeOffset(2020, 3, 2, 9, 30, 0, TimeSpan.Zero));
+        Assert.Equal(NodeAccountingPeriodService.Outcome.Ok, closed.Outcome);
+        Assert.Equal(new DateTimeOffset(2020, 3, 2, 9, 30, 0, TimeSpan.Zero), closed.Period!.SoftClosedAtUtc!.Value.Value);
     }
 
     [Fact(DisplayName = "Periods list: pre-seed returns empty list + null chartId (renders offline pre-onboarding)")]

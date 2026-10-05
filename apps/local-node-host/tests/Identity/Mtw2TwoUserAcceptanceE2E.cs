@@ -985,7 +985,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var invitationIssuer = new AccountSetupInvitationIssuer(
                 sessionFactory, selectedSessionStore, identityFactory, searchStore.Factory,
                 partyReader, rosterReader,
-                invitationStore, liveGate, time);
+                invitationStore, liveGate);
             var partyBindingMinter = new RecordingPartyBindingMinter();
 
             var minterServices = new ServiceCollection();

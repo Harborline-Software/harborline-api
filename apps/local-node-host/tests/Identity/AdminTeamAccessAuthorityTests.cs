@@ -1137,7 +1137,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
                 new NodeAuthorizationRosterConstraintReader(partyReader, new FixedRosterReader(roster)));
             var issuer = new AccountSetupInvitationIssuer(
                 sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
-                new FixedRosterReader(roster), store, grantDerivedGate, new FixedTimeProvider(Now));
+                new FixedRosterReader(roster), store, grantDerivedGate);
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
             grantAudit ??= new InMemoryAuditTrail();
