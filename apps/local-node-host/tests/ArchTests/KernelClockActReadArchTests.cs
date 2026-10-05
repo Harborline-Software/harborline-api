@@ -74,7 +74,7 @@ public sealed class KernelClockActReadArchTests
         // One graph over every planted handler, as in production, so the route objects are known to every act.
         var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
-        Assert.Equal(42, reads.Count);
+        Assert.Equal(43, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -102,6 +102,7 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockViaALocal", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughADelegate", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughChainedLocals", StringComparison.Ordinal)).Value);
+        Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughAnAssignedReceiver", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandsTheClockOnAsAnObject", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByASuppliedType", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ResolvesTheClockByTypeTwice", StringComparison.Ordinal)).Value);
@@ -403,30 +404,28 @@ public sealed class KernelClockActReadArchTests
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
             var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
             var injectedLocals = InjectedLocals(method, code, joins, routeTypes);
-            var injectedReceiver = false;
+            var copies = new ClockCopies(joins);
             foreach (var (offset, opCode, operand) in code)
             {
                 if (opCode.OperandType != OperandType.InlineMethod)
                 {
                     if (opCode.OperandType == OperandType.InlineField && ResolveField(method, operand) is { IsStatic: true } staticField)
                         AddInitializer(initializers, staticField.DeclaringType);
-                    // `dup` copies the value on top, so the copy keeps its provenance unless the dup sits at a join
-                    // (`Func<DateTimeOffset> read = _clock.GetUtcNow;` emits ldfld; dup; ldvirtftn; newobj).
-                    injectedReceiver = opCode == OpCodes.Dup
-                        ? injectedReceiver && !joins.Contains(offset)
-                        : ProducesInjectedClock(method, opCode, operand, routeTypes)
-                            || (IsLoadLocal(opCode) && injectedLocals.Contains(operand));
+                    copies.Step(offset, opCode, ProducesInjectedClock(method, opCode, operand, routeTypes)
+                        || (IsLoadLocal(opCode) && injectedLocals.Contains(operand)));
                     continue;
                 }
-                var receiver = injectedReceiver && !joins.Contains(offset);
+                // A parameterless read's receiver is the value on top: `Func<DateTimeOffset> read = _clock.GetUtcNow;`
+                // is ldfld; dup; ldvirtftn, and `(local = _clock).GetUtcNow()` is ldfld; dup; stloc; callvirt.
+                var receiver = copies.TopIsClock(offset);
                 if (Resolve(method, operand) is not { } target)
                 {
-                    injectedReceiver = false;
+                    copies.Step(offset, opCode, false);
                     continue;
                 }
                 if (target.IsStatic || target.IsConstructor)
                     AddInitializer(initializers, target.DeclaringType);
-                injectedReceiver = IsInjectedClockGetter(target, routeTypes);
+                copies.Step(offset, opCode, IsInjectedClockGetter(target, routeTypes));
                 if (IsWallClockRead(target) || (IsClockRead(target) && !receiver))
                 {
                     var site = $"{Name(target)} in {Name(method)}+IL_{offset:x4}";
@@ -453,6 +452,37 @@ public sealed class KernelClockActReadArchTests
     }
 
     /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
+    /// <summary>
+    /// Whether the values a straight run leaves on top of the evaluation stack are the service's injected clock: an
+    /// injected-clock load pushes one, each <c>dup</c> copies the top, each local store pops one. Any other
+    /// instruction, or a join point (where values merged from several paths meet), forgets them all.
+    /// </summary>
+    private sealed class ClockCopies(HashSet<int> joins)
+    {
+        private readonly Stack<bool> _copies = new();
+
+        /// <summary>Whether the value on top, before the instruction at <paramref name="offset"/>, is the injected clock.</summary>
+        internal bool TopIsClock(int offset) => !joins.Contains(offset) && _copies.TryPeek(out var top) && top;
+
+        /// <summary>Steps over one instruction; for a local store, returns whether the value it popped was the clock.</summary>
+        internal bool? Step(int offset, OpCode opCode, bool pushesClock)
+        {
+            if (joins.Contains(offset))
+                _copies.Clear();
+            if (IsStoreLocal(opCode))
+                return _copies.TryPop(out var popped) && popped;
+            if (opCode == OpCodes.Dup && _copies.TryPeek(out var top))
+            {
+                _copies.Push(top);
+                return null;
+            }
+            _copies.Clear();
+            if (pushesClock)
+                _copies.Push(true);
+            return null;
+        }
+    }
+
     private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand, IReadOnlySet<Type> routeTypes) =>
         opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand), method.DeclaringType, routeTypes);
 
@@ -468,28 +498,14 @@ public sealed class KernelClockActReadArchTests
     {
         var injected = new HashSet<int>();
         var other = new HashSet<int>();
-        // The provenance of the values a straight run leaves on top of the stack: an injected-clock load pushes one,
-        // each dup copies the top, each store pops one (`first = second = _clock;` is ldfld; dup; stloc; stloc).
-        // Any other instruction, or a join point, forgets them all.
-        var copies = new Stack<bool>();
+        // `first = second = _clock;` is ldfld; dup; stloc; stloc: both stores pop the field's value.
+        var copies = new ClockCopies(joins);
         foreach (var (offset, opCode, operand) in code)
         {
-            if (joins.Contains(offset))
-                copies.Clear();
-            if (IsStoreLocal(opCode))
-            {
-                (copies.TryPop(out var fromClock) && fromClock ? injected : other).Add(operand);
-                continue;
-            }
-            if (opCode == OpCodes.Dup && copies.TryPeek(out var top))
-            {
-                copies.Push(top);
-                continue;
-            }
-            copies.Clear();
-            if (ProducesInjectedClock(method, opCode, operand, routeTypes)
-                || (opCode.OperandType == OperandType.InlineMethod && Resolve(method, operand) is { } source && IsInjectedClockGetter(source, routeTypes)))
-                copies.Push(true);
+            var pushesClock = ProducesInjectedClock(method, opCode, operand, routeTypes)
+                || (opCode.OperandType == OperandType.InlineMethod && Resolve(method, operand) is { } source && IsInjectedClockGetter(source, routeTypes));
+            if (copies.Step(offset, opCode, pushesClock) is { } fromClock)
+                (fromClock ? injected : other).Add(operand);
         }
         injected.ExceptWith(other);
         injected.RemoveWhere(local => AddressTaken(code, local)); // a ref to it can swap the clock out of sight
@@ -664,6 +680,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/service-local", UsesAServiceOwnClockViaALocal);
             app.MapGet("/planted/service-delegate", UsesAServiceOwnClockThroughADelegate);
             app.MapGet("/planted/service-chained-locals", UsesAServiceOwnClockThroughChainedLocals);
+            app.MapGet("/planted/service-assigned-receiver", UsesAServiceOwnClockThroughAnAssignedReceiver);
             app.MapGet("/planted/container-getter", ReadsAContainerClockThroughAGetter);
             app.MapGet("/planted/branch-merged", ReadsABranchMergedClock);
             app.MapGet("/planted/ternary-merged", ReadsATernaryMergedClock);
@@ -729,6 +746,9 @@ public sealed class KernelClockActReadArchTests
 
         // `first = second = _clock;`: two locals stored from one load through a dup (ldfld; dup; stloc; stloc).
         private static IResult UsesAServiceOwnClockThroughChainedLocals(PlantedService service) => Results.Ok(service.ChainedWindow());
+
+        // `(local = _clock).GetUtcNow()`: the store pops the dup, and the field's value stays the receiver.
+        private static IResult UsesAServiceOwnClockThroughAnAssignedReceiver(PlantedService service) => Results.Ok(service.AssignedReceiverWindow());
 
         // The getter touches the injected field but returns the request container's clock.
         private static IResult ReadsAContainerClockThroughAGetter(PlantedService service) =>
@@ -1024,6 +1044,12 @@ public sealed class KernelClockActReadArchTests
         {
             var own = clock;
             return own.GetUtcNow() - own.GetUtcNow();
+        }
+
+        public TimeSpan AssignedReceiverWindow()
+        {
+            TimeProvider local;
+            return (local = clock).GetUtcNow() - (local = clock).GetUtcNow();
         }
 
         public TimeSpan ChainedWindow()
