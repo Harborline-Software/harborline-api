@@ -139,7 +139,7 @@ public sealed class DefinitionWritePipelineTests
         var exception = await Assert.ThrowsAsync<PackProjectionAuthorityException>(() =>
             h.Lifecycle.PublishAsync(draft, Replayed("vendor-b", Tenant)).AsTask());
 
-        Assert.Equal(PackProjectionAuthorityCodes.SourceMismatch, exception.Code);
+        Assert.Equal("pack.projection.authority.source_mismatch", exception.Code);
         Assert.Equal([WritePipelineStage.Authorize], h.TakeStages());
         Assert.Equal(FormDefinitionStatus.Draft, (await h.Store.GetAsync(Coordinates(draft.Id.Value))).Status);
     }
@@ -153,7 +153,7 @@ public sealed class DefinitionWritePipelineTests
         var exception = await Assert.ThrowsAsync<PackProjectionAuthorityException>(() =>
             h.Lifecycle.PublishAsync(draft, Replayed("vendor-a", OtherTenant)).AsTask());
 
-        Assert.Equal(PackProjectionAuthorityCodes.TenantMismatch, exception.Code);
+        Assert.Equal("pack.projection.authority.tenant_mismatch", exception.Code);
         Assert.Equal([WritePipelineStage.Authorize], h.TakeStages());
         Assert.Equal(FormDefinitionStatus.Draft, (await h.Store.GetAsync(Coordinates(draft.Id.Value))).Status);
     }
@@ -172,7 +172,7 @@ public sealed class DefinitionWritePipelineTests
                 replayed, PackTarget(draft), Coordinates(draft.Id.Value), DefinitionLifecycleTransition.Publish, At,
                 static (_, _) => ValueTask.CompletedTask, default).AsTask());
 
-        Assert.Equal(PackProjectionAuthorityCodes.TargetMismatch, exception.Code);
+        Assert.Equal("pack.projection.authority.target_mismatch", exception.Code);
         Assert.Equal([WritePipelineStage.Authorize], h.TakeStages());
         Assert.Equal(FormDefinitionStatus.Draft, (await h.Store.GetAsync(Coordinates(draft.Id.Value))).Status);
     }
@@ -186,7 +186,7 @@ public sealed class DefinitionWritePipelineTests
         var exception = await Assert.ThrowsAsync<PackProjectionAuthorityException>(() =>
             h.Lifecycle.RegisterAsync(authored.RootElement, Replayed("vendor-a", OtherTenant)).AsTask());
 
-        Assert.Equal(PackProjectionAuthorityCodes.TenantMismatch, exception.Code);
+        Assert.Equal("pack.projection.authority.tenant_mismatch", exception.Code);
         Assert.Equal([WritePipelineStage.Authorize], h.TakeStages());
         Assert.Empty(await h.Definitions());
     }
@@ -281,7 +281,7 @@ public sealed class DefinitionWritePipelineTests
         Assert.Equal(WorkflowDefinitionStatus.Withdrawn, (await h.Store.GetAsync(Coordinates("approval"))).Status);
     }
 
-    private static AuthorizationWriteContext Context(TenantId tenant) => new(Operator, tenant, At);
+    private static AuthorizationWriteContext Context(TenantId tenant) => new(Operator, tenant, AdmittedInstant.FromRecordedAct(At));
 
     private static DefinitionCoordinates Coordinates(string id) => new(Tenant, id, "1.0.0");
 
@@ -303,7 +303,7 @@ public sealed class DefinitionWritePipelineTests
         var scope = Harborline.Api.Foundation.IdentityAtlas.Permissions.ScopeExpression.Parse($"/records/{packId}");
         var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
             new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
-            Operator, Tenant, new AuthorizationTarget("pack", packId, scope), At));
+            Operator, Tenant, new AuthorizationTarget("pack", packId, scope), AdmittedInstant.FromRecordedAct(At)));
         return new PackProjectionAuthority(decision, packId, "1.0.0", Tenant, Operator, At);
     }
 
