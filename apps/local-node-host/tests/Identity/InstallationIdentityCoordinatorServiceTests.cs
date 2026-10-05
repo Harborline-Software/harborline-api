@@ -1002,8 +1002,7 @@ public sealed class InstallationIdentityCoordinatorServiceTests
                 new EncryptedTenantMembershipAuthorityStore(
                     store,
                     tenantId,
-                    new InstallationIdentityHomeDecisionAuthority(homeFactory),
-                    new FixedTimeProvider(FixedNow)));
+                    new InstallationIdentityHomeDecisionAuthority(homeFactory)));
         }
 
         public async ValueTask DisposeAsync()

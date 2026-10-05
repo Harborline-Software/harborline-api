@@ -943,8 +943,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var membershipAuthorityStore = new EncryptedTenantMembershipAuthorityStore(
                 membershipStore,
                 canonicalTenantId,
-                new InstallationIdentityHomeDecisionAuthority(identityFactory),
-                time);
+                new InstallationIdentityHomeDecisionAuthority(identityFactory));
             var partition = new TenantIdentityAuthorityPartition(
                 canonicalTenantId, membershipAuthorityStore, new AlwaysLeaseCoordinator());
             var partitionResolver = new FixturePartitionResolver(partition);

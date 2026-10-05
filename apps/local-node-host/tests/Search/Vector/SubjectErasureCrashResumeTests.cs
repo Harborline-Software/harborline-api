@@ -91,7 +91,7 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
         await ExecuteAsync("CREATE TRIGGER ck6_fault BEFORE INSERT ON search_subject_tombstones BEGIN SELECT RAISE(ABORT, 'ck6'); END;");
         await Assert.ThrowsAnyAsync<Exception>(() => DurableService(_store).EraseAsync(Request()));
         await ExecuteAsync("DROP TRIGGER ck6_fault;");
-        Assert.True(await new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System).IsErasedAsync(Tenant, Alice));
+        Assert.True(await new NodeEfSubjectErasureRegistry(_store.Factory).IsErasedAsync(Tenant, Alice));
         Assert.Empty(await DurableErasedAuditsAsync(_store));
 
         // The process is gone. A new host opens the same file and the erasure request is retried, twice.
@@ -112,14 +112,14 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
 
         await Assert.ThrowsAsync<SubjectErasureRejectedException>(() => DurableService(_store).EraseAsync(single));
 
-        Assert.False(await new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System).IsErasedAsync(Tenant, Alice));
+        Assert.False(await new NodeEfSubjectErasureRegistry(_store.Factory).IsErasedAsync(Tenant, Alice));
         Assert.Empty(await DurableErasedAuditsAsync(_store));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private SubjectErasureService Service() => new(
-        new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System),
+        new NodeEfSubjectErasureRegistry(_store.Factory),
         new NodeEfSubjectTombstoneStore(_store.Factory),
         _trail,
         new Ed25519Signer(KeyPair.Generate()),
@@ -129,7 +129,7 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
         propagators: [_propagator]);
 
     private SubjectErasureService DurableService(SearchTestStore store) => new(
-        new NodeEfSubjectErasureRegistry(store.Factory, TimeProvider.System),
+        new NodeEfSubjectErasureRegistry(store.Factory),
         new NodeEfSubjectTombstoneStore(store.Factory),
         new NodeAuditTrailStore(store.Factory),
         new Ed25519Signer(KeyPair.Generate()),
