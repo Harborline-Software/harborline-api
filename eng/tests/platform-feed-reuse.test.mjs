@@ -135,7 +135,7 @@ test('actual restore consumption binds package archives and selected/extracted b
 
 const run = () => ({id: 123, run_attempt: 1, repository: {full_name: repo}, head_repository: {full_name: repo},
   path: '.github/workflows/platform-feed-producer.yml', head_branch: 'main', head_sha: 'a'.repeat(40),
-  event: 'schedule', status: 'completed', conclusion: 'success', run_started_at: '2026-10-03T10:00:00Z'})
+  event: 'workflow_dispatch', status: 'completed', conclusion: 'success', run_started_at: '2026-10-03T10:00:00Z'})
 const job = () => ({name: 'produce-linux', run_id: 123, run_attempt: 1, status: 'completed', conclusion: 'success',
   started_at: '2026-10-03T10:01:00Z', completed_at: '2026-10-03T10:10:00Z',
   steps: [{name: 'Build isolated feed', status: 'completed', conclusion: 'success'}]})
@@ -188,7 +188,7 @@ test('profile, image, SDK, history, restore bytes and producer changes deny a ma
 
 test('foreign, PR, failed, skipped, expired, old-attempt and unbound producer evidence is denied before unpack', async () => {
   const mutations = [s => {s.run.repository.full_name = 'attacker/repo'}, s => {s.run.head_repository.full_name = 'attacker/repo'},
-    s => {s.run.event = 'pull_request'}, s => {s.run.path = '.github/workflows/verify.yml'}, s => {s.run.head_branch = 'feature'},
+    s => {s.run.event = 'pull_request'}, s => {s.run.event = 'schedule'}, s => {s.run.event = 'push'}, s => {s.run.path = '.github/workflows/verify.yml'}, s => {s.run.head_branch = 'feature'},
     s => {s.run.conclusion = 'failure'}, s => {s.job.conclusion = 'skipped'}, s => {s.job.steps[0].conclusion = 'cancelled'},
     s => {s.artifact.expired = true}, s => {s.artifact.workflow_run.head_sha = 'f'.repeat(40)},
     s => {s.bytes = Buffer.from('changed archive')}, s => {s.run.run_attempt = 2},
@@ -410,11 +410,12 @@ test('real container planner isolates mounts, independently restores every proje
   assert.throws(() => platformIdentity(platform, selectedPin), /clean/)
 })
 
-test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer and a fixed dependency-only upload', () => {
+test('workflow keeps every fresh API gate, dormant Linux prototype, read-only producer and a fixed dependency-only upload', () => {
   const root = path.resolve(import.meta.dirname, '../..')
   const workflow = readFileSync(path.join(root, '.github/workflows/platform-feed-producer.yml'), 'utf8')
   assert.match(workflow, /contents: read/)
-  assert.match(workflow, /paths:[\s\S]*?['"]\.github\/workflows\/verify\.yml['"]/)
+  assert.match(workflow, /workflow_dispatch:/)
+  assert.equal(/schedule:|push:/.test(workflow), false)
   assert.equal(/(?:contents|actions|checks|packages|id-token): write/.test(workflow), false)
   assert.equal(/pull_request:|pull_request_target:/.test(workflow), false)
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/)
@@ -431,8 +432,9 @@ test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer 
   assert.match(action, /"\$FEED_NODE" eng\/build-local-feed\.mjs/)
   assert.match(action, /"\$FEED_NODE" eng\/same-job-platform-feed\.mjs build/)
   const verify = readFileSync(path.join(root, '.github/workflows/verify.yml'), 'utf8')
-  assert.equal((verify.match(/cross-run-reuse: 'true'/g) ?? []).length, 1)
-  assert.match(verify.slice(verify.indexOf('  verify-linux:'), verify.indexOf('  verify-windows:')), /cross-run-reuse: 'true'/)
+  assert.equal((verify.match(/(?:cross-run-reuse|same-job-handoff): 'true'/g) ?? []).length, 0)
+  assert.match(action, /cross-run-reuse:[\s\S]*?default: 'false'/)
+  assert.match(action, /same-job-handoff:[\s\S]*?default: 'false'/)
   assert.match(verify.slice(verify.indexOf('  verify-linux:'), verify.indexOf('  verify-windows:')),
     /uses: Harborline-Software\/harborline-api\/\.github\/actions\/platform-feed@main/)
   assert.match(verify, /run: bash eng\/verify\.sh/)

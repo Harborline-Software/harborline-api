@@ -54,7 +54,7 @@ export function reuseProblems({expected, observed, run, job, artifact, archive, 
   if (trustedDefinitionsMatch !== true || sourceOnProtectedMain !== true) problems.push('producer is not reviewed protected-main code')
   if (run?.repository?.full_name !== repository || run?.head_repository?.full_name !== repository
     || run?.path !== '.github/workflows/platform-feed-producer.yml' || run?.head_branch !== 'main'
-    || !['schedule', 'workflow_dispatch', 'push'].includes(run?.event)
+    || run?.event !== 'workflow_dispatch'
     || run?.status !== 'completed' || run?.conclusion !== 'success') problems.push('untrusted producer run')
   if (job?.name !== 'produce-linux' || job?.run_id !== run?.id || job?.run_attempt !== run?.run_attempt
     || job?.status !== 'completed' || job?.conclusion !== 'success') problems.push('producer job did not pass this attempt')

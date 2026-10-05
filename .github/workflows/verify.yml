@@ -378,9 +378,6 @@ jobs:
       # Credential-bearing verifier and all its imports come from protected main,
       # independently of the pull-request checkout. Candidate API gates still run below.
       - uses: Harborline-Software/harborline-api/.github/actions/platform-feed@main
-        with:
-          cross-run-reuse: 'true'
-          same-job-handoff: 'true'
 
       - name: Use pinned platform
         run: |

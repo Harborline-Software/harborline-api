@@ -9,6 +9,7 @@ import {execFileSync, spawnSync} from 'node:child_process'
 import {existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {evidenceTarget, FAIL_EVIDENCE_RELATIVE, persistStepEvidence} from '../exact-clone-evidence.mjs'
+import {persistInputShadow} from '../validation-inputs.mjs'
 
 const apiRoot = path.resolve(import.meta.dirname, '..', '..')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
@@ -149,17 +150,20 @@ test('runner reporting exceptions retain redacted failed command output before s
     const output = 'FIRST FAILED COMMAND\n' + 'later diagnostic\n'.repeat(30) + 'private-scratch/clone/test\n'
     let cleaned = false
     const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
-      'redactEvidence', 'persistStepEvidence', 'rmSync',
-      'let report; let persisted; const retainScratch = false; try { throw new Error("private-scratch/clone/missing.trx")\n' +
+      'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
+      'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("private-scratch/clone/missing.trx")\n' +
       handler + '\nreturn {report, persisted}')(
       [{id: 'dotnet-build', passed: false, exitCode: 1, fullOutput: output, rawOutput: 'RAW PRIVATE OUTPUT'}],
       'fixture-head', {}, root, 'private-scratch', text => text.replaceAll('private-scratch/clone', '<exact-clone>'),
       persistStepEvidence, () => {
+        assert.equal(JSON.parse(readFileSync(path.join(root, '.claude', 'gate-evidence',
+          'validation-inputs-shadow.json'), 'utf8')).reuseAuthorized, false,
+          'input observation is attempted before scratch cleanup without authorizing reuse')
         assert.equal(readFileSync(path.join(root, '.claude', 'gate-evidence',
           'exact-clone-fixture-head-dotnet-build.log'), 'utf8'),
           'FIRST FAILED COMMAND\n' + 'later diagnostic\n'.repeat(30) + '<exact-clone>/test\n')
         cleaned = true
-      })
+      }, persistInputShadow)
     assert.equal(cleaned, true)
     assert.equal(result.report.status, 'FAIL')
     assert.equal(result.persisted.steps[0].exitCode, 1)
@@ -190,15 +194,15 @@ test('actual tolerated-exit commands retain their output when reports are missin
         assert.equal(steps[0].verdictFrom, 'baseline comparison, not exit code')
         let cleaned = false
         const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
-          'redactEvidence', 'persistStepEvidence', 'rmSync',
-          'let report; let persisted; const retainScratch = false; try { throw new Error("private-scratch/clone/missing-report")\n' +
+          'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
+          'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("private-scratch/clone/missing-report")\n' +
           handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, 'private-scratch', redact,
           persistStepEvidence, () => {
             assert.equal(readFileSync(path.join(root, '.claude', 'gate-evidence',
               `exact-clone-fixture-head-${id}.log`), 'utf8'),
               'REPORTER FAILED AT START\n' + 'later line\n'.repeat(30) + '<exact-clone>/report\nREPORT MISSING\n')
             cleaned = true
-          })
+          }, persistInputShadow)
         assert.equal(cleaned, true)
         assert.equal(result.status, 'FAIL')
         assert.equal(result.steps[0].passed, true, 'diagnostics must not reclassify a provisional verdict')
@@ -268,15 +272,15 @@ test('real empty-output spawn failures retain safe cause metadata and logs befor
       if (kind === 'buffer-error') assert.deepEqual(steps[0].spawnError, {code: 'ENOBUFS', errno: -105})
       let cleaned = false
       const persisted = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
-        'redactEvidence', 'persistStepEvidence', 'rmSync',
-        'let report; let persisted; const retainScratch = false; try { throw new Error("missing report")\n' +
+        'redactEvidence', 'persistStepEvidence', 'rmSync', 'persistInputShadow',
+        'let report; let persisted; const retainScratch = false; const clone = apiRoot; const BASELINES = {host: "fixture"}; const collectCoverage = false; const qualityEnabled = false; const packageRootResolution = {status: "unavailable"}; try { throw new Error("missing report")\n' +
         handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, root, redact, persistStepEvidence, () => {
           const log = readFileSync(path.join(root, '.claude', 'gate-evidence',
             'exact-clone-fixture-head-dotnet-host-tests.log'), 'utf8')
           assert.match(log, kind === 'missing-executable' ? /spawn error:.*ENOENT/ : /termination signal: SIGTERM/)
           assert.doesNotMatch(log, /private-secret/)
           cleaned = true
-        })
+        }, persistInputShadow)
       assert.equal(cleaned, true)
       assert.equal(persisted.status, 'FAIL')
       assert.equal(persisted.steps[0].exitCode, null)

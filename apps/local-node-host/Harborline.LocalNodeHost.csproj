@@ -338,4 +338,5 @@
   </ItemGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/record-construction-inputs.targets" />
 </Project>

@@ -61,6 +61,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 [Collection("Harborline process environment")]
 public sealed class KernelClockIntegrationTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper diagnosticOutput;
+
+    public KernelClockIntegrationTests(Xunit.Abstractions.ITestOutputHelper diagnosticOutput) =>
+        this.diagnosticOutput = diagnosticOutput;
+
     private static readonly DateTimeOffset FrozenAt = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("ticket-216");
     private static readonly ActorId Principal = new("operator");
@@ -348,24 +353,27 @@ public sealed class KernelClockIntegrationTests
         int expectedMemberAudits,
         int expectedCapabilityAudits)
     {
-        var clock = new MutableHostClock(FrozenAt);
-        await using var fixture = await ProductionFixture.CreateAsync(clock);
-        await fixture.PrepareAsync("identity-administration");
-        await fixture.InstallRevocationFaultAsync(faultStep);
+        await SqliteStartupLifecycleProbe.RunObservedAsync(async () =>
+        {
+            var clock = new MutableHostClock(FrozenAt);
+            await using var fixture = await ProductionFixture.CreateAsync(clock);
+            await fixture.PrepareAsync("identity-administration");
+            await fixture.InstallRevocationFaultAsync(faultStep);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
-        await fixture.RestartAsync();
-        // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await Assert.ThrowsAnyAsync<Exception>(() => fixture.IdentityAdministrationAsync());
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
+            await fixture.RestartAsync();
+            // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
 
-        await fixture.ClearRevocationFaultAsync(faultStep);
-        await fixture.IdentityAdministrationAsync();
-        await fixture.AssertRevocationInvariantAsync(
-            expectedTrustLive: false, expectedGrantLive: false,
-            expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+            await fixture.ClearRevocationFaultAsync(faultStep);
+            await fixture.IdentityAdministrationAsync();
+            await fixture.AssertRevocationInvariantAsync(
+                expectedTrustLive: false, expectedGrantLive: false,
+                expectedMemberAudits: 1, expectedCapabilityAudits: 1);
+        }, diagnosticOutput.WriteLine);
     }
 
     [Theory]
@@ -405,6 +413,33 @@ public sealed class KernelClockIntegrationTests
             Assert.Equal(evidence.Select(item => item.RecordId), resumed.Select(item => item.RecordId));
             await fixture.AssertRosterRevocationPairInvariantAsync(distinctTargets);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionFixture_Startup_failure_restores_environment_and_releases_runtime_generation(bool cleanupFails)
+    {
+        string[] names = ["HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", "LocalNode__RootSeedHex",
+            "Logging__EventLog__LogLevel__Default", "LocalNode__WebClient__Enabled", "LocalNode__SchedulingDogfood__Enabled"];
+        var prior = names.Select(Environment.GetEnvironmentVariable).ToArray();
+        var fault = new InvalidOperationException("deterministic fixture startup fault");
+        var cleanupFault = new InvalidOperationException("deterministic fixture cleanup fault");
+        var observed = await Record.ExceptionAsync(() => ProductionFixture.CreateAsync(
+            new MutableHostClock(FrozenAt), _ => throw fault,
+            cleanupFails ? () => Task.FromException(cleanupFault) : null));
+        if (cleanupFails)
+        {
+            var aggregate = Assert.IsType<AggregateException>(observed);
+            Assert.Equal(new Exception[] { fault, cleanupFault }, aggregate.InnerExceptions);
+        }
+        else Assert.Same(fault, observed);
+        Assert.Equal(prior, names.Select(Environment.GetEnvironmentVariable).ToArray());
+        Assert.Null(LocalNodeHostRuntime.CurrentServices);
+        await using (var next = await ProductionFixture.CreateAsync(new MutableHostClock(FrozenAt)))
+            Assert.NotNull(next.Services);
+        Assert.Equal(prior, names.Select(Environment.GetEnvironmentVariable).ToArray());
+        Assert.Null(LocalNodeHostRuntime.CurrentServices);
     }
 
     private sealed class ProductionFixture : IAsyncDisposable
@@ -457,7 +492,7 @@ public sealed class KernelClockIntegrationTests
         }
 
         internal IServiceProvider Services { get; private set; }
-        internal static async Task<ProductionFixture> CreateAsync(TimeProvider clock)
+        internal static async Task<ProductionFixture> CreateAsync(TimeProvider clock, Action<IServiceCollection>? finalServiceRegistration = null, Func<Task>? cleanupFault = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), "ticket-216-real-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
@@ -476,35 +511,53 @@ public sealed class KernelClockIntegrationTests
             // simply absent and the two scheduling cases cannot reach a handler at all.
             var priorSchedulingDogfood = Environment.GetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled");
             Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", "true");
-            var baseAddress = await LocalNodeHostRuntime.StartAsync(
-                "ticket-216-kernel-clock",
-                directory,
-                CancellationToken.None,
-                clock);
-            var provider = LocalNodeHostRuntime.CurrentServices
-                ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
-            Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
-            Assert.IsType<NodeEfJournalStore>(provider.GetRequiredService<IJournalStore>());
-            Assert.IsType<NodeEfWorkflowStore>(provider.GetRequiredService<IWorkflowStore>());
-            Assert.IsType<WorkflowTriggerDispatcher>(provider.GetRequiredService<IWorkflowTriggerDispatcher>());
-            Assert.IsType<AdminTeamAccessAuthority>(provider.GetRequiredService<IAdminTeamAccessAuthority>());
-            Assert.Same(
-                provider.GetRequiredService<NodeEfAuthorizationConfigurationStore>(),
-                provider.GetRequiredService<IAuthorizationConfigurationStore>());
-            var nodeFactory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
-            var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
-            return new(
-                directory,
-                priorInstallRoot,
-                priorRootSeed,
-                priorEventLogLevel,
-                priorWebClientEnabled,
-                priorSchedulingDogfood,
-                baseAddress,
-                provider,
-                nodeFactory,
-                searchFactory,
-                clock);
+            try
+            {
+                var baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    "ticket-216-kernel-clock",
+                    directory,
+                    CancellationToken.None,
+                    clock, SqliteStartupLifecycleProbe.Combine(finalServiceRegistration));
+                var provider = LocalNodeHostRuntime.CurrentServices
+                    ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
+                Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
+                Assert.IsType<NodeEfJournalStore>(provider.GetRequiredService<IJournalStore>());
+                Assert.IsType<NodeEfWorkflowStore>(provider.GetRequiredService<IWorkflowStore>());
+                Assert.IsType<WorkflowTriggerDispatcher>(provider.GetRequiredService<IWorkflowTriggerDispatcher>());
+                Assert.IsType<AdminTeamAccessAuthority>(provider.GetRequiredService<IAdminTeamAccessAuthority>());
+                Assert.Same(
+                    provider.GetRequiredService<NodeEfAuthorizationConfigurationStore>(),
+                    provider.GetRequiredService<IAuthorizationConfigurationStore>());
+                var nodeFactory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+                var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
+                return new(
+                    directory,
+                    priorInstallRoot,
+                    priorRootSeed,
+                    priorEventLogLevel,
+                    priorWebClientEnabled,
+                    priorSchedulingDogfood,
+                    baseAddress,
+                    provider,
+                    nodeFactory,
+                    searchFactory,
+                    clock);
+            }
+            catch (Exception startupFailure)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup", startupFailure);
+                try
+                {
+                    await CleanupAsync(directory, priorInstallRoot, priorRootSeed, priorEventLogLevel,
+                        priorWebClientEnabled, priorSchedulingDogfood, cleanupFault);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    SqliteStartupLifecycleProbe.Current?.CaptureFailure("startup-disposal", cleanupFailure);
+                    throw new AggregateException(startupFailure, cleanupFailure);
+                }
+                throw;
+            }
         }
 
         internal async Task PrepareAsync(string operation)
@@ -1511,9 +1564,22 @@ public sealed class KernelClockIntegrationTests
 
         internal async Task RestartAsync()
         {
-            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            _baseAddress = await LocalNodeHostRuntime.StartAsync(
-                "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock);
+            try { await LocalNodeHostRuntime.StopAsync(CancellationToken.None); }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-disposal", original);
+                throw;
+            }
+            try
+            {
+                _baseAddress = await LocalNodeHostRuntime.StartAsync(
+                    "ticket-216-kernel-clock", _directory, CancellationToken.None, _clock, SqliteStartupLifecycleProbe.Combine(null));
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("restart-startup", original);
+                throw;
+            }
             Services = LocalNodeHostRuntime.CurrentServices
                 ?? throw new InvalidOperationException("The restarted host did not expose its service provider.");
             _nodeFactory = Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -1601,15 +1667,35 @@ public sealed class KernelClockIntegrationTests
         private static string RawBase64Url(byte[] value) =>
             Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync() => CleanupAsync(_directory, _priorInstallRoot, _priorRootSeed,
+            _priorEventLogLevel, _priorWebClientEnabled, _priorSchedulingDogfood);
+
+        private static async ValueTask CleanupAsync(string directory, string? priorInstallRoot, string? priorRootSeed,
+            string? priorEventLogLevel, string? priorWebClientEnabled, string? priorSchedulingDogfood,
+            Func<Task>? cleanupFault = null)
         {
-            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            Environment.SetEnvironmentVariable("HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", _priorInstallRoot);
-            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", _priorRootSeed);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", _priorEventLogLevel);
-            Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", _priorWebClientEnabled);
-            Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", _priorSchedulingDogfood);
-            try { Directory.Delete(_directory, recursive: true); } catch { }
+            try
+            {
+                await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
+                if (cleanupFault is not null) await cleanupFault();
+            }
+            catch (Exception original)
+            {
+                SqliteStartupLifecycleProbe.Current?.CaptureFailure("disposal", original);
+                throw;
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT", priorInstallRoot);
+                Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", priorRootSeed);
+                Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", priorEventLogLevel);
+                Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", priorWebClientEnabled);
+                Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", priorSchedulingDogfood);
+                // Pooled SQLite handles may retain files after the host stops. Directory cleanup remains best effort.
+                try { Directory.Delete(directory, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
 
     }

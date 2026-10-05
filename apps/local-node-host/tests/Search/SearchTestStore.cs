@@ -88,6 +88,22 @@ public sealed class SearchTestStore : IAsyncDisposable
     }
 
     /// <summary>
+    /// T-1048: open an existing harness file from another process, under the key
+    /// <see cref="CreateAsync"/> derives from <paramref name="keySalt"/>. The returned handle does not own the file.
+    /// </summary>
+    public static SearchTestStore OpenExisting(string databasePath, byte keySalt = 7)
+    {
+        EnsureCipherProvider();
+        var key = new byte[32];
+        for (var i = 0; i < key.Length; i++)
+        {
+            key[i] = (byte)(i + keySalt);
+        }
+
+        return new SearchTestStore(Path.GetDirectoryName(databasePath)!, key, databasePath, ownsDirectory: false);
+    }
+
+    /// <summary>
     /// Build a fresh keyed <see cref="NodeLocalSearchDbContext"/> over this harness's encrypted file. A live
     /// <see cref="SqliteConnection"/> is opened and keyed via <c>PRAGMA key</c> BEFORE EF touches it (the
     /// most robust SQLCipher+EF pattern — no interceptor-timing ambiguity), then handed to EF as an already-
