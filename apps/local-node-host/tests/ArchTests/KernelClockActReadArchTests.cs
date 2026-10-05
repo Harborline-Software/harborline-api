@@ -32,7 +32,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// <para>
 /// Deliberate limits. The count is path-insensitive: a read in either of two exclusive branches counts twice
 /// (read once, before the branch) and a read in a loop counts once. Interface and virtual dispatch are not
-/// resolved to implementations. A delegate the act builds over its own code counts as invoked once where it is
+/// resolved to implementations, and neither is any call made by reflection, <c>dynamic</c> or a compiled
+/// expression (<c>MethodInfo.Invoke</c>, <c>Activator</c>): the graph follows call instructions only. A delegate the act builds over its own code counts as invoked once where it is
 /// built. A clock injected into a service instance is that service's own and is not counted; the runtime theory
 /// covers those for the acts it drives, and a structural store rule is owed (T-690 slice 2). Out of scope (T-690 log): the <c>NodeFormsComposition</c> shape, a read inside a DI factory closure
 /// reached through interface dispatch from a validator, which only the runtime theory sees.
@@ -230,7 +231,8 @@ public sealed class KernelClockActReadArchTests
     /// exclusive branches counts twice (read once, before the branch). A delegate the act builds over its own code
     /// (<c>ldftn</c>) is counted as invoked once where it is built: a clock-reading callback that is never invoked
     /// is reported (loud), and one invoked repeatedly counts once; not counting it would let a read inside a
-    /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved.
+    /// lambda the act runs pass silently. Interface and virtual dispatch are not resolved, nor are reflection,
+    /// <c>dynamic</c> or compiled-expression calls.
     /// </summary>
     internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies, ReadGraph? graph = null) =>
         (graph ?? new ReadGraph(assemblies)).ActReads(handler);
