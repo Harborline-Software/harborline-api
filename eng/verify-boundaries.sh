@@ -66,6 +66,7 @@ node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-feed-benchmark.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
 # T-672: a main-module guard that is false through a junction makes a gate step exit 0 having

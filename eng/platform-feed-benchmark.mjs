@@ -1,6 +1,6 @@
 // Prelanding measurement only: no package promotion, verdict reuse, or in-job tamper resistance claim.
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {closeSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {performance} from 'node:perf_hooks'
@@ -53,7 +53,7 @@ export async function measureCase({mode, prepare, cache, key, expectedDigest, pu
 }
 
 // Explicit field selection: never retain child log text, arguments, paths, URLs or exception messages.
-export function benchmarkDiagnostics(head, proof, output = '') {
+export function benchmarkDiagnostics(head, proof, output = '', boundaryOutput = '', boundaryPartial = false) {
   const result = {stages: []}
   const validId = id => typeof id === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(id)
   const number = value => Number.isFinite(value) && value >= 0 && value <= 1e9
@@ -68,6 +68,15 @@ export function benchmarkDiagnostics(head, proof, output = '') {
   }
   // Reject the tracked historical report when the current invocation did not write one.
   if (proof?.apiCommit !== head || !['PASS', 'FAIL'].includes(proof.status) || !Array.isArray(proof.steps)) return result
+  if (boundaryOutput) {
+    const bounded = String(boundaryOutput).slice(-262144)
+    const names = bounded.split('\n').flatMap(line => {
+      const match = /^(?:not ok \d+ - |✖ )(.+?)(?: \([\d.]+ms\))?$/.exec(line.trim())
+      return match ? [match[1]] : []
+    })
+    result.boundary = {capturedOutputDigest: hash(bounded), partial: boundaryPartial || bounded.length < String(boundaryOutput).length,
+      failedTests: names.slice(0, 64).map(failureIdentity), diagnosticCodes: safeFailure({stdout: bounded}).diagnosticCodes ?? []}
+  }
   result.status = proof.status
   result.stages = proof.steps.filter(row => row && typeof row === 'object' && validId(row.id) && typeof row.passed === 'boolean').slice(0, 64)
     .map(row => ({id: row.id, passed: row.passed,
@@ -75,9 +84,29 @@ export function benchmarkDiagnostics(head, proof, output = '') {
       ...(Number.isInteger(row.exitCode) && row.exitCode >= 0 && row.exitCode <= 255 ? {exitCode: row.exitCode} : {}),
       ...(row.observed ? {observed: Object.fromEntries(['total', 'passed', 'failed', 'notExecuted']
         .filter(key => number(row.observed[key])).map(key => [key, row.observed[key]]))} : {}),
-      ...(Array.isArray(row.newFailures) ? {newFailures: row.newFailures.filter(id => typeof id === 'string'
-        && id.length <= 512 && /^Harborline\.[A-Za-z0-9_.]+\.Tests\.[A-Za-z0-9_.,: ()"'=-]+$/.test(id)).slice(0, 64)} : {})}))
+      ...(Array.isArray(row.newFailures) ? {newFailureCount: row.newFailures.length,
+        newFailures: row.newFailures.filter(id => typeof id === 'string').slice(0, 64).map(failureIdentity)} : {})}))
   return result
+}
+
+export function failureIdentity(identity) {
+  const digest = hash(identity)
+  // Plain custom titles and relative Vitest paths are useful diagnostics. Unsafe/unbounded titles retain identity by digest.
+  const plain = /^[\p{L}\p{N} _().,"'=-]{1,512}$/u.test(identity)
+  const qualified = /^Harborline\.[A-Za-z0-9_.]+\.Tests\.[A-Za-z0-9_.,: ()"'=-]{1,384}$/.test(identity)
+  const vitest = /^(?!\/|[A-Za-z]:)[A-Za-z0-9_./-]+\.(?:test|spec)\.[cm]?[jt]sx? :: [\p{L}\p{N} _().,"'=-]{1,384}$/u.test(identity)
+  return {digest, ...((plain || qualified || vitest) && !/\b(?:bearer|password|token|secret)\s*[:=]/i.test(identity)
+    ? {display: identity} : {})}
+}
+
+export function readBoundaryTail(file) {
+  const descriptor = openSync(file, 'r')
+  try {
+    const size = fstatSync(descriptor).size, length = Math.min(size, 262144)
+    const buffer = Buffer.alloc(length)
+    const read = readSync(descriptor, buffer, 0, length, size - length)
+    return {output: buffer.subarray(0, read).toString('utf8'), partial: size > length}
+  } finally {closeSync(descriptor)}
 }
 
 export function compareMeasurements(results) {
@@ -179,7 +208,13 @@ export async function benchmark(platform, env = process.env) {
                 'eng/baselines/host-test-baseline.ubuntu.json'], {cwd: clone, env: buildEnv})
             } catch (error) {
               let proof; try {proof = JSON.parse(readFileSync(path.join(clone, 'docs/evidence/exact-clone.json')))} catch {}
-              try {error.benchmarkDiagnostics = benchmarkDiagnostics(head, proof, error?.stdout)} catch {}
+              let boundary = {output: '', partial: false}
+              if (proof?.apiCommit === head && Array.isArray(proof.steps)
+                && proof.steps.some(row => row?.id === 'boundary-check' && row.passed === false)) {
+                try {boundary = readBoundaryTail(path.join(clone, '.claude/gate-evidence',
+                  `exact-clone-${head}-boundary-check.log`))} catch {}
+              }
+              try {error.benchmarkDiagnostics = benchmarkDiagnostics(head, proof, error?.stdout, boundary.output, boundary.partial)} catch {}
               throw error
             }
             const proof = JSON.parse(readFileSync(path.join(clone, 'docs/evidence/exact-clone.json')))

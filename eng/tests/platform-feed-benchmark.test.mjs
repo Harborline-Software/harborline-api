@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {readFileSync} from 'node:fs'
-import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, measureCase} from '../platform-feed-benchmark.mjs'
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import path from 'node:path'
+import {benchmarkDiagnostics, benchmarkWork, compareMeasurements, failureIdentity, measureCase, readBoundaryTail} from '../platform-feed-benchmark.mjs'
 import {benchmarkCache} from '../platform-feed-benchmark-cache.mjs'
 
 const input = {source: 'literal source identity'}
@@ -72,12 +74,45 @@ test('actual diagnostic selection retains current stage, counts and test failure
   assert.deepEqual(benchmarkDiagnostics(head, proof, output), {
     lastStage: {id: 'dotnet-host-tests', state: 'completed', elapsedMs: 23, exitCode: 1}, status: 'FAIL',
     stages: [{id: 'host-baseline-match', passed: false, durationMs: 12,
-      observed: {total: 7, passed: 6, failed: 1, notExecuted: 0}, newFailures: [id]}]})
+      observed: {total: 7, passed: 6, failed: 1, notExecuted: 0}, newFailureCount: 2,
+      // SHA-256 literals calculated independently with Python hashlib, not the production helper.
+      newFailures: [{digest: '67780deefcdf5c999bdaae2e27de39519d5c86bc82dfcfdc644032769ad0677a', display: id},
+        {digest: 'c3ca30e1f00371d3b95de89be3541352583e788c9eb0ba49b60cdcf3aac8b3a5'}]}]})
   assert.doesNotMatch(JSON.stringify(benchmarkDiagnostics(head, proof, output)), /private-value|private\.example/)
   assert.deepEqual(benchmarkDiagnostics('b'.repeat(40), proof), {stages: []})
   assert.deepEqual(benchmarkDiagnostics(head, undefined, '[exact-clone] malformed'), {stages: []})
   assert.deepEqual(benchmarkDiagnostics(head, {apiCommit: head, status: 'FAIL', steps: [null, 3, 'bad']},
     '[exact-clone] null\n[exact-clone] 3\n[exact-clone] []'), {stages: [], status: 'FAIL'})
+  const boundary = benchmarkDiagnostics(head, proof, '', 'not ok 1 - actual boundary title\n✖ another boundary title (2.1ms)\nprivate-value')
+  assert.deepEqual(boundary.boundary.failedTests.map(row => row.display), ['actual boundary title', 'another boundary title'])
+  assert.doesNotMatch(JSON.stringify(boundary), /private-value/)
+})
+
+test('failure identities retain Vitest and custom display names, with digest-only unsafe or unbounded identities', () => {
+  assert.equal(failureIdentity('address.test.ts :: title').display, 'address.test.ts :: title')
+  assert.equal(failureIdentity('A custom xUnit display name').display, 'A custom xUnit display name')
+  for (const identity of ['https://private.example/?token=private-value', '/private/absolute.test.ts :: title',
+    'password=private-value', 'a'.repeat(513), 'title\nprivate-value']) {
+    const retained = failureIdentity(identity)
+    assert.deepEqual(Object.keys(retained), ['digest'])
+    assert.match(retained.digest, /^[a-f0-9]{64}$/)
+  }
+})
+
+test('actual boundary capture bounds the disk read and marks partial evidence', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'benchmark-boundary-tail-')), file = path.join(directory, 'log')
+  try {
+    writeFileSync(file, 'private-prefix' + 'a'.repeat(300000) + '\nnot ok 1 - actual boundary title\n')
+    const capture = readBoundaryTail(file)
+    assert.equal(capture.partial, true); assert.equal(Buffer.byteLength(capture.output), 262144)
+    assert.doesNotMatch(capture.output, /private-prefix/)
+    const result = benchmarkDiagnostics('a'.repeat(40), {apiCommit: 'a'.repeat(40), status: 'FAIL', steps: []},
+      '', capture.output, capture.partial)
+    assert.equal(result.boundary.partial, true)
+    assert.deepEqual(result.boundary.failedTests.map(row => row.display), ['actual boundary title'])
+    writeFileSync(file, 'short output')
+    assert.deepEqual(readBoundaryTail(file), {output: 'short output', partial: false})
+  } finally {rmSync(directory, {recursive: true, force: true})}
 })
 
 const rows = () => ['cold', 'warm', 'forcedmiss'].map((mode, index) => ({mode, route: index === 1 ? 'cached' : 'fresh',
@@ -151,6 +186,8 @@ test('actual disposable cache transport proves write/read, enforces exact matche
 })
 
 test('actual workflow restricts benchmark writers to manual dispatch and runs three pairs with pinned actions', () => {
+  const mandatory = readFileSync(new URL('../verify-boundaries.sh', import.meta.url), 'utf8')
+  assert.match(mandatory, /node --test "\$repo_root\/eng\/tests\/platform-feed-benchmark\.test\.mjs" \|\| exit 1/)
   const workflow = readFileSync(new URL('../../.github/workflows/platform-feed-qualification.yml', import.meta.url), 'utf8')
   const job = workflow.slice(workflow.indexOf('  benchmark-linux:'))
   assert.match(job, /if: github.event_name == 'workflow_dispatch' && inputs.benchmark/)
