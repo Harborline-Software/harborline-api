@@ -70,11 +70,23 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(4, reads.Count);
+        Assert.Equal(6, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughOneHelperTwice", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("CallsASeamThatReadsTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsAfterTheGuard", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("HandsTheClockToASeamTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("HarvestsTheGuardInstant", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("ReadsNothing", StringComparison.Ordinal)).Value);
+    }
+
+    [Fact(DisplayName = "T-690: a Map call whose handler cannot be traced is reported unpaired, never attributed to a stale pointer")]
+    public void AnUntraceableHandlerIsReportedUnpaired()
+    {
+        var handlers = DiscoverHandlers([typeof(PlantedUntraceableRoutes).Assembly], out var unpaired,
+            type => IsWithin(type, typeof(PlantedUntraceableRoutes)));
+
+        Assert.Empty(handlers);
+        Assert.Single(unpaired);
     }
 
     [Fact(DisplayName = "T-690 ck-9: a persistence seam takes its instant as a parameter and holds no clock")]
@@ -113,22 +125,26 @@ public sealed class KernelClockActReadArchTests
         foreach (var type in assemblies.SelectMany(assembly => assembly.GetTypes()).Where(type => typeFilter?.Invoke(type) ?? true))
         foreach (var method in Declared(type))
         {
-            // The pointer is the delegate on top of the stack: freshly built (ldftn, newobj), or reloaded from the
-            // local it was stored in, so one handler mapped to two routes is seen at both.
+            // The pointer is the delegate on top of the stack: freshly built (ldftn, newobj), reloaded from the
+            // local it was stored in, or returned by a helper that builds it. Anything else that could put a
+            // delegate there (an argument, a field, the result of another call) clears it, so a Map call whose
+            // handler cannot be traced is reported unpaired instead of being attributed to a stale pointer.
             MethodBase? pointer = null;
-            var locals = new Dictionary<int, MethodBase>();
+            var locals = new Dictionary<int, MethodBase?>();
             foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
             {
                 var target = opCode.OperandType == OperandType.InlineMethod ? Resolve(method, operand) : null;
                 if (opCode == OpCodes.Ldftn)
                     pointer = target;
-                else if (IsStoreLocal(opCode) && pointer is not null)
-                    locals[operand] = pointer;
+                else if (opCode == OpCodes.Newobj && target?.DeclaringType is { } created && typeof(Delegate).IsAssignableFrom(created))
+                    continue; // wraps the pointer just loaded
+                else if (IsStoreLocal(opCode))
+                {
+                    locals[LocalIndex(opCode, operand)] = pointer;
+                    pointer = null;
+                }
                 else if (IsLoadLocal(opCode))
-                    pointer = locals.GetValueOrDefault(operand) ?? pointer;
-                else if (target is MethodInfo { ReturnType: var returned } factory && typeof(Delegate).IsAssignableFrom(returned)
-                         && !IsDelegateMap(factory) && BuiltDelegate(factory) is { } built)
-                    pointer = built; // a helper that builds the handler and returns it
+                    pointer = locals.GetValueOrDefault(LocalIndex(opCode, operand));
                 else if (target is not null && IsDelegateMap(target))
                 {
                     var at = $"{Name(method)}+IL_{offset:x4}";
@@ -136,61 +152,70 @@ public sealed class KernelClockActReadArchTests
                     else handlers.Add(new RouteHandler(pointer, at));
                     pointer = null;
                 }
+                else if (target is MethodInfo { ReturnType: var returned } factory && typeof(Delegate).IsAssignableFrom(returned))
+                    pointer = assemblies.Contains(factory.DeclaringType?.Assembly!) ? BuiltDelegate(factory) : null; // a production helper that builds the handler
+                else if (target is not null && (opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj))
+                    pointer = null;
+                else if (LoadsDelegateFromElsewhere(method, opCode, operand))
+                    pointer = null;
             }
         }
         unpaired = missing;
         return handlers;
     }
 
-    /// <summary>The act's clock reads, path-insensitively: every read site the handler's own code reaches.</summary>
-    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies)
+    /// <summary>
+    /// The act's clock reads, path-insensitively: every read site its own code reaches, once per call site, so a
+    /// helper or seam called twice counts twice and a seam that reads twice counts twice. A read inside a loop
+    /// counts once; a read in either of two exclusive branches counts twice (read once, before the branch).
+    /// </summary>
+    internal static IReadOnlyList<string> ActReads(MethodBase handler, IReadOnlyList<Assembly> assemblies) =>
+        Reads(handler, assemblies, new Dictionary<MethodBase, IReadOnlyList<string>?>());
+
+    private static IReadOnlyList<string> Reads(
+        MethodBase method, IReadOnlyList<Assembly> assemblies, Dictionary<MethodBase, IReadOnlyList<string>?> known)
     {
-        var owner = Outer(handler.DeclaringType!);
+        if (known.TryGetValue(method, out var cached))
+            return cached ?? []; // in progress: a cycle reads nothing more
+        known[method] = null;
+        var owner = Outer(method.DeclaringType!);
         var reads = new List<string>();
-        foreach (var (caller, target, offset) in OwnClosure(handler, owner))
+        if (method.GetCustomAttribute<AsyncStateMachineAttribute>() is { } state
+            && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
+            reads.AddRange(Reads(moveNext, assemblies, known));
+        foreach (var (target, offset) in RawMutationPortSymbolInventoryTests.CalledMethods(method))
         {
             if (IsClockRead(target))
-                reads.Add($"{Name(target)} in {Name(caller)}+IL_{offset:x4}");
-            else if (target.DeclaringType is { } declaring && Outer(declaring) != owner
-                     && assemblies.Contains(declaring.Assembly) && IsReadSeam(target, assemblies))
-                reads.Add($"seam {Name(target)} in {Name(caller)}+IL_{offset:x4}");
+                reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
+            else if (target.DeclaringType is not { } declaring || !assemblies.Contains(declaring.Assembly))
+                continue;
+            else if (Outer(declaring) == owner)
+                reads.AddRange(Reads(target, assemblies, known));
+            else if (ReceivesClock(target))
+                reads.AddRange(Reads(target, assemblies, known).Select(read => $"seam {Name(target)} -> {read}"));
         }
+        known[method] = reads;
         return reads;
     }
+
+    /// <summary>
+    /// A seam reads the clock on the act's behalf when the act hands it a clock (a <see cref="TimeProvider"/>
+    /// parameter) or it pulls one from the request container; its reads are counted where it is called, and a
+    /// seam it hands the clock on to is counted the same way (<c>PackRouteAuthorization.Authority</c> forwards to
+    /// <c>RequestAuthorization.Authority</c>). A service that holds its own injected clock is not a seam the route
+    /// can see; the persistence-seam rule and <c>KernelClockIntegrationTests</c> cover those.
+    /// </summary>
+    private static bool ReceivesClock(MethodBase method) =>
+        method.GetParameters().Any(parameter => typeof(TimeProvider).IsAssignableFrom(parameter.ParameterType))
+        || OwnClosure(method, Outer(method.DeclaringType!)).Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic
+            && generic.Name is nameof(ServiceProviderServiceExtensions.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService)
+            && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved));
 
     /// <summary>A clock read: the kernel clock's <see cref="TimeProvider.GetUtcNow"/> or a fresh admitted instant.</summary>
     private static bool IsClockRead(MethodBase target) =>
         (target.Name is nameof(TimeProvider.GetUtcNow) or nameof(TimeProvider.GetLocalNow)
             && target.DeclaringType is { } declaring && typeof(TimeProvider).IsAssignableFrom(declaring))
         || (target.DeclaringType == typeof(AdmittedInstant) && target.Name == nameof(AdmittedInstant.Read));
-
-    /// <summary>
-    /// A seam reads the clock on the act's behalf when the act hands it a clock (a <see cref="TimeProvider"/>
-    /// parameter) or it pulls one from the request container, and its own type's code then reads it or hands it
-    /// on to another seam (<c>PackRouteAuthorization.Authority</c> forwards to <c>RequestAuthorization.Authority</c>).
-    /// A service that holds its own injected clock is not a seam the route can see; the persistence-seam rule
-    /// and <c>KernelClockIntegrationTests</c> cover those.
-    /// </summary>
-    private static bool IsReadSeam(MethodBase method, IReadOnlyList<Assembly> assemblies) =>
-        IsReadSeam(method, assemblies, new Dictionary<MethodBase, bool>());
-
-    private static bool IsReadSeam(MethodBase method, IReadOnlyList<Assembly> assemblies, Dictionary<MethodBase, bool> known)
-    {
-        if (known.TryGetValue(method, out var answer))
-            return answer;
-        known[method] = false; // a cycle is not a read
-        var owner = Outer(method.DeclaringType!);
-        var closure = OwnClosure(method, owner).ToArray();
-        var receivesClock = method.GetParameters().Any(parameter => typeof(TimeProvider).IsAssignableFrom(parameter.ParameterType))
-            || closure.Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic
-                && generic.Name is nameof(ServiceProviderServiceExtensions.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService)
-                && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved));
-        answer = receivesClock && closure.Any(call => IsClockRead(call.Target)
-            || (call.Target.DeclaringType is { } declaring && Outer(declaring) != owner
-                && assemblies.Contains(declaring.Assembly) && IsReadSeam(call.Target, assemblies, known)));
-        known[method] = answer;
-        return answer;
-    }
 
     /// <summary>Every call in the method and the code its own type owns (lambdas, state machines, helpers).</summary>
     private static IEnumerable<(MethodBase Caller, MethodBase Target, int Offset)> OwnClosure(MethodBase root, Type owner)
@@ -230,6 +255,31 @@ public sealed class KernelClockActReadArchTests
         {
             return null;
         }
+    }
+
+    private static int LocalIndex(OpCode opCode, int operand) =>
+        opCode == OpCodes.Stloc_1 || opCode == OpCodes.Ldloc_1 ? 1
+        : opCode == OpCodes.Stloc_2 || opCode == OpCodes.Ldloc_2 ? 2
+        : opCode == OpCodes.Stloc_3 || opCode == OpCodes.Ldloc_3 ? 3
+        : opCode == OpCodes.Stloc_0 || opCode == OpCodes.Ldloc_0 ? 0
+        : operand;
+
+    /// <summary>An argument or field load whose value is a delegate: a handler this discovery cannot trace.</summary>
+    private static bool LoadsDelegateFromElsewhere(MethodBase method, OpCode opCode, int operand)
+    {
+        if (opCode == OpCodes.Ldfld || opCode == OpCodes.Ldsfld)
+        {
+            try { return typeof(Delegate).IsAssignableFrom(method.Module.ResolveField(operand)?.FieldType); }
+            catch (ArgumentException) { return false; }
+        }
+        var index = opCode == OpCodes.Ldarg_0 ? 0 : opCode == OpCodes.Ldarg_1 ? 1 : opCode == OpCodes.Ldarg_2 ? 2
+            : opCode == OpCodes.Ldarg_3 ? 3 : opCode == OpCodes.Ldarg_S || opCode == OpCodes.Ldarg ? operand : -1;
+        if (index < 0)
+            return false;
+        if (!method.IsStatic && index-- == 0)
+            return false; // this
+        var parameters = method.GetParameters();
+        return index < parameters.Length && typeof(Delegate).IsAssignableFrom(parameters[index].ParameterType);
     }
 
     private static bool IsStoreLocal(OpCode opCode) =>
@@ -311,7 +361,15 @@ public sealed class KernelClockActReadArchTests
             app.MapPost("/planted/seam-twice", HandsTheClockToASeamTwice);
             app.MapPost("/planted/harvest", HarvestsTheGuardInstant);
             app.MapGet("/planted/none", ReadsNothing);
+            app.MapGet("/planted/helper-twice", ReadsThroughOneHelperTwice);
+            app.MapGet("/planted/seam-reads-twice", CallsASeamThatReadsTwice);
         }
+
+        private static IResult ReadsThroughOneHelperTwice(TimeProvider time) => Results.Ok(Stamp(time) < Stamp(time));
+
+        private static DateTimeOffset Stamp(TimeProvider time) => time.GetUtcNow();
+
+        private static IResult CallsASeamThatReadsTwice(TimeProvider time) => Results.Ok(PlantedGuard.Window(time));
 
         private static async Task<IResult> ReadsAfterTheGuard(HttpContext http, TimeProvider time, CancellationToken ct)
         {
@@ -334,6 +392,17 @@ public sealed class KernelClockActReadArchTests
         private static IResult ReadsNothing() => Results.Ok();
     }
 
+    private static class PlantedUntraceableRoutes
+    {
+        // An unrelated callback is built first; the handler itself arrives as an argument nobody can trace.
+        internal static Func<int> Map(IEndpointRouteBuilder app, Delegate handler)
+        {
+            Func<int> unrelated = () => 1;
+            app.MapPost("/planted/untraceable", handler);
+            return unrelated;
+        }
+    }
+
     private static class PlantedGuard
     {
         internal static ValueTask<IResult?> RefusalAsync(HttpContext http, CancellationToken ct, Action<DateTimeOffset>? onAllowed = null)
@@ -345,6 +414,8 @@ public sealed class KernelClockActReadArchTests
         }
 
         internal static DateTimeOffset Authority(TimeProvider time) => AdmittedInstant.Read(time).Value;
+
+        internal static TimeSpan Window(TimeProvider time) => time.GetUtcNow() - time.GetUtcNow();
     }
 
     private sealed class PlantedClockedStore(IDbContextFactory<DbContext> factory, TimeProvider time)
