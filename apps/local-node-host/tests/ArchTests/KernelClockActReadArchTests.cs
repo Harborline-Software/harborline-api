@@ -69,12 +69,12 @@ public sealed class KernelClockActReadArchTests
     {
         var assemblies = new[] { typeof(PlantedRoutes).Assembly };
         var handlers = DiscoverHandlers(assemblies, out _,
-            type => IsWithin(type, typeof(PlantedRoutes)) || IsWithin(type, typeof(PlantedInstanceRoute)));
+            type => IsWithin(type, typeof(PlantedRoutes)) || IsWithin(type, typeof(PlantedInstanceRoute)) || IsWithin(type, typeof(PlantedNestedRoute)));
 
         // One graph over every planted handler, as in production, so the route objects are known to every act.
         var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
-        Assert.Equal(46, reads.Count);
+        Assert.Equal(47, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsInALoop", StringComparison.Ordinal)).Value);
@@ -87,6 +87,7 @@ public sealed class KernelClockActReadArchTests
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleThroughAHelper", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedInstanceRoute.HandleThroughASibling", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.EndsWith("PlantedBaseRoute.Handle", StringComparison.Ordinal)).Value);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedNestedRoute.<Map>", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("PlantedInstanceRoute.<Map>", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
@@ -258,16 +259,13 @@ public sealed class KernelClockActReadArchTests
         (graph ?? new ReadGraph(assemblies, RouteTypes([handler]))).ActReads(handler);
 
     /// <summary>
-    /// The types whose instances ARE route handlers (an instance method mapped as one). Such an object is route code,
-    /// not a service: a clock in its fields is the act's own clock, so its reads count like any other.
+    /// The types whose instances can be route objects: the type of every instance method mapped as a handler, and the
+    /// source type of every handler written as a lambda (its compiler-generated closure may hold that type's
+    /// <c>this</c>, directly or through an enclosing closure; whether it does is not traced, so it is assumed). Such
+    /// an object is route code, not a service: a clock in its fields is the act's own, so its reads count.
     /// </summary>
-    /// A lambda handler that captures <c>this</c> lives on a compiler-generated closure holding the route object, which
-    /// counts as that object's type.
     internal static IReadOnlySet<Type> RouteTypes(IEnumerable<MethodBase> handlers) =>
-        handlers.Where(handler => !handler.IsStatic && handler.DeclaringType is { } owner
-                && (!owner.IsDefined(typeof(CompilerGeneratedAttribute), false)
-                    || owner.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                        .Any(field => field.FieldType == Outer(owner))))
+        handlers.Where(handler => !handler.IsStatic && handler.DeclaringType is not null)
             .Select(handler => Outer(handler.DeclaringType!)).ToHashSet();
 
     /// <summary>
@@ -1033,6 +1031,23 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/instance-lambda", () => Results.Ok((label, _clock.GetUtcNow() - _clock.GetUtcNow())));
 
         private DateTimeOffset Stamp() => _clock.GetUtcNow();
+    }
+
+    // A route object mapped ONLY through a lambda nested in another closure: the handler's display class holds the
+    // outer one, which holds this, so the object's own clock is the act's.
+    private sealed class PlantedNestedRoute(TimeProvider clock)
+    {
+        private readonly TimeProvider _clock = clock;
+
+        internal void Map(IEndpointRouteBuilder app, int outer)
+        {
+            Action register = () =>
+            {
+                var inner = outer + 1;
+                app.MapGet("/planted/instance-nested-lambda", () => Results.Ok((outer, inner, _clock.GetUtcNow() - _clock.GetUtcNow())));
+            };
+            register();
+        }
     }
 
     private static class PlantedRouteHelper
