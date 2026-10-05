@@ -68,7 +68,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(29, reads.Count);
+        Assert.Equal(30, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("HandlerOwner.Handle", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAnInheritedServiceClock", StringComparison.Ordinal)).Value);
         Assert.Equal(1, reads.Single(item => item.Key.Contains("ReadsAOnceInitializedStampTwice", StringComparison.Ordinal)).Value);
         Assert.Equal(0, reads.Single(item => item.Key.Contains("UsesAServiceOwnClockThroughABlockGetter", StringComparison.Ordinal)).Value);
@@ -258,6 +259,9 @@ public sealed class KernelClockActReadArchTests
             var reads = new List<string>(Reads(handler));
             var seen = new HashSet<MethodBase>();
             var pending = new Queue<MethodBase>(Initializers(handler));
+            // Invoking the handler can run its own type's initializer first.
+            if (handler.DeclaringType is { } owner && assemblies.Contains(owner.Assembly) && owner.TypeInitializer is { } own)
+                pending.Enqueue(own);
             while (pending.TryDequeue(out var initializer))
             {
                 if (!seen.Add(initializer))
@@ -582,6 +586,7 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/planted/static-initializer", ReadsAStaticallyInitializedStamp);
             app.MapGet("/planted/initializer-twice", ReadsAOnceInitializedStampTwice);
             app.MapGet("/planted/inherited-clock", UsesAnInheritedServiceClock);
+            app.MapGet("/planted/handler-owner", HandlerOwner.Handle);
             app.MapGet("/planted/throwing-getter", UsesAServiceOwnClockThroughAThrowingGetter);
             app.MapGet("/planted/block-getter", UsesAServiceOwnClockThroughABlockGetter);
             app.MapGet("/planted/supplied-type", ResolvesTheClockByASuppliedType);
@@ -790,6 +795,16 @@ public sealed class KernelClockActReadArchTests
         internal static readonly DateTimeOffset At;
 
         static OnceStamp() => At = DateTimeOffset.UtcNow;
+    }
+
+    // The handler's own type initializer runs on its first invocation.
+    private static class HandlerOwner
+    {
+        private static readonly TimeSpan Window;
+
+        static HandlerOwner() => Window = DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
+
+        internal static IResult Handle() => Results.Ok();
     }
 
     private abstract class PlantedClockBase(TimeProvider clock)
