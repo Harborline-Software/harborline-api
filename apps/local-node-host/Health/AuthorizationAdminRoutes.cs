@@ -83,17 +83,22 @@ public static class AuthorizationAdminRoutes
         // (org:manage-settings is declared so in PermissionVocabulary, with the reason on the definition).
         // It returns the request's tenant with the verdict so each handler has ONE tenant resolution for the
         // whole request rather than a second, independently resolved one after the guard.
-        async ValueTask<(TenantId Tenant, IResult? Denied)> SettingsAuthorityAsync(
+        // T-690: it also returns the instant the guard decided on, the act's one clock read, so a write stamps
+        // that instant instead of reading the clock again.
+        async ValueTask<(TenantId Tenant, IResult? Denied, AdmittedInstant? Admitted)> SettingsAuthorityAsync(
             HttpContext http, CancellationToken ct)
         {
             var tenant = RequestTenant();
-            return (tenant, await RequestAuthorization.RefusalAsync(
-                http, tenant, Permission.OrgManageSettings, RouteRecord.TheInstall, ct).ConfigureAwait(false));
+            AdmittedInstant? admitted = null;
+            var denied = await RequestAuthorization.RefusalAsync(
+                http, tenant, Permission.OrgManageSettings, RouteRecord.TheInstall, ct,
+                decision => admitted = decision.Request.Instant).ConfigureAwait(false);
+            return (tenant, denied, admitted);
         }
 
         app.MapGet($"{RouteBase}/role-vocabulary", async (HttpContext http, CancellationToken ct) =>
         {
-            var (tenant, denied) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
+            var (tenant, denied, _) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
             if (denied is not null) return denied;
             var rows = await vocabulary.ListAsync(ct).ConfigureAwait(false);
             return Results.Ok(rows
@@ -107,7 +112,7 @@ public static class AuthorizationAdminRoutes
 
         app.MapGet($"{RouteBase}/capability-definitions", async (HttpContext http, CancellationToken ct) =>
         {
-            var (tenant, denied) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
+            var (tenant, denied, _) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
             if (denied is not null) return denied;
             var rows = await definitions.ListAsync(tenant, ct).ConfigureAwait(false);
             return Results.Ok(rows.Select(ToDto).ToArray());
@@ -116,7 +121,7 @@ public static class AuthorizationAdminRoutes
         app.MapGet($"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding",
             async (Guid definitionId, HttpContext http, CancellationToken ct) =>
             {
-                var (tenant, denied) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
+                var (tenant, denied, _) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
                 if (denied is not null) return denied;
                 var row = await definitions.FindAsync(
                     tenant,
@@ -130,7 +135,7 @@ public static class AuthorizationAdminRoutes
         app.MapPost($"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding",
             async (Guid definitionId, NarrowAuthorizationBindingRequest? request, HttpContext http, CancellationToken ct) =>
             {
-                var (tenant, denied) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
+                var (tenant, denied, decidedAt) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
                 if (denied is not null) return denied;
                 if (!http.Request.Headers.TryGetValue(IdempotencyContract.HeaderName, out var key)
                     || string.IsNullOrWhiteSpace(key.ToString()))
@@ -149,7 +154,7 @@ public static class AuthorizationAdminRoutes
                     // One server-derived actor and instant: the gate decides on them and the
                     // revision is stamped with them (ticket 199 slice 2).
                     var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
-                    var admitted = AdmittedInstant.Read(timeProvider);
+                    var admitted = decidedAt!;
                     var at = admitted.Value;
                     var result = await writer.WriteAsync(
                         new NarrowCapabilityRoleBinding(

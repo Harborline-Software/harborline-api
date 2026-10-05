@@ -140,8 +140,8 @@ public static class InvoiceRoutes
         ArgumentNullException.ThrowIfNull(posting);
 
         MapList(app, invoices, activeTeam);
-        MapDetail(app, invoices, activeTeam, timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)));
-        MapCreate(app, invoices, numbering, activeTeam, timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)));
+        MapDetail(app, invoices, activeTeam);
+        MapCreate(app, invoices, numbering, activeTeam);
         MapIssue(app, invoices, posting, activeTeam, approvalCutover, timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)));
         MapVoid(app, posting, activeTeam, timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)));
         MapWriteOff(app, posting, activeTeam, timeProvider ?? throw new ArgumentNullException(nameof(timeProvider)));
@@ -198,16 +198,19 @@ public static class InvoiceRoutes
     }
 
     // ── GET /api/local-node/invoices/{id} — detail incl. lines ────────────────────
-    private static void MapDetail(IEndpointRouteBuilder app, NodeEfInvoiceRepository invoices, IActiveTeamAccessor activeTeam, TimeProvider timeProvider)
+    private static void MapDetail(IEndpointRouteBuilder app, NodeEfInvoiceRepository invoices, IActiveTeamAccessor activeTeam)
     {
         app.MapGet($"{RouteBase}/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: the detail reads as of the guard's decision instant, the act's one clock read.
+            var admittedAt = default(DateTimeOffset);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct);
+                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct,
+                    decision => admittedAt = decision.Request.At);
             if (denied is not null)
                 return denied;
-            var invoice = await invoices.GetAsync(LocalTenantId, new InvoiceId(id), timeProvider.GetUtcNow(), ct).ConfigureAwait(false);
+            var invoice = await invoices.GetAsync(LocalTenantId, new InvoiceId(id), admittedAt, ct).ConfigureAwait(false);
             return invoice is null
                 ? Results.NotFound()
                 : Results.Ok(new InvoiceDetailResponse(InvoiceDetailWire.From(invoice)));
@@ -218,16 +221,18 @@ public static class InvoiceRoutes
     private static void MapCreate(
         IEndpointRouteBuilder app,
         NodeEfInvoiceRepository invoices,
-        IInvoiceNumberingService numbering, IActiveTeamAccessor activeTeam, TimeProvider timeProvider)
+        IInvoiceNumberingService numbering, IActiveTeamAccessor activeTeam)
     {
         app.MapPost(RouteBase, async (CreateInvoiceRequest body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: the draft is stamped with the guard's decision instant, the act's one clock read.
+            var admittedAt = default(DateTimeOffset);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct,
+                    decision => admittedAt = decision.Request.At);
             if (denied is not null)
                 return denied;
-            var admittedAt = timeProvider.GetUtcNow();
             if (body is null)
             {
                 return Results.BadRequest(new { error = "request_null" });

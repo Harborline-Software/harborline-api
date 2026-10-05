@@ -366,7 +366,45 @@ public sealed class RawMutationPortSymbolInventoryTests
         return (relative, pointValue.StartLine);
     }
 
-    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
+    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method) =>
+        MethodOperands(method).Select(operand => (operand.Target, operand.Offset));
+
+    /// <summary>
+    /// Every instruction with its opcode and integer operand (a token, a local index, or 0), including the short
+    /// forms whose operand is implicit (<c>stloc.0</c> reports 0). T-690 follows a delegate through a local with it.
+    /// </summary>
+    internal static IEnumerable<(int Offset, OpCode OpCode, int Operand)> Instructions(MethodBase method)
+    {
+        var il = method.GetMethodBody()?.GetILAsByteArray();
+        if (il is null)
+            yield break;
+        var position = 0;
+        while (position < il.Length)
+        {
+            var instructionOffset = position;
+            var first = il[position++];
+            var opCode = first == 0xfe ? MultiByteOpCodes[il[position++]] : SingleByteOpCodes[first];
+            var operand = opCode.OperandType switch
+            {
+                OperandType.ShortInlineVar => il[position],
+                OperandType.InlineVar => BitConverter.ToUInt16(il, position),
+                OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineType or OperandType.InlineField
+                    => BitConverter.ToInt32(il, position),
+                _ => ImplicitLocal(opCode),
+            };
+            yield return (instructionOffset, opCode, operand);
+            position += OperandSize(opCode.OperandType, il, position);
+        }
+    }
+
+    private static int ImplicitLocal(OpCode opCode) =>
+        opCode == OpCodes.Stloc_1 || opCode == OpCodes.Ldloc_1 ? 1
+        : opCode == OpCodes.Stloc_2 || opCode == OpCodes.Ldloc_2 ? 2
+        : opCode == OpCodes.Stloc_3 || opCode == OpCodes.Ldloc_3 ? 3
+        : 0;
+
+    /// <summary>Every method-token operand with its opcode, so a caller can tell <c>ldftn</c> from a call (T-690).</summary>
+    internal static IEnumerable<(MethodBase Target, int Offset, OpCode OpCode)> MethodOperands(MethodBase method)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il is null)
@@ -392,7 +430,7 @@ public sealed class RawMutationPortSymbolInventoryTests
                 }
                 catch (ArgumentException) { }
                 if (target is not null)
-                    yield return (target, instructionOffset);
+                    yield return (target, instructionOffset, opCode);
             }
             position += OperandSize(opCode.OperandType, il, position);
         }

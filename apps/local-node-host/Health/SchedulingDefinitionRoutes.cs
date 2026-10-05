@@ -211,8 +211,10 @@ public static class SchedulingDefinitionRoutes
             var addressed = string.IsNullOrWhiteSpace(definitionId)
                 ? RouteRecord.TheInstall
                 : RouteRecord.Of(definitionId);
+            // T-690: the guard's decision is this act's one clock read; the lead-time floor is measured from it.
+            var admittedAt = default(DateTimeOffset);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, addressed, ct);
+                    http, Tenant(), Permission.SchedulingOperate, addressed, ct, decision => admittedAt = decision.Request.At);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -237,7 +239,7 @@ public static class SchedulingDefinitionRoutes
                 if (!SchedulingAppointmentPolicy.TryFromDefinition(draft.Definition, out var policy))
                     return Results.BadRequest(new { code = "scheduling.appointment.definition_invalid" });
 
-                var leadFloor = timeProvider.GetUtcNow().AddMinutes(policy!.MinimumLeadTimeMinutes);
+                var leadFloor = admittedAt.AddMinutes(policy!.MinimumLeadTimeMinutes);
                 if (request.StartUtc < leadFloor)
                     return Results.Conflict(new { code = "scheduling.appointment.minimum_lead_time" });
                 endUtc = policy.EndFor(request.StartUtc);
@@ -269,8 +271,11 @@ public static class SchedulingDefinitionRoutes
 
         app.MapPost(EventRoute, async (SchedulingEventRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-690: the event is stamped with the guard's decision instant, the act's one clock read.
+            var admittedAt = default(DateTimeOffset);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
+                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct,
+                    decision => admittedAt = decision.Request.At);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -371,7 +376,7 @@ public static class SchedulingDefinitionRoutes
                 tenant, request.Title.Trim(),
                 startDate, endDate, requester, timezone: timezoneId,
                 startTime: startTime, endTime: endTime, occupancy: Occupancy.Blocking,
-                createdAt: timeProvider.GetUtcNow(), allDay: request.AllDay);
+                createdAt: admittedAt, allDay: request.AllDay);
             if (targetCalendar is not null)
                 calendarEvent.SetCalendarId(targetCalendar.Id, requester);
             if (resource is not null)
@@ -383,8 +388,11 @@ public static class SchedulingDefinitionRoutes
         app.MapPost(ResourceAvailabilityRoute, async (
             SchedulingResourceAvailabilityRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-690: "today" is the guard's decision instant, the act's one clock read.
+            var admittedAt = default(DateTimeOffset);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
+                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct,
+                    decision => admittedAt = decision.Request.At);
             if (denied is not null)
                 return denied;
             var resource = ParseParticipant(request.Resource);
@@ -396,7 +404,7 @@ public static class SchedulingDefinitionRoutes
                 return Results.NotFound(new { code = "scheduling.resource.not_found" });
 
             var timezone = TimezoneResolver.Resolve(request.Timezone);
-            var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timezone).DateTime);
+            var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(admittedAt, timezone).DateTime);
             var availability = ResourceAvailability.Create(tenant, resource, request.Timezone)
                 .AddWindow(AvailabilityWindow.Create(
                     today, new TimeOnly(8, 0), new TimeOnly(18, 0),

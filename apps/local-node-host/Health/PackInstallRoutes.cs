@@ -117,15 +117,17 @@ internal static class PackInstallRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             // Preview NEVER mutates and the uploaded artifact is not yet a pack record — no record target,
             // admitted only because `packages:operate` is declared install-wide.
+            // T-690: one authority, one clock read; the preview runs at the instant the guard decided on.
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
                 return refusal;
             }
             var bytes = await ReadBodyAsync(http.Request, ct).ConfigureAwait(false);
-            var context = new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time), RevocationMaxAge);
+            var context = new PackInstallContext(tenant, trustStore, revocation, authority.Instant, RevocationMaxAge);
 
             var preview = installer.Preview(bytes, context);
             logger.LogInformation(
@@ -139,8 +141,10 @@ internal static class PackInstallRoutes
         selectedSession.MapPost(CheckRoute, async (HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the check runs at the instant the guard decided on.
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -149,7 +153,7 @@ internal static class PackInstallRoutes
 
             var bytes = await ReadBodyAsync(http.Request, ct).ConfigureAwait(false);
             var check = installer.Check(
-                bytes, new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time), RevocationMaxAge));
+                bytes, new PackInstallContext(tenant, trustStore, revocation, authority.Instant, RevocationMaxAge));
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation(
@@ -171,9 +175,10 @@ internal static class PackInstallRoutes
             // the artifact, so the route reads it through the EXISTING no-effect preview (the same call
             // `/packs/preview` makes) BEFORE deciding, and only then installs. An artifact whose verify
             // fails names no pack; that request is install-wide and the installer refuses it on its own.
-            var naming = installer.Preview(
-                bytes, new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time), RevocationMaxAge));
+            // T-690: one authority, one clock read; the naming preview, the decision and the install share its instant.
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
+            var naming = installer.Preview(
+                bytes, new PackInstallContext(tenant, trustStore, revocation, authority.Instant, RevocationMaxAge));
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(http, gate, authority, PackOperation.Operate, naming.PackKey, ct)
                 .ConfigureAwait(false);
@@ -200,7 +205,7 @@ internal static class PackInstallRoutes
             // key id there asked about an actor no grant is ever issued to and every first-boot install
             // was refused as a 500 (m3 exit run, 2026-09-10).
             var context = new PackInstallContext(
-                tenant, trustStore, revocation, AdmittedInstant.Read(time), RevocationMaxAge, breakGlass,
+                tenant, trustStore, revocation, authority.Instant, RevocationMaxAge, breakGlass,
                 Principal: authority.Principal.Value);
             var outcome = await installer.InstallAsync(bytes, context, CancellationToken.None).ConfigureAwait(false);
 
@@ -353,7 +358,7 @@ internal static class PackInstallRoutes
                 return refusal;
             }
             var context = new PackInstallContext(
-                tenant, trustStore, revocation, AdmittedInstant.Read(time), RevocationMaxAge,
+                tenant, trustStore, revocation, authority.Instant, RevocationMaxAge,
                 Principal: authority.Principal.Value);
             var outcome = await installer.DeactivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
             logger.LogInformation(
