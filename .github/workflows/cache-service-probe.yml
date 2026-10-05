@@ -1,0 +1,46 @@
+# Disposable maintainer-authorized synthetic test. Close its PR; do not merge this workflow.
+name: cache-service-probe
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: cache-service-probe-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: write
+    steps:
+      # No candidate checkout or local code. Only the independently reviewed immutable main action.
+      - uses: Harborline-Software/harborline-api/.github/actions/cache-qualification@5e173fae188d494316c41cf4796e1158a1b9e0f9
+        with:
+          mode: attack
+          namespace: api356-synthetic-37255959119-bbb3fc6b8a2339c7d9ded75482e6ed0e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-candidate-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  readonly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: read
+    steps:
+      # No candidate checkout or local code. Only the independently reviewed immutable main action.
+      - uses: Harborline-Software/harborline-api/.github/actions/cache-qualification@5e173fae188d494316c41cf4796e1158a1b9e0f9
+        with:
+          mode: deny
+          namespace: api356-synthetic-37255959119-bbb3fc6b8a2339c7d9ded75482e6ed0e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cache-readonly-${{ github.run_id }}
+          path: .claude/cache-service-qualification/evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
