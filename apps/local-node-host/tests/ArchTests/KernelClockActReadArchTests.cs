@@ -70,7 +70,9 @@ public sealed class KernelClockActReadArchTests
         var assemblies = new[] { typeof(PlantedRoutes).Assembly };
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
-        var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
+        // One graph over every planted handler, as in production, so the route objects are known to every act.
+        var graph = new ReadGraph(assemblies, RouteTypes(handlers.Select(handler => handler.Handler)));
+        var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies, graph).Count);
         Assert.Equal(40, reads.Count);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ConsumesAClockIterator", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsThroughAMethodGroup", StringComparison.Ordinal)).Value);
@@ -446,7 +448,7 @@ public sealed class KernelClockActReadArchTests
 
     /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
     private static bool ProducesInjectedClock(MethodBase method, OpCode opCode, int operand, IReadOnlySet<Type> routeTypes) =>
-        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand), routeTypes);
+        opCode == OpCodes.Ldfld && IsInjectedClock(ResolveField(method, operand), method.DeclaringType, routeTypes);
 
     /// <summary>
     /// Locals that hold the service's injected clock on every path: every store to the local stores it (an
@@ -502,7 +504,7 @@ public sealed class KernelClockActReadArchTests
             .Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
         bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
             && ResolveField(getter, code[at].Operand) is { DeclaringType: { } declaring } field
-            && declaring.IsAssignableFrom(owner) && IsInjectedClock(field, routeTypes); // the owner's own or an inherited injected clock
+            && declaring.IsAssignableFrom(owner) && IsInjectedClock(field, owner, routeTypes); // the owner's own or an inherited injected clock
         if (code.Length < 3 || code[0].OpCode != OpCodes.Ldarg_0 || !Field(1) || code[^1].OpCode != OpCodes.Ret)
             return false;
         if (code.Length == 3)
@@ -539,11 +541,16 @@ public sealed class KernelClockActReadArchTests
     /// A clock injected into a service instance: a <see cref="TimeProvider"/> field of a real type, read directly or
     /// through that type's own getter.
     /// </summary>
-    private static bool IsInjectedClock(FieldInfo? receiver, IReadOnlySet<Type> routeTypes) =>
+    /// <remarks>
+    /// Whether the clock is a route object's is judged by the code reading it (<paramref name="reader"/>), not by
+    /// where the field is declared: a service and a route object may share a clock-bearing base class. Code on a
+    /// route type, or on a base of one, reads the act's clock; code on any other type reads its service's own.
+    /// </remarks>
+    private static bool IsInjectedClock(FieldInfo? receiver, Type? reader, IReadOnlySet<Type> routeTypes) =>
         receiver is { IsStatic: false, DeclaringType: { } declaring }
         && typeof(TimeProvider).IsAssignableFrom(receiver.FieldType)
         && !declaring.IsDefined(typeof(CompilerGeneratedAttribute), false)
-        && !routeTypes.Any(declaring.IsAssignableFrom); // a route object's clock is the act's clock, not a service's
+        && !(reader is not null && routeTypes.Any(reader.IsAssignableFrom));
 
     private static FieldInfo? ResolveField(MethodBase method, int token) =>
         ResolveToken(method, token, (module, generics, methodGenerics) => module.ResolveField(token, generics, methodGenerics));
@@ -953,11 +960,10 @@ public sealed class KernelClockActReadArchTests
         internal static IResult Handle() => Results.Ok();
     }
 
-    // A route object, not a service: its own clock field is the act's clock, read twice through a helper.
-    private sealed class PlantedInstanceRoute(TimeProvider clock)
+    // A route object, not a service: its own clock field is the act's clock, read twice through a helper. It shares
+    // its clock-bearing base with PlantedDerivedService, whose reads stay that service's own.
+    private sealed class PlantedInstanceRoute(TimeProvider clock) : PlantedClockBase(clock)
     {
-        private readonly TimeProvider _clock = clock;
-
         internal IResult Handle() => Results.Ok(Stamp() - Stamp());
 
         private DateTimeOffset Stamp() => _clock.GetUtcNow();
