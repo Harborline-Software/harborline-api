@@ -31,13 +31,49 @@ Artifact fields do not grant authority or replace protected-main policy. Missing
 unknown, changed or unavailable evidence requests fresh canonical pack. The broker
 retains metadata credentials only in its parent; build/download subprocesses and
 fallback environments strip metadata, enterprise and runner credentials.
-Runner step environments clear Node preload/import and native/shell startup
-variables before interpreter pinning and credential-bearing process startup;
-shell commands also unset them before invoking Node. In-process child filtering
-cannot prevent a hook that runs before protected JavaScript starts. Literal
-synthetic-credential controls exercise actual Node require/import startup.
-Shell/native loader exclusions are checked by literal step-environment assertions;
-the executable theft controls exercise Node hooks, not injected native libraries.
+Runner step environments override startup paths before interpreter pinning and
+credential-bearing process startup. The three protected steps use explicit Bash
+`--noprofile --norc -p -e -o pipefail`: privileged mode rejects imported functions,
+`SHELLOPTS`/`BASHOPTS`, `BASH_ENV`/`ENV` and inherited shell search options. It does
+not grant operating-system privileges. The script then unsets permitted startup
+variables before Node; readonly shell-option variables are not unset.
+
+The consolidated Node 24 startup audit covers these distinct inputs:
+
+- Node preload/module paths; OpenSSL configuration, include, provider and engine
+  paths (`OPENSSL_CONF`, `OPENSSL_CONF_INCLUDE`, `OPENSSL_MODULES`,
+  `OPENSSL_ENGINES`); Linux preload/library/audit/origin and character-conversion
+  module paths. In-process child filtering is too late for these startup inputs.
+- Node compile-cache directory/portability inputs are cleared, and
+  `NODE_DISABLE_COMPILE_CACHE=1` is fixed in the outer steps and the launcher's
+  child snapshot. Symlink preservation and ICU data overrides are cleared.
+- Node debug output, warning redirection and coverage destinations are cleared
+  separately from executable hooks. Inherited TLS certificate-verification
+  bypass is removed. Approved pre-candidate CA/proxy settings remain preserved;
+  this does not authenticate arbitrary job environment settings or their files.
+
+Real synthetic controls execute Node require/import hooks, fail on malformed
+OpenSSL configuration before JavaScript, redirect a relative config include,
+create compile-cache bytes and a warning file, and demonstrate Bash function
+replacement and `SHELLOPTS`/`PS4` expansion. The declared protected shells suppress
+those controls. The producer shell is exercised with a bounded local script
+fixture; it does not run a production pack. Cache poisoning, native library
+injection and TLS interception are not demonstrated by these controls.
+
+The credential-bearing reuse and producer paths are Linux-only. Existing DYLD
+path exclusions at interpreter pinning are structural assertions, not macOS
+startup qualification. In particular, presence-based loader diagnostics such as
+`LD_TRACE_LOADED_OBJECTS` and `DYLD_PRINT_ENV` cannot be disabled by assigning an
+empty value; no blanket environment-sanitization claim is made. Interpreter
+bytes, PATH entries, installed configuration and approved transport remain part
+of the pre-candidate runner trust contract. The shell flags do not protect mutable
+shared files or arbitrary earlier runner processes.
+
+Audit references: [Node 24 CLI](https://github.com/nodejs/node/blob/v24.14.1/doc/api/cli.md),
+[OpenSSL environment](https://docs.openssl.org/3.5/man7/openssl-env/),
+[Bash privileged mode](https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html),
+[Linux loader](https://man7.org/linux/man-pages/man8/ld.so.8.html), and
+[Apple dyld](https://github.com/apple-oss-distributions/dyld/blob/main/doc/man/man1/dyld.1).
 The required boundary gate executes all five launcher/credential/diagnostic/
 PID1/qualification security suites, with failure propagation.
 
