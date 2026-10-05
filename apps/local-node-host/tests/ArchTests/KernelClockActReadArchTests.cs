@@ -71,7 +71,8 @@ public sealed class KernelClockActReadArchTests
         var handlers = DiscoverHandlers(assemblies, out _, type => IsWithin(type, typeof(PlantedRoutes)));
 
         var reads = handlers.ToDictionary(handler => Name(handler.Handler), handler => ActReads(handler.Handler, assemblies).Count);
-        Assert.Equal(9, reads.Count);
+        Assert.Equal(10, reads.Count);
+        Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsTheWallClockElsewhere", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("GuardedThroughAnotherType", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("<HandlerFactory>", StringComparison.Ordinal)).Value);
         Assert.Equal(2, reads.Single(item => item.Key.Contains("ReadsTwiceAsARequestDelegate", StringComparison.Ordinal)).Value);
@@ -90,7 +91,7 @@ public sealed class KernelClockActReadArchTests
             type => IsWithin(type, typeof(PlantedUntraceableRoutes)));
 
         Assert.Empty(handlers);
-        Assert.Equal(3, unpaired.Count);
+        Assert.Equal(4, unpaired.Count);
     }
 
     [Fact(DisplayName = "T-690 ck-9: a persistence seam takes its instant as a parameter and holds no clock")]
@@ -169,7 +170,9 @@ public sealed class KernelClockActReadArchTests
             reads.AddRange(Reads(moveNext, actsClock, assemblies, known));
         foreach (var (target, offset) in RawMutationPortSymbolInventoryTests.CalledMethods(method))
         {
-            if (IsClockRead(target))
+            if (IsWallClockRead(target))
+                reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
+            else if (IsClockRead(target))
             {
                 if (actsClock) reads.Add($"{Name(target)} in {Name(method)}+IL_{offset:x4}");
             }
@@ -198,6 +201,16 @@ public sealed class KernelClockActReadArchTests
         || OwnClosure(method, Outer(method.DeclaringType!)).Any(call => call.Target is MethodInfo { IsGenericMethod: true } generic
             && generic.Name is nameof(ServiceProviderServiceExtensions.GetService) or nameof(ServiceProviderServiceExtensions.GetRequiredService)
             && generic.GetGenericArguments() is [var resolved] && typeof(TimeProvider).IsAssignableFrom(resolved));
+
+    /// <summary>
+    /// A static wall-clock read (<see cref="DateTime.UtcNow"/>, <see cref="DateTimeOffset.Now"/> and the like, or
+    /// fetching <see cref="TimeProvider.System"/>): never a service's injected clock, so it counts wherever the act
+    /// reaches it. <c>KernelClockArchTests</c> separately fences where such reads may appear at all.
+    /// </summary>
+    private static bool IsWallClockRead(MethodBase target) =>
+        target is MethodInfo { IsStatic: true, Name: "get_UtcNow" or "get_Now" or "get_Today" } wall
+            && (wall.DeclaringType == typeof(DateTime) || wall.DeclaringType == typeof(DateTimeOffset))
+        || target is MethodInfo { IsStatic: true, Name: "get_System" } system && system.DeclaringType == typeof(TimeProvider);
 
     /// <summary>A clock read: the kernel clock's <see cref="TimeProvider.GetUtcNow"/> or a fresh admitted instant.</summary>
     private static bool IsClockRead(MethodBase target) =>
@@ -243,6 +256,8 @@ public sealed class KernelClockActReadArchTests
         MethodBase? pointer = null;
         var locals = new Dictionary<int, MethodBase?>();
         var returned = new HashSet<MethodBase?>();
+        var localTypes = method.GetMethodBody()?.LocalVariables.ToDictionary(local => local.LocalIndex, local => local.LocalType)
+            ?? [];
         foreach (var (offset, opCode, operand) in RawMutationPortSymbolInventoryTests.Instructions(method))
         {
             var target = opCode.OperandType == OperandType.InlineMethod ? Resolve(method, operand) : null;
@@ -252,12 +267,18 @@ public sealed class KernelClockActReadArchTests
                 continue; // wraps the pointer just loaded
             else if (IsStoreLocal(opCode))
             {
-                // A local assigned two different delegates (one per branch) no longer names one handler.
-                locals[operand] = locals.GetValueOrDefault(operand) is { } held && pointer is not null && held != pointer ? Ambiguous : pointer;
+                // A delegate local assigned on several paths names one handler only if every assignment is the same
+                // traced delegate; an untraced assignment (an argument, a call result) is Unknown, and any mix is
+                // Ambiguous. Linear IL order sees every assignment, whichever branch it is on.
+                if (localTypes.TryGetValue(operand, out var localType) && typeof(Delegate).IsAssignableFrom(localType))
+                {
+                    var value = pointer ?? Unknown;
+                    locals[operand] = !locals.TryGetValue(operand, out var held) || held == value ? value : Ambiguous;
+                }
                 pointer = null;
             }
             else if (IsLoadLocal(opCode))
-                pointer = locals.GetValueOrDefault(operand);
+                pointer = locals.GetValueOrDefault(operand) is { } loaded && loaded != Unknown ? loaded : null;
             else if (opCode == OpCodes.Ret)
                 returned.Add(pointer);
             else if (target is not null && IsDelegateMap(target))
@@ -283,6 +304,12 @@ public sealed class KernelClockActReadArchTests
         nameof(AmbiguousDelegate), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private static void AmbiguousDelegate() { }
+
+    /// <summary>Marks a delegate local assigned from something this discovery cannot trace.</summary>
+    private static readonly MethodBase Unknown = typeof(KernelClockActReadArchTests).GetMethod(
+        nameof(UnknownDelegate), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static void UnknownDelegate() { }
 
     private static MethodBase? Resolve(MethodBase method, int token)
     {
@@ -392,6 +419,7 @@ public sealed class KernelClockActReadArchTests
         {
             app.MapGet("/planted/factory", HandlerFactory(time));
             app.MapPost("/planted/helper-guard", GuardedThroughAnotherType);
+            app.MapGet("/planted/wall-clock-elsewhere", ReadsTheWallClockElsewhere);
             app.MapGet("/planted/request-delegate", ReadsTwiceAsARequestDelegate);
             app.MapPost("/planted/after-guard", ReadsAfterTheGuard);
             app.MapPost("/planted/seam-twice", HandsTheClockToASeamTwice);
@@ -418,6 +446,8 @@ public sealed class KernelClockActReadArchTests
 
         private static async Task<IResult> GuardedThroughAnotherType(HttpContext http, TimeProvider time, CancellationToken ct) =>
             await PlantedHelperGuard.GuardAsync(http, ct) ?? Results.Ok(time.GetUtcNow());
+
+        private static IResult ReadsTheWallClockElsewhere() => Results.Ok(PlantedHelperGuard.WallWindow());
 
         private static IResult ReadsThroughOneHelperTwice(TimeProvider time) => Results.Ok(Stamp(time) < Stamp(time));
 
@@ -459,6 +489,12 @@ public sealed class KernelClockActReadArchTests
             if (flag) branched = ReadsTwice;
             else branched = ReadsNothing;
             app.MapGet("/planted/branched", branched);
+
+            // One branch assigns the untraceable argument, the other a known handler.
+            Delegate supplied;
+            if (flag) supplied = handler;
+            else supplied = ReadsNothing;
+            app.MapGet("/planted/supplied-or-known", supplied);
             app.MapGet("/planted/conditional", flag ? ReadsTwice : (Func<IResult>)ReadsNothing);
             return unrelated;
         }
@@ -473,6 +509,9 @@ public sealed class KernelClockActReadArchTests
         // A guard of another type that takes no clock, forwarding to one that pulls it from the request container.
         internal static async Task<IResult?> GuardAsync(HttpContext http, CancellationToken ct) =>
             await PlantedGuard.RefusalAsync(http, ct);
+
+        // A helper of another type with no clock of its own, reading the wall clock twice.
+        internal static TimeSpan WallWindow() => DateTimeOffset.UtcNow - DateTimeOffset.UtcNow;
     }
 
     private static class PlantedGuard
