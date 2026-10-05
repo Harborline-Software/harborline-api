@@ -236,7 +236,7 @@ public sealed class MalformedSelectedSessionMaterializationTests
             var antiforgery = new WebAntiforgeryPolicy(
                 sessionFactory,
                 selectedSessionStore,
-                new WebAntiforgeryStateStore(sessionFactory, clock),
+                new WebAntiforgeryStateStore(sessionFactory),
                 clock);
             return new Fixture(
                 [identityPath, sessionPath, searchPath],

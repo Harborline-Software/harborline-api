@@ -1108,13 +1108,13 @@ public sealed class AdminTeamAccessRoutesTests
             }
 
             var clock = new FixedTimeProvider();
-            var store = new WebAntiforgeryStateStore(factory, clock);
+            var store = new WebAntiforgeryStateStore(factory);
             var issue = await store.RotateAsync(
                 WebCookieAudience.SelectedSession,
                 "account-1",
                 "session-1",
                 "coordination-1",
-                ExpiresAt);
+                ExpiresAt, clock.GetUtcNow());
             Assert.NotNull(issue);
 
             const string selectedHandle = AdminTeamAccessRoutesTests.SelectedHandle;
