@@ -400,27 +400,34 @@ public sealed class RawMutationPortSymbolInventoryTests
         }
     }
 
-    /// <summary>Every offset some branch or switch can jump to (T-690: a join point is where values merge).</summary>
-    internal static HashSet<int> BranchTargets(MethodBase method)
+    /// <summary>Every branch and switch edge, from the branching instruction's offset to its target (T-690).</summary>
+    internal static IReadOnlyList<(int From, int To)> BranchEdges(MethodBase method)
     {
-        var targets = new HashSet<int>();
+        var edges = new List<(int From, int To)>();
         var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il is null)
-            return targets;
+            return edges;
         foreach (var (offset, opCode, operand) in Instructions(method))
         {
             if (opCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
-                targets.Add(operand);
+                edges.Add((offset, operand));
             else if (opCode.OperandType == OperandType.InlineSwitch)
             {
                 var start = offset + opCode.Size;
                 var count = BitConverter.ToInt32(il, start);
                 var end = start + 4 + count * 4;
                 for (var index = 0; index < count; index++)
-                    targets.Add(end + BitConverter.ToInt32(il, start + 4 + index * 4));
+                    edges.Add((offset, end + BitConverter.ToInt32(il, start + 4 + index * 4)));
             }
         }
-        foreach (var clause in method.GetMethodBody()!.ExceptionHandlingClauses)
+        return edges;
+    }
+
+    /// <summary>Every offset some branch, switch or exception handler can jump to (T-690: where values merge).</summary>
+    internal static HashSet<int> BranchTargets(MethodBase method)
+    {
+        var targets = BranchEdges(method).Select(edge => edge.To).ToHashSet();
+        foreach (var clause in method.GetMethodBody()?.ExceptionHandlingClauses ?? [])
         {
             targets.Add(clause.HandlerOffset);
             if (clause.Flags == ExceptionHandlingClauseOptions.Filter) targets.Add(clause.FilterOffset);

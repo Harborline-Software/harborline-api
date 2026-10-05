@@ -372,10 +372,9 @@ public sealed class KernelClockActReadArchTests
                 && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
                 calls.Add((moveNext, false));
             var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
-            // A backward branch closes a loop: whatever lies between its target and itself can run more than once.
-            var loops = code.Where(instruction => instruction.OpCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget
-                    && instruction.Operand <= instruction.Offset)
-                .Select(instruction => (Start: instruction.Operand, End: instruction.Offset)).ToArray();
+            // A backward branch or switch edge closes a loop: whatever lies between its target and itself can repeat.
+            var loops = RawMutationPortSymbolInventoryTests.BranchEdges(method).Where(edge => edge.To <= edge.From)
+                .Select(edge => (Start: edge.To, End: edge.From)).ToArray();
             bool InLoop(int at) => loops.Any(loop => at >= loop.Start && at <= loop.End);
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
             var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
