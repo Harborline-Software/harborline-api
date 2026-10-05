@@ -61,10 +61,11 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
     /// <summary>Construct bound to the node EF context factory and (no-op) domain event publisher.</summary>
     public NodeEfPartyRepository(
         IDbContextFactory<LocalNodeDbContext> contextFactory,
+        TimeProvider time,
         IDomainEventPublisher? events = null)
     {
-        // T-690: every party write takes the act's admitted instant as a parameter; the repository holds no clock.
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+        ArgumentNullException.ThrowIfNull(time);
         _events = events ?? new NoopDomainEventPublisher();
     }
 

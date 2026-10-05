@@ -96,7 +96,7 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _principal = new MutablePrincipal("server-actor");
         var store = new NodeSchedulingDraftStore(_factory);
-        _parties = new NodeEfPartyRepository(peopleFactory);
+        _parties = new NodeEfPartyRepository(peopleFactory, TimeProvider.System);
         _app.Use(async (http, next) =>
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);

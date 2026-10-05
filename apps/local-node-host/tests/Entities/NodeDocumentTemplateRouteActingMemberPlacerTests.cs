@@ -176,7 +176,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             registry,
             _renderWriter,
             invoices,
-            new NodeEfPartyRepository(factory),
+            new NodeEfPartyRepository(factory, TimeProvider.System),
             NodeTestActiveTeam.Accessor,
             TimeProvider.System);
 

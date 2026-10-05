@@ -95,7 +95,7 @@ public sealed class ContactDeleteRouteTests : IAsyncLifetime
         // production routes (mirrors HostedContactApiEndpoint wiring — no [FromServices]).
         _crdt = new ContactCrdtProjection(
             _app.Services.GetRequiredService<ICrdtEngine>(), _factory, NullLogger<ContactCrdtProjection>.Instance);
-        var accessor = new NodeEfPartyRepository(_factory);
+        var accessor = new NodeEfPartyRepository(_factory, TimeProvider.System);
         _identityFactory = _app.Services.GetRequiredService<
             IDbContextFactory<NodeLocalInstallationIdentityDbContext>>();
         await using (var identityDb = await _identityFactory.CreateDbContextAsync())

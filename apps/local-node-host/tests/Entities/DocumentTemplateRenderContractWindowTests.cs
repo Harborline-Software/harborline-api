@@ -96,7 +96,7 @@ public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
             registry,
             new StubPdfWriter(),
             new NodeEfInvoiceRepository(factory),
-            new Harborline.Api.LocalNodeHost.Data.People.NodeEfPartyRepository(factory),
+            new Harborline.Api.LocalNodeHost.Data.People.NodeEfPartyRepository(factory, TimeProvider.System),
             NodeTestActiveTeam.Accessor,
             TimeProvider.System);
 
