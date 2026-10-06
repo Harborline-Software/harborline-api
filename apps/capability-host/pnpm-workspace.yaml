@@ -1,5 +1,6 @@
 # pnpm audit overrides (ADR-0086 clause 5), transitive via minimatch; each names its advisory.
 overrides:
+  "source-map-js@>=1.0.0 <1.2.2": "1.2.2" # GHSA-68fv-2mgg-jv7q
   "brace-expansion@>=4.0.0 <5.0.12": ">=5.0.12" # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr
 # StrykerJS 10.0.0 false survivors, patched until upstream releases the fixes. core: a static mutant (a module-level
 # constant) was activated after import whenever testFiles is set, so tests never saw it (stryker-js#6144, fix PR #6145).

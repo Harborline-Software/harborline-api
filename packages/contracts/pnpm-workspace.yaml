@@ -1,3 +1,6 @@
+# Transitive source-map parser denial of service: GHSA-68fv-2mgg-jv7q.
+overrides:
+  "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
 # StrykerJS 10.0.0 false survivors, patched until upstream releases the fixes. core: a static mutant (a module-level
 # constant) was activated after import whenever testFiles is set, so tests never saw it (stryker-js#6144, fix PR #6145).
 # vitest-runner: a mutant that makes a test file fail to load was reported Survived with zero tests (#6150, fix PR #6217).
