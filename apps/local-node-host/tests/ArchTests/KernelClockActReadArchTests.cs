@@ -189,12 +189,13 @@ public sealed class KernelClockActReadArchTests
     {
         internal static Body Of(MethodBase method)
         {
-            var instructions = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+            var il = Il.Of(method);
+            var instructions = il.Code;
             var branchesInto = instructions
                 .Where(instruction => instruction.OpCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
                 .GroupBy(instruction => instruction.Operand)
                 .ToDictionary(group => group.Key, group => group.Count());
-            return new(method, instructions, RawMutationPortSymbolInventoryTests.BranchTargets(method), branchesInto);
+            return new(method, instructions, il.Joins, branchesInto);
         }
 
         /// <summary>No instruction in (from, to] is a join point, except the allowed one reached by one branch.</summary>
@@ -437,13 +438,14 @@ public sealed class KernelClockActReadArchTests
             if (method.GetCustomAttribute<StateMachineAttribute>() is { } state
                 && state.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is { } moveNext)
                 calls.Add((moveNext, false));
-            var code = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
-            // A backward branch or switch edge closes a loop: whatever lies between its target and itself can repeat.
-            var loops = RawMutationPortSymbolInventoryTests.BranchEdges(method).Where(edge => edge.To <= edge.From)
-                .Select(edge => (Start: edge.To, End: edge.From)).ToArray();
-            bool InLoop(int at) => loops.Any(loop => at >= loop.Start && at <= loop.End);
+            var il = Il.Of(method);
+            var code = il.Code;
+            // An instruction can repeat when it lies on a cycle of the method's control flow. A backward jump alone is
+            // not a loop (an instrumented build jumps back to a shared exit), so the cycle itself is found.
+            var cyclic = CyclicOffsets(code, il.Edges);
+            bool InLoop(int at) => cyclic.Contains(at);
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
-            var joins = RawMutationPortSymbolInventoryTests.BranchTargets(method);
+            var joins = il.Joins;
             var injectedLocals = InjectedLocals(method, code, joins, routeTypes);
             var copies = new ClockCopies(joins);
             for (var index = 0; index < code.Length; index++)
@@ -460,7 +462,7 @@ public sealed class KernelClockActReadArchTests
                 // A parameterless read's receiver is the value on top: `Func<DateTimeOffset> read = _clock.GetUtcNow;`
                 // is ldfld; dup; ldvirtftn, and `(local = _clock).GetUtcNow()` is ldfld; dup; stloc; callvirt.
                 var receiver = copies.TopIsClock(offset);
-                if (Resolve(method, operand) is not { } target)
+                if (Resolve(method, operand) is not { } target || IsInstrumentation(target.DeclaringType))
                 {
                     copies.Step(offset, opCode, false);
                     continue;
@@ -488,10 +490,167 @@ public sealed class KernelClockActReadArchTests
         /// </summary>
         private void AddInitializer(HashSet<MethodBase> initializers, Type? type)
         {
-            if (type is not null && assemblies.Contains(type.Assembly) && type.TypeInitializer is { } initializer)
+            if (type is not null && !IsInstrumentation(type) && assemblies.Contains(type.Assembly) && type.TypeInitializer is { } initializer)
                 initializers.Add(initializer);
         }
     }
+
+    /// <summary>
+    /// The instructions that lie on a cycle of the method's control-flow graph (fall-through plus every branch and
+    /// switch edge): each strongly connected component with more than one instruction, or with an edge to itself.
+    /// </summary>
+    private static HashSet<int> CyclicOffsets((int Offset, OpCode OpCode, int Operand)[] code, IReadOnlyList<(int From, int To)> edges)
+    {
+        var successors = code.ToDictionary(instruction => instruction.Offset, _ => new List<int>());
+        for (var index = 0; index < code.Length; index++)
+        {
+            var flow = code[index].OpCode.FlowControl;
+            if (index + 1 < code.Length && flow is not (FlowControl.Return or FlowControl.Throw or FlowControl.Branch))
+                successors[code[index].Offset].Add(code[index + 1].Offset);
+        }
+        foreach (var (from, to) in edges)
+            if (successors.TryGetValue(from, out var next) && successors.ContainsKey(to))
+                next.Add(to);
+
+        // Tarjan, iteratively: a method body can be long enough to overflow a recursive walk.
+        var order = new Dictionary<int, int>();
+        var low = new Dictionary<int, int>();
+        var stack = new Stack<int>();
+        var onStack = new HashSet<int>();
+        var cyclic = new HashSet<int>();
+        var counter = 0;
+        foreach (var root in successors.Keys)
+        {
+            if (order.ContainsKey(root))
+                continue;
+            var work = new Stack<(int Node, int Child)>();
+            work.Push((root, 0));
+            order[root] = low[root] = counter++;
+            stack.Push(root);
+            onStack.Add(root);
+            while (work.Count > 0)
+            {
+                var (node, child) = work.Pop();
+                var next = successors[node];
+                if (child < next.Count)
+                {
+                    work.Push((node, child + 1));
+                    var target = next[child];
+                    if (!order.ContainsKey(target))
+                    {
+                        order[target] = low[target] = counter++;
+                        stack.Push(target);
+                        onStack.Add(target);
+                        work.Push((target, 0));
+                    }
+                    else if (onStack.Contains(target))
+                        low[node] = Math.Min(low[node], order[target]);
+                    continue;
+                }
+                if (work.Count > 0)
+                    low[work.Peek().Node] = Math.Min(low[work.Peek().Node], low[node]);
+                if (low[node] != order[node])
+                    continue;
+                var component = new List<int>();
+                int member;
+                do
+                {
+                    member = stack.Pop();
+                    onStack.Remove(member);
+                    component.Add(member);
+                }
+                while (member != node);
+                if (component.Count > 1 || successors[node].Contains(node))
+                    cyclic.UnionWith(component);
+            }
+        }
+        return cyclic;
+    }
+
+    /// <summary>
+    /// A method's IL as its source compiled it. A coverage run weaves a hit record (<c>ldc.i4 n; call
+    /// Tracker.RecordHit</c>) before statements and branch targets, and sometimes a <c>br</c> over one: those are
+    /// dropped, and every branch that targeted a dropped instruction is moved to the next kept one, so the shapes
+    /// this fence recognises (a getter's <c>return _clock;</c>, a load from <c>this</c>, a straight run with no join)
+    /// read the same with and without instrumentation. An uninstrumented method is returned unchanged.
+    /// </summary>
+    private sealed record Il(
+        (int Offset, OpCode OpCode, int Operand)[] Code,
+        IReadOnlyList<(int From, int To)> Edges,
+        HashSet<int> Joins)
+    {
+        internal static Il Of(MethodBase method)
+        {
+            var raw = RawMutationPortSymbolInventoryTests.Instructions(method).ToArray();
+            var removed = new HashSet<int>();
+            for (var index = 0; index < raw.Length; index++)
+            {
+                if (raw[index].OpCode.OperandType != OperandType.InlineMethod
+                    || !IsInstrumentation(Resolve(method, raw[index].Operand)?.DeclaringType))
+                    continue;
+                removed.Add(raw[index].Offset);
+                if (index > 0 && IsLoadConstant(raw[index - 1].OpCode))
+                    removed.Add(raw[index - 1].Offset);
+            }
+            if (removed.Count == 0)
+                return new(raw, RawMutationPortSymbolInventoryTests.BranchEdges(method), RawMutationPortSymbolInventoryTests.BranchTargets(method));
+
+            // The first kept instruction at or after an offset.
+            int Map(int offset)
+            {
+                foreach (var instruction in raw)
+                    if (instruction.Offset >= offset && !removed.Contains(instruction.Offset))
+                        return instruction.Offset;
+                return offset;
+            }
+            // A jump to the very next kept instruction is a fall-through once the hit records between them are gone.
+            for (var changed = true; changed;)
+            {
+                changed = false;
+                for (var index = 0; index < raw.Length; index++)
+                {
+                    var (offset, opCode, operand) = raw[index];
+                    if (removed.Contains(offset) || (opCode != OpCodes.Br && opCode != OpCodes.Br_S))
+                        continue;
+                    var following = raw.Skip(index + 1).Where(instruction => !removed.Contains(instruction.Offset)).Take(1).ToArray();
+                    if (following is [var next] && Map(operand) == next.Offset)
+                    {
+                        removed.Add(offset);
+                        changed = true;
+                    }
+                }
+            }
+            var code = raw.Where(instruction => !removed.Contains(instruction.Offset))
+                .Select(instruction => instruction.OpCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget
+                    ? instruction with { Operand = Map(instruction.Operand) }
+                    : instruction)
+                .ToArray();
+            var edges = RawMutationPortSymbolInventoryTests.BranchEdges(method)
+                .Where(edge => !removed.Contains(edge.From))
+                .Select(edge => (edge.From, Map(edge.To)))
+                .ToList();
+            var joins = edges.Select(edge => edge.Item2).ToHashSet();
+            foreach (var clause in method.GetMethodBody()?.ExceptionHandlingClauses ?? [])
+            {
+                joins.Add(Map(clause.HandlerOffset));
+                if (clause.Flags == ExceptionHandlingClauseOptions.Filter) joins.Add(Map(clause.FilterOffset));
+            }
+            return new(code, edges, joins);
+        }
+
+        private static bool IsLoadConstant(OpCode opCode) =>
+            opCode == OpCodes.Ldc_I4 || opCode == OpCodes.Ldc_I4_S || opCode == OpCodes.Ldc_I4_0 || opCode == OpCodes.Ldc_I4_1
+            || opCode == OpCodes.Ldc_I4_2 || opCode == OpCodes.Ldc_I4_3 || opCode == OpCodes.Ldc_I4_4 || opCode == OpCodes.Ldc_I4_5
+            || opCode == OpCodes.Ldc_I4_6 || opCode == OpCodes.Ldc_I4_7 || opCode == OpCodes.Ldc_I4_8 || opCode == OpCodes.Ldc_I4_M1;
+    }
+
+    /// <summary>
+    /// Code a coverage run weaves into the production assemblies (coverlet's hit tracker, whose type initializer and
+    /// log writer read the wall clock). It is not production code and is never part of an act; the gate's coverage
+    /// lane runs this fence over instrumented assemblies.
+    /// </summary>
+    private static bool IsInstrumentation(Type? type) =>
+        type?.Namespace?.StartsWith("Coverlet.Core.Instrumentation", StringComparison.Ordinal) == true;
 
     /// <summary>The value an instruction pushes is the service's injected clock (an <c>ldfld</c> of it).</summary>
     /// <summary>
@@ -574,8 +733,8 @@ public sealed class KernelClockActReadArchTests
             || !typeof(TimeProvider).IsAssignableFrom(gotten) || getter.DeclaringType is not { } owner
             || owner.IsDefined(typeof(CompilerGeneratedAttribute), false))
             return false;
-        var code = WithoutReturnLocal(RawMutationPortSymbolInventoryTests.Instructions(getter)
-            .Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
+        var il = Il.Of(getter);
+        var code = WithoutReturnLocal(il.Code.Where(instruction => instruction.OpCode != OpCodes.Nop).ToArray());
         bool Field(int at) => at < code.Length && code[at].OpCode == OpCodes.Ldfld
             && ResolveField(getter, code[at].Operand) is { DeclaringType: { } declaring } field
             && declaring.IsAssignableFrom(owner) && IsInjectedClock(field, owner, routeTypes); // the owner's own or an inherited injected clock
@@ -593,7 +752,7 @@ public sealed class KernelClockActReadArchTests
             || getter.GetMethodBody()?.ExceptionHandlingClauses.Count > 0)
             return false;
         int armStart = code[5].Offset, armEnd = code[^2].Offset, returnAt = code[^1].Offset;
-        return RawMutationPortSymbolInventoryTests.BranchEdges(getter).All(edge =>
+        return il.Edges.All(edge =>
             edge.From == code[3].Offset // the coalescing branch itself, to the ret
             || (edge.From >= armStart && edge.From <= armEnd && edge.To >= armStart && edge.To <= armEnd && edge.To < returnAt));
     }
