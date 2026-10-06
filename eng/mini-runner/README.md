@@ -62,7 +62,7 @@ focused/test evidence are exported; runner configuration/logs are not exported.
 
 ## Explicit execution interface (not run during preparation)
 
-After separate approval and protected landing, use the queued run ID; this CLI
+After protected landing and the approved smoke sequence, use the queued run ID; this CLI
 never dispatches it. All four source checkouts must already be at the selected
 committed heads. Control's reviewed full SHA is explicit because API has no
 control-pin.json. Paths below are placeholders for isolated qualified checkouts.
@@ -99,7 +99,7 @@ qualified against the actual pinned runner before exposing listeners.
 1. **First real GitHub portable proof:** complete coordinator-owned PR 374
    landing/smoke sequence; qualify actual pinned-runner admission; supply reviewed
    SDK-11 ARM64 image, land this manual workflow normally, prepare exact sources,
-   then separately authorize one bounded manual run. Inspect named receipts,
+   then execute the approved bounded manual run. Inspect named receipts,
    quality mode and test outcomes, cancellation and cleanup. This first run
    does not qualify coverage or dual-mode parity; those remain separate. Do not
    claim this has run from the local fixtures.
@@ -130,3 +130,22 @@ including actual namespace teardown with a detached TERM-ignoring process and a
 surviving peer. The listener was synthetic; no runner was registered or dispatched.
 The first fixture build rejected bare local image-ID syntax; using an independently
 resolved local tag fixed it. Shell syntax and diff whitespace checks also pass.
+
+
+## Exact SDK-11 image ready
+
+`toolchain.Dockerfile` now pins Microsoft's official Linux ARM64 SDK image by
+manifest digest. `toolchain-readiness.json` records the matching official archive
+SHA-512, image/config digests, local image identity, exact source/pins and measured
+tool versions. Ubuntu Resolute supplies the exact SDK/runtime and PowerShell.
+The non-root image compiled and ran a console program, built the actual pinned
+platform feed, and passed the existing `verifyPreflight()` all-lane prerequisite
+function at main a82e96a. This checks tools/private pins/feed; it deliberately does
+not call the focused-mode executor or represent a full-gate/coverage result.
+No Linux SDK-11 availability or basic runtime blocker was observed.
+
+User approval now covers normal publication/review/queuing of this additive PR
+and the first mini full-gate goal. There is no additional permission prerequisite
+for routine image preparation or that approved bounded run. Protected landing,
+the existing smoke sequence, actual runner admission controls and required checks
+remain execution prerequisites; no queue/protection bypass is implied.
