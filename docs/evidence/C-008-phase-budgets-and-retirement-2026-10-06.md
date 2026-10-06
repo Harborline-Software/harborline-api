@@ -14,7 +14,7 @@ The expired-shared control started successfully at 113.1278ms, entered shutdown 
 
 Raw evidence: [artifact 11427690322](https://github.com/Harborline-Software/harborline-api/actions/runs/37494206792/artifacts/11427690322). ZIP upload SHA-256 `7343d47d92e1507d88b76f0638d1bf8702303f62a2487723a462fd63bfb9095f`; downloaded `result.json` SHA-256 `a531c020f6faaeca4fd1bb74682a194a10c0e2e56590f222dda36e334509ea2d`. Artifact retention is 14 days. This is diagnostic evidence, not a full-host gate or mutation report.
 
-Actual phase durations (end minus begin, milliseconds) are below. Load means two arithmetic worker threads running concurrently with the selected test, not the original hull Vitest suite.
+Actual phase durations (end minus begin, milliseconds) are below. Load means two arithmetic worker threads running concurrently with the selected test, not the historical concurrent frontend Vitest suite.
 
 | Mode | Samples | Startup range (ms) | Shutdown range (ms) |
 | --- | ---: | ---: | ---: |
@@ -31,7 +31,7 @@ An exact comparison of the original C-008 row against the diagnostic TRX display
 
 Retire C-008's Windows `knownFlaky` row and reduce the ceiling from four to three. The smoke fact stays enabled, retains its assertions and remains in the known-test roster. It is not added to permitted failures or skipped tests. `eng/run-exact-clone.mjs` lines 416–494 admit retries only for exact registered unexpected failures; after retirement any host-boot failure is an unregistered NEW failure and fails the gate on its first result. Retirement removes a retry privilege; it does not assert the historical failure can never recur or that this repair explains it.
 
-The evidence supports strict enforcement with this residual risk: twenty repetitions on one ephemeral Windows host and one synthetic CPU profile did not recreate the original concurrent hull Vitest workload. Required host validation on the final repair head and its normal protected merge candidate must still pass. Recurrence is actionable evidence, not an automatic re-registration. No dates, other flake owners, permitted failures or skip counts are changed. A future renewal would require a new owned, dated reason and review; there is no blind expiry extension in this change.
+The evidence supports strict enforcement with this residual risk: twenty repetitions on one ephemeral Windows host and one synthetic CPU profile did not recreate the historical concurrent frontend Vitest workload. Required host validation on the final repair head and its normal protected merge candidate must still pass. Recurrence is actionable evidence, not an automatic re-registration. No dates, other flake owners, permitted failures or skip counts are changed. A future renewal would require a new owned, dated reason and review; there is no blind expiry extension in this change.
 
 Lightweight validation of this prepared repair: `node --test eng/tests/flake-registry.test.mjs eng/tests/host-baseline.test.mjs eng/tests/repin-baseline.test.mjs` passed 57 tests with zero failures or skips on 2026-10-06. These verify the registry/baseline contracts; they do not execute the new C# cases.
 
