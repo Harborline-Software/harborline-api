@@ -1,0 +1,79 @@
+name: orbstack-linux-smoke
+
+# Activation requires host-side admission pinned to the reviewed workflow/run.
+# Workflow guards and labels alone are not a public-fork security boundary.
+# No required workflow or check is replaced by this smoke test.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: orbstack-linux-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository_id == '1360432948' &&
+      github.repository == 'Harborline-Software/harborline-api' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == '1328090' &&
+      github.triggering_actor == 'ctwoodwa' &&
+      github.workflow_ref == 'Harborline-Software/harborline-api/.github/workflows/orbstack-linux-smoke.yml@refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [a, b]
+    runs-on:
+      - harborline-api-trusted-smoke-v1
+      - linux-arm64-orbstack
+      - lane-${{ matrix.lane }}
+    timeout-minutes: 5
+    steps:
+      - name: Verify Linux ARM64 tools and private loopback ports
+        shell: bash
+        env:
+          SMOKE_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" = 1001
+          test ! -S /var/run/docker.sock
+          test ! -e /Users/chris
+          dotnet --list-sdks
+          node --version
+          pnpm --version
+          python3 - <<'PYTHON'
+          import json, os, pathlib, socket, uuid
+          lane = os.environ['SMOKE_LANE']
+          assert lane in ('a', 'b')
+          nonce = uuid.uuid4().hex
+          marker = pathlib.Path(os.environ['RUNNER_TEMP']) / 'harborline-smoke-marker'
+          with marker.open('x') as stream:
+              stream.write(lane + ':' + nonce)
+          listeners = []
+          try:
+              for port in (15359, 15585):
+                  listener = socket.socket()
+                  listener.bind(('127.0.0.1', port))
+                  listener.listen(1)
+                  listeners.append(listener)
+                  with socket.create_connection(('127.0.0.1', port), timeout=5) as client:
+                      server, _ = listener.accept()
+                      with server:
+                          server.sendall((lane + ':' + nonce).encode())
+                      assert client.recv(128).decode() == lane + ':' + nonce
+              assert marker.read_text() == lane + ':' + nonce
+              print(json.dumps({'lane': lane, 'runner': os.environ['RUNNER_NAME'],
+                                'runId': os.environ['GITHUB_RUN_ID'],
+                                'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+                                'workflowSha': os.environ['GITHUB_WORKFLOW_SHA'],
+                                'ports': [15359, 15585], 'result': 'pass'}))
+          finally:
+              for listener in listeners:
+                  listener.close()
+              marker.unlink(missing_ok=True)
+          PYTHON
