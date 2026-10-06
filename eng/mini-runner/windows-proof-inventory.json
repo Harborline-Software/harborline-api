@@ -1,0 +1,145 @@
+{
+  "sourceHead": "a82e96a096e2e689addbcadcb6d2e3e477714854",
+  "scope": "Minimum source-backed retention inventory reconciled to main a82e96a; not a qualified narrowed Windows selector or execution receipt.",
+  "records": [
+    {
+      "category": "Windows DPAPI",
+      "path": "packages/foundation-localfirst/tests/WindowsDpapiKeystoreTests.cs",
+      "checks": "ConfiguredStorageDirectory_IsUsedForDpapiKeyFiles",
+      "note": "Windows branch executes real DPAPI set/get and .dpapi file assertion; non-Windows returns early.",
+      "blob": "dd41658941f9e6ac2dc03f410356773b7c1f6444"
+    },
+    {
+      "category": "Windows recovery roots",
+      "path": "apps/local-node-host/tests/Identity/AdministratorRecoveryCommandTests.cs",
+      "checks": "Every_root_selector_binds_one_installation_identity_seed_and_database; ConfiguredDataDirectory_OwnsRecoveryIdentityAndKeystore",
+      "note": "Three Windows-only selector cases plus real recovery keystore ownership; preserve literal exit/file expectations.",
+      "blob": "b03e24706738de23e98154a844d8416613d3f3e0",
+      "theoryCases": [
+        "ConfigurationOnly",
+        "CliOnly",
+        "ConflictingConfigurationAndCli"
+      ]
+    },
+    {
+      "category": "Install-scoped keystore",
+      "path": "apps/local-node-host/tests/Installation/InstallFootprintTests.cs",
+      "checks": "TeamContainer_UsesTheInstallScopedKeystoreDirectory",
+      "note": "Windows-only team keystore branch; keep platform-specific path casing checks.",
+      "blob": "fbf470111df23e63bad79217dcbbbd13c4235e43"
+    },
+    {
+      "category": "Windows Event Log",
+      "path": "apps/local-node-host/tests/Health/ComposedHostBootEventLogTests.cs",
+      "checks": "Every_event_log_failure_phase_is_isolated_and_degrades_health; HealthyOpen_ConstructsTheEventLogLoggerWithoutWritingASyntheticCriticalEvent; ThrowingEventLogSink_DoesNotStopTheComposedHostAndIsReportedByHealth",
+      "note": "Four failure phases and healthy-open are Windows-only; composed-host assertion includes real DPAPI output. No-sink health activation remains portable.",
+      "blob": "4083deeede6bb7bcef1b109ad41e54e6a376207b",
+      "theoryCases": [
+        "ProviderConstruction",
+        "LoggerConstruction",
+        "FirstWrite",
+        "LaterWrite"
+      ]
+    },
+    {
+      "category": "Mandatory file locking",
+      "path": "apps/local-node-host/tests/TestDoubles/SqliteTestDatabaseTests.cs",
+      "checks": "Pooled_context_holds_the_file_after_the_context_is_disposed",
+      "note": "Explicit Windows-only skip elsewhere; must observe IOException on deletion while pooled handle exists.",
+      "blob": "9bcc442e46becda2f1ed5b3471cc2a450daf6d1e"
+    },
+    {
+      "category": "Native library architecture",
+      "path": "apps/local-node-host/native/sqlite-vec/v0.1.9/manifest.json",
+      "checks": "win-x64 asset; no win-arm64 asset",
+      "note": "Hosted Windows x64 uses the existing supported native asset. No Windows VM or ARM asset qualification is required for the selected target.",
+      "blob": "165cc09a1c7ba67b9bc6a8e17e6020b46252e810",
+      "requiredPlatform": "windows-x64",
+      "librarySha256": "fcf98662a7ad9dce394b96a88f91032047823831b951c76636787c312a6476e6"
+    },
+    {
+      "category": "Native vector proof",
+      "path": "apps/local-node-host/tests/Search/Vector/Vec0NativeParityF2Tests.cs",
+      "checks": "Vec0_Native_Loads_And_ReDisables_Load_Extension; Vec0_Native_Knn_Clip_Is_A_True_PreFilter",
+      "note": "Native-gated tests may return early when asset absent. Require actual keyed SQLCipher load, parity and extension-disable assertions when feature is in platform scope.",
+      "blob": "f1603601a402c264fa926c32d7be773e1229a318"
+    },
+    {
+      "category": "Windows command entry points",
+      "path": "eng/lib/resolve-command.mjs",
+      "checks": "eng/tests/resolve-command.test.mjs: Windows resolves pnpm/action-setup shim to its JavaScript entry point",
+      "note": "Existing named unit case only executes on Windows. Real npm/npx/Git Bash launch, cwd/quoting and process teardown remain integration obligations; this single test does not prove them all.",
+      "blob": "4aa466cd69694952dcfc2f7d11cedb65fd4c4a19"
+    },
+    {
+      "category": "Windows install/stop",
+      "path": "eng/verify-install-artefact.sh",
+      "checks": "published .exe boot, health, CLI, stop and port release",
+      "note": "Native Windows process termination differs under Git Bash; retained end-to-end Windows proof required.",
+      "blob": "3de25db64391d1f877023a9fc1658b10f70ba8f0"
+    },
+    {
+      "category": "Portable PowerShell flow with Windows variant",
+      "path": "apps/local-node-host/tests/Configuration/ConfigurationProposalRouteTests.cs",
+      "checks": "The_api_example_runs_proposal_save_and_read_against_the_isolated_http_host; The_api_example_completes_under_four_parallel_isolated_host_workflows",
+      "note": "PowerShell exists cross-platform; Windows launch/quoting/cwd variant still needs real Windows execution.",
+      "blob": "d10147015be3dbbd27c777b63d5e076eb0807c81"
+    },
+    {
+      "category": "Portable host boot with Windows witness",
+      "path": "apps/local-node-host/tests/Health/HostBootSmokeTests.cs",
+      "checks": "ExistingInstall_SealFailure_Degrades_And_Kestrel_Starts; Real_Host_Starts_Without_DiCycle; Buggy_Registration_Cycles_At_StartAsync_Bite; Shutdown_Budget_Is_Independent_Of_Expired_Startup(false); Shutdown_Budget_Is_Independent_Of_Expired_Startup(true)",
+      "note": "PR 377 merged into this source: separate startup/shutdown budgets and production-based negative reentry oracle. Windows witness still required; no new waiver.",
+      "blob": "74e3b7b7dee865cc49a0b3933f3ac393159e14ed",
+      "previousBlob": "a41b43ea76fe02622d7908f419d735c81fee9dc1"
+    },
+    {
+      "category": "Windows error-mode interop",
+      "path": "apps/local-node-host/tests/WindowsErrorModeModuleInitializer.cs",
+      "checks": "Initialize / SetErrorMode",
+      "note": "Real kernel32 interop initializes Windows testhost; architecture-specific launch validation needed.",
+      "blob": "5019086820ffcc41244dcc07522f6540b50035ac"
+    },
+    {
+      "category": "Portable refusal contract, not implemented Windows sandbox",
+      "path": "apps/capability-host/src/sandbox/windows-appcontainer.ts",
+      "checks": "WindowsAppContainerSandbox.run; sandbox.conformance.test.ts",
+      "note": "Implementation is explicitly absent and refuses execution. Portable refusal tests do not prove AppContainer isolation; do not invent that coverage.",
+      "blob": "4b200fa76d4602c83319e2519243d974f8402b89"
+    },
+    {
+      "category": "Windows TypeScript command integration",
+      "path": "apps/local-node-host/tests/Telemetry/CapabilityInvokeCorrelationTraceTests.cs",
+      "blob": "c2a684d29ff0030bc211e90acb6db2812e43e9b5",
+      "checks": "TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan",
+      "note": "Invokes vitest.cmd on Windows and skips if node toolchain is missing. Require installed capability-host test toolchain and actual execution when shadowing retained Windows assertions; a skip is not Windows launch/quoting proof."
+    }
+  ],
+  "activeRoutingDecision": "Mini primary portable build/test/quality plus local macOS; genuinely Windows-specific proof remains GitHub-hosted Windows. Supersedes Windows ARM VM plan.",
+  "decisionUtc": "2026-10-06T18:43:00Z",
+  "previousSourceHead": "f7664a1c75bd051fb39ff312f62b492ff18e0362",
+  "schemaVersion": 1,
+  "portableRelocation": [
+    {
+      "currentOwner": ".github/workflows/verify.yml: verify-shared (macos-15)",
+      "target": "mini Linux",
+      "scope": "boundaries, dependency ledger, identity, codegen, localfirst C#, rule engine, install/removal scripts; platform variants retained"
+    },
+    {
+      "currentOwner": ".github/workflows/packages.yml",
+      "target": "mini Linux",
+      "scope": "TypeScript/C#/Rust contracts, operator CLI, packages; keep required contexts until qualified replacement"
+    },
+    {
+      "currentOwner": ".github/workflows/verify.yml: verify-windows-hosted",
+      "target": "single mini quality owner",
+      "scope": "portable host/application suites, analyzer SARIF, quality baseline and merge-group coverage; Windows-conditioned inputs must be reconciled"
+    },
+    {
+      "currentOwner": ".github/workflows/verify.yml: stryker (ubuntu-latest, needs verify-windows-hosted)",
+      "target": "mini Linux after portable prerequisite",
+      "scope": "Mutation execution is already Linux; change dependency and runner only after trusted PR admission is implemented. Main manual run has no PR diff and is not Stryker evidence."
+    }
+  ],
+  "shadowSelectorStatus": "Not implemented or qualified in this additive first-gate patch. Independent review reports 20 core plus 9 conservative .NET cases; final exact identities and multiplicities must be reconciled on the eventual landing tree. Filtering tests does not remove the existing project build closure."
+}

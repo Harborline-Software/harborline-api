@@ -1,0 +1,29 @@
+name: Mini portable gate qualification
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: mini-portable-gate-qualification
+  cancel-in-progress: false
+jobs:
+  portable:
+    if: >-
+      github.repository_id == '1360432948' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == '1328090' &&
+      github.triggering_actor == 'ctwoodwa'
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [a]
+    runs-on: [self-hosted, harborline-api-mini-portable-v1, linux-arm64-orbstack, 'lane-${{ matrix.lane }}']
+    timeout-minutes: 50
+    env:
+      HARBORLINE_GATE_COVERAGE: '0'
+    steps:
+      # No checkout/action preparation before admission, no secrets or inputs.
+      # Source and exact-run policy are immutable image inputs from the host.
+      - name: Full portable gate at admitted source
+        shell: bash
+        run: /opt/mini/portable-gate.sh
