@@ -1331,11 +1331,13 @@ internal interface IInstallationIdentityHomeRecovery
 /// hosted recovery daemon after canonical tenant admission exists; this service itself advertises no
 /// readiness and can recover every durable nonterminal row without desktop active-team state.
 /// </summary>
+[ClockAuthority("Out-of-act recovery sweep: schedules its own retry backoff from its own clock; no request act is in flight.")]
 internal sealed class InstallationIdentityCoordinatorRecoveryService(
     IDbContextFactory<NodeLocalInstallationIdentityDbContext> homeFactory,
     InstallationIdentityCoordinatorService coordinator,
     ILogger<InstallationIdentityCoordinatorRecoveryService>? logger = null,
-    IEnumerable<IInstallationIdentityHomeRecovery>? homeRecoveries = null)
+    IEnumerable<IInstallationIdentityHomeRecovery>? homeRecoveries = null,
+    TimeProvider? timeProvider = null)
 {
     private readonly IDbContextFactory<NodeLocalInstallationIdentityDbContext> _homeFactory =
         homeFactory ?? throw new ArgumentNullException(nameof(homeFactory));
@@ -1345,6 +1347,13 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
     private readonly Dictionary<string, IInstallationIdentityHomeRecovery> _homeRecoveries =
         (homeRecoveries ?? []).ToDictionary(item => item.CommandType, StringComparer.Ordinal);
     private sealed record RecoveryCursor(DateTimeOffset At, string CorrelationId);
+    // T-1048 (ruling 123 (d)): with a clock, a membership home whose resume does not finish waits a doubling
+    // backoff before its next attempt, so homes that keep failing cannot take every pass. It never gives
+    // up: a backed-off home stays eligible and is resumed once due. The backoff is in memory, so a restart
+    // retries at once; the cycle cursor alone already guarantees progress past a failing home.
+    private readonly TimeProvider? _backoffClock = timeProvider;
+    private readonly Dictionary<string, (int Attempts, DateTimeOffset Due)> _membershipBackoff = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _membershipSeen = new(StringComparer.Ordinal);
     private RecoveryCursor? _membershipCursor;
     private RecoveryCursor? _membershipCycleEnd;
     private RecoveryCursor? _webCursor;
@@ -1388,50 +1397,95 @@ internal sealed class InstallationIdentityCoordinatorRecoveryService(
         }
         await using var context = await _homeFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
-        var page = await ReadRecoveryPageAsync(context.Coordinators.AsNoTracking()
+        var owed = context.Coordinators.AsNoTracking()
             .Where(item =>
                 item.CommandType == "TenantMembershipMutation" &&
                 (item.State == InstallationIdentityCoordinatorState.Preparing ||
                  item.State == InstallationIdentityCoordinatorState.Committing ||
                  item.State == InstallationIdentityCoordinatorState.Finalizing ||
-                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null))),
-            _membershipCursor, _membershipCycleEnd, limit, cancellationToken).ConfigureAwait(false);
-        _membershipCycleEnd = page.CycleEnd;
-        var homes = page.Homes;
-        var results = new List<InstallationIdentityCoordinationResult>(homes.Length);
-        foreach (var home in homes)
+                 (item.State == InstallationIdentityCoordinatorState.Aborted && item.FailureCode != null)));
+        var results = new List<InstallationIdentityCoordinationResult>();
+        // A home still in its backoff window is passed over without counting toward the limit, so the sweep reads on
+        // until it has attempted `limit` due homes or finished the cycle: backed-off homes never hold the page.
+        var attempted = 0;
+        var cycleEnded = false;
+        while (attempted < limit && !cycleEnded)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var correlationId = home.CorrelationId;
-            _membershipCursor = new(home.CreatedAtUtc, correlationId);
-            try
+            var page = await ReadRecoveryPageAsync(owed, _membershipCursor, _membershipCycleEnd, limit, cancellationToken)
+                .ConfigureAwait(false);
+            _membershipCycleEnd = page.CycleEnd;
+            foreach (var home in page.Homes)
             {
-                results.Add(await _coordinator.ResumeAsync(
-                        correlationId,
-                        InstallationIdentityCoordinatorContinuation.Recovery,
-                        cancellationToken)
-                    .ConfigureAwait(false));
+                if (attempted == limit)
+                {
+                    break;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                var correlationId = home.CorrelationId;
+                _membershipCursor = new(home.CreatedAtUtc, correlationId);
+                _membershipSeen.Add(correlationId);
+                if (_backoffClock is not null && _membershipBackoff.TryGetValue(correlationId, out var backoff)
+                    && backoff.Due > _backoffClock.GetUtcNow())
+                {
+                    continue;
+                }
+                attempted++;
+                InstallationIdentityCoordinationResult? result = null;
+                try
+                {
+                    result = await _coordinator.ResumeAsync(
+                            correlationId,
+                            InstallationIdentityCoordinatorContinuation.Recovery,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    results.Add(result);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    _logger?.LogError(
+                        exception,
+                        "Identity coordinator recovery row {CorrelationId} failed; continuing the drain.",
+                        correlationId);
+                }
+                RecordMembershipAttempt(correlationId, result);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            if (_membershipCycleEnd is null || _membershipCursor == _membershipCycleEnd)
             {
-                throw;
+                _membershipCursor = null;
+                _membershipCycleEnd = null;
+                // A home that left the scan (completed by its client, say) no longer needs its backoff entry.
+                foreach (var stale in _membershipBackoff.Keys.Where(key => !_membershipSeen.Contains(key)).ToArray())
+                    _membershipBackoff.Remove(stale);
+                _membershipSeen.Clear();
+                cycleEnded = true; // one cycle per sweep at most: the next sweep starts a fresh bounded cycle
             }
-            catch (Exception exception)
-            {
-                _logger?.LogError(
-                    exception,
-                    "Identity coordinator recovery row {CorrelationId} failed; continuing the drain.",
-                    correlationId);
-            }
-        }
-        if (_membershipCycleEnd is null || _membershipCursor == _membershipCycleEnd)
-        {
-            _membershipCursor = null;
-            _membershipCycleEnd = null;
         }
         await RecoverWebHomesAsync(context, limit, cancellationToken).ConfigureAwait(false);
         return results;
     }
+
+    private void RecordMembershipAttempt(string correlationId, InstallationIdentityCoordinationResult? result)
+    {
+        if (_backoffClock is null)
+        {
+            return;
+        }
+        if (result is not null && result.Status != InstallationIdentityCoordinationStatus.PendingRecovery)
+        {
+            _membershipBackoff.Remove(correlationId);
+            return;
+        }
+        var attempts = _membershipBackoff.TryGetValue(correlationId, out var previous) ? previous.Attempts + 1 : 1;
+        _membershipBackoff[correlationId] = (attempts, _backoffClock.GetUtcNow() + MembershipRecoveryBackoff(attempts));
+    }
+
+    /// <summary>One minute after the first unfinished attempt, doubling per attempt, at most an hour. Never a give-up.</summary>
+    internal static TimeSpan MembershipRecoveryBackoff(int attempts) =>
+        TimeSpan.FromMinutes(Math.Min(60, Math.Pow(2, Math.Clamp(attempts - 1, 0, 6))));
 
     private async Task RecoverWebHomesAsync(
         NodeLocalInstallationIdentityDbContext context,

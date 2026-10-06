@@ -18,7 +18,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
-public sealed class InstallationIdentityCoordinatorServiceTests
+public sealed partial class InstallationIdentityCoordinatorServiceTests
 {
     private static readonly DateTimeOffset FixedNow =
         new(2026, 7, 13, 23, 0, 0, TimeSpan.Zero);
@@ -811,6 +811,7 @@ public sealed class InstallationIdentityCoordinatorServiceTests
         }
 
         public InstallationFounderBootstrapServiceTests.IdentityContextFactory HomeFactory { get; }
+        public string HomePath => _homePath;
         public string AccountId { get; }
         public long AccountOwnerVersion { get; }
         public long AccountSecurityVersion { get; }
@@ -827,6 +828,23 @@ public sealed class InstallationIdentityCoordinatorServiceTests
                 new FixedTimeProvider(FixedNow),
                 TestAuthorization.Gate(true),
                 GrantStore);
+
+        /// <summary>A coordinator over this fixture's durable stores with another clock.</summary>
+        public InstallationIdentityCoordinatorService CoordinatorAt(TimeProvider clock) =>
+            new(HomeFactory, _resolver, new AcceptingAdmission(), clock, TestAuthorization.Gate(true), GrantStore);
+
+        /// <summary>A fresh host's fixture over durable stores another process wrote.</summary>
+        public static async Task<CoordinatorFixture> ReopenAsync(
+            string homePath, string accountId, long ownerVersion, long securityVersion,
+            IReadOnlyList<(string Path, byte[] Key, string TenantId)> tenants)
+        {
+            var factory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(homePath);
+            var reopened = new List<TenantPartitionFixture>();
+            foreach (var tenant in tenants)
+                reopened.Add(await TenantPartitionFixture.OpenAsync(factory, tenant.Path, tenant.Key, tenant.TenantId));
+            return new CoordinatorFixture(homePath, factory, accountId, ownerVersion, securityVersion, reopened,
+                TestInMemoryAuthorizationStores.GrantStore());
+        }
 
         public static async Task<CoordinatorFixture> CreateAsync(int tenantCount)
         {
@@ -975,8 +993,10 @@ public sealed class InstallationIdentityCoordinatorServiceTests
             string path,
             SqlCipherEncryptedStore store,
             string tenantId,
-            ITenantMembershipAuthorityStore authority)
+            ITenantMembershipAuthorityStore authority,
+            byte[]? key = null)
         {
+            Key = key ?? [];
             _path = path;
             _store = store;
             TenantId = tenantId;
@@ -985,16 +1005,26 @@ public sealed class InstallationIdentityCoordinatorServiceTests
         }
 
         public string TenantId { get; }
+        public string Path => _path;
+        public byte[] Key { get; }
         public ITenantMembershipAuthorityStore Authority { get; set; }
         public ILeaseCoordinator Leases { get; set; }
 
         public static async Task<TenantPartitionFixture> CreateAsync(
             InstallationFounderBootstrapServiceTests.IdentityContextFactory homeFactory)
         {
-            var path = Path.Combine(Path.GetTempPath(), $"harborline-tenant-partition-{Guid.NewGuid():N}.db");
+            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"harborline-tenant-partition-{Guid.NewGuid():N}.db");
+            return await OpenAsync(homeFactory, path, RandomNumberGenerator.GetBytes(32), Guid.NewGuid().ToString("D"));
+        }
+
+        public static async Task<TenantPartitionFixture> OpenAsync(
+            InstallationFounderBootstrapServiceTests.IdentityContextFactory homeFactory,
+            string path,
+            byte[] key,
+            string tenantId)
+        {
             var store = new SqlCipherEncryptedStore();
-            await store.OpenAsync(path, RandomNumberGenerator.GetBytes(32), CancellationToken.None);
-            var tenantId = Guid.NewGuid().ToString("D");
+            await store.OpenAsync(path, key, CancellationToken.None);
             return new TenantPartitionFixture(
                 path,
                 store,
@@ -1002,7 +1032,8 @@ public sealed class InstallationIdentityCoordinatorServiceTests
                 new EncryptedTenantMembershipAuthorityStore(
                     store,
                     tenantId,
-                    new InstallationIdentityHomeDecisionAuthority(homeFactory)));
+                    new InstallationIdentityHomeDecisionAuthority(homeFactory)),
+                key);
         }
 
         public async ValueTask DisposeAsync()
