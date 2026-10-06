@@ -59,6 +59,13 @@ export function counters(xml) {
     throw Error('TRX did not execute exactly one test with no skips')
   return data
 }
+export function requireTestIdentity(xml, method) {
+  const matches=[...xml.matchAll(/<TestMethod\s+([^>]+)>/g)]
+  if(matches.length!==1) throw Error('TRX test identity missing or ambiguous')
+  const attributes=Object.fromEntries([...matches[0][1].matchAll(/(\w+)="([^"]*)"/g)].map(m=>[m[1],m[2]]))
+  if(attributes.className?.split(',')[0]!=='Harborline.Api.LocalNodeHost.Tests.Health.HostBootSmokeTests'
+    || attributes.name?.split('.').at(-1)!==method) throw Error('TRX selected a different test')
+}
 async function main() {
   if(process.platform!=='win32') throw Error('causal execution is Windows-only')
   const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim()
@@ -103,7 +110,9 @@ async function main() {
         const status=run(['test',project,'-c','Release','--no-build','--no-restore','--nologo',
           '--filter',`FullyQualifiedName=Harborline.Api.LocalNodeHost.Tests.Health.HostBootSmokeTests.${method}`,
           '--logger','trx;LogFileName=sample.trx','--results-directory',dir],path.join(dir,'test.log'),env)
-        const xml=readFileSync(path.join(dir,'sample.trx'),'utf8'), count=counters(xml)
+        const xml=readFileSync(path.join(dir,'sample.trx'),'utf8')
+        requireTestIdentity(xml,method)
+        const count=counters(xml)
         const phases=sample.negative?[]:readFileSync(trace,'utf8').trim().split('\n').map(line=>JSON.parse(line))
         const control=sample.expired&&!sample.separate
         const accepted=control?status!==0&&count.failed===1&&xml.includes('C008 probe observed expired shutdown token')

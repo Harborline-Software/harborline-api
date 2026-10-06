@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {instrument,counters} from '../c008-hosted-probe.mjs'
+import {instrument,counters,requireTestIdentity} from '../c008-hosted-probe.mjs'
 test('instrumentation leaves negative fixture and positive assertions intact',()=>{
   const source=readFileSync(new URL('../../apps/local-node-host/tests/Health/HostBootSmokeTests.cs',import.meta.url),'utf8')
   const result=instrument(source)
@@ -15,4 +15,10 @@ test('receipt parsing rejects empty or skipped execution',()=>{
   assert.throws(()=>counters('<Counters total="0" executed="0" passed="0" failed="0" notExecuted="0"/>'),/exactly one/)
   assert.throws(()=>counters('<Counters total="1" executed="0" passed="0" failed="0" notExecuted="1"/>'),/exactly one/)
   assert.throws(()=>counters('missing'),/missing/)
+})
+test('a passing unrelated case is not causal evidence',()=>{
+  const xml='<TestMethod className="Harborline.Api.LocalNodeHost.Tests.Health.HostBootSmokeTests" name="Real_Host_Starts_Without_DiCycle"/>'
+  requireTestIdentity(xml,'Real_Host_Starts_Without_DiCycle')
+  assert.throws(()=>requireTestIdentity(xml,'Buggy_Registration_Cycles_At_StartAsync_Bite'),/different test/)
+  assert.throws(()=>requireTestIdentity(xml+xml,'Real_Host_Starts_Without_DiCycle'),/ambiguous/)
 })
