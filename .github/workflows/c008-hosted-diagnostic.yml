@@ -1,0 +1,68 @@
+name: c008-hosted-diagnostic
+on:
+  pull_request:
+    types: [labeled]
+permissions:
+  contents: read
+concurrency:
+  group: c008-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  diagnostic:
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'c008-diagnostic-reviewed' &&
+      github.repository_id == '1360432948' &&
+      github.actor_id == '1328090' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Isolate package restore directory
+        shell: bash
+        run: printf 'NUGET_PACKAGES=%s/c008-nuget\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: '11.1.3'
+      - name: Read public platform pin
+        id: pin
+        shell: bash
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("eng/platform-pin.json")).commit; if(!/^[a-f0-9]{40}$/.test(p)) throw Error("invalid pin"); fs.appendFileSync(process.env.GITHUB_OUTPUT,`commit=${p}\n`);'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.pin.outputs.commit }}
+          path: .platform
+          persist-credentials: false
+      - name: Build fresh public dependency feed
+        shell: bash
+        env:
+          HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+        run: node eng/build-local-feed.mjs
+      - name: Bounded causal Windows probe
+        shell: bash
+        env:
+          C008_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node eng/c008-hosted-probe.mjs
+      - name: Diagnostic evidence only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c008-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/c008-probe/
+          if-no-files-found: warn
+          retention-days: 14
