@@ -9,20 +9,7 @@ export npm_config_cache="$root/cache/npm" pnpm_config_store_dir="$root/cache/pnp
 export HARBORLINE_PLATFORM_REPO="$root/platform" HARBORLINE_CONTROL_REPO="$root/control" HARBORLINE_QUALITY_REPO="$root/quality" HARBORLINE_VERIFY_LANE=all
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_GENERATE_ASPNET_CERTIFICATE=false DOTNET_NOLOGO=1
 export HARBORLINE_INSTALL_ARTEFACT_PORT=15359 HARBORLINE_REMOVAL_EXERCISE_PORT=15585
-python3 -I - <<'PY'
-import hashlib,json,pathlib,subprocess
-sources=json.loads(pathlib.Path('/opt/mini/sources.json').read_text())
-for name, record in sources.items():
-    bundle=pathlib.Path('/opt/mini/bundles')/(name+'.bundle')
-    if hashlib.sha256(bundle.read_bytes()).hexdigest()!=record['bundleSha256']:
-        raise SystemExit('Source bundle digest mismatch')
-    target='/runner/gate/'+name
-    subprocess.run(['git','clone',str(bundle),target],check=True)
-    subprocess.run(['git','-C',target,'checkout','--detach',record['head']],check=True)
-    subprocess.run(['git','-C',target,'update-ref','refs/remotes/origin/main',record['head']],check=True)
-    if subprocess.check_output(['git','-C',target,'rev-parse','HEAD'],text=True).strip()!=record['head']:
-        raise SystemExit('Source head mismatch')
-PY
+python3 -I /opt/mini/checkout-sources.py
 cd "$root/api"
 # Existing preflight enforces global.json and all private pins. Do not override
 # SDK selection or replace the gate with its exit-code-only local pilot.
