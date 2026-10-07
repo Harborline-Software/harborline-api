@@ -268,7 +268,7 @@ def execute(args):
             name = row['name']
             docker('volume', 'create', '--label', f'{LABEL}={session}', name)
             docker('network', 'create', '--label', f'{LABEL}={session}', name)
-            docker('run', '-d', '--name', name, '--label', f'{LABEL}={session}', '--init', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '7g', '--memory-swap', '7g', '--cpus', '5', '--pids-limit', '1024', '--network', name, '--mount', f'type=volume,src={name},dst=/runner', '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777', args.image)
+            docker('run', '-d', '--name', name, '--label', f'{LABEL}={session}', '--init', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '10g', '--memory-swap', '10g', '--cpus', '5', '--pids-limit', '1024', '--network', name, '--mount', f'type=volume,src={name},dst=/runner', '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777', args.image)
             docker('exec', name, 'timeout', '30', 'bash', '-c', 'until test -f /runner/READY; do sleep 1; done')
             require(docker('exec', name, '/runner/bin/Runner.Listener', '--version').strip() == '2.338.0', 'Runner version changed')
             token = api('actions/runners/registration-token', 'POST')['token']

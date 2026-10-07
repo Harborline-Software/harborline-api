@@ -30,7 +30,7 @@ local `sha256:` image ID; record the resolved base ID and final image ID.
 architecture/user/entrypoint/hook, exact executable bytes, policy, SDK and source
 manifest before requesting any registration token. It rechecks the queued run
 before registration and before starting the listener. It acquires the existing
-heavy.lock inode without creating/replacing it. Each lane gets 5 CPUs, 7 GiB,
+heavy.lock inode without creating/replacing it. The single qualification lane gets 5 CPUs, 10 GiB,
 1,024 PIDs, a private volume/network, read-only root, no capabilities, no privilege
 escalation, no host bind mount, and no Docker socket.
 
@@ -149,3 +149,52 @@ and the first mini full-gate goal. There is no additional permission prerequisit
 for routine image preparation or that approved bounded run. Protected landing,
 the existing smoke sequence, actual runner admission controls and required checks
 remain execution prerequisites; no queue/protection bypass is implied.
+
+
+## SDK-11 resource and consumer-runtime correction
+
+A fresh SDK-11 all-lane run exceeded the former 7-GiB limit during host tests.
+The container recorded OOM and an aborted test host; the unchanged identity
+comparison refused 571 missing baseline identities. A same-candidate 10-GiB
+trial completed the named host baseline, with an 8.874-GiB cgroup peak, no OOM,
+no host swap, and at least 6.185 GiB available inside the Docker VM. Compiler
+and MSBuild processes overlap the tests. Test parallelism remains unchanged.
+This observation supports only one lane; it is not two-lane capacity evidence.
+
+That trial then exposed a separate final-step prerequisite: the existing package
+consumer targets net10.0. The toolchain copies only Microsoft.NETCore.App 10.0.12
+from the immutable official ARM64 SDK-10 image, alongside SDK/runtime 11.
+It does not install SDK 10, retarget source, or enable runtime roll-forward.
+The combined configuration passed actual package consumption and all 17 gate
+steps at `46ddb7a3d114927b7992add61badb87952e89848` on 2026-10-07. The existing
+controller validated the exact commit/tree, required steps and quality digests.
+Receipt SHA-256: `25baceb9180eac5ca26c57d5465803e0b233e47ebc053c485cdde687de4d746b`.
+The fresh local probe took 772.061 seconds, including focused consumer and ledger
+causal controls. Peak cgroup memory was 9,674,051,584 bytes (9.010 GiB); OOM and
+memory-limit events were zero, host swap was zero, and VM available memory stayed
+at or above 6.415 GiB. Both named identity baselines matched. Cleanup was verified.
+Coverage was off; the local probe excludes live Listener/Worker overhead. Protected
+landing and a measured exact-main GitHub-dispatched single lane remain necessary.
+
+## Two-lane memory preparation (capacity not yet qualified)
+
+The 32-GiB host formerly configured OrbStack for 16,384 MiB, exposing 15.664 GiB
+to Docker, which cannot admit two 10-GiB lanes. The user approved a memory-only
+increase to 24,576 MiB on 2026-10-07. With no containers or Linux machines running,
+the existing workload lock was held while the setting was applied and OrbStack
+was normally stopped and started. Effective Docker memory is now 25,233,031,168
+bytes (23.500 GiB), with the unchanged 12 CPUs, zero host swap and 84% host free
+memory immediately after restart. Two 10-GiB caps leave 3.500 GiB of effective VM
+margin and a nominal 8 GiB outside the configured VM for macOS and applications.
+These are admission budgets, not proven concurrency capacity; live runner overhead
+and any coverage lane still need measurement.
+
+Keep the existing CPU allocation and other settings. After the measured live
+single lane passes and before a separately admitted pair, require at least 23 GiB
+effective Docker memory, zero host swap, normal host
+pressure and at least 30% host free memory. Retain aggregate Docker/process and
+host telemetry; stop on any OOM, more than 64 MiB host swap growth, or two samples
+with host free memory below 20%, non-normal pressure, or VM available memory below
+2 GiB. Preserve the existing heavy-work reservation and independently bounded
+teardown. No pair, required CI cutover, or post-cutover timing claim follows from
+this single-lane result.
