@@ -10,17 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import controller as c
 
 
-def queue_entry(number):
-    query = ('query { repository(owner:"Harborline-Software", name:"harborline-api") { '
-             'pullRequest(number:'+str(number)+') { mergeQueueEntry { position baseCommit { oid } '
-             'headCommit { oid } mergeQueue { configuration { mergeMethod } entries(first:100) { '
-             'pageInfo { hasNextPage } nodes { pullRequest { number headRefOid } headCommit { oid } } } } } } } }')
-    result = json.loads(c.command(['gh', 'api', 'graphql', '-f', 'query='+query]))
-    c.require(not result.get('errors'), 'Queue query refused')
-    return result['data']['repository']['pullRequest']['mergeQueueEntry']
-
-
-def choose(env, event, api=c.api, queue=queue_entry):
+def choose(env, event, api=c.api):
     c.require(env.get('GITHUB_REPOSITORY_ID') == '1360432948'
               and env.get('GITHUB_REPOSITORY') == 'Harborline-Software/harborline-api', 'Wrong repository')
     kind = env['GITHUB_EVENT_NAME']
@@ -60,17 +50,8 @@ def choose(env, event, api=c.api, queue=queue_entry):
         c.require(match is not None, 'Unrecognized merge-group ref; queue identity is unverified')
         number, head, base = int(match[1]), group['head_sha'], group['base_sha']
         c.require(match[2] == base, 'Group ref/base mismatch')
-        entry = queue(number)
-        c.require(entry is not None and entry['headCommit']['oid'] == head, 'Group queue identity missing or changed')
-        entries = entry['mergeQueue']['entries']
-        c.require(not entries['pageInfo']['hasNextPage'], 'Incomplete queue membership')
-        members = [row['pullRequest'] for row in entries['nodes'] if row.get('headCommit') and row['headCommit']['oid'] == head]
-        c.require(any(row['number'] == number for row in members), 'Queue member missing')
-        if len(members) != 1 or entry['position'] != 1 or entry['mergeQueue']['configuration']['mergeMethod'] != 'SQUASH':
-            return hosted('batch-position-or-method-outside-qualified-mini-scope')
-        c.require(entry['baseCommit']['oid'] == base, 'Queue base mismatch')
         pr = api('pulls/'+str(number))
-        c.require(pr['number'] == number and pr['head']['sha'] == members[0]['headRefOid'], 'Queue PR head mismatch')
+        c.require(pr['number'] == number, 'Queue PR number mismatch')
         if (pr['head']['repo']['id'] != 1360432948 or pr['head']['repo']['fork'] is True
                 or pr['user']['id'] != 1328090 or pr['user']['login'] != 'ctwoodwa'):
             return hosted('group-pr-outside-qualified-mini-scope')
@@ -81,9 +62,11 @@ def choose(env, event, api=c.api, queue=queue_entry):
                  'prMerge': pr_merge, 'head': head, 'base': base, 'headBranch': branch,
                  'ref': env['GITHUB_REF'], 'workflowHead': head,
                  'workflowRef': 'Harborline-Software/harborline-api/.github/workflows/verify.yml@'+env['GITHUB_REF']}
-    # Independently resolve all commit/PR/queue relationships, just as the host
-    # will recheck before registration. A contradiction is red, not hosted.
-    c.candidate_state(candidate)
+    # GITHUB_TOKEN cannot read the merge-queue GraphQL resource. REST proves
+    # the exact one-PR synthetic tree here; this only selects a provisional lane.
+    # Host admission still requires complete queue membership before credentials.
+    # Unknown batch/parent/tree shapes are red, never inferred as hosted fallback.
+    c.candidate_rest_state(candidate)
     return {**decision, 'route': 'mini', 'reason': 'exact-qualified-candidate', 'candidate': candidate}
 
 

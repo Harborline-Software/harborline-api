@@ -124,11 +124,11 @@ class RequiredSelection(unittest.TestCase):
     def setUp(self):
         # Selection tests must never consult the network, including when a
         # refusal guard is deliberately removed by an executed causal control.
-        guard = patch.object(c, 'candidate_state', return_value=TREE)
+        guard = patch.object(c, 'candidate_rest_state', return_value=TREE)
         guard.start(); self.addCleanup(guard.stop)
     def test_owner_pr_selects_mini_with_bound_descriptor(self):
         candidate, _, env, payload, _, _ = required_fixture()
-        with patch.object(c, 'candidate_state', return_value=TREE) as state:
+        with patch.object(c, 'candidate_rest_state', return_value=TREE) as state:
             selected = route.choose(env, payload, api=lambda _: {'object': {'sha': MERGE}})
             self.assertEqual(selected['route'], 'mini')
             self.assertEqual(selected['candidate'], candidate)
@@ -188,24 +188,49 @@ class RequiredSelection(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Unrecognized merge-group ref'):
                     route.choose({**env, 'GITHUB_REF': ref}, altered)
 
-    def test_single_group_selects_mini_batches_remain_hosted_unknown_is_red(self):
+    def test_single_group_uses_rest_only_and_ambiguous_shapes_are_red(self):
         candidate, _, env, payload, _, _ = required_fixture('merge_group')
+        _, records, _ = candidate_tests.CandidateHost().state_fixture('merge_group')
+        # Call the real REST validator, independently of the selection-only mock.
+        def identity(value):
+            return c._candidate_identity(value)[0]
+        with patch.object(c, 'api', side_effect=lambda key: records[key]), \
+                patch.object(c, 'candidate_rest_state', side_effect=identity), \
+                patch.object(c, 'command', side_effect=AssertionError('No GraphQL in hosted selector')):
+            result = route.choose(env, payload, api=lambda key: records[key])
+            self.assertEqual(result['route'], 'mini')
+            self.assertEqual(result['candidate'], candidate)
+            for field, bad in [('parents', [{'sha': BASE}, {'sha': PR_HEAD}]),
+                               ('tree', {'sha': BASE})]:
+                original = records['git/commits/'+GROUP][field]
+                records['git/commits/'+GROUP][field] = bad
+                with self.subTest(field=field), self.assertRaises(RuntimeError):
+                    route.choose(env, payload, api=lambda key: records[key])
+                records['git/commits/'+GROUP][field] = original
+        with patch.object(c, 'candidate_rest_state', side_effect=RuntimeError('API unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'API unavailable'):
+                route.choose(env, payload, api=lambda key: records[key])
+
+    def test_host_still_refuses_partial_changed_or_unsupported_queue_metadata(self):
+        candidate, _, _, _, _, _ = required_fixture('merge_group')
         _, records, entry = candidate_tests.CandidateHost().state_fixture('merge_group')
-        entry['mergeQueue']['configuration'] = {'mergeMethod': 'SQUASH'}
-        with patch.object(c, 'candidate_state', return_value=TREE):
-            result = route.choose(env, payload, api=lambda key: records[key], queue=lambda _: entry)
-            self.assertEqual(result['route'], 'mini'); self.assertEqual(result['candidate'], candidate)
+        variants = [None, {**entry, 'position': 2}, {**entry, 'headCommit': {'oid': MERGE}}]
+        partial = copy.deepcopy(entry)
+        partial['mergeQueue']['entries']['pageInfo']['hasNextPage'] = True
+        variants.append(partial)
         batch = copy.deepcopy(entry)
         batch['mergeQueue']['entries']['nodes'].append({'pullRequest': {'number': 381, 'headRefOid': BASE}, 'headCommit': {'oid': GROUP}})
-        for known in (batch, {**entry, 'position': 2}):
-            self.assertEqual(route.choose(env, payload, api=lambda key: records[key], queue=lambda _: known)['route'], 'hosted')
-        partial = copy.deepcopy(entry); partial['mergeQueue']['entries']['pageInfo']['hasNextPage'] = True
-        for unknown in (None, partial, {**entry, 'headCommit': {'oid': MERGE}}):
-            with self.assertRaises(RuntimeError):
-                route.choose(env, payload, api=lambda key: records[key], queue=lambda _: unknown)
-        with patch.object(c, 'candidate_state', side_effect=RuntimeError('API unavailable')):
-            with self.assertRaisesRegex(RuntimeError, 'API unavailable'):
-                route.choose(env, payload, api=lambda key: records[key], queue=lambda _: entry)
+        variants.append(batch)
+        other_method = copy.deepcopy(entry)
+        other_method['mergeQueue']['configuration']['mergeMethod'] = 'MERGE'
+        variants.append(other_method)
+        for bad in variants:
+            with self.subTest(queue=bad), self.assertRaises((RuntimeError, KeyError, TypeError)):
+                candidate_tests.CandidateHost().evaluate(candidate, records, bad)
+        with patch.object(c, 'api', side_effect=lambda key: records[key]), \
+                patch.object(c, 'command', side_effect=RuntimeError('Queue permission denied')):
+            with self.assertRaisesRegex(RuntimeError, 'Queue permission denied'):
+                c.candidate_state(candidate)
 
 
 class RequiredOwnerBranchState(unittest.TestCase):

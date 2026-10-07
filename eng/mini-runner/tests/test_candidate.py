@@ -132,7 +132,7 @@ class CandidateHost(unittest.TestCase):
                    'git/commits/'+GROUP: {'sha': GROUP, 'parents': [{'sha': BASE}], 'tree': {'sha': TREE}},
                    'git/ref/heads/gh-readonly-queue/main/pr-380-'+BASE: {'object': {'sha': GROUP}}}
         entry = {'position': 1, 'baseCommit': {'oid': BASE}, 'headCommit': {'oid': GROUP},
-                 'mergeQueue': {'entries': {'pageInfo': {'hasNextPage': False}, 'nodes': [
+                 'mergeQueue': {'configuration': {'mergeMethod': 'SQUASH'}, 'entries': {'pageInfo': {'hasNextPage': False}, 'nodes': [
                      {'pullRequest': {'number': 380, 'headRefOid': PR_HEAD}, 'headCommit': {'oid': GROUP}}]}}}
         return candidate, records, entry
 

@@ -125,7 +125,7 @@ def validate_run(run, jobs, main, workflow, reviewed):
     return {'version': 1, 'runId': str(run['id']), 'head': main}
 
 
-def candidate_state(candidate, *, allow_landed=False):
+def _candidate_identity(candidate, *, allow_landed=False):
     """Resolve the approved PR and synthetic revision independently of the file.
 
     Initial merge-group scope is one owner-authored PR, first in the queue,
@@ -161,11 +161,24 @@ def candidate_state(candidate, *, allow_landed=False):
         require([p['sha'] for p in tested['parents']] == [candidate['base']]
                 and tested['tree']['sha'] == merge_commit['tree']['sha'], 'Group is not the one-PR squash tree')
         if landed:
-            return tested['tree']['sha']
+            return tested['tree']['sha'], landed
         require(api('git/ref/heads/'+candidate['headBranch'])['object']['sha'] == candidate['head'], 'Merge group replaced')
+    return tested['tree']['sha'], landed
+
+
+def candidate_rest_state(candidate):
+    """Provisional routing identity only; does not authorize runner registration."""
+    return _candidate_identity(candidate)[0]
+
+
+def candidate_state(candidate, *, allow_landed=False):
+    """Full host admission: REST identity plus complete live queue membership."""
+    tree, landed = _candidate_identity(candidate, allow_landed=allow_landed)
+    number = candidate['prNumber']
+    if candidate['event'] == 'merge_group' and not landed:
         query = ('query { repository(owner:"Harborline-Software", name:"harborline-api") { '
                  'pullRequest(number:'+str(number)+') { mergeQueueEntry { position baseCommit { oid } '
-                 'headCommit { oid } mergeQueue { entries(first:100) { pageInfo { hasNextPage } '
+                 'headCommit { oid } mergeQueue { configuration { mergeMethod } entries(first:100) { pageInfo { hasNextPage } '
                  'nodes { pullRequest { number headRefOid } headCommit { oid } } } } } } } }')
         data = json.loads(command(['gh', 'api', 'graphql', '-f', 'query='+query]))
         require(not data.get('errors'), 'Queue identity unavailable')
@@ -173,12 +186,13 @@ def candidate_state(candidate, *, allow_landed=False):
         require(entry is not None and entry['position'] == 1
                 and entry['baseCommit']['oid'] == candidate['base']
                 and entry['headCommit']['oid'] == candidate['head'], 'Queue entry changed')
+        require(entry['mergeQueue']['configuration']['mergeMethod'] == 'SQUASH', 'Unsupported queue merge method')
         entries = entry['mergeQueue']['entries']
         require(not entries['pageInfo']['hasNextPage'], 'Incomplete queue inventory')
         members = [e['pullRequest'] for e in entries['nodes']
                    if e.get('headCommit') and e['headCommit']['oid'] == candidate['head']]
         require(members == [{'number': number, 'headRefOid': candidate['prHead']}], 'Unexpected merge group membership')
-    return tested['tree']['sha']
+    return tree
 
 
 def validate_candidate_run(run, jobs, candidate, workflow, reviewed, *, queued=True):

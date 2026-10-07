@@ -45,8 +45,8 @@ jobs:
           python3 -I - <<'PY'
           import hashlib, pathlib, subprocess, sys, tempfile
           approved = {
-              'required-route.py': '6a225dfd9fe1b75b3f311cf20600f81faa595f293db21316e5b80598615cce84',
-              'controller.py': '6e1a95c9674254e50c08fbfd3aa0d335a24022323ce9d86b1db782a4910f7ad0',
+              'required-route.py': '2a364a69bbe0a455d8262bc0c3b89dd12adedd560c6618e0eb87ca665f33cd4d',
+              'controller.py': 'e6468b9f7082c4774d1c6c7c5d4c37ea5646c713caaa9bdb8fd62a5f7b47b33d',
               'admission.py': '1b492a8d46423ef71dfe292cbf2d3d22953a5bf0e62b8c63293e614c01b4d551',
           }
           with tempfile.TemporaryDirectory(prefix='mini-selector-') as temporary:

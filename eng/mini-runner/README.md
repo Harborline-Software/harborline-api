@@ -2,16 +2,29 @@
 
 ## Required Linux route (v3)
 
-A hosted `verify-route` job selects `mini` for ready, non-stacked owner-authored
-same-repository PRs on any branch, or their exact first-position single-PR squash
-merge groups. The development cutover removes the pilot-only branch prefix.
-Known batches, other authors, manual and scheduled events retain hosted Linux. Unavailable, partial, stale or contradictory metadata is red.
-Eligible mini attempts cannot switch to hosted after failure or lack of capacity.
-Owner-triggered PR/queue events require a fresh first attempt even if a different
-maintainer requests a rerun. Unrecognized queue refs fail closed; known batches
-are routed only after live queue membership and commit identity are established.
-The selector's read-only GitHub token needs contents and pull-request access;
-actual queue-field access must be qualified before protected landing.
+A hosted `verify-route` job provisionally selects `mini` for ready, non-stacked
+owner-authored same-repository PRs on any branch, or an exact one-PR squash tree.
+The development cutover removes the pilot-only branch prefix. Other authors,
+manual and scheduled events retain hosted Linux. Unavailable, stale or
+contradictory identity is red. Eligible mini attempts cannot switch to hosted
+after failure or lack of capacity. Owner-triggered PR/queue events require a
+fresh first attempt even if a different maintainer requests a rerun.
+
+The hosted selector uses only contents/pull-request REST reads: exact event and
+live ref, current main, ready PR head/base, PR merge parents `[base, prHead]`,
+synthetic sole parent `[base]` and identical synthetic/PR-merge trees. This is
+provisional routing, not runner admission. The Mac controller independently
+requires complete live GraphQL queue membership, position 1, SQUASH method and
+matching head/base/PR head before requesting a registration token. Missing or
+partial queue evidence still prevents execution. The standard workflow token
+cannot read the GraphQL merge-queue resource; the first real v3 queue attempt
+failed closed there, while the same query succeeded with existing host auth.
+No token permission or persistent credential was added to resolve it.
+
+REST alone cannot positively identify every unsupported batch. Ambiguous batch,
+parent or tree shapes remain red, rather than being classified as hosted.
+Automatic hosted routing for those batches requires a separate complete
+membership proof; this cutover admits only the exact single-PR shape above.
 The workflow pins SHA-256 values for the selector and its two Python modules,
 copies only verified bytes into a private temporary directory, and uses isolated
 Python execution. Module changes require reviewed workflow hash updates. The
