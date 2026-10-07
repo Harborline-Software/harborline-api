@@ -1,5 +1,51 @@
 # Bounded mini portable qualification
 
+## Candidate qualification (additive v2)
+
+`mini-candidate-gate.yml` adds a separate, non-required PR/merge-group lane.
+It does not change `verify`, packages, Windows, macOS, quality ownership, or
+Stryker. There is no daemon: each reviewed run needs a bounded controller.
+
+`prepare --candidate REVIEWED.json` accepts an explicit descriptor with
+`event`, `prNumber`, `prHead`, `prMerge`, `head` (tested synthetic commit), `base`, `ref`,
+`headBranch`, `workflowHead`, and `workflowRef`. All SHAs are full lowercase
+commit IDs. This initial contract admits only owner-authored same-repository
+`pipeline/mini-*` PRs, triggered by ctwoodwa/1328090 on attempt 1. Queue
+qualification admits only the first, single-PR squash group directly on current
+main: the live queue entry/membership, synthetic parent, and tree matching the
+PR merge tree must all agree. Other authors, bots, batches, branches, retries,
+and independently sourced workflow revisions are refused, not silently routed.
+
+The descriptor records an explicitly reviewed source selection; it does not
+authorize arbitrary repository code. Independently review the candidate source
+and controller before preparation. The controller checks the descriptor against
+live GitHub PR/ref/commit/queue state, and compares the actual workflow bytes
+at its bound source SHA with the reviewed local file. It checks again before
+credentials, before listener activation, during execution, and at completion.
+A moved base, new PR head, replaced group, changed job set or workflow refuses
+the session. At completion only, an exact group landing is also accepted when
+GitHub records that same PR/head as merged at the admitted squash commit, main
+is exactly that commit, and the recorded PR merge parents/tree still match. Review a fresh candidate instead of editing a baked policy.
+
+PR REST `head_sha` identifies the PR source; runtime `GITHUB_SHA` identifies
+the tested merge. These are checked separately. API bundles include complete
+tested history; checkout verifies the real base ancestor and sets `origin/main`
+to that base. Private companion pins retain their independent handling. The
+existing receipt field `baseHead` continues to mean tested HEAD. Separate
+`candidate-provenance.json` binds comparison base, changed paths, run, coverage,
+source manifest, tested tree and candidate descriptor. Host-side validation uses
+the reviewed focused validator, re-reads raw TRX, compares OFF/ON identity
+inventories, and independently parses/counts coverage XML. PR mode is coverage OFF;
+merge-group mode is coverage ON. Initial qualification also requires completed
+focused OFF/ON receipts and coverage artifacts for a non-documentation delta.
+
+This patch requires live PR and merge-group qualification, unexpected-job refusal,
+cancellation and verified cleanup before any required routing replacement.
+Local tests and main-only qualification are not those results. The workflow
+contains no actions, secrets, checkout, inputs or repository code preparation
+before the immutable hook. Public-fork code remains excluded.
+
+
 This is an executable preparation patch, not an activated runner deployment.
 The new manual workflow routes one explicitly reviewed main revision to one
 short-lived Linux ARM64 container. Lane a runs the existing full `all` gate

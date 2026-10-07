@@ -1,0 +1,31 @@
+name: Mini candidate gate qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+permissions: {}
+concurrency:
+  group: mini-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable:
+    if: >-
+      github.repository_id == '1360432948' &&
+      github.actor_id == '1328090' && github.triggering_actor == 'ctwoodwa' &&
+      ((github.event_name == 'pull_request' && !github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.id == 1360432948 &&
+        github.event.pull_request.user.id == 1328090 &&
+        startsWith(github.head_ref, 'pipeline/mini-')) ||
+       github.event_name == 'merge_group')
+    runs-on: [self-hosted, harborline-api-mini-candidate-v2, linux-arm64-orbstack, lane-a]
+    timeout-minutes: 50
+    env:
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '0' }}
+    steps:
+      # Additive only. No actions, checkout, inputs or secrets before admission.
+      # No listener starts without a separately reviewed exact candidate.
+      - name: Full portable gate at admitted candidate
+        shell: bash
+        run: /opt/mini/portable-gate.sh
