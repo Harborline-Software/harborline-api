@@ -555,7 +555,7 @@ public sealed class PackInstallPipelineTests : IDisposable
     private PackInstallContext Context() => new(
         Tenant,
         new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, _keys.PrincipalId, 1, TrustRootStatus.Current)]),
-        PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "test-operator");
+        PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: "test-operator");
 
     private async Task<byte[]> PackAsync(string version, string packKey = PackKey, string contentKey = "s5c-form")
     {

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -458,7 +459,7 @@ public sealed class ScheduleDefinitionPackProjectionTests
                 tenant,
                 trustStore,
                 PackRevocationList.Empty,
-                new DateTimeOffset(2026, 8, 18, 12, 0, 0, TimeSpan.Zero),
+                AdmittedInstant.FromRecordedAct(new DateTimeOffset(2026, 8, 18, 12, 0, 0, TimeSpan.Zero)),
                 TimeSpan.FromDays(30),
                 Principal: "test-operator"));
         Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));

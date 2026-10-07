@@ -34,7 +34,7 @@ public sealed class AuthorizationGate(
     /// is the install root, at the caller's instant. The gate reads its OWN closure; no caller holds a reader.
     /// </summary>
     public async ValueTask<PermissionSet> InstallRootPermissionsAsync(
-        ActorId principal, TenantId tenant, DateTimeOffset at, CancellationToken ct = default)
+        ActorId principal, TenantId tenant, AdmittedInstant at, CancellationToken ct = default)
     {
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:read@/"), principal, tenant,
@@ -256,6 +256,7 @@ public sealed class AuthorizationGate(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Principal.Value);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Tenant.Value);
+        ArgumentNullException.ThrowIfNull(request.Instant);
         ArgumentNullException.ThrowIfNull(request.Target.Scope);
 
         // Ledger L600/L671 — a request may omit its record target ONLY for an operation the definition side

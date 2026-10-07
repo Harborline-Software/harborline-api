@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -1050,6 +1051,7 @@ public sealed partial class WritePipelineExecutorFenceTests
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
             .Select(assembly => assembly.Location)
             .Concat(new[] { typeof(DynamicAttribute).Assembly.Location,
+                typeof(AdmittedInstant).Assembly.Location,
                 typeof(Microsoft.CSharp.RuntimeBinder.Binder).Assembly.Location,
                 typeof(System.Linq.Expressions.Expression).Assembly.Location })
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1111,7 +1113,14 @@ public sealed partial class WritePipelineExecutorFenceTests
             && symbol.ContainingAssembly.Identity.ToString() == typeof(ArgumentNullException).Assembly.FullName
             || symbol.Name == nameof(TimeProvider.GetUtcNow)
             && symbol.ContainingType.ToDisplayString() == typeof(TimeProvider).FullName
-            && symbol.ContainingAssembly.Identity.ToString() == typeof(TimeProvider).Assembly.FullName);
+            && symbol.ContainingAssembly.Identity.ToString() == typeof(TimeProvider).Assembly.FullName
+            || IsAdmittedClockRead(symbol));
+
+    // T-1015: the act's one clock read, typed as the admitted decision instant.
+    private static bool IsAdmittedClockRead(IMethodSymbol symbol) =>
+        symbol.Name == nameof(AdmittedInstant.Read)
+        && symbol.ContainingType.ToDisplayString() == typeof(AdmittedInstant).FullName
+        && symbol.ContainingAssembly.Identity.ToString() == typeof(AdmittedInstant).Assembly.FullName;
 
     private static bool IsTaskWrapperCall(InvocationExpressionSyntax call, SemanticModel model) =>
         model.GetSymbolInfo(call).Symbol is IMethodSymbol symbol
@@ -1470,7 +1479,7 @@ public sealed partial class WritePipelineExecutorFenceTests
                 string justification,
                 ActorId actor,
                 TenantId tenant,
-                DateTimeOffset at)
+                AdmittedInstant at)
                 : KernelWrite<IReadOnlyList<EntityEdge>, CreateOptions, ValidatedRecordBody, MergeResult>
             {
                 private readonly EntityId expectedNewId = InMemoryEntityStore.DeriveEntityId(newSchema, newOptions);
@@ -1485,10 +1494,10 @@ public sealed partial class WritePipelineExecutorFenceTests
                 /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
                 /// superseded and deleted with them, so it is not moved under the merged record.</summary>
                 protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-                    displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
+                    displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at.Value, ct).ConfigureAwait(false);
 
                 protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
-                    ValueTask.FromResult(newOptions with { ValidFrom = at });
+                    ValueTask.FromResult(newOptions with { ValidFrom = at.Value });
 
                 protected override async ValueTask<ValidatedRecordBody> ValidateAsync(
                     IReadOnlyList<EntityEdge> bound, CreateOptions mutation, CancellationToken ct)
@@ -1512,7 +1521,7 @@ public sealed partial class WritePipelineExecutorFenceTests
                 {
                     var store = coordinator.Store;
                     var newId = await coordinator.Entities.CreateAsync(
-                        validated, newOptions with { ValidFrom = at }, ct).ConfigureAwait(false);
+                        validated, newOptions with { ValidFrom = at.Value }, ct).ConfigureAwait(false);
                     if (newId != expectedNewId)
                         throw new InvalidOperationException("The entity store minted an id different from the pre-authorized merge target.");
                     var reassigned = new List<EntityId>();
@@ -1526,7 +1535,7 @@ public sealed partial class WritePipelineExecutorFenceTests
                             // An edge committed by a later-admitted act may start after this merge's admitted clock.
                             // Close it at its start (an empty half-open interval), never before it, and preserve that
                             // scheduled start on the replacement. Entity and audit admission remain at the merge clock.
-                            var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                            var start = edge.Validity.ValidFrom > at.Value ? edge.Validity.ValidFrom : at.Value;
                             await store.InvalidateEdgeAsync(edge.Id, start, ct).ConfigureAwait(false);
                             if (oldEntities.Contains(edge.From))
                                 continue;
@@ -1538,9 +1547,9 @@ public sealed partial class WritePipelineExecutorFenceTests
                         }
                         authorization.Require(oldId);
                         authorization.Require(newId);
-                        await store.AddEdgeAsync(oldId, newId, EdgeKind.SupersededBy, at, null, ct).ConfigureAwait(false);
+                        await store.AddEdgeAsync(oldId, newId, EdgeKind.SupersededBy, at.Value, null, ct).ConfigureAwait(false);
                         await coordinator.Entities.DeleteAsync(
-                            oldId, new DeleteOptions(actor, at, justification), ct).ConfigureAwait(false);
+                            oldId, new DeleteOptions(actor, at.Value, justification), ct).ConfigureAwait(false);
                     }
                     using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
                     {
@@ -1550,7 +1559,7 @@ public sealed partial class WritePipelineExecutorFenceTests
                         reassigned = reassigned.Select(id => id.ToString()).ToArray(),
                     }));
                     await coordinator.AuditWriter.AppendAsync(new AuditAppend(
-                        newId, null, Op.Merge, actor, tenant, at, payload, justification),
+                        newId, null, Op.Merge, actor, tenant, at.Value, payload, justification),
                         authorization.Require(newId), ct)
                         .ConfigureAwait(false);
                     result = new MergeResult(newId, oldEntities, reassigned);
@@ -1608,7 +1617,7 @@ public sealed partial class WritePipelineExecutorFenceTests
                     IEnumerable<EntityId> targets,
                     ActorId actor,
                     TenantId tenant,
-                    DateTimeOffset at,
+                    AdmittedInstant at,
                     CancellationToken ct,
                     CompositeAuthorization? decided = null)
                 {
@@ -1685,6 +1694,8 @@ public sealed partial class WritePipelineExecutorFenceTests
             typeof(EntityId).Assembly, typeof(TenantId).Assembly, typeof(WritePipeline).Assembly,
             typeof(Harborline.Api.Foundation.Authorization.AuthorizationGate).Assembly,
             typeof(Harborline.Api.Foundation.Authorization.AuthorizationDecision).Assembly,
+            // T-1015: the admitted decision instant the merge and its decisions carry.
+            typeof(Harborline.Api.Foundation.Authorization.AdmittedInstant).Assembly,
             typeof(Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions).Assembly,
             typeof(Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator).Assembly,
             typeof(Microsoft.Extensions.DependencyInjection.FromKeyedServicesAttribute).Assembly,
@@ -1934,7 +1945,8 @@ public sealed partial class WritePipelineExecutorFenceTests
                     && local.Declaration.Type.IsVar && local.Declaration.Variables.Count == 1
                     && local.Declaration.Variables[0].Initializer?.Value is InvocationExpressionSyntax call
                     && IsReviewedPreludeCall(call, model)
-                    && model.GetSymbolInfo(call).Symbol is IMethodSymbol { Name: nameof(TimeProvider.GetUtcNow) }:
+                    && model.GetSymbolInfo(call).Symbol is IMethodSymbol prelude
+                    && (prelude.Name == nameof(TimeProvider.GetUtcNow) || IsAdmittedClockRead(prelude)):
                     if (!IsReviewedBoundaryExpression(call, atomic, callback, model)) return false;
                     break;
                 default:

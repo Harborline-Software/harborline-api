@@ -232,7 +232,8 @@ public sealed class VerificationRunner
         VerificationFixture fixture, string recordType, JsonObject values, CancellationToken cancellationToken)
     {
         await using var world = await candidate.OpenAsync(fixture, cancellationToken).ConfigureAwait(false);
-        var authority = new AuthorizationWriteContext(new ActorId(fixture.Actor), world.Tenant, fixture.Instant);
+        var authority = new AuthorizationWriteContext(new ActorId(fixture.Actor), world.Tenant,
+            AdmittedInstant.Exempt(fixture.Instant, AdmittedInstantExemption.ConfigurationRehearsal));
         var decision = await world.Gate.DecideAsync(authority.Request(RecordsWrite,
             AuthorizationGate.RecordKindFor(RecordsWrite), recordType), cancellationToken).ConfigureAwait(false);
         if (decision.Verdict != AuthorizationVerdict.Allowed)

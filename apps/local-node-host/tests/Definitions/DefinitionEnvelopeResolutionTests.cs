@@ -88,7 +88,7 @@ public sealed class DefinitionEnvelopeResolutionTests
             TestAuthorization.RoleGate(),
             new FormDefinitionLegalHoldValidator(envelopeResolver));
         var authority = new AuthorizationWriteContext(
-            new ActorId("definition-author"), tenant, heldDefinition.CreatedAt);
+            new ActorId("definition-author"), tenant, AdmittedInstant.FromRecordedAct(heldDefinition.CreatedAt));
 
         var withdrawal = await Assert.ThrowsAsync<DefinitionUnderLegalHoldException>(async () =>
             await lifecycle.WithdrawAsync(new DefinitionCoordinates(

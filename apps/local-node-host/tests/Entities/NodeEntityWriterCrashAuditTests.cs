@@ -36,7 +36,7 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
     private static readonly TenantId Tenant = new("tenant-t1048f");
     private static readonly ActorId Actor = new("t1048f-operator");
     private static readonly SchemaId Schema = new("records.t1048f");
-    private static readonly AuthorizationWriteContext Authority = new(Actor, Tenant, At);
+    private static readonly AuthorizationWriteContext Authority = new(Actor, Tenant, AdmittedInstant.FromRecordedAct(At));
 
     private DurableAuditHarness _audit = null!;
     private InMemoryEntityStore _entities = null!;

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -352,7 +353,7 @@ public sealed class DurablePackInstallStoreRestartTests
             Substitute.For<IPackInstallAudit>(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(
             Tenant, Substitute.For<IPackTrustStore>(), Substitute.For<IPackRevocationList>(),
-            InstalledAt, TimeSpan.FromHours(1), Principal: "operator");
+            AdmittedInstant.FromRecordedAct(InstalledAt), TimeSpan.FromHours(1), Principal: "operator");
 
         var failure = installer.Activate(context, PackKey, "1.0.0");
 

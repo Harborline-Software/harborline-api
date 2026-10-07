@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -237,7 +238,7 @@ public sealed class PackNarrowingSurvivesReplayTests
                 new InMemoryPackTrustStore(
                     [new PackTrustRoot(TrustScope.OwnRoster, _keyPair.PrincipalId, 1, TrustRootStatus.Current)]),
                 PackRevocationList.Empty,
-                Now,
+                AdmittedInstant.FromRecordedAct(Now),
                 TimeSpan.FromDays(30),
                 Principal: "test-operator");
         }

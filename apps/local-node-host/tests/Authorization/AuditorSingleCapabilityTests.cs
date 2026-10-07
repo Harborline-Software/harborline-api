@@ -201,7 +201,7 @@ public sealed class AuditorSingleCapabilityTests
             var provider = services.BuildServiceProvider();
             var harness = new Harness(provider);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             return harness;
         }
 
@@ -215,12 +215,12 @@ public sealed class AuditorSingleCapabilityTests
         public ValueTask<AuthorizationDecision> DecideAsync(string operationValue, string recordId)
         {
             var operation = AuthorizationOperation.Parse(operationValue);
-            return Gate.DecideAsync(new AuthorizationWriteContext(TheAuditor, Tenant, At)
+            return Gate.DecideAsync(new AuthorizationWriteContext(TheAuditor, Tenant, AdmittedInstant.FromRecordedAct(At))
                 .Request(operation, AuthorizationGate.RecordKindFor(operation), recordId));
         }
 
         public ValueTask<AuthorizationDecision> DecideInstallWideAsync(string operationValue) =>
-            Gate.DecideAsync(new AuthorizationWriteContext(TheAuditor, Tenant, At)
+            Gate.DecideAsync(new AuthorizationWriteContext(TheAuditor, Tenant, AdmittedInstant.FromRecordedAct(At))
                 .InstallWide(AuthorizationOperation.Parse(operationValue)));
 
         public ValueTask DisposeAsync() => _provider.DisposeAsync();

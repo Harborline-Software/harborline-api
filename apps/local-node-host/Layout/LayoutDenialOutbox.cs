@@ -206,7 +206,7 @@ public sealed class LayoutDenialAppender(
             {
                 var denial = entry.Denial;
                 // The denied act, typed: reading the target record, by the acting principal, at the act.
-                var request = new AuthorizationWriteContext(new ActorId(denial.PrincipalId), entry.Tenant, entry.OccurredAt)
+                var request = new AuthorizationWriteContext(new ActorId(denial.PrincipalId), entry.Tenant, AdmittedInstant.FromRecordedAct(entry.OccurredAt))
                     .Request(RecordsRead, AuthorizationGate.RecordKindFor(RecordsRead), denial.Target.RecordId);
                 var body = new Dictionary<string, object?>(StringComparer.Ordinal)
                 {

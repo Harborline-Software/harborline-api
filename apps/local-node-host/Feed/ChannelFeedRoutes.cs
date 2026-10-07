@@ -92,7 +92,7 @@ public static class ChannelFeedRoutes
             foreach (var staged in result.StagedPacks)
             {
                 var ctx = new PackInstallContext(
-                    tenant, previewTrustStore, previewRevocation, time.GetUtcNow(), ChannelFeedClient.RevocationMaxAge);
+                    tenant, previewTrustStore, previewRevocation, AdmittedInstant.Read(time), ChannelFeedClient.RevocationMaxAge);
                 var preview = installer.Preview(staged.ArtifactBytes.Span, ctx);
 
                 // §5.3 derivation: feed latest vs installed (F5) vs the S-8 watermark hits the preview

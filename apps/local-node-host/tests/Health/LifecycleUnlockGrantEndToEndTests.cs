@@ -71,7 +71,7 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
         services.AddAccessGrantModule();
         var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-            .InstallAsync(FounderTenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            .InstallAsync(FounderTenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         return provider;
     }
 
@@ -96,7 +96,7 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
         var authority = new NodeWorkshopUnlockAuthority(install.GetRequiredService<AuthorizationGate>());
 
         var decision = await authority.AuthorizeAsync(
-            new AuthorizationWriteContext(new ActorId("someone-else"), FounderTenant, At));
+            new AuthorizationWriteContext(new ActorId("someone-else"), FounderTenant, AdmittedInstant.FromRecordedAct(At)));
 
         Assert.IsType<WorkshopUnlockDecision.Denied>(decision);
     }

@@ -25,7 +25,7 @@ public sealed class ExplicitLocalPartImpersonationTests
             entities,
             NullEntityValidator.Instance,
             TestAuthorization.Gate(true));
-        var authority = new AuthorizationWriteContext(actor, tenant, at);
+        var authority = new AuthorizationWriteContext(actor, tenant, AdmittedInstant.FromRecordedAct(at));
         var victimOptions = new CreateOptions("record", "tenant", "victim-nonce", actor, tenant);
         var victimId = InMemoryEntityStore.DeriveEntityId(new SchemaId("victim-schema"), victimOptions);
         using var squatBody = JsonDocument.Parse("{\"name\":\"squat\"}");

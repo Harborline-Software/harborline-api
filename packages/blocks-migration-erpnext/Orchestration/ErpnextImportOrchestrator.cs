@@ -124,7 +124,7 @@ public sealed class ErpnextImportOrchestrator
         var writeAuthority = new AuthorizationWriteContext(
             new ActorId(request.Actor.Value),
             request.Tenant,
-            _timeProvider.GetUtcNow());
+            AdmittedInstant.Read(_timeProvider));
 
         var options = request.Options;
         var fromPass = options.FromPass;

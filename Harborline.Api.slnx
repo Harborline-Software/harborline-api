@@ -53,6 +53,7 @@
     <Project Path="packages/documents-pdfsharp/Harborline.Documents.PdfSharp.csproj" />
     <Project Path="packages/federation-common/Harborline.Federation.Common.csproj" />
     <Project Path="packages/foundation-authorization/Harborline.Foundation.Authorization.csproj" />
+    <Project Path="packages/foundation-authorization-instant/Harborline.Foundation.Authorization.Instant.csproj" />
     <Project Path="packages/foundation-capability-admission/Harborline.Foundation.CapabilityAdmission.csproj" />
     <Project Path="packages/foundation-catalog/Harborline.Foundation.Catalog.csproj" />
     <Project Path="packages/foundation-documents/Harborline.Foundation.Documents.csproj" />

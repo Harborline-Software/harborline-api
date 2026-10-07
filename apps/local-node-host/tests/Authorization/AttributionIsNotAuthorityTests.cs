@@ -39,7 +39,7 @@ public sealed class AttributionIsNotAuthorityTests
             Principal,
             Tenant,
             new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")),
-            At)
+            AdmittedInstant.FromRecordedAct(At))
         {
             // Everything a caller can say about who is acting, said as loudly as the shape allows.
             CorrelationId = Guid.Parse("58500000-0000-0000-0000-000000000001"),

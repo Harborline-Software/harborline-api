@@ -36,7 +36,7 @@ public sealed class GrantScopeNarrowingTests
         Assert.Equal("/records/m6-t433-allowed-record-1", result.Reissued.Scope.Value);
         Assert.Equal(GrantStatus.Revoked, result.Revoked.Status);
         Assert.Equal("/records", result.Revoked.Scope.Value);
-        var authority = new AuthorizationWriteContext(Holder, Tenant, At);
+        var authority = new AuthorizationWriteContext(Holder, Tenant, AdmittedInstant.FromRecordedAct(At));
         var operation = AuthorizationOperation.Parse("records:read");
         var allowed = authority.Request(operation, "record", "m6-t433-allowed-record-1").Target.Scope;
         var outside = authority.Request(operation, "record", "m6-t433-outside-record-1").Target.Scope;

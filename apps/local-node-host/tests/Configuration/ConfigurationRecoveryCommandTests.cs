@@ -310,7 +310,7 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
         var baseline = _target.ReadEffective(Tenant).Digest;
         var prepared = _target.Prepare(Tenant, baseline, ["acme.core", "acme.ext", CmPack],
             new Dictionary<string, string>(StringComparer.Ordinal) { ["form.shared"] = sharedOwner }, Frozen);
-        var authority = new AuthorizationWriteContext(new ActorId("test:operator"), Tenant, Frozen);
+        var authority = new AuthorizationWriteContext(new ActorId("test:operator"), Tenant, AdmittedInstant.Read(new FixedTime(Frozen)));
         var outcome = await _target.For(authority).CompareAndSwapAsync(
             new(prepared.Preparation!.Prepared!, "test:operator", new ConfigurationEvidenceIntent(intentId, "T-909 recovery test")));
         Assert.Null(outcome.Decision.Refusal);

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Authorization.Instant</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Authorization.Instant</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Authorization</RootNamespace>
+    <Description>The server-admitted authorization decision instant (T-1015). Its own assembly so the raw-instant mints can be internal and reachable only from the reviewed friends below, without widening Harborline.Api.Foundation.Authorization's internals (T-519).</Description>
+    <PackageTags>harborline;foundation;authorization;kernel-clock</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- T-1015: the ONLY assemblies that may mint an AdmittedInstant from a raw instant (FromRecordedAct, Exempt).
+         AdmittedInstantArchTests pins this list and every production call site. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost" />
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Packs" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Authorization.Tests" />
+  </ItemGroup>
+</Project>
