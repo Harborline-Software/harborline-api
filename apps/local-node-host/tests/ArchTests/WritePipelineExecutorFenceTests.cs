@@ -37,12 +37,6 @@ public sealed partial class WritePipelineExecutorFenceTests
     /// <summary>Admitted write paths that commit outside the executor: path | caller, and the slice that moves it.</summary>
     private static readonly (string Key, string Slice)[] NotYetOnTheExecutor =
     [
-        ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
-            "S3 workflow definition lifecycle"),
-        ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
-            "S3 form definition lifecycle"),
-        ("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs|Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync",
-            "S3 definition lifecycle"),
     ];
 
     internal static string[] NotYetOnTheExecutorRows() => [.. NotYetOnTheExecutor.Select(row => row.Key)];
