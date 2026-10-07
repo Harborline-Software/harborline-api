@@ -351,6 +351,22 @@ try {
     ...row, testName: normalizeIdentity(redactEvidence(row.testName)), rosterId: normalizeIdentity(redactEvidence(row.rosterId)),
   }))}
 
+  // Preserve actual outcomes on green as well as red runs. Baseline acceptance
+  // alone cannot establish cross-platform equivalence or distinguish an allowed
+  // failure from an executed pass when preparing a narrower Windows lane.
+  const namedEvidence = path.join(apiRoot, '.claude', 'gate-evidence')
+  mkdirSync(namedEvidence, {recursive: true})
+  writeFileSync(path.join(namedEvidence, 'named-test-outcomes.json'), JSON.stringify({
+    schemaVersion: 1, apiCommit: head, evidenceRoots: {clone, scratch},
+    runtime: {platform: process.platform, architecture: process.arch},
+    runId: process.env.GITHUB_RUN_ID ?? null, attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+    hostBaseline: BASELINES.host, capabilityBaseline: BASELINES.capability,
+    host: hostTrx, capability: capabilityTrx,
+  }, null, 2) + '\n')
+  const fullHostTrx = path.join(hostResultsDirectory, 'host-tests.trx')
+  if (existsSync(fullHostTrx)) copyFileSync(fullHostTrx, path.join(namedEvidence, 'host-tests.trx'))
+  if (existsSync(capabilityJsonPath)) copyFileSync(capabilityJsonPath, path.join(namedEvidence, 'capability-tests.json'))
+
   // T-724 ruling 119e: this candidate is written on EVERY run, pass or fail, --write-known-tests or
   // not -- it is what a nightly/CI run actually observed, kept as evidence (under
   // .claude/gate-evidence/, already uploaded by every verify-* job's "if: always()" artifact step)
@@ -521,14 +537,6 @@ try {
     mkdirSync(hostResultsDirectory, {recursive: true})
     const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
     writeFileSync(outputFile, hostTests.rawOutput)
-    // A red verdict is exactly when the TRX matters most, and "TRX missing" is itself one of the
-    // red reasons -- so copying unconditionally would throw on the very path it exists to explain.
-    const trxSource = path.join(hostResultsDirectory, 'host-tests.trx')
-    if (existsSync(trxSource)) {
-      const trxEvidence = path.join(apiRoot, '.claude', 'gate-evidence', 'host-tests.trx')
-      mkdirSync(path.dirname(trxEvidence), {recursive: true})
-      copyFileSync(trxSource, trxEvidence)
-    }
     hostComparison.problems = hostComparison.problems.map(line => `${line}; host output: ${outputFile}`)
     hostComparison.tail = hostComparison.problems.join('\n')
   }
@@ -612,6 +620,8 @@ if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
 // (.claude/gate-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
 // stays clean.
 const target = evidenceTarget({record, status: report.status, apiRoot, evidencePath})
+mkdirSync(path.join(apiRoot, '.claude', 'gate-evidence'), {recursive: true})
+writeFileSync(path.join(apiRoot, '.claude', 'gate-evidence', 'exact-clone-report.json'), `${JSON.stringify(persisted, null, 2)}\n`)
 if (target) {
   mkdirSync(path.dirname(target), {recursive: true})
   writeFileSync(target, `${JSON.stringify(persisted, null, 2)}\n`)

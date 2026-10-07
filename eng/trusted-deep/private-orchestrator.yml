@@ -1,0 +1,33 @@
+# Reviewable template only. This is outside .github/workflows and is not active.
+# Install in the existing private control repository only after setup approval.
+name: API trusted deep verification
+on:
+  schedule:
+    - cron: '31 6 * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  deep:
+    if: >-
+      github.repository_id == '1337465220' &&
+      github.repository_visibility == 'private' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.actor_id == '1328090' && github.triggering_actor == 'ctwoodwa'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        task: [portable-a, coverage-b]
+    name: deep (${{ matrix.task }})
+    concurrency:
+      group: harborline-api-trusted-${{ matrix.task }}
+      cancel-in-progress: false
+    runs-on: [self-hosted, harborline-api-trusted-deep-v1, linux-arm64-orbstack, 'harborline-run-${{ github.run_id }}', 'task-${{ matrix.task }}']
+    timeout-minutes: 60
+    steps:
+      # No checkout, action, input-selected source, secret or Docker socket before admission.
+      # The approved ephemeral image carries the source manifest and exact run/job binding.
+      - name: Admitted immutable deep task
+        shell: bash
+        run: bash /opt/trusted/private-job.sh
