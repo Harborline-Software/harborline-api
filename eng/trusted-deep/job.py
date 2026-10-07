@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import xml.etree.ElementTree as E
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import manifest as m
 import private_admission
+from coverage_evidence import summary as coverage_summary
 sys.path.insert(0,'/opt/mini')
 import controller as c
 
@@ -47,11 +47,8 @@ def finish(kind):
         if kind=='portable-coverage':
             receipt=json.loads((ROOT/'out/harborline-api-verify-receipt.json').read_text())
             for name in ('host','contracts'):
-                tree=E.parse(ROOT/'out/quality'/(name+'.cobertura.xml')).getroot()
-                lines=tree.findall('.//class/lines/line')
-                covered=sum(int(line.attrib['hits'])>0 for line in lines)
-                m.require(len(lines)==int(tree.attrib['lines-valid']) and covered==int(tree.attrib['lines-covered']),'Coverage XML counters disagree with lines')
-                m.require(receipt['coverage'][name]['validLines']==len(lines) and receipt['coverage'][name]['coveredLines']==covered,'Coverage receipt/XML mismatch')
+                measured=coverage_summary(ROOT/'out/quality'/(name+'.cobertura.xml'))['source']
+                m.require(all(receipt['coverage'][name][key]==measured[key] for key in ('validLines','coveredLines')),'Coverage receipt/XML mismatch')
     subprocess.run(['node','/opt/trusted/raw-evidence.mjs',kind,str(ROOT/'out'),str(ROOT/'api')],check=True)
     (ROOT/'out/immutable-completion.json').write_text(json.dumps({'manifestSha256':m.digest('/runner/approved-manifest.json'),
         'task':task,'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',

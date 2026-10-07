@@ -62,6 +62,9 @@ The resource observer and its telemetry script are committed in this directory a
 included in the approved script digest. A source/image/input/environment/SDK/profile
 change requires new evidence. This snapshot profile has `base == api`; it cannot
 pretend to test another comparison base.
+Coverage validation checks raw collector counters and independently counts unique
+filename/line identities with maximum hits across classes, matching the existing
+receipt contract when generated classes share source lines.
 
 Portable and portable-coverage execute the existing full all17 gate with coverage
 OFF and ON respectively. A separate mutation benchmark runs only the exact small
