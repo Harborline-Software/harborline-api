@@ -218,7 +218,7 @@ public sealed class DeclarativeWorkflowExecutionEndToEndTests : IAsyncLifetime
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.RoleGate());
         var authority = new Harborline.Api.Foundation.Authorization.AuthorizationWriteContext(
             new ActorId("test-workflow-seed"), LocalTenant,
-            new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero));
+            AdmittedInstant.FromRecordedAct(new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero)));
         var decision = await lifecycle.DecideAsync(NodeThreeWayMatchWorkflowSeed.DefinitionKey, authority);
         await NodeThreeWayMatchWorkflowSeed.EnsurePublishedAsync(
             lifecycle, LocalTenant.Value, decision);

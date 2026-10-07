@@ -326,7 +326,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                 .Select(atom => atom.Operation.Value));
             var gateHeld = await outerProvider.GetRequiredService<AuthorizationGate>()
                 .InstallRootPermissionsAsync(
-                    new ActorId(evidence.Principal), new TenantId(evidence.Tenant), evidence.At);
+                    new ActorId(evidence.Principal), new TenantId(evidence.Tenant), AdmittedInstant.FromRecordedAct(evidence.At));
             Assert.NotEmpty(startupHeld.Permissions);
             Assert.Equal(gateHeld.Permissions.Order(), startupHeld.Permissions.Order());
 

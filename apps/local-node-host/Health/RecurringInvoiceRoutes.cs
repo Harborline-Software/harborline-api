@@ -215,7 +215,7 @@ public static class RecurringInvoiceRoutes
 
             var caller = NodeCallerParty.Resolve(http);
             var authority = new AuthorizationWriteContext(
-                new ActorId(caller.Value), LocalTenantId, timeProvider.GetUtcNow());
+                new ActorId(caller.Value), LocalTenantId, AdmittedInstant.Read(timeProvider));
             var asOf = body?.AsOf ?? DateOnly.FromDateTime(authority.At.UtcDateTime);
             var result = await recurring
                 .GenerateDueInvoicesAsync(scheduleId, asOf, authority, ct)

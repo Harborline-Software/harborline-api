@@ -172,7 +172,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         // continuation cannot wait for the module initializer that is waiting for the child operation.
         File.WriteAllText(Path.Combine(directory, "committed.json"), JsonSerializer.Serialize(state));
         await fixture.Authority.NarrowMemberGrantAsync(fixture.Handle, TenantId, original, [TeamRolePermissions.MembersManage],
-            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now));
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.FromRecordedAct(Now)));
         throw new InvalidOperationException("The narrowing child returned without pausing before delivery.");
     }
 

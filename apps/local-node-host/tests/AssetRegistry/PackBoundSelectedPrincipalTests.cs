@@ -227,7 +227,7 @@ public sealed class PackBoundSelectedPrincipalTests
                 configuration, configuration, new AuthorizationDefinitionAdmission(vocabulary),
                 new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
             await new AccessGrantAuthorizationSeed(seedWriter, configuration, grants)
-                .InstallAsync(Tenant, now.AddMinutes(-1), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(now.AddMinutes(-1)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var subject = new ActorId(grantedSubject);
             await grants.AppendAsync(Tenant, new AccessGrant(
                 GrantId.New(), Tenant, subject, role ?? AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/"),

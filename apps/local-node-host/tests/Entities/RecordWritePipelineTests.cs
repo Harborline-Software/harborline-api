@@ -27,7 +27,7 @@ public sealed class RecordWritePipelineTests
     private static readonly TenantId Tenant = new("records-pipeline");
     private static readonly ActorId Actor = new("records-operator");
     private static readonly SchemaId Schema = new("records.pipeline");
-    private static readonly AuthorizationWriteContext Authority = new(Actor, Tenant, At);
+    private static readonly AuthorizationWriteContext Authority = new(Actor, Tenant, AdmittedInstant.FromRecordedAct(At));
 
     [Fact(DisplayName = "ck-10 S2: record create runs all six stages in order and stores the body validate admitted")]
     public async Task Create_RunsTheSixStagesInOrder()

@@ -183,8 +183,8 @@ public static class BankAccountRoutes
                 return Results.BadRequest(new { error = "display_name_required" });
 
             var id = BankAccountId.NewId();
-            var at = timeProvider.GetUtcNow();
-            var now = (Instant)at;
+            var at = AdmittedInstant.Read(timeProvider);
+            var now = (Instant)at.Value;
             var account = new BankAccount(
                 Id:                  id,
                 TenantId:            LocalTenantId,
@@ -246,7 +246,7 @@ public static class BankAccountRoutes
             if (denied is not null)
                 return denied;
             var id = new BankAccountId(accountId);
-            var at = timeProvider.GetUtcNow();
+            var at = AdmittedInstant.Read(timeProvider);
             var archived = await writer.ArchiveAsync(id, Authority(http, LocalTenantId, id, at), ct).ConfigureAwait(false);
             if (archived is null) return Results.NotFound();
             var feedConnectedOnArchive = await IsFeedConnectedAsync(b, accountId, ct).ConfigureAwait(false);
@@ -269,7 +269,7 @@ public static class BankAccountRoutes
                 return Results.BadRequest(new { error = "invalid_date", detail = "openingBalanceDate must be ISO-8601." });
 
             var id = new BankAccountId(accountId);
-            var at = timeProvider.GetUtcNow();
+            var at = AdmittedInstant.Read(timeProvider);
             var updated = await writer.SetOpeningBalanceAsync(
                 id, body.OpeningBalance, cutover, Authority(http, LocalTenantId, id, at), ct).ConfigureAwait(false);
             if (updated is null) return Results.NotFound();
@@ -295,7 +295,7 @@ public static class BankAccountRoutes
         HttpContext http,
         TenantId tenant,
         BankAccountId account,
-        DateTimeOffset at)
+        AdmittedInstant at)
     {
         return new AuthorizationWriteContext(
             new ActorId(NodeCallerParty.Resolve(http).Value),

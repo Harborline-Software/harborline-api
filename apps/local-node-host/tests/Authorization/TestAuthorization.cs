@@ -184,13 +184,13 @@ internal static class TestAuthorization
         DateTimeOffset at) => new(
         token.Subject,
         token.Tenant,
-        at);
+        AdmittedInstant.FromRecordedAct(at));
 
     internal static AuthorizationWriteContext Write(
         TenantId tenant,
         string principal = "test-operator",
         DateTimeOffset? at = null) =>
-        new(new ActorId(principal), tenant, at ?? At);
+        new(new ActorId(principal), tenant, AdmittedInstant.FromRecordedAct(at ?? At));
 
     internal static AuthorizationDecision AllowedDecision(
         TenantId tenant,

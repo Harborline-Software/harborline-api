@@ -103,15 +103,15 @@ internal static partial class AdminTeamAccessRoutes
         app.MapPost(
             InvitationsPath,
             (IssueInvitationRequest? request, HttpContext context) =>
-                IssueInvitationAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+                IssueInvitationAsync(authority, antiforgery, request, context, AdmittedInstant.Read(timeProvider)));
         app.MapPost(
             RevokeMemberPath,
             (RevokeMemberRequest? request, HttpContext context) =>
-                RevokeMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+                RevokeMemberAsync(authority, antiforgery, request, context, AdmittedInstant.Read(timeProvider)));
         app.MapPost(
             NarrowMemberPath,
             (NarrowMemberRequest? request, HttpContext context) =>
-                NarrowMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+                NarrowMemberAsync(authority, antiforgery, request, context, AdmittedInstant.Read(timeProvider)));
         MapGrantActions(app, authority, antiforgery, timeProvider);
     }
 
@@ -183,7 +183,7 @@ internal static partial class AdminTeamAccessRoutes
         IWebAntiforgeryPolicy antiforgery,
         IssueInvitationRequest? request,
         HttpContext context,
-        DateTimeOffset at)
+        AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
@@ -245,7 +245,7 @@ internal static partial class AdminTeamAccessRoutes
         IWebAntiforgeryPolicy antiforgery,
         RevokeMemberRequest? request,
         HttpContext context,
-        DateTimeOffset at)
+        AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
@@ -331,7 +331,7 @@ internal static partial class AdminTeamAccessRoutes
         IWebAntiforgeryPolicy antiforgery,
         NarrowMemberRequest? request,
         HttpContext context,
-        DateTimeOffset at)
+        AdmittedInstant at)
     {
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
@@ -413,7 +413,7 @@ internal static partial class AdminTeamAccessRoutes
 
     private static AuthorizationWriteContext WriteAuthority(
         SelectedSessionRequestPrincipal principal,
-        DateTimeOffset at) =>
+        AdmittedInstant at) =>
         new(NodeGatePrincipal.Of(principal), principal.TenantId, at);
 
     private static IResult AntiforgeryFailed() =>

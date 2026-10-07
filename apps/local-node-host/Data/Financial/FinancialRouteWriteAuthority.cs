@@ -13,14 +13,14 @@ internal static class FinancialRouteWriteAuthority
     internal static AuthorizationWriteContext Create(
         HttpContext http,
         TenantId tenant,
-        DateTimeOffset at) =>
+        AdmittedInstant at) =>
         new(new ActorId(NodeCallerParty.Resolve(http).Value), tenant, at);
 
     internal static AuthorizationWriteContext Create(
         HttpContext http,
         TenantId tenant,
         TimeProvider timeProvider) =>
-        Create(http, tenant, timeProvider.GetUtcNow());
+        Create(http, tenant, AdmittedInstant.Read(timeProvider));
 
     internal static AuthorizationWriteContext Create(
         HttpContext http,

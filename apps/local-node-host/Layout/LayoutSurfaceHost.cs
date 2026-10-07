@@ -100,7 +100,7 @@ public sealed class LayoutSurfaceHost(
             throw new LayoutAuditDegradedException();
         }
 
-        var context = new AuthorizationWriteContext(principal, tenant, time.GetUtcNow());
+        var context = new AuthorizationWriteContext(principal, tenant, AdmittedInstant.Read(time));
         var request = new LayoutResolutionRequest(requestId, principal.Value);
         var decisions = new Dictionary<string, AuthorizationDecision>(StringComparer.Ordinal);
         var open = await gate.DecideAsync(

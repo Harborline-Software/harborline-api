@@ -330,7 +330,7 @@ public sealed class DecisionEvidenceTraceTests
 
     private static AuthorizationGateRequest Request() =>
         new(PermissionAtom.Parse("records:write@/records/a"), Principal, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), At);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(At));
 
     private static AuthorizationAtomDerivation Derivation(
         string atom,

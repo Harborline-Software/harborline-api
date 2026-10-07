@@ -55,7 +55,7 @@ The consolidated Node 24 startup audit covers these distinct inputs:
 Real synthetic controls execute Node require/import hooks, fail on malformed
 OpenSSL configuration before JavaScript, redirect a relative config include,
 create compile-cache bytes and a warning file, and demonstrate Bash function
-replacement and `SHELLOPTS`/`PS4` expansion. The declared protected shells suppress
+replacement and imported `SHELLOPTS` xtrace exposing a harmless assignment. The declared protected shells suppress
 those controls. The producer shell is exercised with a bounded local script
 fixture; it does not run a production pack. Cache poisoning, native library
 injection and TLS interception are not demonstrated by these controls.

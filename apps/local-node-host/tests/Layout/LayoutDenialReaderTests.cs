@@ -37,15 +37,15 @@ public sealed class LayoutDenialReaderTests
         await h.DenyAsync("request-7");
         await h.DenyAsync("request-8");
 
-        var read = await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-7", At);
+        var read = await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-7", AdmittedInstant.FromRecordedAct(At));
 
         Assert.Equal(
             new LayoutRelatedDenial("request-7", "principal.clerk-4", "owner-card", LayoutBindingKinds.Static,
                 "invoice.owner", Owner, "authorization.permission_required", "/records/party-19"),
             Assert.Single(read));
-        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-9", At));
-        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.other", "request-7", At));
-        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "other-card", "invoice.owner", "request-7", At));
+        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-9", AdmittedInstant.FromRecordedAct(At)));
+        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.other", "request-7", AdmittedInstant.FromRecordedAct(At)));
+        Assert.Empty(await h.Reader.ReadAsync(Tenant, Both, "other-card", "invoice.owner", "request-7", AdmittedInstant.FromRecordedAct(At)));
     }
 
     [Theory(DisplayName = "layout-run-5: a reader lacking the trace or the record authorization gets nothing")]
@@ -58,9 +58,9 @@ public sealed class LayoutDenialReaderTests
         await using var h = await Harness.CreateAsync();
         await h.DenyAsync("request-7");
 
-        Assert.Empty(await h.Reader.ReadAsync(Tenant, new ActorId(reader), "owner-card", "invoice.owner", "request-7", At));
+        Assert.Empty(await h.Reader.ReadAsync(Tenant, new ActorId(reader), "owner-card", "invoice.owner", "request-7", AdmittedInstant.FromRecordedAct(At)));
         // The control: the same entry is there for a reader holding both.
-        Assert.Single(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-7", At));
+        Assert.Single(await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-7", AdmittedInstant.FromRecordedAct(At)));
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -89,7 +89,7 @@ public sealed class LayoutDenialReaderTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var grants = provider.GetRequiredService<IGrantStore>();
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(Tenant, Grant(Both, RoleReference.Auditor, "/"));

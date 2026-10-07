@@ -136,11 +136,14 @@ test('actual authentication action resolves launcher and dependency from protect
   const shellProtected=spawnSync(bash,protectedArgs,{env:hostileShell,cwd:candidate,encoding:'utf8',timeout:10000})
   assert.equal(shellProtected.status,0,shellProtected.stderr);assert.equal(existsSync(stolen),false)
   assert.equal(shellProtected.stderr.includes('synthetic-action-only'),false,'imported xtrace must not expand the token-bearing function')
-  const tracingEnv={...env,SHELLOPTS:'xtrace',PS4:"$(printf 'PS4-STARTUP-WITNESS' >&2)"}
-  const tracingControl=spawnSync(bash,['--noprofile','--norc','-c','true'],{env:tracingEnv,encoding:'utf8',timeout:10000})
-  assert.equal(tracingControl.status,0);assert.match(tracingControl.stderr,/PS4-STARTUP-WITNESS/)
-  const tracingProtected=spawnSync(bash,protectedArgs,{env:tracingEnv,cwd:candidate,encoding:'utf8',timeout:10000})
-  assert.equal(tracingProtected.status,0,tracingProtected.stderr);assert.equal(tracingProtected.stderr.includes('PS4-STARTUP-WITNESS'),false)
+  // Bash imports SHELLOPTS in an ordinary shell, but does not import PS4 on
+  // every supported version. Observe xtrace exposing a harmless assignment.
+  const tracingEnv={...env,SHELLOPTS:'xtrace'}
+  const tracingCommand='marker=SHELL-TRACE-WITNESS; true'
+  const tracingControl=spawnSync(bash,['--noprofile','--norc','-c',tracingCommand],{env:tracingEnv,encoding:'utf8',timeout:10000})
+  assert.equal(tracingControl.status,0);assert.match(tracingControl.stderr,/SHELL-TRACE-WITNESS/)
+  const tracingProtected=spawnSync(bash,[...shell,'-c',tracingCommand],{env:tracingEnv,encoding:'utf8',timeout:10000})
+  assert.equal(tracingProtected.status,0,tracingProtected.stderr);assert.equal(tracingProtected.stderr.includes('SHELL-TRACE-WITNESS'),false)
   rmSync(witness);rmSync(output)
   for(const changed of [{TRUSTED_FEED_ACTION_REF:'candidate'},{TRUSTED_FEED_ACTION_REPOSITORY:'attacker/repo'}]) {
     assert.equal(spawnSync(bash,protectedArgs,{env:{...env,...changed},cwd:candidate,encoding:'utf8'}).status,1)

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sourceHead": "a82e96a096e2e689addbcadcb6d2e3e477714854",
+  "platformHead": "9abd9e016a45fc8756ef259763f8079d56352e4e",
+  "qualityHead": "369c24708bbaefd2980a8f1c103b77a5761d59cf",
+  "controlHead": "d204cab49878bd001d7f5269f7c0eb95f26e4c05",
+  "officialSdkImage": "mcr.microsoft.com/dotnet/sdk@sha256:001dc5a48897722fe0c0550f95dca4d8eb4b5bb67eac9ea3723f36ba6d02d613",
+  "officialSdkConfigDigest": "sha256:413440ce99219cfb1e39855bd3063cc0d4cb2ce6a01cffa9949175ce7fa7b243",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "sdkArchiveSha512": "59e3c8c1937f12219f437a05ffae6febad7e88155eac83c2bc97bdb590a70929dfdd0b585898e023cd3883ff44865bfb8cde9e9d265d3e4f1ba49db7720c95e7",
+  "releaseMetadata": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json",
+  "officialDockerfile": "https://github.com/dotnet/dotnet-docker/blob/main/src/sdk/11.0/resolute/arm64v8/Dockerfile",
+  "localImageId": "sha256:4848acaf30cf0eafb34faa508e4b2d4e5682b31961f6000785fb800bf39f7e33",
+  "localTag": "harborline-mini-toolchain:sdk11-20261006",
+  "platform": "linux/arm64",
+  "os": "Ubuntu 26.04.1 LTS",
+  "user": "1001:1001",
+  "tools": {
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "pnpm": "11.1.3",
+    "rustc": "1.99.0",
+    "cargo": "1.99.0",
+    "powershell": "7.7.0-preview.2",
+    "git": "2.53.0",
+    "python": "3.14.4",
+    "gcc": "15.2.0"
+  },
+  "checks": {
+    "officialManifestDigestMatched": true,
+    "officialArchiveChecksumMatchesReleaseMetadata": true,
+    "sdkCompilerAndRuntimeHelloWorld": true,
+    "pinnedPlatformFeedBuilt": true,
+    "actualAllLanePrerequisiteFunctionPassed": true,
+    "fullGateExecuted": false,
+    "githubRunExecuted": false,
+    "coverageQualified": false
+  },
+  "localEvidenceSha256": {
+    "sdk-version-probe.txt": "93db6f2e40ca3a77d9d9b2dc1edd419e5edda54e4e5e976a0d4ad6d2cf9c87ba",
+    "prerequisite-evidence/tool-versions.txt": "5354ef1156d21c0dced4326ff15822e91bc7c51326b5eaaeb9486e4655753836",
+    "prerequisite-evidence/hello.log": "97262406b069918c44fa148e51eaeb087a4aa12c3cbc0ea69f9fc2ba18416e35",
+    "prerequisite-evidence/feed.log": "71c5598f755ef36e76388d9815e8bc98d18963bac8e78c1800179729b344aea7",
+    "prerequisite-evidence/preflight.json": "d5406ab5dc4cf3735b50e69aae57f7e00556b68b4e77b5f7249ef734596eec7f"
+  }
+}

@@ -19,7 +19,7 @@ public sealed class FiscalYearCloseAuthorizationTests
     private static readonly DateTimeOffset ResampledAt = AuthorityAt.AddHours(7);
     private static readonly TenantId Tenant = new("tenant-fiscal-year-act");
     private static readonly AuthorizationWriteContext Authority =
-        new(new ActorId("financial-admin"), Tenant, AuthorityAt);
+        new(new ActorId("financial-admin"), Tenant, AdmittedInstant.Read(new FixedTimeProvider(AuthorityAt)));
 
     [Fact]
     public async Task CloseFiscalYear_PersistsAndPublishesOnlyTheAuthorityInstant()

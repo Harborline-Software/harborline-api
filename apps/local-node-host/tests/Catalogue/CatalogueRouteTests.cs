@@ -458,7 +458,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _tenantA,
         _packTrust,
         PackRevocationList.Empty,
-        TimeProvider.System.GetUtcNow(),
+        AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
         PackInstallRoutes.RevocationMaxAge,
         Principal: TestDesktopOperator.Principal);
 

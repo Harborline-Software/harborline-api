@@ -218,7 +218,7 @@ public sealed class PackActivationPipelineTests
     {
         await ActivateAsync();
         var denied = await TestAuthorization.Gate(false).DecideAsync(
-            new AuthorizationWriteContext(new ActorId("test-operator"), Tenant, Now)
+            new AuthorizationWriteContext(new ActorId("test-operator"), Tenant, AdmittedInstant.FromRecordedAct(Now))
                 .Request(AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", PackKey));
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() =>
@@ -685,7 +685,7 @@ public sealed class PackActivationPipelineTests
 
     private static PackInstallContext Context(
         string principal = "test-operator", IReadOnlyDictionary<string, string>? ownership = null) => new(
-        Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty, Now, TimeSpan.FromHours(1),
+        Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromHours(1),
         Principal: principal, OwnershipResolutions: ownership);
 
     private void SeedPack() => CommitPack(_store, PackKey, "1.0.0", Item(ContentKey, PackContentKind.FormDefinition, Seed));

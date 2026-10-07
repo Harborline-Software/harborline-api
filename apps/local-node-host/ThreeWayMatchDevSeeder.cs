@@ -94,7 +94,7 @@ public sealed class ThreeWayMatchDevSeeder : IHostedService
             var authority = new AuthorizationWriteContext(
                 new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal),
                 tenant,
-                _timeProvider.GetUtcNow());
+                AdmittedInstant.Read(_timeProvider));
             var decision = await _definitionStore.DecideAsync(
                 NodeThreeWayMatchWorkflowSeed.DefinitionKey, authority, cancellationToken).ConfigureAwait(false);
             await NodeThreeWayMatchWorkflowSeed.EnsurePublishedAsync(
@@ -184,7 +184,7 @@ public sealed class ThreeWayMatchDevSeeder : IHostedService
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private AuthorizationWriteContext DevAuthority(TenantId tenant) =>
-        new(new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, _timeProvider.GetUtcNow());
+        new(new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, AdmittedInstant.Read(_timeProvider));
 
     private async ValueTask<AuthorizationDecision> DecideAsync(
         AuthorizationWriteContext authority,

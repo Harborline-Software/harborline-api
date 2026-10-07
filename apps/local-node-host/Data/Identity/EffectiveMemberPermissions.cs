@@ -67,7 +67,8 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
         }
 
         var pending = grants.ReadAsync(
-            new ActorId(partyId), new TenantId(team.ToString("D")), at, CancellationToken.None);
+            new ActorId(partyId), new TenantId(team.ToString("D")),
+            AdmittedInstant.Exempt(at, AdmittedInstantExemption.SignedRosterIssuedAt), CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }
 }

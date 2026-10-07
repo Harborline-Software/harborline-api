@@ -331,7 +331,7 @@ public sealed class AuthoritySnapshotTests
             Tenant,
             trust,
             PackRevocationList.Empty,
-            At,
+            AdmittedInstant.FromRecordedAct(At),
             TimeSpan.FromDays(30),
             Principal: "test-operator");
 
@@ -485,7 +485,7 @@ public sealed class AuthoritySnapshotTests
             new ActorId(signer.IssuerId.ToBase64Url()),
             tenant,
             new AuthorizationTarget("record", "audit-record", scope),
-            at);
+            AdmittedInstant.FromRecordedAct(at));
         return (await gate.DecideAsync(request), source);
     }
 

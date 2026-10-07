@@ -109,7 +109,7 @@ internal sealed class NodeRosterMemberRevocationAuthority(
         CancellationToken cancellationToken = default)
     {
         var reaction = new AuthorizationWriteContext(
-            admittedDecision.Request.Principal, tenant, admittedDecision.DecidedAt)
+            admittedDecision.Request.Principal, tenant, admittedDecision.Request.Instant)
             .Request(MembersManage, "members", decisionTargetId);
         admittedDecision.RequireAllowedReaction(
             MembersManage, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);

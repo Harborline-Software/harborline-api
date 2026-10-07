@@ -72,7 +72,7 @@ internal static class TestRouteGate
     /// <param name="recordId">The one record the grant covers.</param>
     internal static AuthorizationGate ScopedToRecord(TenantId tenant, string recordKind, string recordId)
     {
-        var scope = new AuthorizationWriteContext(new ActorId("test-grant-subject"), tenant, DateTimeOffset.UnixEpoch)
+        var scope = new AuthorizationWriteContext(new ActorId("test-grant-subject"), tenant, AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch))
             .Request(AuthorizationOperation.Parse("records:read"), recordKind, recordId)
             .Target.Scope;
         return Granting(_ => true, scope);

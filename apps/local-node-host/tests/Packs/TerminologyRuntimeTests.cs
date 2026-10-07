@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
@@ -237,7 +238,7 @@ public sealed class TerminologyRuntimeTests
                 new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), terminology: Projection), new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
             var trust = new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, signing.PrincipalId, 1, TrustRootStatus.Current)]);
             var result = await Installer.InstallAsync(export.FileBytes!, new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
-                TestAuthorization.At, TimeSpan.FromDays(30), Principal: "operator"));
+                AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "operator"));
             Assert.True(result.Installed == expectInstalled, string.Join("; ", result.RefusalCodes));
             return result;
         }
