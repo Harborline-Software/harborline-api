@@ -163,13 +163,17 @@ public sealed class KernelClockActReadArchTests
         var reads = handlers.ToDictionary(handler => handler.Handler.Name,
             handler => ActReads(handler.Handler, assemblies, graph).Count);
 
-        Assert.Equal(6, reads.Count);
+        Assert.Equal(10, reads.Count);
         Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingCatch)]);
         Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFilter)]);
         Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFinally)]);
         Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleCatch)]);
         Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFilter)]);
         Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFinally)]);
+        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingNestedFinally)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleNestedFinally)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchBreaksTheLoop)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchReturnsFromTheLoop)]);
     }
 
     /// <summary>
@@ -556,6 +560,9 @@ public sealed class KernelClockActReadArchTests
                 // an over-approximation and also connect endfinally to every protected leave exit.
                 var exits = protectedCode.Where(instruction => instruction.OpCode == OpCodes.Leave
                     || instruction.OpCode == OpCodes.Leave_S).Select(instruction => instruction.Operand)
+                    // An inner catch can leave to a point still inside this try. That does not run
+                    // the outer finally; connecting it would invent a cycle in a single-entry act.
+                    .Where(target => target < clause.TryOffset || target >= clause.TryOffset + clause.TryLength)
                     .Where(successors.ContainsKey).Distinct().ToArray();
                 foreach (var instruction in code.Where(instruction => instruction.Offset >= clause.HandlerOffset
                     && instruction.Offset < clause.HandlerOffset + clause.HandlerLength && instruction.OpCode == OpCodes.Endfinally))
@@ -941,6 +948,10 @@ public sealed class KernelClockActReadArchTests
             app.MapGet("/exception/single-catch", SingleCatch);
             app.MapGet("/exception/single-filter", SingleFilter);
             app.MapGet("/exception/single-finally", SingleFinally);
+            app.MapGet("/exception/repeating-nested-finally", RepeatingNestedFinally);
+            app.MapGet("/exception/single-nested-finally", SingleNestedFinally);
+            app.MapGet("/exception/catch-break", CatchBreaksTheLoop);
+            app.MapGet("/exception/catch-return", CatchReturnsFromTheLoop);
         }
 
         internal static IResult RepeatingCatch(TimeProvider time)
@@ -991,6 +1002,61 @@ public sealed class KernelClockActReadArchTests
         {
             try { _ = time.ToString(); }
             finally { _ = time.GetUtcNow(); }
+            return Results.Ok();
+        }
+
+        internal static IResult RepeatingNestedFinally(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try
+                {
+                    try { throw new InvalidOperationException(); }
+                    catch (InvalidOperationException) { }
+                    _ = index.ToString();
+                }
+                finally { _ = time.GetUtcNow(); }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult SingleNestedFinally(TimeProvider time)
+        {
+            try
+            {
+                try { throw new InvalidOperationException(); }
+                catch (InvalidOperationException) { }
+                _ = time.ToString();
+            }
+            finally { _ = time.GetUtcNow(); }
+            return Results.Ok();
+        }
+
+        internal static IResult CatchBreaksTheLoop(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { if (index == 1) throw new InvalidOperationException(); }
+                catch (InvalidOperationException)
+                {
+                    _ = time.GetUtcNow();
+                    break;
+                }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult CatchReturnsFromTheLoop(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { if (index == 1) throw new InvalidOperationException(); }
+                catch (InvalidOperationException)
+                {
+                    _ = time.GetUtcNow();
+                    return Results.Ok();
+                }
+            }
             return Results.Ok();
         }
 
