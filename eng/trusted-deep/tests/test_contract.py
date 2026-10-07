@@ -103,6 +103,9 @@ class Contract(unittest.TestCase):
             with self.subTest(missing=platform),self.assertRaises(ValueError):e.release_ready('a'*40,expected,missing,roots,digests,[],now)
         with self.assertRaises(ValueError):e.release_ready('a'*40,expected,raw,roots,digests,['unresolved'],now)
         with self.assertRaises(ValueError):e.release_ready('b'*40,expected,raw,roots,digests,[],now)
+        for key in ('control','platform','quality','sdk','tree','base','scripts','dependencyInputs','baselines','testInventory','testSelection','coverageProfile'):
+            changed=copy.deepcopy(expected);changed['windows'][key]='other'
+            with self.subTest(parity=key),self.assertRaises(ValueError):e.release_ready('a'*40,changed,raw,roots,digests,[],now)
         forged=dict(raw);forged['windows']=b'{"validated":true,"status":"passed","suite":"full"}'
         with self.assertRaises(ValueError):e.release_ready('a'*40,expected,forged,roots,digests,[],now)
 

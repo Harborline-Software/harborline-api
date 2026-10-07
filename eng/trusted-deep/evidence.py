@@ -88,6 +88,9 @@ def release_ready(candidate, expected, raw_receipts, artifact_roots, trusted_dig
     platforms = {"linux", "windows", "macos"}
     require(set(raw_receipts) == set(expected) == set(artifact_roots) == set(trusted_digests) == platforms,
             "Full native release proof required")
+    common=FINGERPRINT_KEYS-{'image','environment','os','architecture','kind'}
+    require(all(all(expected[p][key]==expected['linux'][key] for key in common) for p in platforms),
+            'Release source pins, SDK, scripts and verification inputs must agree across platforms')
     for platform in platforms:
         fingerprint = expected[platform]
         require(fingerprint["api"] == candidate and fingerprint["os"] == platform,
