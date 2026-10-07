@@ -14,7 +14,15 @@ kind="$1"
 export HARBORLINE_GATE_COVERAGE=0
 if [ "$kind" = portable-coverage ]; then export HARBORLINE_GATE_COVERAGE=1; fi
 if [ "$kind" = portable ] || [ "$kind" = portable-coverage ]; then
-  bash /opt/mini/portable-gate.sh
+  # Keep the real private workflow identity for admission and final binding.
+  # Checkout-specific child proofs must use their pinned API git identity.
+  # BEGIN isolated checkout environment
+  checkout_env=()
+  while IFS= read -r name; do
+    [[ "$name" != GITHUB_* ]] || checkout_env+=(-u "$name")
+  done < <(compgen -e)
+  env "${checkout_env[@]}" bash /opt/mini/portable-gate.sh
+  # END isolated checkout environment
 else
   root=/runner/gate
   mkdir -p "$root/out" "$root/tmp" "$root/cache"/{nuget,nuget-http,dotnet,npm,pnpm,xdg,xdg-data,xdg-config,cargo}

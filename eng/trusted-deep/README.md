@@ -112,24 +112,23 @@ jobs and required contexts against GitHub, checks global holds/journals, and wri
 only a release-evidence verdict. It does not publish or deploy. Missing native proof
 holds release; temporary development suspension never authorizes promotion without it.
 
-## Bounded private orchestration setup still required
+## Bounded private orchestration
 
-`private-orchestrator.yml` is an inactive template outside `.github/workflows`.
-The intended location is the existing private `harborline-control` repository
-(ID 1337465220). Public API PR/group/workflow-run events cannot invoke deep work.
-Only reviewed private main schedule/manual first attempts by the owner are eligible.
-Tasks and source/image manifests are fixed reviewed inputs, not caller-selected code.
+The manual-only finite adapter and two-task workflow are installed in private
+`harborline-control` (ID 1337465220) through Control #976/#977. No automatic
+schedule or service is installed. Public API PR/group/workflow-run events cannot
+invoke deep work. Only reviewed private main first attempts by the owner are
+eligible; tasks and source/image manifests are fixed reviewed inputs.
 
-Before private enablement, a reviewed ephemeral adapter must verify exact run/job
-inventory and workflow bytes, register at most the two approved lanes with unique
-run/task labels, and verify the numeric job-to-runner assignment through fresh
-GitHub API rows before payload execution. It must carry an immutable binding and
-assignment proof into completion evidence. Missing binding/assignment files fail
-closed in the current image. Local proof does not qualify Runner.Worker overhead,
-registration lifecycle, live private orchestration or hosted native artifact layout.
-No private workflow has been installed, runner registered, credential stored or
-service started by this pilot. New access, credentials or security permissions
-require explicit approval; no third local runner is authorized.
+The adapter verifies exact run/job inventory and workflow bytes, registers at most
+the two approved lanes, and verifies numeric job-to-runner assignments before any
+payload. Host-written admission files are root-owned and immutable to the runner.
+Private run `37648580792` demonstrated assignment, runner overhead and isolation,
+but its package gate correctly refused inherited Control identity for an API clone.
+The child-only environment boundary below repairs that mismatch; complete fresh
+private qualification and cleanup remain required. Failed evidence and holds are
+retained. New persistent access, credentials or security permissions require
+explicit approval; no third local runner is authorized.
 
 ## Focused verification
 
@@ -139,3 +138,9 @@ Ruby/Psych YAML parser. Expected behavior comes from literal contracts and an
 independent two-test native report corpus; OS tests use separate processes, not
 mocked locks. Actual resource/overlap/mutation evidence belongs outside the tracked
 tree and must be reviewed before publication or activation.
+
+Private admission and completion retain the real Control workflow environment.
+The full portable gate runs as a child with inherited `GITHUB_*` identity variables
+removed, so checkout-specific package proofs use the pinned API git source and
+repository. The immutable completion still carries the verified private numeric
+assignment. A Control workflow SHA cannot masquerade as the API checkout SHA.
