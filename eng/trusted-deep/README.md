@@ -1,7 +1,26 @@
 # API hosted checks and trusted deep pilot
 
-This is an unpublished local pilot. Required portable CI has not moved on main.
-PR #382 remains draft and unqueued: its public mini routing was superseded by this design.
+The hosted critical CI cutover landed normally through API #383 at
+`29ab265155bee953a17bbd25a94cd22b7bea6118`. Standard hosted PR/merge checks remain
+required. PR #382 remains draft and unqueued: its public mini routing was superseded
+by hosted critical checks plus exactly two private Mac mini deep lanes.
+
+Real private run `37652414688` qualified the full portable coverage OFF/ON pair at
+reviewed API source `01fff8535609f054262b58fdad8682335e02357b` and Control
+`4eb9746434aff8ceefc4c8fe43677fce9ec7481d`: jobs 13m58s/14m13s, zero OOM/swap,
+clean local teardown and zero runner registrations. The protected group and landed
+API tree match that qualified tree. Exact source identities still differ; historical
+receipts are not automatic approval for a later candidate or product release.
+
+Unattended trusted deep remains unfinished. The private workflow is manual-only,
+and a local host command supplies ephemeral runners for each run. Control's bounded
+`tools/api-trusted-deep/nightly.py` implementation and launchd/policy templates are
+in review: recurring unattended use of existing private keychain access needs
+explicit approval, timer installation and a real automatic dispatch-to-cleanup
+qualification. A hosted API nightly does not supply private runners. Source being
+landed or a manual pair passing must never be described as an operational unattended
+nightly. No new credentials, persistent runner, custom scheduler or wake setting
+is installed by this documentation change.
 
 ## Ordinary PRs and protected merges
 
@@ -125,8 +144,10 @@ the two approved lanes, and verifies numeric job-to-runner assignments before an
 payload. Host-written admission files are root-owned and immutable to the runner.
 Private run `37648580792` demonstrated assignment, runner overhead and isolation,
 but its package gate correctly refused inherited Control identity for an API clone.
-The child-only environment boundary below repairs that mismatch; complete fresh
-private qualification and cleanup remain required. Failed evidence and holds are
+The child-only environment boundary below repaired that mismatch; fresh private
+run `37652414688` passed both complete jobs and cleanup with independent raw review.
+That qualification is bound to its recorded inputs and does not establish automatic
+nightly operation. Failed evidence and holds are
 retained. New persistent access, credentials or security permissions require
 explicit approval; no third local runner is authorized.
 
