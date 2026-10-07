@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {validateFlakeRegistry, REGISTERED_FLAKE_COUNT, RETRY_LIMIT} from '../flake-registry.mjs'
+import {validateFlakeRegistry, planFlakeRetries, REGISTERED_FLAKE_COUNT, RETRY_LIMIT} from '../flake-registry.mjs'
+import {compareHostBaseline} from '../host-baseline.mjs'
 
 // Proof for the named flake registry (ticket 284). Each rule below is stated as "this shape is
 // refused", and the last two tests run the rule against the REAL registry, so a row added to
@@ -15,11 +16,14 @@ const baseline = JSON.parse(readFileSync(path.join(root, 'eng', 'baselines', 'ho
 const real = baseline.knownFlaky ?? []
 
 const TODAY = '2026-09-07'
-const valid = {test: 'Some.Namespace.Type.Method', owner: '284', firstSeen: '2026-09-01', expires: '2026-10-01', retryLimit: 1}
+const valid = {test: 'Some.Namespace.Type.Method', owner: '284', firstSeen: '2026-09-01', expires: '2026-10-01', retryLimit: 0}
+const retired = 'Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity'
 const row = extra => ({...valid, ...extra})
 
 test('a well-formed registry passes', () => {
-  assert.deepEqual(validateFlakeRegistry([row()], TODAY), [])
+  // An explicit historical ceiling exercises field validation independently of
+  // today's zero-allowance policy. It does not grant production retry authority.
+  assert.deepEqual(validateFlakeRegistry([row()], TODAY, 1), [])
 })
 
 test('a row without an owner is refused', () => {
@@ -30,7 +34,7 @@ test('a row without an owner is refused', () => {
 
 test('a row past its expiry is refused, and the day of expiry is still valid', () => {
   assert.match(validateFlakeRegistry([row({expires: '2026-09-06'})], TODAY).join('\n'), /registration expired 2026-09-06/)
-  assert.deepEqual(validateFlakeRegistry([row({expires: TODAY})], TODAY), [])
+  assert.deepEqual(validateFlakeRegistry([row({expires: TODAY})], TODAY, 1), [])
 })
 
 test('undated rows and an expiry that does not follow firstSeen are refused', () => {
@@ -54,11 +58,18 @@ test('the registry cannot grow past the ratchet without the count literal moving
   assert.deepEqual(validateFlakeRegistry([row()], TODAY, 3), [])
 })
 
-test('a retryLimit other than one is refused (the retry is ONE identical retry)', () => {
-  assert.equal(RETRY_LIMIT, 1)
-  assert.match(validateFlakeRegistry([row({retryLimit: 3})], TODAY).join('\n'), /retryLimit must be 1/)
+test('owner-requested zero policy rejects even one otherwise valid registration', () => {
+  assert.equal(REGISTERED_FLAKE_COUNT, 0)
+  assert.deepEqual(validateFlakeRegistry([], TODAY), [])
+  assert.match(validateFlakeRegistry([row()], TODAY).join('\n'), /1 rows but the ratchet allows 0/)
+})
+
+test('owner-requested zero retry limit refuses a historical one-retry allowance', () => {
+  assert.equal(RETRY_LIMIT, 0)
+  assert.match(validateFlakeRegistry([row({retryLimit: 3})], TODAY).join('\n'), /retryLimit must be 0/)
+  assert.match(validateFlakeRegistry([row({retryLimit: 1})], TODAY).join('\n'), /retryLimit must be 0/)
   const {retryLimit, ...defaulted} = valid
-  assert.deepEqual(validateFlakeRegistry([defaulted], TODAY), [])
+  assert.deepEqual(validateFlakeRegistry([defaulted], TODAY, 1), [])
 })
 
 test('the real registry is valid today and within its ratchet', () => {
@@ -67,12 +78,23 @@ test('the real registry is valid today and within its ratchet', () => {
   assert.ok(real.length <= REGISTERED_FLAKE_COUNT)
 })
 
-test('every real row is registered to a ticket and expires within 60 days of first sight', () => {
-  assert.ok(real.length > 0, 'the registry has no rows to enumerate')
-  const days = (from, to) => (Date.parse(to) - Date.parse(from)) / 86400000
-  for (const entry of real) {
-    assert.ok(entry.owner, `${entry.test} has no owner`)
-    assert.ok(days(entry.firstSeen, entry.expires) <= 60,
-      `${entry.test} is registered for ${days(entry.firstSeen, entry.expires)} days; a registration is temporary`)
+test('all real host registries are empty while the retired test stays in every roster', () => {
+  for (const filename of ['host-test-baseline.json', 'host-test-baseline.macos.json', 'host-test-baseline.ubuntu.json']) {
+    const host = JSON.parse(readFileSync(path.join(root, 'eng/baselines', filename), 'utf8'))
+    assert.deepEqual(host.knownFlaky, [], filename)
+    assert.ok(host.knownTests.includes(retired), `${filename}: retired allowance must not remove the test`)
+  }
+})
+
+test('the production gate planner cannot retry or rescue the retired first-result failure', () => {
+  for (const registry of [[], [{test: retired, owner: '348', firstSeen: '2026-09-08', expires: '2026-10-08'}]]) {
+    const plan = planFlakeRetries(registry, '2026-10-07', [retired])
+    assert.deepEqual(plan.retryable, [])
+    assert.equal(plan.flakyLimits.size, 0)
+    const counts = {total: 1, passed: 0, failed: 1, notExecuted: 0}
+    const result = compareHostBaseline({baseline: {permittedFailures: [], knownTests: [retired], policyRemovals: []},
+      counts, adjustedFailed: counts.failed, newFailures: [retired],
+      trx: {counts, problems: [], results: [{testName: retired, outcome: 'Failed'}]}})
+    assert.equal(result.passed, false)
   }
 })
