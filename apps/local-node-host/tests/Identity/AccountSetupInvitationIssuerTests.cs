@@ -116,7 +116,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 capture.Audit);
             Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
                 new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
-                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
+                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now))));
             if (allowed) Assert.NotNull(await issue());
             else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }

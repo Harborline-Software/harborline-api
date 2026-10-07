@@ -60,7 +60,7 @@ for (const [id, pin] of pins) {
   // Prefer the pinned version; a VersionOverride may have restored a different one, and the licence expression does not change between versions.
   const idDirectory = path.join(packages, id.toLowerCase())
   const versionDirectory = existsSync(path.join(idDirectory, pin.version.toLowerCase())) ? pin.version.toLowerCase() : (existsSync(idDirectory) ? readdirSync(idDirectory)[0] : undefined)
-  const nuspec = versionDirectory && path.join(idDirectory, versionDirectory, `${id}.nuspec`)
+  const nuspec = versionDirectory && path.join(idDirectory, versionDirectory, `${id.toLowerCase()}.nuspec`)
   if (!nuspec || !existsSync(nuspec)) { fail(`nuspec missing for ${id} ${pin.version}`); continue }
   const body = readFileSync(nuspec, 'utf8')
   const licence = /<license\s+type="expression">([^<]+)<\/license>/.exec(body)?.[1]

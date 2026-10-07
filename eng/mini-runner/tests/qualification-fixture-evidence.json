@@ -1,0 +1,20 @@
+{
+  "passed": [
+    "both nonroot runners initialized with immutable readable policy and writable private volumes",
+    "literal trusted hook admitted",
+    "wrong attempt stopped whole container with detached TERM-ignoring child; peer survived",
+    "docker stop terminated peer and detached child",
+    "independent labelled inventories confirm containers and volumes absent"
+  ],
+  "limits": "Synthetic listener only; actual GitHub Runner.Worker hook integration and full gate remain unqualified.",
+  "date": "2026-10-06",
+  "baseRunnerImage": "sha256:22ee105571fafc819d827b885ebbaa603165a3f2aa820d3c20a823c7a998cf55",
+  "runtimeSha256": {
+    "admission.py": "0c8824c2e6844fe871cad56b61273b73d6aca61d996070172d4e7c3db7cd776a",
+    "entrypoint.sh": "7b491a9c2c4210f566b126cb6491033c14790b89c67ce48fe36cebd431558410",
+    "start-hook.sh": "98fa6c40f42ce1b53a6e4bf73faf74f42f62e73fed97be47c6c21ecf76583cc2",
+    "tests/container_fixture.py": "d12aa8ec9563a0fd6bd06cb30d5301874d01f17a893ccac0b4d50afa0d8c27da"
+  },
+  "unitTests": 18,
+  "independentReview": "All seven findings addressed; reviewer independently reran 18 tests; no remaining concrete blocker in preparation patch."
+}

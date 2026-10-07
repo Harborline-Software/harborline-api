@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -40,7 +41,7 @@ public sealed class PackInterfaceActivationTests : IDisposable
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
         _context = new PackInstallContext(Tenant, new InMemoryPackTrustStore(
             [new PackTrustRoot(TrustScope.OwnRoster, _keyPair.PrincipalId, 1, TrustRootStatus.Current)]),
-            PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "interface-test");
+            PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: "interface-test");
     }
 
     public void Dispose() => _keyPair.Dispose();

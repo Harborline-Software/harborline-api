@@ -380,7 +380,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
             RoleBindingSet.Of(TenantReviewer));
         await _writer.WriteAsync(
             new InstallAuthorizationDefinition(privateDefinition, tenantA),
-            new AuthorizationWriteContext(new ActorId("test:authorization-writer"), tenantA, Now));
+            new AuthorizationWriteContext(new ActorId("test:authorization-writer"), tenantA, AdmittedInstant.Read(new FixedTimeProvider(Now))));
         ResetDependencyCounts();
 
         var tenantADefinitions = await _client.GetFromJsonAsync<AuthorizationDefinitionDto[]>(

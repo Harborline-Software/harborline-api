@@ -137,9 +137,9 @@ public sealed class DesktopActorRekeyTests
         var gate = provider.GetRequiredService<AuthorizationGate>();
         var unlock = AuthorizationOperation.Parse(Permission.WorkshopUnlock);
         Assert.Equal(AuthorizationVerdict.Allowed, (await gate.DecideAsync(
-            new AuthorizationWriteContext(new ActorId(Founder), Tenant, At).InstallWide(unlock))).Verdict);
+            new AuthorizationWriteContext(new ActorId(Founder), Tenant, AdmittedInstant.Read(new FixedTimeProvider(At))).InstallWide(unlock))).Verdict);
         Assert.NotEqual(AuthorizationVerdict.Allowed, (await gate.DecideAsync(
-            new AuthorizationWriteContext(new ActorId(Retired), Tenant, At).InstallWide(unlock))).Verdict);
+            new AuthorizationWriteContext(new ActorId(Retired), Tenant, AdmittedInstant.Read(new FixedTimeProvider(At))).InstallWide(unlock))).Verdict);
 
         // Idempotent: a second boot finds nothing to rekey and the seed does not re-add a "local" row.
         await StartSeedAsync(provider);

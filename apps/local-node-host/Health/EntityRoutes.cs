@@ -126,7 +126,7 @@ public static class EntityRoutes
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 LocalTenantId,
-                timeProvider.GetUtcNow());
+                AdmittedInstant.Read(timeProvider));
             // The created entity has no id yet, so this act addresses the install, not a record.
             var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);

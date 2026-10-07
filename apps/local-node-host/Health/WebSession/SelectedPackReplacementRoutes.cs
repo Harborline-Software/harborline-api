@@ -60,7 +60,7 @@ internal static class SelectedPackReplacementRoutes
             await body.WriteAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
         }
         var bytes = body.ToArray();
-        var context = new PackInstallContext(principal.TenantId, trust, revocation, authority.At,
+        var context = new PackInstallContext(principal.TenantId, trust, revocation, authority.Instant,
             PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value, CorrelationId: authority.CorrelationId);
         var before = Snapshot(store.GetActive(principal.TenantId, packKey));
         var preview = installer.Preview(bytes, context);

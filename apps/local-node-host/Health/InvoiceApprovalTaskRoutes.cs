@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -133,7 +134,8 @@ public static class InvoiceApprovalTaskRoutes
             }
 
             var tenantId = NodeTenant.Resolve(activeTeam);
-            var at = timeProvider.GetUtcNow();
+            var admitted = AdmittedInstant.Read(timeProvider);
+            var at = admitted.Value;
 
             // Tenant + parked-state gate: only a parked invoice-approval task of THIS tenant is actionable.
             // A foreign-tenant / unknown / already-actioned instance resolves to a uniform 404 (no existence
@@ -153,7 +155,7 @@ public static class InvoiceApprovalTaskRoutes
                     body.Note,
                     at,
                     ct,
-                    FinancialRouteWriteAuthority.Create(http, tenantId, at),
+                    FinancialRouteWriteAuthority.Create(http, tenantId, admitted),
                     OverrideFrom(body)).ConfigureAwait(false);
             }
             catch (Exception)

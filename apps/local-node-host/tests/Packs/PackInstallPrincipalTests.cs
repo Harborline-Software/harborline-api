@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Assets.Common;
@@ -210,7 +211,7 @@ public sealed class PackInstallPrincipalTests
             Tenant,
             trustStore,
             PackRevocationList.Empty,
-            Now,
+            AdmittedInstant.FromRecordedAct(Now),
             TimeSpan.FromDays(30));
 
         return new Fixture(installer, context, store, audit, export.FileBytes!, keyPair);

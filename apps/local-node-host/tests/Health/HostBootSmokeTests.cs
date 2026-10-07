@@ -198,7 +198,9 @@ public sealed class HostBootSmokeTests
                     SyncStatusRoutes.RouteBase,
                     StringComparison.Ordinal));
 
-            await host.StopAsync(cts.Token);
+            // Startup and shutdown are separate bounded phases: assertions or a slow startup must not
+            // spend shutdown's budget before shutdown has begun.
+            await StopWithOwnBudgetAsync(host);
         }
         finally
         {
@@ -235,6 +237,62 @@ public sealed class HostBootSmokeTests
         finally
         {
             TryDelete(dataDir);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Shutdown_Budget_Is_Independent_Of_Expired_Startup(bool separateBudget)
+    {
+        var observer = new ShutdownBudgetObserver();
+        var builder = Host.CreateEmptyApplicationBuilder(
+            new HostApplicationBuilderSettings { DisableDefaults = true });
+        builder.Services.AddLogging();
+        builder.Services.AddSingleton<IHostedService>(observer);
+        using var host = builder.Build();
+        using var startupBudget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await host.StartAsync(startupBudget.Token);
+        startupBudget.Cancel();
+        Assert.True(startupBudget.IsCancellationRequested);
+
+        if (separateBudget)
+        {
+            await StopWithOwnBudgetAsync(host);
+            Assert.False(observer.ShutdownWasCanceled);
+        }
+        else
+        {
+            // Red control: the old shared-token call reaches the service with an expired budget.
+            var error = await Assert.ThrowsAsync<OperationCanceledException>(
+                () => host.StopAsync(startupBudget.Token));
+            Assert.Equal("Expired startup token reached shutdown", error.Message);
+            Assert.True(observer.ShutdownWasCanceled);
+        }
+
+        Assert.Equal(1, observer.StopCalls);
+    }
+
+    private static async Task StopWithOwnBudgetAsync(IHost host)
+    {
+        using var shutdownBudget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await host.StopAsync(shutdownBudget.Token);
+    }
+
+    private sealed class ShutdownBudgetObserver : IHostedService
+    {
+        public bool ShutdownWasCanceled { get; private set; }
+        public int StopCalls { get; private set; }
+
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            StopCalls++;
+            ShutdownWasCanceled = cancellationToken.IsCancellationRequested;
+            if (ShutdownWasCanceled)
+                throw new OperationCanceledException("Expired startup token reached shutdown");
+            return Task.CompletedTask;
         }
     }
 

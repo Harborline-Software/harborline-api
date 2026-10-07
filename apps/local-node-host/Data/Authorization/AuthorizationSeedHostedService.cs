@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -35,7 +36,7 @@ internal sealed class AuthorizationSeedHostedService(
         // active team, so seeding only the boot-active tenant loses the node operator's holdings the
         // moment the operator switches teams. Every team the multi-team bootstrap materialized is seeded
         // (InstallAsync is idempotent per tenant; the definitions are install-wide and written once).
-        var at = timeProvider.GetUtcNow();
+        var at = AdmittedInstant.Read(timeProvider);
         foreach (var tenant in Tenants())
             await seed.InstallAsync(tenant, at, profile, holder, cancellationToken).ConfigureAwait(false);
     }

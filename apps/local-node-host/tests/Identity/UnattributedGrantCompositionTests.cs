@@ -56,7 +56,7 @@ public sealed class UnattributedGrantCompositionTests
                 if (binding == "resolved") return; // The resolving list retains its existing row contract.
                 var result = await restarted.Services.GetRequiredService<IAdminTeamAccessAuthority>()
                     .RevokeMemberGrantAsync(Handle, Tenant.Value, TargetGrant.ToString(),
-                        new AuthorizationWriteContext(new ActorId(Admin), Tenant, Now));
+                        new AuthorizationWriteContext(new ActorId(Admin), Tenant, AdmittedInstant.FromRecordedAct(Now)));
                 Assert.Equal(AdminRevokeMemberStatus.Revoked, result?.Status);
                 Assert.Equal(GrantStatus.Revoked, (await restarted.Services.GetRequiredService<IGrantStore>()
                     .FindAsync(Tenant, TargetGrant))!.Status);
@@ -136,13 +136,13 @@ public sealed class UnattributedGrantCompositionTests
 
     private static async Task<AuthorizationVerdict> VerdictAsync(IServiceProvider services) =>
         (await services.GetRequiredService<AuthorizationGate>().DecideAsync(
-            new AuthorizationWriteContext(new ActorId(Target), Tenant, Now)
+            new AuthorizationWriteContext(new ActorId(Target), Tenant, AdmittedInstant.FromRecordedAct(Now))
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", TargetGrant.ToString())))
         .Verdict;
 
     internal static async Task SeedAsync(IServiceProvider services, string binding)
     {
-        await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(Tenant, Now, AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
+        await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(Now), AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
         await SeedPartyAsync(services, Tenant, "party-admin", Admin, "resolved");
         if (binding != "missing")
             await SeedPartyAsync(services, binding == "wrong-tenant" ? new TenantId("other-tenant") : Tenant,

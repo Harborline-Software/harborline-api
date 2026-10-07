@@ -56,7 +56,7 @@ public static class CompromisedDeviceResponseRoutes
                 request.RevokedByPartyId), new AuthorizationWriteContext(
                     NodeGatePrincipal.Of(principal),
                     principal.TenantId,
-                    timeProvider.GetUtcNow()), cancellationToken).ConfigureAwait(false);
+                    AdmittedInstant.Read(timeProvider)), cancellationToken).ConfigureAwait(false);
             return Results.Ok(result);
         });
     }

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -48,7 +49,7 @@ public static class LayoutDenialRoutes
                 block_id,
                 relationship_key,
                 request_id,
-                time.GetUtcNow(),
+                AdmittedInstant.Read(time),
                 ct).ConfigureAwait(false);
 
             // The reader returns empty for both an absent denial and an unauthorized reader. Keep the

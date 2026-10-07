@@ -88,7 +88,7 @@ public sealed class DesktopActorRosterIdentityTests
         // Every grant stands in for the seeded desktop-operator holdings: only the roster can refuse.
         var gate = TestAuthorization.Gate(_ => true,
             provider.GetRequiredService<IAuthorizationRosterConstraintReader>());
-        return await gate.DecideAsync(new AuthorizationWriteContext(principal, Tenant, Now)
+        return await gate.DecideAsync(new AuthorizationWriteContext(principal, Tenant, AdmittedInstant.FromRecordedAct(Now))
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite), "record", "desktop"));
     }
 

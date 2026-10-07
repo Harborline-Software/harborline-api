@@ -8,16 +8,15 @@ import {fileURLToPath} from 'node:url'
 
 // Proof for eng/repin-baseline.mjs (ticket 236 row 4, review rounds 3 and 4): for every log shape the
 // persisted tuple equals what the log says, or the script refuses and the baseline is byte-for-byte
-// unchanged. The failure-identity allow-list is EXACT: every real knownFlaky[].test identity passes
-// through the real dotnet failed-line grammar, and every prefix / suffix / infix near-miss of every
-// row is refused.
+// unchanged. Zero-allowance host policy refuses the retired exact identity and
+// every prefix / suffix / infix near-miss through the real failed-line grammar.
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..', '..')
 const script = path.join(root, 'eng', 'repin-baseline.mjs')
 const baselineSrc = path.join(root, 'eng', 'baselines', 'host-test-baseline.json')
 const baselineText = readFileSync(baselineSrc, 'utf8')
 const baselineJson = JSON.parse(baselineText)
-const knownRows = (baselineJson.knownFlaky ?? []).map(r => r.test).filter(Boolean)
+const retired = 'Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity'
 const cur = baselineJson.totals
 const T = cur.total + 1
 const S = cur.notExecuted
@@ -45,20 +44,29 @@ test('exact tuple: all green', () => {
   assert.deepEqual(r.after, {total: T, passed: T - S, failed: 0, notExecuted: S})
 })
 
-test('every registered knownFlaky identity is representable and counts green (exactly)', () => {
-  assert.ok(knownRows.length > 0, 'the baseline has no knownFlaky rows to enumerate')
-  for (const row of knownRows) {
-    const r = run(withFailures([row]))
-    assert.equal(r.status, 0, `row "${row}" refused: ${r.out}`)
-    assert.deepEqual(r.after, {total: T, passed: T - S, failed: 0, notExecuted: S})
-  }
-  const all = run(withFailures(knownRows))
-  assert.equal(all.status, 0, all.out)
-  assert.deepEqual(all.after, {total: T, passed: T - S, failed: 0, notExecuted: S})
+test('the retired exact failure cannot be repinned green or change baseline bytes', () => {
+  assert.deepEqual(baselineJson.knownFlaky, [])
+  const r = run(withFailures([retired]))
+  assert.equal(r.status, 1, r.out)
+  assert.ok(r.unchanged)
+  assert.match(r.out, /not an exact knownFlaky identity/)
+})
+
+test('reintroducing a historical registration cannot repin even an all-green log', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'repin-retired-'))
+  const source = path.join(dir, 'baseline.json')
+  writeFileSync(source, JSON.stringify({...baselineJson, knownFlaky: [{test: retired, owner: '348',
+    firstSeen: '2026-09-08', expires: '2026-10-08'}]}))
+  let r
+  try { r = run(summary(0, T - S, S, T), source) }
+  finally { rmSync(dir, {recursive: true, force: true}) }
+  assert.equal(r.status, 1, r.out)
+  assert.ok(r.unchanged)
+  assert.match(r.out, /1 rows but the ratchet allows 0/)
 })
 
 test('every prefix, suffix and infix near-miss of every knownFlaky identity is refused without a write', () => {
-  for (const row of knownRows) {
+  for (const row of [retired]) {
     const nearMisses = [
       `Evil.${row}`,                          // registered identity as a suffix
       `${row}.Regression`,                    // registered identity as a prefix
