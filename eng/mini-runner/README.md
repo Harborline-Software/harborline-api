@@ -67,6 +67,26 @@ This required-route change remains unqualified until its real PR and merge-group
 runs, selector token access, artifact validation and protected landing pass.
 Neither v2 qualification nor local unit tests establish that result.
 
+## Verified qualification checkpoint, 2026-10-07
+
+Additive #381 landed normally at `a3217b606e94f04cf91cabfe78f34d86bae3b4fd`
+at 09:27:24 UTC. Its PR mini job (`37588605420` / `112684457755`) took
+830 seconds. Its coverage-enabled merge-group mini job (`37593607996` /
+`112700752366`) took 826 seconds after 386 seconds waiting for runner admission.
+All 17 steps, exact source/base bindings, focused OFF/ON raw identities and
+coverage XML passed independent validation. The merge-group receipt SHA-256 is
+`b96851ea566e3371a954201a3f2e41ce72e3ac53e65457661b99462bd2b67faf`.
+Observed cgroup high-water was 9,820,852,224 bytes, host swap remained zero,
+and exact-session Docker and GitHub cleanup was verified. The cgroup high-water
+is sampled and does not guarantee a final sample before container exit.
+
+The unchanged hosted Windows queue job passed in 3,705 seconds, followed by
+required `verify` success. Queue admission at 08:24:43 UTC to protected landing
+took 3,761 seconds. This is prerequisite v2 evidence, not a required-route speedup
+claim. The v3 PR and merge-group must each validate the new selector token,
+selected job, immutable completion and evidence contract before cutover is proven.
+The earlier #379 timeout remains unresolved; its failed evidence is preserved.
+
 ## Historical candidate qualification (additive v2)
 
 `mini-candidate-gate.yml` supplied the separate non-required qualification lane
