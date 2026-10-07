@@ -15,12 +15,11 @@
 // lives in this source file and the rows live in the baseline JSON, so growing the registry means
 // moving the literal in the same commit — a reviewable diff line rather than one more JSON row.
 // Shrinking is not a ratchet violation; the count is a ceiling, not an equality.
-export const REGISTERED_FLAKE_COUNT = 1 // Owner 284's two expired allowances retired; those tests now stand on their first result.
+export const REGISTERED_FLAKE_COUNT = 0 // Owner requested zero allowances; every former registration stands on its first result.
 
-// ONE identical retry (ticket 284 scope: "retries the failing registered test once with the
-// identical configuration"). A larger limit turns a real regression that fails intermittently into
-// a pass, and the extra attempts buy no information the first retry did not already give.
-export const RETRY_LIMIT = 1
+// No registered retry may rescue a first-result failure. Reintroducing an allowance
+// requires an explicit reviewed policy change, not an environment override.
+export const RETRY_LIMIT = 0
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -55,8 +54,19 @@ export function validateFlakeRegistry(rows, today, ceiling = REGISTERED_FLAKE_CO
       }
     }
     if ((row.retryLimit ?? RETRY_LIMIT) !== RETRY_LIMIT) {
-      problems.push(`${at} ("${name}"): retryLimit must be ${RETRY_LIMIT} (one identical retry), got ${row.retryLimit}`)
+      problems.push(`${at} ("${name}"): retryLimit must be ${RETRY_LIMIT} (no retry allowance), got ${row.retryLimit}`)
     }
   }
   return problems
+}
+
+// Shared gate decision: invalid rows never authorize retries, and zero policy
+// cannot select a retry even if a caller presents the historical registration.
+export function planFlakeRetries(rows, today, unexpectedFailures) {
+  const registryProblems = validateFlakeRegistry(rows, today)
+  const flakyLimits = registryProblems.length === 0 && RETRY_LIMIT > 0
+    ? new Map(rows.map(row => [row.test, RETRY_LIMIT])) : new Map()
+  const retryable = RETRY_LIMIT > 0 && unexpectedFailures.every(name => flakyLimits.has(name))
+    ? unexpectedFailures : []
+  return {registryProblems, flakyLimits, retryable}
 }

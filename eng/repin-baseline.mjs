@@ -6,10 +6,9 @@
 //   - parses the summary line  "Failed: F, Passed: P, Skipped: S, Total: T"
 //   - parses every failed-test line  "  Failed <identity> [<duration>]"  — the identity is the whole
 //     text between "Failed " and the trailing " [duration]", so display names with spaces survive
-//   - REFUSES (exit 1, no write) unless every failed identity is EXACTLY EQUAL to a knownFlaky[].test
-//     identity of the baseline (no prefix, suffix or substring match), so the persisted tuple is exactly
-//     what the log says once the gate's bounded flake retry is accounted for:
-//         total = T, notExecuted = S, failed = 0, passed = P + (known-flaky failures) = T - S
+//   - validates the zero-allowance registry and REFUSES (exit 1, no write) every
+//     first-result failure; retired registrations cannot be repinned green:
+//         total = T, notExecuted = S, failed = 0, passed = P = T - S
 //   - refuses on any arithmetic disagreement (P + F + S != T) and when the summary claims failures the
 //     log does not name.
 // Capability behavior: the failed count and exact `filename :: test` permitted-failure names must
@@ -18,6 +17,7 @@
 import {readFileSync, writeFileSync} from 'node:fs'
 import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
+import {validateFlakeRegistry} from './flake-registry.mjs'
 
 export const FAILED_LINE = /^\s*Failed\s+(.+?)\s+\[\d+(?:\.\d+)?\s*(?:ms|s|m|h)\]\s*$/
 
@@ -133,6 +133,11 @@ if (failedNames.length !== failed) {
 }
 if (!('notExecuted' in (cur.totals ?? {}))) {
   console.error('refused: dotnet log requires a host baseline with totals.notExecuted')
+  process.exit(1)
+}
+const registryProblems = validateFlakeRegistry(cur.knownFlaky ?? [], new Date().toISOString().slice(0, 10))
+if (registryProblems.length) {
+  console.error('refused: invalid flake registry:\n  ' + registryProblems.join('\n  '))
   process.exit(1)
 }
 const known = new Set((cur.knownFlaky ?? []).map(r => r.test).filter(Boolean))

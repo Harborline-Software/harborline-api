@@ -16,7 +16,7 @@ import {execFileSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
-import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
+import {planFlakeRetries} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
@@ -429,14 +429,8 @@ try {
     }
   }
 
-  // Bounded retry for the named flaky tests, exactly as host-test-baseline.json's knownFlaky
-  // entries prescribe, and ticket 284 caps at ONE identical retry: a second red is the gate's verdict.
-  //
-  // Why this is not leniency. A test pinned as a permitted failure is masked forever, and a test
-  // left out entirely reddens the gate on its own schedule; the retry is the only option that
-  // discriminates the two cases, because a genuine race clears on one identical retry while a
-  // real regression stays red through it. The entries were written with that reasoning and with
-  // a retryLimit, and the gate simply had not implemented it.
+  // The owner requested zero registered flake allowances. The shared planner
+  // refuses nonempty registries and cannot select a rescue retry under zero policy.
   //
   // Four properties keep it honest:
   //   1. Retries happen ONLY when every unexpected failure is a knownFlaky NAME. One unexpected
@@ -453,21 +447,17 @@ try {
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
-  const registryProblems = validateFlakeRegistry(hostBaseline.knownFlaky ?? [], new Date().toISOString().slice(0, 10))
+  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+  const unexpected = unpermitted(observedFailures, permittedNames)
+  const {registryProblems, flakyLimits, retryable} = planFlakeRetries(
+    hostBaseline.knownFlaky ?? [], new Date().toISOString().slice(0, 10), unexpected)
   steps.push({
     id: 'flake-registry-valid',
     passed: registryProblems.length === 0,
     problems: registryProblems,
     registered: (hostBaseline.knownFlaky ?? []).map(row => ({test: row.test, owner: row.owner, firstSeen: row.firstSeen, expires: row.expires})),
-    note: 'Every knownFlaky row is exact, owned, dated and unexpired, and the registry is within its ratchet (eng/flake-registry.mjs).',
+    note: 'Zero registered flake allowances: the registry must be empty and first-result failures cannot be rescued (eng/flake-registry.mjs).',
   })
-  const flakyLimits = registryProblems.length === 0
-    ? new Map((hostBaseline.knownFlaky ?? []).map(row => [row.test, RETRY_LIMIT]))
-    : new Map()
-
-  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
-  const unexpected = unpermitted(observedFailures, permittedNames)
-  const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
   let retryStage = 0
   for (const name of retryable) {
@@ -526,7 +516,7 @@ try {
     rescued,
     note: retryable.length === 0 && unexpected.length > 0
       ? 'An unexpected failure is NOT on the knownFlaky list, so nothing was retried and the gate fails on identity.'
-      : 'Attempts-to-green is the measurement this step exists to produce; a change in it is signal.',
+      : 'Registered flake retries are disabled; first host-suite failures remain authoritative.',
   })
 
   const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
@@ -551,7 +541,7 @@ try {
     newFailures,
     observedAfterFlakeRetry: adjustedFailed === null ? null : {...hostCounts, failed: adjustedFailed},
     rescuedByRetry: rescued,
-    note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
+    note: hostComparison.note ?? 'Initial counts AND failure identity (newFailures must be empty), with zero flake rescues. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
   // T-724 ruling 119d: the same identity comparison as the host step, not an exact-count match --
   // total is informational, a known test disappearing needs a policyRemovals row, and an unpermitted
