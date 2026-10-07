@@ -54,6 +54,14 @@ test('the registry cannot grow past the ratchet without the count literal moving
   assert.deepEqual(validateFlakeRegistry([row()], TODAY, 3), [])
 })
 
+test('retiring the two expired owner-284 allowances leaves a one-row default ceiling', () => {
+  // The approved retirement removes two of three registrations; this literal
+  // fixture must not derive its expected ceiling from the production constant.
+  assert.deepEqual(validateFlakeRegistry([row()], TODAY), [])
+  const problems = validateFlakeRegistry([row({test: 'First'}), row({test: 'Second'})], TODAY)
+  assert.match(problems.join('\n'), /2 rows but the ratchet allows 1/)
+})
+
 test('a retryLimit other than one is refused (the retry is ONE identical retry)', () => {
   assert.equal(RETRY_LIMIT, 1)
   assert.match(validateFlakeRegistry([row({retryLimit: 3})], TODAY).join('\n'), /retryLimit must be 1/)
