@@ -39,6 +39,7 @@ for (const [file, kind] of [
   ['apps/capability-host/pnpm-workspace.yaml', 'toolchain'],
   ['packages/contracts/pnpm-lock.yaml', 'toolchain'],
   ['packages/contracts/pnpm-workspace.yaml', 'toolchain'],
+  ['packages/contracts/package.json', 'toolchain'],
   ['eng/platform-pin.json', 'toolchain'], ['eng/coverage.runsettings', 'coverage'],
 ]) test(`${kind} changes require independently executed OFF and ON`, () => {
   const plan = classifyFocusedModes([{status: 'M', path: file}])
@@ -109,6 +110,9 @@ for (const change of [
   {status: 'M', path: 'packages/contracts/unknown.yaml'},
   {status: 'M', path: 'apps/capability-host/nested/pnpm-lock.yaml'},
   {status: 'M', path: 'packages/contracts/pnpm-lock.yaml.bak'},
+  {status: 'M', path: 'packages/contracts/package.json.bak'},
+  {status: 'M', path: 'packages/contracts/nested/package.json'},
+  {status: 'M', path: 'apps/unknown/package.json'},
   {status: 'M', path: 'new-format.blob'}, {status: 'T', path: 'README.md'},
   {status: 'M', path: '../docs/guide.md'}, {status: 'M', path: '/docs/guide.md'},
   {status: 'M', path: 'C:\\docs\\guide.md'}, {status: 'R100', path: 'README.md'},
@@ -315,6 +319,7 @@ for (const file of [
 for (const file of [
   'apps/capability-host/pnpm-lock.yaml', 'apps/capability-host/pnpm-workspace.yaml',
   'packages/contracts/pnpm-lock.yaml', 'packages/contracts/pnpm-workspace.yaml',
+  'packages/contracts/package.json',
 ]) test(`owned pnpm input cannot waive either completed mode: ${file}`, () => {
   const plan = classifyFocusedModes([{status: 'M', path: file}])
   assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
