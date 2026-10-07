@@ -58,6 +58,7 @@ class Contract(unittest.TestCase):
         fingerprint=m.fingerprint(self.value,self.value['tasks'][0]);now=dt.datetime.now(dt.timezone.utc)
         for name in e.required_artifacts(fingerprint):
             path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('retained raw evidence')
+        (self.root/'session.json').write_text('{}')
         (self.root/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
         (self.root/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
         (self.root/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':'portable'}}))
@@ -79,6 +80,39 @@ class Contract(unittest.TestCase):
         with self.assertRaises(ValueError):e.equivalent(raw,fingerprint,self.root,digest,now+dt.timedelta(days=4))
         (self.root/'out/gate-evidence/host-tests.trx').write_text('tampered')
         with self.assertRaises(ValueError):e.equivalent(raw,fingerprint,self.root,digest,now)
+    def test_private_reuse_requires_hashed_bound_reclamation_and_assignment(self):
+        fingerprint,receipt,now=self.fixture()
+        binding={'runId':'42','jobId':'99','jobKey':'deep','workflowSha':'d'*40,
+                 'workflowRef':'Harborline-Software/harborline-control/.github/workflows/api-trusted-deep.yml@refs/heads/main',
+                 'taskId':'deep-a','manifestSha256':'2'*64}
+        assignment={'binding':binding,'runnerId':7,'runnerName':'hl-trusted-42-99','verified':True}
+        completion={'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'id':'deep-a','kind':'portable'},'privateAssignment':assignment}
+        reclamation={'phase':'exact-clone-host-tests','binding':binding,'apiHead':'a'*40,'sdk':self.value['sdk'],
+                     'uid':1001,'after':[],'command':['/usr/share/dotnet/dotnet','build-server','shutdown'],
+                     'exitCode':0,'signalsSent':False,'elapsedSeconds':1}
+        records={'session.json':{'privateBinding':binding,'manifestSha256':'2'*64},
+                 'assignment.json':assignment,'out/immutable-completion.json':completion,
+                 'out/private-build-server-reclamation.json':reclamation}
+        def check(changed=None,omit=None):
+            current=copy.deepcopy(records)
+            if changed:changed(current)
+            for name,value in current.items():(self.root/name).write_text(json.dumps(value))
+            proof=copy.deepcopy(receipt)
+            for name in current:proof['artifacts'][name]=m.digest(self.root/name)
+            if omit:del proof['artifacts'][omit]
+            raw=json.dumps(proof).encode()
+            return e.equivalent(raw,fingerprint,self.root,hashlib.sha256(raw).hexdigest(),now)
+        self.assertEqual(check()['status'],'passed')
+        for name in ('assignment.json','out/private-build-server-reclamation.json'):
+            with self.subTest(omitted=name),self.assertRaises(ValueError):check(omit=name)
+        changes=[lambda r:r['out/private-build-server-reclamation.json'].update(after=[{'pid':10}]),
+                 lambda r:r['out/private-build-server-reclamation.json'].update(apiHead='b'*40),
+                 lambda r:r['assignment.json'].update(runnerName='another-runner'),
+                 lambda r:r['out/immutable-completion.json'].update(privateAssignment=None),
+                 lambda r:r['session.json']['privateBinding'].update(workflowSha='c'*40)]
+        for i,change in enumerate(changes):
+            with self.subTest(mismatch=i),self.assertRaises(ValueError):check(change)
+
     def test_release_checks_each_native_receipt_and_incident_state_itself(self):
         validator=patch.object(e,'validate_native_raw');validator.start();self.addCleanup(validator.stop)
         fingerprint,receipt,now=self.fixture();expected={};raw={};digests={};roots={}
@@ -89,6 +123,7 @@ class Contract(unittest.TestCase):
             for name in e.required_artifacts(expected[platform]):
                 path=directory/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('retained raw proof')
             if platform=='linux':
+                (directory/'session.json').write_text('{}')
                 (directory/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
                 (directory/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
                 (directory/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':profile}}))
