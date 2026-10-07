@@ -33,8 +33,12 @@ def choose(env, event, api=c.api, queue=queue_entry):
     if kind in ('schedule', 'workflow_dispatch'):
         return hosted('scheduled-or-manual-hosted-route')
     c.require(event['repository']['id'] == 1360432948 and event['repository']['fork'] is False, 'Wrong event repository')
-    if env['GITHUB_ACTOR_ID'] != '1328090' or env['GITHUB_ACTOR'] != 'ctwoodwa' or env['GITHUB_TRIGGERING_ACTOR'] != 'ctwoodwa':
+    if env['GITHUB_ACTOR_ID'] != '1328090' or env['GITHUB_ACTOR'] != 'ctwoodwa':
         return hosted('actor-outside-qualified-mini-scope')
+    # Original actor is stable across reruns; a different rerun initiator must
+    # never turn an originally mini-eligible event into hosted fallback.
+    c.require(env['GITHUB_RUN_ATTEMPT'] == '1', 'Owner candidate events require a newly reviewed first attempt')
+    c.require(env['GITHUB_TRIGGERING_ACTOR'] == 'ctwoodwa', 'Candidate triggering actor changed')
     c.require(event['sender']['id'] == 1328090 and event['sender']['login'] == 'ctwoodwa', 'Event sender mismatch')
     if kind == 'pull_request':
         pr = event['pull_request']
@@ -54,8 +58,7 @@ def choose(env, event, api=c.api, queue=queue_entry):
         c.require(event['action'] == 'checks_requested' and group['head_sha'] == env['GITHUB_SHA']
                   and group['head_ref'] == env['GITHUB_REF'] and group['base_ref'] == 'refs/heads/main', 'Group event binding mismatch')
         match = re.fullmatch(r'refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]*)-([0-9a-f]{40})', group['head_ref'])
-        if not match:
-            return hosted('group-ref-shape-outside-qualified-mini-scope')
+        c.require(match is not None, 'Unrecognized merge-group ref; queue identity is unverified')
         number, head, base = int(match[1]), group['head_sha'], group['base_sha']
         c.require(match[2] == base, 'Group ref/base mismatch')
         entry = queue(number)
@@ -75,7 +78,6 @@ def choose(env, event, api=c.api, queue=queue_entry):
             return hosted('group-pr-outside-qualified-mini-scope')
         pr_merge = api('git/ref/pull/'+str(number)+'/merge')['object']['sha']
         branch = group['head_ref'].removeprefix('refs/heads/')
-    c.require(env['GITHUB_RUN_ATTEMPT'] == '1', 'Mini candidates require a newly reviewed first attempt')
     c.require(pr['state'] == 'open' and pr['draft'] is False and pr['base']['sha'] == base, 'Candidate no longer ready')
     candidate = {'required': True, 'event': kind, 'prNumber': number, 'prHead': pr['head']['sha'],
                  'prMerge': pr_merge, 'head': head, 'base': base, 'headBranch': branch,

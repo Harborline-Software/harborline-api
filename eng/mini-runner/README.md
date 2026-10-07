@@ -8,6 +8,9 @@ shape, or its exact first-position single-PR squash merge group. Known batches,
 other authors/branches, manual and scheduled events retain the existing hosted
 Linux route. Unavailable, partial, stale or contradictory metadata is red.
 Eligible mini attempts cannot switch to hosted after failure or lack of capacity.
+Owner-triggered PR/queue events require a fresh first attempt even if a different
+maintainer requests a rerun. Unrecognized queue refs fail closed; known batches
+are routed only after live queue membership and commit identity are established.
 The selector's read-only GitHub token needs contents and pull-request access;
 actual queue-field access must be qualified before protected landing.
 The workflow pins SHA-256 values for the selector and its two Python modules,

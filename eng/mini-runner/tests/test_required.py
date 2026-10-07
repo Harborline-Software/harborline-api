@@ -138,6 +138,25 @@ class RequiredSelection(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             route.choose(env, payload, api=lambda _: {'object': {'sha': GROUP}})
 
+    def test_owner_rerun_never_switches_to_hosted_for_a_different_initiator(self):
+        for event in ('pull_request', 'merge_group'):
+            _, _, env, payload, _, _ = required_fixture(event)
+            for actor in ('ctwoodwa', 'another-maintainer'):
+                with self.subTest(event=event, actor=actor):
+                    with self.assertRaisesRegex(RuntimeError, 'first attempt'):
+                        route.choose({**env, 'GITHUB_RUN_ATTEMPT': '2', 'GITHUB_TRIGGERING_ACTOR': actor}, payload)
+            with self.assertRaisesRegex(RuntimeError, 'triggering actor changed'):
+                route.choose({**env, 'GITHUB_TRIGGERING_ACTOR': 'another-maintainer'}, payload)
+
+    def test_unrecognized_group_refs_are_red_without_a_hosted_fallback(self):
+        _, _, env, payload, _, _ = required_fixture('merge_group')
+        for ref in ('', 'refs/heads/main', 'refs/heads/gh-readonly-queue/main/not-a-candidate'):
+            altered = copy.deepcopy(payload)
+            altered['merge_group']['head_ref'] = ref
+            with self.subTest(ref=ref):
+                with self.assertRaisesRegex(RuntimeError, 'Unrecognized merge-group ref'):
+                    route.choose({**env, 'GITHUB_REF': ref}, altered)
+
     def test_single_group_selects_mini_batches_remain_hosted_unknown_is_red(self):
         candidate, _, env, payload, _, _ = required_fixture('merge_group')
         _, records, entry = candidate_tests.CandidateHost().state_fixture('merge_group')

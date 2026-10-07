@@ -45,7 +45,7 @@ jobs:
           python3 -I - <<'PY'
           import hashlib, pathlib, subprocess, sys, tempfile
           approved = {
-              'required-route.py': 'fe4d2047aa6b27a9d95b5680daa7cae3c79bd34fec6ca26db5e7559bedd6e6b3',
+              'required-route.py': '4e8c84a2a390e9ff16dd8e2e97e0e91dbb18c9c061bc95ddaf416561867fc071',
               'controller.py': '80ee1cf21a295ad0854f3ef901780fe66b90e440328620739beee2d17b52920f',
               'admission.py': 'b78af47bb5a2bfce1a3421d9a4e6f695cf0ec67e883df69863adcf7a88f6a705',
           }
