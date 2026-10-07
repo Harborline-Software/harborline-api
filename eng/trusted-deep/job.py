@@ -29,6 +29,8 @@ def admit(kind):
     m.require(policy['head']==value['sources']['api'] and policy['tree']==value['tree'] and policy['sdk']==value['sdk'],'Source/tree/SDK changed')
     m.require(value['base']==policy['head'],'Snapshot base differs from restored origin/main')
     m.require(policy['inputDigests']==value['inputDigests'],'Verification input profile changed')
+    m.require(os.environ.get('XDG_DATA_HOME')==policy['environment']['xdgData'] and
+              os.environ.get('XDG_CONFIG_HOME')==policy['environment']['xdgConfig'],'Writable private runtime profile differs')
     m.require(c.digest('/opt/mini/sources.json')==policy['sourcesSha256'],'Source bundle manifest changed')
     return value,task
 

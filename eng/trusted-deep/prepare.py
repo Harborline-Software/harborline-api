@@ -34,7 +34,8 @@ def prepare(args):
     tree = git(paths['api'],'rev-parse','HEAD^{tree}')
     tracked = git(paths['api'],'ls-files').splitlines()
     environment = {'memoryBytes':10*2**30,'swapBytes':0,'cpus':5,'pids':1024,'user':'1001:1001',
-                   'readOnly':True,'hostBinds':False,'dockerSocket':False,'privateNetwork':True,'toolchain':TOOLCHAIN}
+                   'readOnly':True,'hostBinds':False,'dockerSocket':False,'privateNetwork':True,'toolchain':TOOLCHAIN,
+                   'xdgData':'/runner/gate/cache/xdg-data','xdgConfig':'/runner/gate/cache/xdg-config'}
     selection = {'portable':'existing all17','portable-coverage':'existing all17+coverage',
                  'mutation-benchmark':'full tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj','native-full':'full existing host and capability suites'}
     categories = {
