@@ -33,7 +33,12 @@ An all-lane mini receipt is additional portable proof; it does not replace
 package distribution artifacts or authoritative quality publication.
 
 A required descriptor adds `"required": true`, binds the verify workflow at
-its tested SHA/ref, and resolves the exact `verify-mini` job ID. The controller
+its tested SHA/ref, and resolves the exact `verify-mini` job ID. The workflow and
+registered runner both require `harborline-run-<run ID>`, preventing GitHub from
+assigning that ephemeral runner to another queued candidate. A distinct
+`harborline-api-mini-required-v3-run-bound` label excludes legacy jobs that lack
+the per-run label, since GitHub otherwise matches a subset of runner labels. The immutable hook
+still independently checks exact runtime identity before executing source. The controller
 allows the reviewed hosted jobs to progress independently and monitors the mini
 job alone, avoiding a cycle with its dependent `verify` aggregate. Unexpected
 mini-targeted jobs, changed job IDs/assignment, attempts or reviewed workflow

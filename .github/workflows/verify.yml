@@ -46,7 +46,7 @@ jobs:
           import hashlib, pathlib, subprocess, sys, tempfile
           approved = {
               'required-route.py': '6a225dfd9fe1b75b3f311cf20600f81faa595f293db21316e5b80598615cce84',
-              'controller.py': 'b09333e8e60914e0aa63ce60370e8487f3af42d202c83abe2f6caa06874debfe',
+              'controller.py': '6e1a95c9674254e50c08fbfd3aa0d335a24022323ce9d86b1db782a4910f7ad0',
               'admission.py': '1b492a8d46423ef71dfe292cbf2d3d22953a5bf0e62b8c63293e614c01b4d551',
           }
           with tempfile.TemporaryDirectory(prefix='mini-selector-') as temporary:
@@ -64,7 +64,7 @@ jobs:
     needs: [verify-route]
     if: vars.ACTIONS_ENABLED == 'true' && needs.verify-route.outputs.route == 'mini'
     permissions: {}
-    runs-on: [self-hosted, harborline-api-mini-required-v3, linux-arm64-orbstack, lane-a]
+    runs-on: [self-hosted, harborline-api-mini-required-v3-run-bound, linux-arm64-orbstack, lane-a, 'harborline-run-${{ github.run_id }}']
     timeout-minutes: 50
     env:
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '0' }}

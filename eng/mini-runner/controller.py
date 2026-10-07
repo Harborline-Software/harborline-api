@@ -24,7 +24,7 @@ RUNNER_SHA = '628b4a7258487b80c1d3c221095a7ded349f5ae0175fd3dfab708d07428f041b'
 VALIDATORS = ROOT/'validators' if (ROOT/'validators').is_dir() else ROOT.parent
 
 
-def selected_candidate_job(jobs, candidate):
+def selected_candidate_job(jobs, candidate, run_id=None):
     if candidate.get('required') is not True:
         require(len(jobs) == 1 and jobs[0]['name'] == 'portable', 'Unexpected candidate job set')
         selected = jobs[0]
@@ -43,8 +43,12 @@ def selected_candidate_job(jobs, candidate):
             if job is not selected:
                 require(not any(label.startswith('harborline-api-mini-') for label in job['labels']), 'Another job targets mini')
         require(type(selected.get('id')) is int and selected['id'] > 0, 'Invalid mini job ID')
-        label = 'harborline-api-mini-required-v3'
-    require(set(selected['labels']) == {'self-hosted', label, 'linux-arm64-orbstack', 'lane-a'}, 'Unexpected candidate labels')
+        label = 'harborline-api-mini-required-v3-run-bound'
+    expected_labels = {'self-hosted', label, 'linux-arm64-orbstack', 'lane-a'}
+    if candidate.get('required') is True:
+        require(isinstance(run_id, str) and re.fullmatch('[1-9][0-9]*', run_id), 'Missing required run label identity')
+        expected_labels.add('harborline-run-'+run_id)
+    require(set(selected['labels']) == expected_labels, 'Unexpected candidate labels')
     return selected
 
 
@@ -188,7 +192,7 @@ def validate_candidate_run(run, jobs, candidate, workflow, reviewed, *, queued=T
     require(run['path'] == (REQUIRED_WORKFLOW if required else CANDIDATE_WORKFLOW) and workflow == reviewed, 'Workflow bytes require review')
     for actor in ('actor', 'triggering_actor'):
         require(run[actor]['id'] == 1328090 and run[actor]['login'] == 'ctwoodwa', 'Actor not admitted')
-    selected = selected_candidate_job(jobs, candidate)
+    selected = selected_candidate_job(jobs, candidate, str(run['id']))
     if queued:
         require(run['status'] in ('queued', 'waiting', 'pending', 'in_progress') and run['conclusion'] is None, 'Run is not pending')
         require(selected['status'] == 'queued' and not selected.get('runner_id'), 'Job already assigned')
@@ -532,9 +536,10 @@ def execute(args):
             docker('exec', name, 'timeout', '30', 'bash', '-c', 'until test -f /runner/READY; do sleep 1; done')
             require(docker('exec', name, '/runner/bin/Runner.Listener', '--version').strip() == '2.338.0', 'Runner version changed')
             token = api('actions/runners/registration-token', 'POST')['token']
-            runner_label = ('harborline-api-mini-required-v3' if policy['version'] == 3 else
+            runner_label = ('harborline-api-mini-required-v3-run-bound' if policy['version'] == 3 else
                             'harborline-api-mini-candidate-v2' if candidate else 'harborline-api-mini-portable-v1')
-            script = 'IFS= read -r token; ./config.sh --unattended --ephemeral --disableupdate --url https://github.com/'+REPO+' --token "$token" --name '+name+' --no-default-labels --labels self-hosted,'+runner_label+',linux-arm64-orbstack,lane-'+row['lane']+' --work _work >/runner/configure.log 2>&1; result=$?; unset token; exit "$result"'
+            run_label = ',harborline-run-'+policy['runId'] if policy['version'] == 3 else ''
+            script = 'IFS= read -r token; ./config.sh --unattended --ephemeral --disableupdate --url https://github.com/'+REPO+' --token "$token" --name '+name+' --no-default-labels --labels self-hosted,'+runner_label+',linux-arm64-orbstack,lane-'+row['lane']+run_label+' --work _work >/runner/configure.log 2>&1; result=$?; unset token; exit "$result"'
             try:
                 docker('exec', '-i', '--workdir', '/runner', name, 'bash', '-c', script, input=token+'\n')
             finally:
@@ -551,7 +556,7 @@ def execute(args):
             if policy['version'] == 3:
                 jobs = api('actions/runs/'+policy['runId']+'/attempts/1/jobs?per_page=100')
                 require(jobs['total_count'] == len(jobs['jobs']), 'Incomplete job inventory')
-                job = selected_candidate_job(jobs['jobs'], candidate)
+                job = selected_candidate_job(jobs['jobs'], candidate, policy['runId'])
                 require(str(job['id']) == policy['jobId'], 'Selected job changed')
                 if job.get('runner_id'):
                     require(job['runner_name'] == resources(session)[0]['name'], 'Job assigned elsewhere')

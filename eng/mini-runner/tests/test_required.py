@@ -34,7 +34,7 @@ def required_fixture(event='pull_request'):
     jobs = [
         {'id': 72, 'name': 'verify-route', 'status': 'completed', 'conclusion': 'success', 'labels': ['ubuntu-latest']},
         {'id': 73, 'name': 'verify-mini', 'status': 'queued', 'runner_id': 0,
-         'labels': ['self-hosted', 'harborline-api-mini-required-v3', 'linux-arm64-orbstack', 'lane-a']},
+         'labels': ['self-hosted', 'harborline-api-mini-required-v3-run-bound', 'linux-arm64-orbstack', 'lane-a', 'harborline-run-42']},
         {'id': 74, 'name': 'verify-windows-hosted', 'status': 'in_progress', 'labels': ['windows-2025']},
     ]
     return candidate, policy, env, payload, run, jobs
@@ -50,9 +50,21 @@ class RequiredAdmission(unittest.TestCase):
                 self.assertFalse(admission.admitted({**policy, field: value}, env, payload))
             self.assertFalse(admission.admitted(policy, {**env, 'GITHUB_JOB': 'verify-linux'}, payload))
             for altered in (jobs+jobs[1:2], jobs[:1]+jobs[2:], jobs+[{'name': 'unreviewed', 'labels': ['ubuntu-latest']}],
-                            jobs[:2]+[{**jobs[2], 'labels': ['harborline-api-mini-required-v3']}]):
+                            jobs[:2]+[{**jobs[2], 'labels': ['harborline-api-mini-required-v3-run-bound']}]):
                 with self.assertRaises(RuntimeError):
                     c.validate_candidate_run(run, altered, candidate, b'reviewed', b'reviewed')
+
+    def test_required_runner_labels_bind_one_github_run_among_queued_jobs(self):
+        candidate, policy, env, payload, run, jobs = required_fixture()
+        self.assertEqual(c.selected_candidate_job(jobs, candidate, '42')['id'], 73)
+        for identity in (None, '', '43'):
+            with self.assertRaises(RuntimeError):
+                c.selected_candidate_job(jobs, candidate, identity)
+        for labels in (['self-hosted', 'harborline-api-mini-required-v3-run-bound', 'linux-arm64-orbstack', 'lane-a'],
+                       ['self-hosted', 'harborline-api-mini-required-v3-run-bound', 'linux-arm64-orbstack', 'lane-a', 'harborline-run-43']):
+            altered = copy.deepcopy(jobs); altered[1]['labels'] = labels
+            with self.assertRaises(RuntimeError):
+                c.validate_candidate_run(run, altered, candidate, b'reviewed', b'reviewed')
 
     def test_controller_finishes_mini_while_verify_workflow_is_still_running(self):
         self.controller_completion(True)
@@ -84,6 +96,8 @@ class RequiredAdmission(unittest.TestCase):
                     return json.dumps({'policySha256': c.digest(root/'policy.json'), 'runId': policy['runId'],
                                        'jobId': policy['jobId'], 'head': policy['head'],
                                        'host': 'fixture/linux/arm64', 'dependencies': 'sha256:'+'b'*64})
+                if args[:2] == ('exec', '-i'):
+                    self.assertIn('--labels self-hosted,harborline-api-mini-required-v3-run-bound,linux-arm64-orbstack,lane-a,harborline-run-42 --work', args[-1])
                 return '2.338.0' if args[-1] == '--version' else ''
             with patch.object(c, 'pending', return_value=policy), patch.object(c, 'preflight_image', return_value={}), \
                     patch.object(c, 'api', side_effect=api), patch.object(c, 'docker', side_effect=docker), \
