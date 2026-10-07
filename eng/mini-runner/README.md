@@ -92,6 +92,27 @@ This required-route change remains unqualified until its real PR and merge-group
 runs, selector token access, artifact validation and protected landing pass.
 Neither v2 qualification nor local unit tests establish that result.
 
+## Merge-group test failure retained
+
+The first group reaching the v3 mini (run `37614391657`, synthetic commit
+`8068072a3490cc35305bf8da66c736f93c201b18`) failed an unlisted concurrent-booking
+case: the losing request returned HTTP 500 instead of 409. Its raw host TRX,
+container logs and resource evidence remain retained; there was no OOM or swap,
+and scoped cleanup was clean. This failure is not added to the accepted baseline.
+
+A deterministic diagnostic found that the singleton test authorization helper
+could overwrite another decision's named-role atoms between closure and definition
+reads, causing the real gate to throw before booking. The helper now retains an
+immutable snapshot in each decision's execution context. Regression cases pause
+one allowed decision while another allowed or denied decision completes. The real
+authorization gate, booking concurrency, database fence and HTTP assertions are
+unchanged. The original CI run omitted its server exception, so this establishes
+a matching defect without claiming definitive attribution of that run. Both new
+regression cases fail with the original helper and pass with the fix. All 91
+affected booking, route-scope and regression cases passed with coverage enabled;
+independent review found no remaining source issue. Fresh PR and protected group
+checks remain required after the fix.
+
 ## Temporary native Windows/macOS suspension and rollback
 
 The owner explicitly authorized suspending automatic Windows and macOS during
