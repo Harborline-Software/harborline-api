@@ -27,6 +27,9 @@ cd "$root/api"
 # Existing preflight enforces global.json and all private pins. Do not override
 # SDK selection or replace the gate with its exit-code-only local pilot.
 node eng/build-local-feed.mjs > "$root/out/feed.log" 2>&1
+# A main-only run can skip focused builds. Restore the solution explicitly so
+# the dependency ledger can inspect package licences in this fresh private cache.
+dotnet restore Harborline.Api.slnx > "$root/out/solution-restore.log" 2>&1
 # The dependency ledger checks centrally pinned packages even when no project
 # currently consumes them. Restore that metadata in the private cache, using the
 # source tree's target framework and exact central pin (no source edits).
