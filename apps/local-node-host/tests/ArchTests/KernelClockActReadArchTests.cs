@@ -152,8 +152,18 @@ public sealed class KernelClockActReadArchTests
 
     internal sealed record RouteHandler(MethodBase Handler, string MappedAt);
 
-    [Fact(DisplayName = "T-690: clock reads in repeating exception regions count twice; a single handler read counts once")]
-    public void ExceptionRegionsPreserveRepeatedAndSingleReads()
+    [Theory(DisplayName = "T-690: clock reads in repeating exception regions count twice; a single handler read counts once")]
+    [InlineData(nameof(PlantedExceptionRoutes.RepeatingCatch), 2)]
+    [InlineData(nameof(PlantedExceptionRoutes.RepeatingFilter), 2)]
+    [InlineData(nameof(PlantedExceptionRoutes.RepeatingFinally), 2)]
+    [InlineData(nameof(PlantedExceptionRoutes.SingleCatch), 1)]
+    [InlineData(nameof(PlantedExceptionRoutes.SingleFilter), 1)]
+    [InlineData(nameof(PlantedExceptionRoutes.SingleFinally), 1)]
+    [InlineData(nameof(PlantedExceptionRoutes.RepeatingNestedFinally), 2)]
+    [InlineData(nameof(PlantedExceptionRoutes.SingleNestedFinally), 1)]
+    [InlineData(nameof(PlantedExceptionRoutes.CatchBreaksTheLoop), 1)]
+    [InlineData(nameof(PlantedExceptionRoutes.CatchReturnsFromTheLoop), 1)]
+    public void ExceptionRegionsPreserveRepeatedAndSingleReads(string handlerName, int expected)
     {
         var assemblies = new[] { typeof(PlantedExceptionRoutes).Assembly };
         var handlers = DiscoverHandlers(assemblies, out var unpaired,
@@ -164,16 +174,7 @@ public sealed class KernelClockActReadArchTests
             handler => ActReads(handler.Handler, assemblies, graph).Count);
 
         Assert.Equal(10, reads.Count);
-        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingCatch)]);
-        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFilter)]);
-        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFinally)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleCatch)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFilter)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFinally)]);
-        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingNestedFinally)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleNestedFinally)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchBreaksTheLoop)]);
-        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchReturnsFromTheLoop)]);
+        Assert.Equal(expected, reads[handlerName]);
     }
 
     /// <summary>
