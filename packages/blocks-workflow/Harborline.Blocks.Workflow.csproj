@@ -41,6 +41,8 @@
     <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
     <ProjectReference Include="..\foundation-scheduling\Harborline.Foundation.Scheduling.csproj" />
     <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
+    <!-- ck-10 S3b: definition-lifecycle writes run as KernelWrites through WritePipeline.RunAsync. -->
+    <ProjectReference Include="..\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
   </ItemGroup>
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>
