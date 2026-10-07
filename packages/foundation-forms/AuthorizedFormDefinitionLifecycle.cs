@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Kernel.Runtime;
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -264,7 +265,8 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         TimeProvider persistenceTime,
         AuthorizationGate gate,
         IRoleGateAdmission roleGateAdmission,
-        IFormDefinitionLegalHoldValidator? legalHold = null)
+        IFormDefinitionLegalHoldValidator? legalHold = null,
+        IWritePipelineObserver? pipelineObserver = null)
     {
         this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
         this.gate = gate ?? throw new ArgumentNullException(nameof(gate));
@@ -272,7 +274,8 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         this.legalHold = legalHold;
         writer = CreateWriter(new EntityWriterBackend(
             persistenceStore ?? throw new ArgumentNullException(nameof(persistenceStore)),
-            persistenceTime ?? throw new ArgumentNullException(nameof(persistenceTime))));
+            persistenceTime ?? throw new ArgumentNullException(nameof(persistenceTime)),
+            pipelineObserver));
     }
 
     internal AuthorizedFormDefinitionLifecycle(
@@ -335,55 +338,46 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
             throw new ArgumentException("The form definition tenant does not match the write authority.", nameof(definition));
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await DecideAsync(definition.Id.Value, authority, ct).ConfigureAwait(false);
+        var decided = await DecideAsync(definition.Id.Value, authority, ct).ConfigureAwait(false);
         var candidate = StampLayer(definition, provenance.Layer) with
         {
             CreatedAt = authority.At,
             UpdatedAt = authority.At,
         };
-        await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(candidate, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
-            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
-        return stored;
+        return await RegisterCoreAsync(candidate, Admission(decided), Target(definition),
+            provenance.Owner, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
     }
 
-    public async ValueTask<FormDefinition> RegisterAsync(
+    public ValueTask<FormDefinition> RegisterAsync(
         FormDefinition definition, WriteAuthority authority, CancellationToken ct = default)
     {
-        RequireWriteAuthority(definition.Tenant, definition.Id.Value, authority);
         var provenance = DefinitionAuthorityClassifier.Classify(
-            authority.AuthorityKind, definition.Tenant, definition.Envelope.CascadeLayer);
+            Kind(authority), definition.Tenant, definition.Envelope.CascadeLayer);
         var candidate = StampLayer(definition, provenance.Layer) with
         {
             CreatedAt = authority.Decision.Request.At,
             UpdatedAt = authority.Decision.Request.At,
         };
-        await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(candidate, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
-            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
-        return stored;
+        return RegisterCoreAsync(candidate, Admission(authority), Target(definition),
+            provenance.Owner, authority.AuthorityKind, null, ct);
     }
 
     /// <summary>Registers a definition using authority minted for its exact source pack/version.</summary>
-    public async ValueTask<FormDefinition> RegisterAsync(
+    public ValueTask<FormDefinition> RegisterAsync(
         FormDefinition definition,
         PackProjectionAuthority authority,
         CancellationToken ct = default)
     {
-        RequirePackAuthority(definition, authority);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(authority);
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.VendorPackage,
             authority.Tenant,
             definition.Envelope.CascadeLayer,
             authority.PackId);
         var candidate = StampPackSource(StampLayer(definition, provenance.Layer), authority);
-        await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(candidate, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
-            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
-        return stored;
+        return RegisterCoreAsync(candidate, authority.ToWriteAdmission(), PackTarget(definition),
+            provenance.Owner, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct);
     }
 
     /// <summary>Registers an exact pack projection directly as published.</summary>
@@ -396,46 +390,40 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
             throw new ArgumentException("The form definition tenant does not match the write authority.", nameof(definition));
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await DecideAsync(definition.Id.Value, authority, ct).ConfigureAwait(false);
+        var decided = await DecideAsync(definition.Id.Value, authority, ct).ConfigureAwait(false);
         var published = StampLayer(definition, provenance.Layer) with
         {
             Status = FormDefinitionStatus.Published,
             CreatedAt = authority.At,
             UpdatedAt = authority.At,
         };
-        await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(published, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
-            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
-        return stored;
+        return await RegisterCoreAsync(published, Admission(decided), Target(definition),
+            provenance.Owner, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
     }
 
-    public async ValueTask<FormDefinition> RegisterAndPublishAsync(
+    public ValueTask<FormDefinition> RegisterAndPublishAsync(
         FormDefinition definition, WriteAuthority authority, CancellationToken ct = default)
     {
-        RequireWriteAuthority(definition.Tenant, definition.Id.Value, authority);
         var provenance = DefinitionAuthorityClassifier.Classify(
-            authority.AuthorityKind, definition.Tenant, definition.Envelope.CascadeLayer);
+            Kind(authority), definition.Tenant, definition.Envelope.CascadeLayer);
         var published = StampLayer(definition, provenance.Layer) with
         {
             Status = FormDefinitionStatus.Published,
             CreatedAt = authority.Decision.Request.At,
             UpdatedAt = authority.Decision.Request.At,
         };
-        await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(published, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
-            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
-        return stored;
+        return RegisterCoreAsync(published, Admission(authority), Target(definition),
+            provenance.Owner, authority.AuthorityKind, null, ct);
     }
 
     /// <summary>Registers an exact pack projection directly as published.</summary>
-    public async ValueTask<FormDefinition> RegisterAndPublishAsync(
+    public ValueTask<FormDefinition> RegisterAndPublishAsync(
         FormDefinition definition,
         PackProjectionAuthority authority,
         CancellationToken ct = default)
     {
-        RequirePackAuthority(definition, authority);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(authority);
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.VendorPackage,
             authority.Tenant,
@@ -448,11 +436,8 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
             UpdatedAt = authority.ActivationInstant,
             PackSource = Source(authority),
         };
-        await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(published, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
-            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
-        return stored;
+        return RegisterCoreAsync(published, authority.ToWriteAdmission(), PackTarget(definition),
+            provenance.Owner, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct);
     }
 
     public async ValueTask<FormDefinition> PublishAsync(
@@ -461,49 +446,46 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         CancellationToken ct = default)
     {
         RequireTenant(coordinates, authority);
-        await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(definition, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.PublishAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
+        var decided = await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
+        return await TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Publish, null,
+            Admission(decided), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.Tenant, authority.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await ValidateSupersessionAsync(persisted, DefinitionAuthorityKind.Tenant, null, token).ConfigureAwait(false);
+            }, ct).ConfigureAwait(false);
     }
 
-    public async ValueTask<FormDefinition> PublishAsync(
-        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default)
-    {
-        RequireWriteAuthority(coordinates.Address.Tenant, coordinates.Address.Identity.Value, authority);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(definition, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.PublishAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
-    }
+    public ValueTask<FormDefinition> PublishAsync(
+        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default) =>
+        TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Publish, null,
+            Admission(authority), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    authority.AuthorityKind, coordinates.Address.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await ValidateSupersessionAsync(persisted, authority.AuthorityKind, null, token).ConfigureAwait(false);
+            }, ct);
 
     /// <summary>Publishes the exact revision declared by the carried pack authority.</summary>
-    public async ValueTask<FormDefinition> PublishAsync(
+    public ValueTask<FormDefinition> PublishAsync(
         FormDefinition definition,
         PackProjectionAuthority authority,
         CancellationToken ct = default)
     {
-        RequirePackAuthority(definition, authority);
-        var coordinates = Coordinates(definition);
-        var persisted = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        RequirePersistedPackSource(persisted, authority);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.VendorPackage, authority.Tenant,
-            persisted.Envelope.CascadeLayer, authority.PackId);
-        await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
-        await ValidateSupersessionAsync(persisted, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.PublishPackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
-        return stored;
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(authority);
+        return TransitionCoreAsync(Coordinates(definition), DefinitionLifecycleTransition.Publish, authority.ActivationInstant,
+            authority.ToWriteAdmission(), PackTarget(definition), async (persisted, token) =>
+            {
+                RequirePersistedPackSource(persisted, authority);
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.VendorPackage, authority.Tenant,
+                    persisted.Envelope.CascadeLayer, authority.PackId);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await ValidateSupersessionAsync(persisted, DefinitionAuthorityKind.VendorPackage, authority.PackId, token).ConfigureAwait(false);
+            }, ct);
     }
 
     public async ValueTask<FormDefinition> DeprecateAsync(
@@ -512,15 +494,15 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         CancellationToken ct = default)
     {
         RequireTenant(coordinates, authority);
-        await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Supersession, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.DeprecateAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
+        var decided = await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
+        return await TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Deprecate, null,
+            Admission(decided), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.Tenant, authority.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Supersession, token).ConfigureAwait(false);
+            }, ct).ConfigureAwait(false);
     }
 
     public async ValueTask<FormDefinition> WithdrawAsync(
@@ -529,49 +511,49 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         CancellationToken ct = default)
     {
         RequireTenant(coordinates, authority);
-        await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.WithdrawAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
+        var decided = await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
+        return await TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Withdraw, null,
+            Admission(decided), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.Tenant, authority.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Withdrawal, token).ConfigureAwait(false);
+            }, ct).ConfigureAwait(false);
     }
 
-    public async ValueTask<FormDefinition> WithdrawAsync(
-        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default)
-    {
-        RequireWriteAuthority(coordinates.Address.Tenant, coordinates.Address.Identity.Value, authority);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.WithdrawAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
-    }
+    public ValueTask<FormDefinition> WithdrawAsync(
+        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default) =>
+        TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Withdraw, null,
+            Admission(authority), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    authority.AuthorityKind, coordinates.Address.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Withdrawal, token).ConfigureAwait(false);
+            }, ct);
 
     /// <summary>Withdraws the exact revision declared by the carried pack authority.</summary>
-    public async ValueTask<FormDefinition> WithdrawAsync(
+    public ValueTask<FormDefinition> WithdrawAsync(
         FormDefinition definition,
         PackProjectionAuthority authority,
         CancellationToken ct = default)
     {
-        RequirePackAuthority(definition, authority, withdrawingPersistedRevision: true);
-        var coordinates = Coordinates(definition);
-        var persisted = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        RequirePersistedPackSource(persisted, authority);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.VendorPackage, authority.Tenant,
-            persisted.Envelope.CascadeLayer, authority.PackId);
-        await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
-        await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.WithdrawPackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
-        return stored;
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(authority);
+        // Withdrawal reads a persisted revision whose source version and timestamps may predate this
+        // activation, so the target compares the pack id only; the write carries the activation instant.
+        var target = Target(definition) with { DeclaredPackSource = definition.PackSource, ExactPackVersion = false };
+        return TransitionCoreAsync(Coordinates(definition), DefinitionLifecycleTransition.Withdraw, authority.ActivationInstant,
+            authority.ToWriteAdmission(), target, async (persisted, token) =>
+            {
+                RequirePersistedPackSource(persisted, authority);
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.VendorPackage, authority.Tenant,
+                    persisted.Envelope.CascadeLayer, authority.PackId);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+                await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Withdrawal, token).ConfigureAwait(false);
+            }, ct);
     }
 
     public async ValueTask<FormDefinition> RestorePackProjectionAsync(
@@ -580,47 +562,104 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         CancellationToken ct = default)
     {
         RequireTenant(coordinates, authority);
-        await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.RestorePackProjectionAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
+        var decided = await DecideAsync(coordinates.Address.Identity.Value, authority, ct).ConfigureAwait(false);
+        return await TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Restore, null,
+            Admission(decided), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.Tenant, authority.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+            }, ct).ConfigureAwait(false);
     }
 
-    public async ValueTask<FormDefinition> RestorePackProjectionAsync(
-        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default)
-    {
-        RequireWriteAuthority(coordinates.Address.Tenant, coordinates.Address.Identity.Value, authority);
-        var definition = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
-        await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.RestorePackProjectionAsync(coordinates, ct)).ConfigureAwait(false);
-        return stored;
-    }
+    public ValueTask<FormDefinition> RestorePackProjectionAsync(
+        DefinitionCoordinates coordinates, WriteAuthority authority, CancellationToken ct = default) =>
+        TransitionCoreAsync(coordinates, DefinitionLifecycleTransition.Restore, null,
+            Admission(authority), Target(coordinates), async (persisted, token) =>
+            {
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    authority.AuthorityKind, coordinates.Address.Tenant, persisted.Envelope.CascadeLayer);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+            }, ct);
 
     /// <summary>Restores the exact revision declared by the carried pack authority.</summary>
-    public async ValueTask<FormDefinition> RestorePackProjectionAsync(
+    public ValueTask<FormDefinition> RestorePackProjectionAsync(
         FormDefinition definition,
         PackProjectionAuthority authority,
         CancellationToken ct = default)
     {
-        RequirePackAuthority(definition, authority);
-        var coordinates = Coordinates(definition);
-        var persisted = await inner.GetAsync(coordinates, ct).ConfigureAwait(false);
-        RequirePersistedPackSource(persisted, authority);
-        var provenance = DefinitionAuthorityClassifier.Classify(
-            DefinitionAuthorityKind.VendorPackage, authority.Tenant,
-            persisted.Envelope.CascadeLayer, authority.PackId);
-        await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await CatalogueSources.PersistAsync(coordinates,
-            () => writer.RestorePackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
-        return stored;
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(authority);
+        return TransitionCoreAsync(Coordinates(definition), DefinitionLifecycleTransition.Restore, authority.ActivationInstant,
+            authority.ToWriteAdmission(), PackTarget(definition), async (persisted, token) =>
+            {
+                RequirePersistedPackSource(persisted, authority);
+                var provenance = DefinitionAuthorityClassifier.Classify(
+                    DefinitionAuthorityKind.VendorPackage, authority.Tenant,
+                    persisted.Envelope.CascadeLayer, authority.PackId);
+                await AdmitAsync(persisted, provenance.Owner, token).ConfigureAwait(false);
+            }, ct);
     }
+
+    /// <summary>
+    /// One register act. The writer runs it through <c>WritePipeline.RunAsync</c>: authorize checks the carried
+    /// admission against this definition, bind reads the store, mutate freezes, validate runs this façade's
+    /// role-gate admission and supersession and then the definition checks, commit creates, react returns.
+    /// </summary>
+    private ValueTask<FormDefinition> RegisterCoreAsync(
+        FormDefinition candidate,
+        DefinitionWriteAdmission admission,
+        DefinitionWriteTarget target,
+        RoleGatedDefinitionOwner owner,
+        DefinitionAuthorityKind authorityKind,
+        string? authorityPackageId,
+        CancellationToken ct) =>
+        CatalogueSources.PersistAsync(Coordinates(candidate), () => writer.RegisterAsync(
+            admission, target, candidate,
+            async (frozen, token) =>
+            {
+                await AdmitAsync(frozen, owner, token).ConfigureAwait(false);
+                await ValidateSupersessionAsync(frozen, authorityKind, authorityPackageId, token).ConfigureAwait(false);
+            },
+            ct));
+
+    /// <summary>One lifecycle transition act; <paramref name="validate"/> runs at validate on the bound revision.</summary>
+    private ValueTask<FormDefinition> TransitionCoreAsync(
+        DefinitionCoordinates coordinates,
+        DefinitionLifecycleTransition transition,
+        DateTimeOffset? at,
+        DefinitionWriteAdmission admission,
+        DefinitionWriteTarget target,
+        Func<FormDefinition, CancellationToken, ValueTask> validate,
+        CancellationToken ct) =>
+        CatalogueSources.PersistAsync(coordinates, () => writer.TransitionAsync(
+            admission, target, coordinates, transition, at, validate, ct));
+
+    private static DefinitionWriteAdmission Admission(WriteAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        return DefinitionWriteAdmission.Decide(authority.Decision);
+    }
+
+    private static DefinitionAuthorityKind Kind(WriteAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        return authority.AuthorityKind;
+    }
+
+    private static DefinitionWriteTarget Target(FormDefinition definition) =>
+        new(definition.Tenant, "forms", Permission.FormsAuthor, definition.Id.Value);
+
+    private static DefinitionWriteTarget Target(DefinitionCoordinates coordinates) =>
+        new(coordinates.Address.Tenant, "forms", Permission.FormsAuthor, coordinates.Address.Identity.Value);
+
+    /// <summary>A pack write's target: the caller's declared source and its activation-instant stamps.</summary>
+    private static DefinitionWriteTarget PackTarget(FormDefinition definition) => Target(definition) with
+    {
+        DeclaredPackSource = definition.PackSource,
+        CreatedAt = definition.CreatedAt,
+        UpdatedAt = definition.UpdatedAt,
+    };
 
     public async ValueTask<WriteAuthority> DecideAsync(
         string id,
@@ -647,39 +686,6 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
             || decision.Request.Target.RecordId != AuthorizationTargetId(id))
             throw new AuthorizationDeniedException(decision);
         return ValueTask.FromResult(new WriteAuthority(decision, id, DefinitionAuthorityKind.PlatformBootstrap));
-    }
-
-    private static void RequireWriteAuthority(TenantId tenant, string id, WriteAuthority authority)
-    {
-        ArgumentNullException.ThrowIfNull(authority);
-        var decision = authority.Decision;
-        if (decision.Request.Tenant != tenant
-            || !string.Equals(authority.DefinitionId, id, StringComparison.Ordinal)
-            || decision.Request.Act.Operation.Value != Permission.FormsAuthor
-            || decision.Request.Target.RecordKind != "forms"
-            || decision.Request.Target.RecordId != AuthorizationTargetId(id))
-            throw new AuthorizationDeniedException(decision);
-    }
-
-    private static void RequirePackAuthority(
-        FormDefinition definition, PackProjectionAuthority authority, bool withdrawingPersistedRevision = false)
-    {
-        ArgumentNullException.ThrowIfNull(definition);
-        ArgumentNullException.ThrowIfNull(authority);
-        authority.EnsureUsable();
-        if (definition.Tenant != authority.Tenant)
-            throw new PackProjectionAuthorityException(PackProjectionAuthorityCodes.TenantMismatch);
-        if (definition.PackSource is { } source
-            && (!string.Equals(source.PackId, authority.PackId, StringComparison.Ordinal)
-                || (!withdrawingPersistedRevision
-                    && !string.Equals(source.PackVersion, authority.PackVersion, StringComparison.Ordinal))))
-            throw new PackProjectionAuthorityException(PackProjectionAuthorityCodes.SourceMismatch);
-        // Withdrawal reads a persisted revision whose source version and timestamps may predate
-        // this activation. The writer stamps the withdrawal with the carried activation instant.
-        if (!withdrawingPersistedRevision && definition.CreatedAt != authority.ActivationInstant)
-            throw new PackProjectionAuthorityException(PackProjectionAuthorityCodes.WriteInstantMismatch);
-        if (!withdrawingPersistedRevision && definition.UpdatedAt != authority.ActivationInstant)
-            throw new PackProjectionAuthorityException(PackProjectionAuthorityCodes.WriteInstantMismatch);
     }
 
     private static FormDefinition StampPackSource(
@@ -814,14 +820,13 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
 
     private interface IWriterBackend
     {
-        ValueTask<FormDefinition> RegisterAsync(FormDefinition definition, CancellationToken ct);
-        ValueTask<FormDefinition> PublishAsync(DefinitionCoordinates coordinates, CancellationToken ct);
-        ValueTask<FormDefinition> DeprecateAsync(DefinitionCoordinates coordinates, CancellationToken ct);
-        ValueTask<FormDefinition> WithdrawAsync(DefinitionCoordinates coordinates, CancellationToken ct);
-        ValueTask<FormDefinition> RestorePackProjectionAsync(DefinitionCoordinates coordinates, CancellationToken ct);
-        ValueTask<FormDefinition> PublishPackAsync(DefinitionCoordinates coordinates, DateTimeOffset at, CancellationToken ct);
-        ValueTask<FormDefinition> WithdrawPackAsync(DefinitionCoordinates coordinates, DateTimeOffset at, CancellationToken ct);
-        ValueTask<FormDefinition> RestorePackAsync(DefinitionCoordinates coordinates, DateTimeOffset at, CancellationToken ct);
+        ValueTask<FormDefinition> RegisterAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, FormDefinition definition,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct);
+        ValueTask<FormDefinition> TransitionAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, DefinitionCoordinates coordinates,
+            DefinitionLifecycleTransition transition, DateTimeOffset? at,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct);
     }
 
     /// <summary>The non-resolvable writer. Every constructor requires the lifecycle's private key.</summary>
@@ -835,14 +840,16 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
             this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
         }
 
-        internal ValueTask<FormDefinition> RegisterAsync(FormDefinition value, CancellationToken ct) => backend.RegisterAsync(value, ct);
-        internal ValueTask<FormDefinition> PublishAsync(DefinitionCoordinates value, CancellationToken ct) => backend.PublishAsync(value, ct);
-        internal ValueTask<FormDefinition> DeprecateAsync(DefinitionCoordinates value, CancellationToken ct) => backend.DeprecateAsync(value, ct);
-        internal ValueTask<FormDefinition> WithdrawAsync(DefinitionCoordinates value, CancellationToken ct) => backend.WithdrawAsync(value, ct);
-        internal ValueTask<FormDefinition> RestorePackProjectionAsync(DefinitionCoordinates value, CancellationToken ct) => backend.RestorePackProjectionAsync(value, ct);
-        internal ValueTask<FormDefinition> PublishPackAsync(DefinitionCoordinates value, DateTimeOffset at, CancellationToken ct) => backend.PublishPackAsync(value, at, ct);
-        internal ValueTask<FormDefinition> WithdrawPackAsync(DefinitionCoordinates value, DateTimeOffset at, CancellationToken ct) => backend.WithdrawPackAsync(value, at, ct);
-        internal ValueTask<FormDefinition> RestorePackAsync(DefinitionCoordinates value, DateTimeOffset at, CancellationToken ct) => backend.RestorePackAsync(value, at, ct);
+        internal ValueTask<FormDefinition> RegisterAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, FormDefinition value,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct) =>
+            backend.RegisterAsync(admission, target, value, validate, ct);
+
+        internal ValueTask<FormDefinition> TransitionAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, DefinitionCoordinates value,
+            DefinitionLifecycleTransition transition, DateTimeOffset? at,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct) =>
+            backend.TransitionAsync(admission, target, value, transition, at, validate, ct);
     }
 
     private sealed class EntityWriterBackend
@@ -851,64 +858,35 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         private const string EnvelopeKind = "form-definition";
         private const string EntityScheme = "formdef";
         private const string EntityAuthority = "forms";
+        private readonly IWritePipelineObserver? observer;
 
-        internal EntityWriterBackend(IEntityMutationStore store, TimeProvider time)
+        internal EntityWriterBackend(IEntityMutationStore store, TimeProvider time, IWritePipelineObserver? observer)
             : base(store, store, time, EntityStoreFormDefinitionStore.DefinitionSchema,
                 EnvelopeKind, "formId", EntityScheme, EntityAuthority)
         {
+            this.observer = observer;
         }
 
-        public async ValueTask<FormDefinition> RegisterAsync(FormDefinition definition, CancellationToken ct)
+        public async ValueTask<FormDefinition> RegisterAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, FormDefinition definition,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct)
         {
+            ArgumentNullException.ThrowIfNull(admission);
             ArgumentNullException.ThrowIfNull(definition);
-            var frozen = FormDefinitionFreezer.Freeze(definition);
-            FormDefinitionValidation.ValidateOverlayOrThrow(frozen);
-            FormDefinitionValidation.ValidateSchemaRefOrThrow(frozen);
-            var coordinates = CoordinatesOf(frozen);
-            var entityId = EntityIdFor(coordinates);
-            if (await Store.GetAsync(entityId, VersionSelector.Latest, ct).ConfigureAwait(false) is not null)
-                throw new FormDefinitionConflictException(frozen.Id, frozen.Version, frozen.Tenant);
-            if (frozen.Lineage is { } lineage)
-            {
-                var parentCoordinates = new DefinitionCoordinates(
-                    frozen.Tenant, lineage.ParentDefinitionId.Value, lineage.ParentVersion.ToString());
-                if (await Store.GetAsync(EntityIdFor(parentCoordinates), VersionSelector.Latest, ct).ConfigureAwait(false) is null)
-                {
-                    throw new FormDefinitionValidationException(
-                        frozen.Id,
-                        $"lineage references parent '{lineage.ParentDefinitionId}' at version '{lineage.ParentVersion}' which is not registered in tenant '{frozen.Tenant}'.");
-                }
-            }
-            using var body = Serialize(frozen);
-            var options = new CreateOptions(
-                EntityScheme, EntityAuthority, NonceFor(coordinates),
-                EntityStoreFormDefinitionStore.OwnerActor(frozen.Owner), frozen.Tenant,
-                frozen.CreatedAt, ExplicitLocalPart: entityId.LocalPart);
-            try
-            {
-                await Mutations.CreateAsync(EntityStoreFormDefinitionStore.DefinitionSchema, body, options, ct).ConfigureAwait(false);
-            }
-            catch (IdempotencyConflictException)
-            {
-                throw new FormDefinitionConflictException(frozen.Id, frozen.Version, frozen.Tenant);
-            }
-            return frozen;
+            return (await WritePipeline.RunAsync(
+                new Register(this, admission, target, definition, validate), observer, ct).ConfigureAwait(false))!;
         }
 
-        public new ValueTask<FormDefinition> PublishAsync(DefinitionCoordinates c, CancellationToken ct) => base.PublishAsync(c, ct);
-        public ValueTask<FormDefinition> DeprecateAsync(DefinitionCoordinates c, CancellationToken ct) => TransitionAsync(
-            c, DefinitionLifecycleStatus.Deprecated,
-            [DefinitionLifecycleStatus.Published, DefinitionLifecycleStatus.Deprecated], ct);
-        public new ValueTask<FormDefinition> WithdrawAsync(DefinitionCoordinates c, CancellationToken ct) => base.WithdrawAsync(c, ct);
-        public new ValueTask<FormDefinition> RestorePackProjectionAsync(DefinitionCoordinates c, CancellationToken ct) => base.RestorePackProjectionAsync(c, ct);
-        public ValueTask<FormDefinition> PublishPackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct) => TransitionAsync(
-            c, DefinitionLifecycleStatus.Published,
-            [DefinitionLifecycleStatus.Draft, DefinitionLifecycleStatus.Published], at, ct);
-        public ValueTask<FormDefinition> WithdrawPackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct) => TransitionAsync(
-            c, DefinitionLifecycleStatus.Withdrawn,
-            [DefinitionLifecycleStatus.Draft, DefinitionLifecycleStatus.Published,
-                DefinitionLifecycleStatus.Deprecated, DefinitionLifecycleStatus.Withdrawn], at, ct);
-        public ValueTask<FormDefinition> RestorePackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct) => RestorePackProjectionAtAsync(c, at, ct);
+        public async ValueTask<FormDefinition> TransitionAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, DefinitionCoordinates coordinates,
+            DefinitionLifecycleTransition transition, DateTimeOffset? at,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct)
+        {
+            ArgumentNullException.ThrowIfNull(admission);
+            return (await WritePipeline.RunAsync(
+                new Transition(this, admission, target, coordinates, transition, at, validate), observer, ct)
+                .ConfigureAwait(false))!;
+        }
 
         protected override DefinitionCoordinates CoordinatesOf(FormDefinition d) => Coordinates(d);
         protected override DefinitionLifecycleStatus StatusOf(FormDefinition d) => (DefinitionLifecycleStatus)d.Status;
@@ -930,38 +908,178 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
                 throw new InvalidOperationException($"Only a System-owned form projection can be restored; '{d.Id}' v{d.Version} is owned by {d.Owner}.");
             return ValueTask.CompletedTask;
         }
+
+        /// <summary>What register binds: whether the revision is already stored, and whether its lineage parent is.</summary>
+        private sealed record RegisterBound(bool Stored, bool ParentRegistered);
+
+        /// <summary>ck-10 S3b: one form-definition registration as its six ADR-0038 stages.</summary>
+        private sealed class Register(
+            EntityWriterBackend backend,
+            DefinitionWriteAdmission admission,
+            DefinitionWriteTarget target,
+            FormDefinition definition,
+            Func<FormDefinition, CancellationToken, ValueTask> validate)
+            : KernelWrite<RegisterBound, FormDefinition, FormDefinition, FormDefinition>
+        {
+            protected override ValueTask AuthorizeAsync(CancellationToken ct)
+            {
+                admission.Authorize(target);
+                return ValueTask.CompletedTask;
+            }
+
+            protected override async ValueTask<RegisterBound?> BindAsync(CancellationToken ct)
+            {
+                var stored = await backend.Store.GetAsync(
+                    backend.EntityIdFor(Coordinates(definition)), VersionSelector.Latest, ct).ConfigureAwait(false) is not null;
+                var parentRegistered = true;
+                if (definition.Lineage is { } lineage)
+                {
+                    var parent = new DefinitionCoordinates(
+                        definition.Tenant, lineage.ParentDefinitionId.Value, lineage.ParentVersion.ToString());
+                    parentRegistered = await backend.Store.GetAsync(
+                        backend.EntityIdFor(parent), VersionSelector.Latest, ct).ConfigureAwait(false) is not null;
+                }
+                return new RegisterBound(stored, parentRegistered);
+            }
+
+            protected override ValueTask<FormDefinition> MutateAsync(RegisterBound bound, CancellationToken ct) =>
+                ValueTask.FromResult(FormDefinitionFreezer.Freeze(definition));
+
+            protected override async ValueTask<FormDefinition> ValidateAsync(
+                RegisterBound bound, FormDefinition frozen, CancellationToken ct)
+            {
+                await validate(frozen, ct).ConfigureAwait(false);
+                FormDefinitionValidation.ValidateOverlayOrThrow(frozen);
+                FormDefinitionValidation.ValidateSchemaRefOrThrow(frozen);
+                if (bound.Stored)
+                    throw new FormDefinitionConflictException(frozen.Id, frozen.Version, frozen.Tenant);
+                if (frozen.Lineage is { } lineage && !bound.ParentRegistered)
+                {
+                    throw new FormDefinitionValidationException(
+                        frozen.Id,
+                        $"lineage references parent '{lineage.ParentDefinitionId}' at version '{lineage.ParentVersion}' which is not registered in tenant '{frozen.Tenant}'.");
+                }
+                return frozen;
+            }
+
+            protected override async ValueTask CommitAsync(FormDefinition frozen, CancellationToken ct)
+            {
+                var coordinates = Coordinates(frozen);
+                var entityId = backend.EntityIdFor(coordinates);
+                using var body = backend.Serialize(frozen);
+                var options = new CreateOptions(
+                    EntityScheme, EntityAuthority, NonceFor(coordinates),
+                    EntityStoreFormDefinitionStore.OwnerActor(frozen.Owner), frozen.Tenant,
+                    frozen.CreatedAt, ExplicitLocalPart: entityId.LocalPart);
+                try
+                {
+                    await backend.Mutations.CreateAsync(EntityStoreFormDefinitionStore.DefinitionSchema, body, options, ct).ConfigureAwait(false);
+                }
+                catch (IdempotencyConflictException)
+                {
+                    throw new FormDefinitionConflictException(frozen.Id, frozen.Version, frozen.Tenant);
+                }
+            }
+
+            protected override ValueTask<FormDefinition> ReactAsync(FormDefinition frozen, CancellationToken ct) =>
+                ValueTask.FromResult(frozen);
+        }
+
+        /// <summary>The sealed transition: the revision as it will be stored, and whether its status changes.</summary>
+        private sealed record TransitionSealed(FormDefinition Revision, bool Changed);
+
+        /// <summary>ck-10 S3b: one form-definition lifecycle transition as its six ADR-0038 stages.</summary>
+        private sealed class Transition(
+            EntityWriterBackend backend,
+            DefinitionWriteAdmission admission,
+            DefinitionWriteTarget target,
+            DefinitionCoordinates coordinates,
+            DefinitionLifecycleTransition transition,
+            DateTimeOffset? at,
+            Func<FormDefinition, CancellationToken, ValueTask> validate)
+            : KernelWrite<FormDefinition, FormDefinition, TransitionSealed, FormDefinition>
+        {
+            protected override ValueTask AuthorizeAsync(CancellationToken ct)
+            {
+                admission.Authorize(target);
+                return ValueTask.CompletedTask;
+            }
+
+            protected override async ValueTask<FormDefinition?> BindAsync(CancellationToken ct) =>
+                await backend.GetAsync(coordinates, ct).ConfigureAwait(false);
+
+            protected override ValueTask<FormDefinition> MutateAsync(FormDefinition existing, CancellationToken ct) =>
+                ValueTask.FromResult(backend.WithStatus(existing, RuleFor(transition).Target, at ?? backend.Now()));
+
+            protected override async ValueTask<TransitionSealed> ValidateAsync(
+                FormDefinition existing, FormDefinition transitioned, CancellationToken ct)
+            {
+                await validate(existing, ct).ConfigureAwait(false);
+                if (transition == DefinitionLifecycleTransition.Restore)
+                    await backend.ValidatePackRestoreAsync(existing, ct).ConfigureAwait(false);
+                var (status, allowedFrom) = RuleFor(transition);
+                return backend.RequireAllowedTransition(existing, status, allowedFrom)
+                    ? new TransitionSealed(transitioned, Changed: true)
+                    : new TransitionSealed(existing, Changed: false);
+            }
+
+            protected override async ValueTask CommitAsync(TransitionSealed validated, CancellationToken ct)
+            {
+                if (!validated.Changed) return;
+                using var body = backend.Serialize(validated.Revision);
+                await backend.Mutations.UpdateAsync(
+                    backend.EntityIdFor(coordinates),
+                    body,
+                    new UpdateOptions(backend.TransitionActor(validated.Revision)),
+                    ct).ConfigureAwait(false);
+            }
+
+            protected override ValueTask<FormDefinition> ReactAsync(TransitionSealed validated, CancellationToken ct) =>
+                ValueTask.FromResult(validated.Revision);
+        }
     }
 
+    /// <summary>The in-memory backend writes no raw sink; it carries the same admission and authorize check.</summary>
     private sealed class InMemoryWriterBackend(InMemoryFormDefinitionState state) : IWriterBackend
     {
-        public ValueTask<FormDefinition> RegisterAsync(FormDefinition definition, CancellationToken ct) =>
-            state.RegisterAsync(definition, ct);
-
-        public ValueTask<FormDefinition> PublishAsync(DefinitionCoordinates c, CancellationToken ct) =>
-            state.TransitionAsync(c, FormDefinitionStatus.Published, [FormDefinitionStatus.Draft, FormDefinitionStatus.Published], null, ct);
-        public ValueTask<FormDefinition> DeprecateAsync(DefinitionCoordinates c, CancellationToken ct) =>
-            state.TransitionAsync(c, FormDefinitionStatus.Deprecated, [FormDefinitionStatus.Published, FormDefinitionStatus.Deprecated], null, ct);
-        public ValueTask<FormDefinition> WithdrawAsync(DefinitionCoordinates c, CancellationToken ct) =>
-            state.TransitionAsync(c, FormDefinitionStatus.Withdrawn,
-                [FormDefinitionStatus.Draft, FormDefinitionStatus.Published, FormDefinitionStatus.Deprecated, FormDefinitionStatus.Withdrawn], null, ct);
-        public async ValueTask<FormDefinition> RestorePackProjectionAsync(DefinitionCoordinates c, CancellationToken ct)
+        public async ValueTask<FormDefinition> RegisterAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, FormDefinition definition,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct)
         {
-            var existing = state.Read(c);
-            if (existing.Owner != IdentityRef.System) throw new InvalidOperationException("Only a System-owned form projection can be restored.");
-            return await state.TransitionAsync(c, FormDefinitionStatus.Published,
-                [FormDefinitionStatus.Withdrawn, FormDefinitionStatus.Published], null, ct).ConfigureAwait(false);
+            ArgumentNullException.ThrowIfNull(admission);
+            admission.Authorize(target);
+            await validate(definition, ct).ConfigureAwait(false);
+            return await state.RegisterAsync(definition, ct).ConfigureAwait(false);
         }
-        public ValueTask<FormDefinition> PublishPackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct) =>
-            state.TransitionAsync(c, FormDefinitionStatus.Published, [FormDefinitionStatus.Draft, FormDefinitionStatus.Published], at, ct);
-        public ValueTask<FormDefinition> WithdrawPackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct) =>
-            state.TransitionAsync(c, FormDefinitionStatus.Withdrawn,
-                [FormDefinitionStatus.Draft, FormDefinitionStatus.Published, FormDefinitionStatus.Deprecated, FormDefinitionStatus.Withdrawn], at, ct);
-        public async ValueTask<FormDefinition> RestorePackAsync(DefinitionCoordinates c, DateTimeOffset at, CancellationToken ct)
+
+        public async ValueTask<FormDefinition> TransitionAsync(
+            DefinitionWriteAdmission admission, DefinitionWriteTarget target, DefinitionCoordinates c,
+            DefinitionLifecycleTransition transition, DateTimeOffset? at,
+            Func<FormDefinition, CancellationToken, ValueTask> validate, CancellationToken ct)
         {
+            ArgumentNullException.ThrowIfNull(admission);
+            admission.Authorize(target);
             var existing = state.Read(c);
-            if (existing.Owner != IdentityRef.System) throw new InvalidOperationException("Only a System-owned form projection can be restored.");
-            return await state.TransitionAsync(c, FormDefinitionStatus.Published,
-                [FormDefinitionStatus.Withdrawn, FormDefinitionStatus.Published], at, ct).ConfigureAwait(false);
+            await validate(existing, ct).ConfigureAwait(false);
+            if (transition == DefinitionLifecycleTransition.Restore && existing.Owner != IdentityRef.System)
+                throw new InvalidOperationException("Only a System-owned form projection can be restored.");
+            var (status, allowed) = transition switch
+            {
+                DefinitionLifecycleTransition.Publish =>
+                    (FormDefinitionStatus.Published, new[] { FormDefinitionStatus.Draft, FormDefinitionStatus.Published }),
+                DefinitionLifecycleTransition.Deprecate =>
+                    (FormDefinitionStatus.Deprecated, new[] { FormDefinitionStatus.Published, FormDefinitionStatus.Deprecated }),
+                DefinitionLifecycleTransition.Withdraw =>
+                    (FormDefinitionStatus.Withdrawn, new[]
+                    {
+                        FormDefinitionStatus.Draft, FormDefinitionStatus.Published,
+                        FormDefinitionStatus.Deprecated, FormDefinitionStatus.Withdrawn,
+                    }),
+                DefinitionLifecycleTransition.Restore =>
+                    (FormDefinitionStatus.Published, new[] { FormDefinitionStatus.Withdrawn, FormDefinitionStatus.Published }),
+                _ => throw new ArgumentOutOfRangeException(nameof(transition), transition, "Unknown lifecycle transition."),
+            };
+            return await state.TransitionAsync(c, status, allowed, at, ct).ConfigureAwait(false);
         }
     }
 
