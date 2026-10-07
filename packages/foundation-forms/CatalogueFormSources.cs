@@ -51,8 +51,19 @@ public sealed class CatalogueFormSources : ICatalogueFormSources, IDisposable, I
         await mutations.WaitAsync().ConfigureAwait(false);
         try
         {
-            lock (sync) sources.Remove(coordinates);
-            var definition = await persist().ConfigureAwait(false);
+            Snapshot? previous;
+            lock (sync) sources.Remove(coordinates, out previous);
+            FormDefinition definition;
+            try
+            {
+                definition = await persist().ConfigureAwait(false);
+            }
+            catch when (previous is not null)
+            {
+                // A refused write (authorize or validate inside the write) left the store unchanged.
+                lock (sync) sources[coordinates] = previous;
+                throw;
+            }
             if (definition.Status == FormDefinitionStatus.Published)
             {
                 // Hash only immutable source-definition bytes, not lifecycle status or transition times.
