@@ -12,6 +12,14 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import evidence as e
 import manifest as m
 
+# Native raw-evidence contract: a literal inventory independent of its producer.
+NATIVE_ARTIFACTS = {
+    'out/gate-evidence/native-context.json', 'hosted-job.json',
+    'out/harborline-api-verify-receipt.json', 'out/gate-evidence/host-tests.trx',
+    'out/gate-evidence/named-test-outcomes.json', 'out/gate-evidence/capability-tests.json',
+    'out/gate-evidence/exact-clone-report.json', 'out/raw-validation.json',
+}
+
 class NativeProof(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
@@ -59,7 +67,7 @@ class NativeProof(unittest.TestCase):
         return root,fingerprint
     def receipt(self,root,fingerprint):
         receipt={'fingerprint':fingerprint,'status':'passed','cleanup':True,'oom':0,'swapMiB':0,'completedAt':self.now.isoformat(),'suite':'full','criticalCheckSet':'api-required-v1',
-                 'artifacts':{name:m.digest(root/name) for name in e.required_artifacts(fingerprint)}}
+                 'artifacts':{name:m.digest(root/name) for name in NATIVE_ARTIFACTS}}
         raw=json.dumps(receipt).encode();return raw,hashlib.sha256(raw).hexdigest()
     def test_native_raw_and_measured_context_are_revalidated(self):
         for platform in ('windows','macos'):
@@ -76,7 +84,8 @@ class NativeProof(unittest.TestCase):
             p.write_text(json.dumps(context))
     def test_missing_native_raw_artifact_and_wrong_hosted_job_fail(self):
         root,expected=self.fixture('windows');raw,digest=self.receipt(root,expected)
-        for name in e.required_artifacts(expected):
+        self.assertEqual(e.required_artifacts(expected),NATIVE_ARTIFACTS)
+        for name in NATIVE_ARTIFACTS:
             record=json.loads(raw);del record['artifacts'][name];missing=json.dumps(record).encode()
             with self.subTest(missing=name),self.assertRaises(ValueError):e.equivalent(missing,expected,root,hashlib.sha256(missing).hexdigest(),self.now)
         (root/'hosted-job.json').write_text('{"runId":43,"jobId":100}');raw,digest=self.receipt(root,expected)
