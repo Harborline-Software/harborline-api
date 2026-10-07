@@ -9,6 +9,19 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import pilot
 
 class Teardown(unittest.TestCase):
+    def test_real_docker_filter_grammar_and_all_resource_absence_checks(self):
+        removed=set();calls=[]
+        def engine(*args):
+            calls.append(args)
+            if '--filter' in args:
+                self.assertEqual(args[args.index('--filter')+1],'label=org.harborline.mini.session=approved')
+                kind='container' if args[0]=='ps' else args[0]
+                return '' if kind in removed else 'owned-name\n'
+            kind='container' if args[0]=='rm' else args[0];removed.add(kind);return ''
+        with patch.object(pilot,'docker',side_effect=engine):
+            self.assertEqual(pilot.cleanup('approved','owned-name'),{'session':'approved','clean':True,'failures':[]})
+        self.assertEqual(removed,{'container','network','volume'});self.assertEqual(len(calls),9)
+
     def test_resource_admission_requires_valid_explicit_ready_before_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'resources').mkdir();observer=Mock();observer.poll.return_value=None

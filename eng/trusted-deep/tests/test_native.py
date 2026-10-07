@@ -41,7 +41,7 @@ class NativeProof(unittest.TestCase):
         host={'counts':counts,'problems':[],'results':[{'testName':'host pass','rosterId':'host pass','outcome':'Passed'},{'testName':'host allowed failure','rosterId':'host allowed failure','outcome':'Failed'}]}
         capability={'counts':capcounts,'problems':[],'results':[{'testName':'cap.test.ts :: pass','rosterId':'cap.test.ts :: pass','outcome':'Passed'},{'testName':'cap.test.ts :: skipped','rosterId':'cap.test.ts :: skipped','outcome':'NotExecuted'}]}
         hostbase='eng/baselines/host-test-baseline'+('.macos' if platform=='macos' else '')+'.json'
-        capbase='eng/baselines/hull-test-baseline'+('.macos' if platform=='macos' else '')+'.json'
+        capbase='eng/baselines/hull-test-baseline.macos.json' if platform=='macos' else 'eng/baselines/hull-test-baseline.json'
         named={'apiCommit':self.sha,'runtime':{'platform':'win32' if platform=='windows' else 'darwin','architecture':'arm64'},'runId':'42','attempt':'1',
                'hostBaseline':hostbase,'capabilityBaseline':capbase,'evidenceRoots':{'clone':'/fixture/clone','scratch':'/fixture'},'host':host,'capability':capability}
         (gate/'named-test-outcomes.json').write_text(json.dumps(named))

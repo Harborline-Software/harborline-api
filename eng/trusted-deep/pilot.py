@@ -58,10 +58,10 @@ def cleanup(session,name):
     failures=[]
     for kind,scan,remove in [('container',('ps','--all'),('rm','-f')),('network',('network','ls'),('network','rm')),('volume',('volume','ls'),('volume','rm'))]:
         try:
-            names=set(docker(*scan,'--filter',LABEL+'='+session,'--format','{{.Name}}' if kind!='container' else '{{.Names}}').splitlines())
+            names=set(docker(*scan,'--filter','label='+LABEL+'='+session,'--format','{{.Name}}' if kind!='container' else '{{.Names}}').splitlines())
             require(names<={name},'Unexpected session resource names')
             if names:docker(*remove,name)
-            remaining=docker(*scan,'--filter',LABEL+'='+session,'--format','{{.Name}}' if kind!='container' else '{{.Names}}').strip()
+            remaining=docker(*scan,'--filter','label='+LABEL+'='+session,'--format','{{.Name}}' if kind!='container' else '{{.Names}}').strip()
             require(not remaining,'Scoped resource remains after cleanup')
         except Exception as error:failures.append(kind+':'+type(error).__name__)
     return {'session':session,'clean':not failures,'failures':failures}
