@@ -45,6 +45,13 @@ their shared expected object. The controller retains its own measurement while
 the job is active; completion remeasures before green, and run identities must
 match their evidence directories. Missing live measurements refuse host success.
 
+Exact-clone now exports the initial complete host TRX and normalized host/capability
+outcomes whenever those stages complete, including baseline-accepted runs with
+permitted failures. Retry outcomes remain separate in the existing report; an
+aborted earlier stage can still lack complete named evidence. Platform artifact
+uploads include the existing hidden receipt/evidence paths. These records support
+a later same-head Windows removal ledger; they do not authorize narrowing Windows.
+
 The required verdict means this exact admitted candidate passed validation.
 Controller polling/cancellation are operational safeguards; a later controller
 failure cannot revoke an already-issued candidate-specific verdict. Protected

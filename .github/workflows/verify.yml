@@ -395,6 +395,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: verify-macos-evidence-${{ github.run_id }}
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
           path: |
@@ -456,6 +457,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: verify-linux-evidence-${{ github.run_id }}
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
           path: |
@@ -617,6 +619,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: verify-windows-evidence-${{ github.run_id }}
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
           path: |
@@ -713,6 +716,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: verify-windows-hosted-evidence-${{ github.run_id }}
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
           path: |
