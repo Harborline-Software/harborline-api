@@ -58,6 +58,14 @@ capability removal, no-new-privileges, and private source/cache volume and netwo
 There are no host bind mounts, host credential mounts or Docker socket mounts.
 PowerShell data/config and tool caches use paths inside the private volume; the
 host home remains untouched and the image root remains read-only.
+.NET processes inherit `DOTNET_GCHeapHardLimitPercent=0x32` (hexadecimal 50%),
+with overriding absolute/per-heap settings refused. Startup records the effective
+5 GiB GC heap/bookkeeping budget in the 10 GiB container before heavy work. This
+limits each managed heap, not total process RSS or aggregate lane memory. It is
+included in the environment fingerprint and raw evidence contract. The existing
+host/VM pressure guard, tests and baselines remain unchanged. Paired capacity needs
+fresh qualification after this setting changes.
+Reference: https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector#heap-hard-limit-percent
 The resource observer and its telemetry script are committed in this directory and
 included in the approved script digest. A source/image/input/environment/SDK/profile
 change requires new evidence. This snapshot profile has `base == api`; it cannot

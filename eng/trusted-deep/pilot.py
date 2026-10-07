@@ -146,6 +146,7 @@ def run(args):
                        '--cpus','5','--pids-limit','1024','--network',name,'--mount','type=volume,src='+name+',dst=/runner',
                        '--tmpfs','/tmp:rw,nosuid,nodev,size=512m,mode=1777','--env','HARBORLINE_APPROVED_MANIFEST_SHA256='+args.approved_digest,
                        '--env','XDG_DATA_HOME=/runner/gate/cache/xdg-data','--env','XDG_CONFIG_HOME=/runner/gate/cache/xdg-config',
+                       '--env','DOTNET_GCHeapHardLimitPercent=0x32',
                        '--env','HARBORLINE_TASK_ID='+task['id'],value['image'],task['kind'])
                 docker('cp',str(Path(args.manifest).resolve()),name+':/runner/approved-manifest.json')
             finally:os.close(admission)

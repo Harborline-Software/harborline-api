@@ -31,11 +31,17 @@ def admit(kind):
     m.require(policy['inputDigests']==value['inputDigests'],'Verification input profile changed')
     m.require(os.environ.get('XDG_DATA_HOME')==policy['environment']['xdgData'] and
               os.environ.get('XDG_CONFIG_HOME')==policy['environment']['xdgConfig'],'Writable private runtime profile differs')
+    m.require(os.environ.get('DOTNET_GCHeapHardLimitPercent')==policy['environment']['dotnetGcHeapHardLimitPercent']=='0x32','Managed heap budget differs')
+    m.require(not any(k.startswith(('DOTNET_GCHeapHardLimit','COMPlus_GCHeapHardLimit')) and
+                      k!='DOTNET_GCHeapHardLimitPercent' for k in os.environ),'Managed heap budget override')
     m.require(c.digest('/opt/mini/sources.json')==policy['sourcesSha256'],'Source bundle manifest changed')
     return value,task
 
 def finish(kind):
     value,task=admit(kind)
+    gc=json.loads((ROOT/'out/gc-preflight.json').read_text())
+    m.require(gc['requestedEnv']=='0x32' and gc['availableBytes']==5368709120 and
+              gc['config']['GCHeapHardLimit']==5368709120 and gc['config']['GCHeapHardLimitPercent']==50,'Effective managed heap budget differs')
     for name,head in value['sources'].items():
         m.require(c.git(ROOT/name,'rev-parse','HEAD')==head,'Source head changed')
         m.require(not c.git(ROOT/name,'status','--porcelain'),'Dirty tested source: '+name)

@@ -2,6 +2,14 @@
 set -euo pipefail
 umask 077
 python3 -I /opt/trusted/job.py admit "$1"
+mkdir -p /runner/gate/out /runner/gate/cache/{xdg,xdg-data,xdg-config}
+export XDG_CACHE_HOME=/runner/gate/cache/xdg
+pwsh -NoProfile -NonInteractive -Command '
+  $bytes=[GC]::GetGCMemoryInfo().TotalAvailableMemoryBytes
+  $config=[GC]::GetConfigurationVariables()
+  if ($bytes -ne 5368709120 -or $config["GCHeapHardLimitPercent"] -ne 50) { throw "Effective managed heap budget differs" }
+  @{requestedEnv=$env:DOTNET_GCHeapHardLimitPercent;availableBytes=$bytes;runtime=[Environment]::Version.ToString();config=$config} | ConvertTo-Json -Depth 5
+' > /runner/gate/out/gc-preflight.json
 kind="$1"
 export HARBORLINE_GATE_COVERAGE=0
 if [ "$kind" = portable-coverage ]; then export HARBORLINE_GATE_COVERAGE=1; fi

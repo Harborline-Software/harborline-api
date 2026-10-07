@@ -61,6 +61,7 @@ class Contract(unittest.TestCase):
         (self.root/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
         (self.root/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
         (self.root/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':'portable'}}))
+        (self.root/'out/gc-preflight.json').write_text(json.dumps({'requestedEnv':'0x32','availableBytes':5368709120,'config':{'GCHeapHardLimit':5368709120,'GCHeapHardLimitPercent':50}}))
         receipt={'fingerprint':fingerprint,'status':'passed','cleanup':True,'oom':0,'swapMiB':0,
                  'completedAt':now.isoformat(),'artifacts':{name:m.digest(self.root/name) for name in e.required_artifacts(fingerprint)},
                  'suite':'full','criticalCheckSet':'api-required-v1'}
@@ -91,6 +92,7 @@ class Contract(unittest.TestCase):
                 (directory/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
                 (directory/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
                 (directory/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':profile}}))
+                (directory/'out/gc-preflight.json').write_text(json.dumps({'requestedEnv':'0x32','availableBytes':5368709120,'config':{'GCHeapHardLimit':5368709120,'GCHeapHardLimitPercent':50}}))
             else:
                 (directory/'out/gate-evidence/native-context.json').write_text(json.dumps({'sha':'a'*40,'platform':platform,'architecture':'arm64'}))
             record=dict(receipt,fingerprint=expected[platform],artifacts={name:m.digest(directory/name) for name in e.required_artifacts(expected[platform])})

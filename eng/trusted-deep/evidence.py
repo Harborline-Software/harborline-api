@@ -39,7 +39,7 @@ def required_artifacts(expected):
         return {'out/gate-evidence/native-context.json','hosted-job.json','out/harborline-api-verify-receipt.json',
                 'out/gate-evidence/host-tests.trx','out/gate-evidence/named-test-outcomes.json',
                 'out/gate-evidence/capability-tests.json','out/gate-evidence/exact-clone-report.json','out/raw-validation.json'}
-    common={'session.json','cleanup.json','resources/summary.json','out/immutable-completion.json','out/raw-validation.json'}
+    common={'session.json','cleanup.json','resources/summary.json','out/immutable-completion.json','out/raw-validation.json','out/gc-preflight.json'}
     if expected['kind'] in ('portable','portable-coverage'):
         common |= {'out/gate-exit.txt','out/harborline-api-verify-receipt.json','out/harborline-api-quality-decision.json',
                    'out/gate-evidence/host-tests.trx','out/gate-evidence/named-test-outcomes.json'}
@@ -72,6 +72,9 @@ def equivalent(receipt_bytes, expected, artifact_root, trusted_receipt_digest, n
         cleanup=json.loads((root/'cleanup.json').read_bytes())
         resources=json.loads((root/'resources/summary.json').read_bytes())
         completion=json.loads((root/'out/immutable-completion.json').read_bytes())
+        gc=json.loads((root/'out/gc-preflight.json').read_bytes())
+        require(gc['requestedEnv']=='0x32' and gc['availableBytes']==5368709120 and
+                gc['config']['GCHeapHardLimit']==5368709120 and gc['config']['GCHeapHardLimitPercent']==50,'Runtime heap budget evidence differs')
         require(cleanup['clean'] is True and not cleanup['failures'],'Cleanup evidence failed')
         require(resources['alarm'] is None and resources['samples']>0 and resources['maxHostSwapMiB']==0,'Telemetry absent or failed')
         require(completion['verdict']=='passed' and completion['head']==expected['api'] and completion['tree']==expected['tree'], 'Immutable source completion mismatch')
