@@ -176,20 +176,22 @@ at or above 6.415 GiB. Both named identity baselines matched. Cleanup was verifi
 Coverage was off; the local probe excludes live Listener/Worker overhead. Protected
 landing and a measured exact-main GitHub-dispatched single lane remain necessary.
 
-## Two-lane memory preparation (not activated)
+## Two-lane memory preparation (capacity not yet qualified)
 
-The 32-GiB host currently configures OrbStack for 16,384 MiB, exposing 15.664 GiB
-to Docker. Do not start two 10-GiB lanes at that allocation. The proposed first
-capacity trial is 24,576 MiB for OrbStack: two 10-GiB container caps plus roughly
-4 GiB for the VM, leaving 8 GiB outside the VM for macOS and applications. Treat
-these as admission budgets, not proven concurrency capacity; live runner overhead
+The 32-GiB host formerly configured OrbStack for 16,384 MiB, exposing 15.664 GiB
+to Docker, which cannot admit two 10-GiB lanes. The user approved a memory-only
+increase to 24,576 MiB on 2026-10-07. With no containers or Linux machines running,
+the existing workload lock was held while the setting was applied and OrbStack
+was normally stopped and started. Effective Docker memory is now 25,233,031,168
+bytes (23.500 GiB), with the unchanged 12 CPUs, zero host swap and 84% host free
+memory immediately after restart. Two 10-GiB caps leave 3.500 GiB of effective VM
+margin and a nominal 8 GiB outside the configured VM for macOS and applications.
+These are admission budgets, not proven concurrency capacity; live runner overhead
 and any coverage lane still need measurement.
 
-Only with no running workloads and after the measured live single lane passes,
-apply the memory-only adjustment through OrbStack's supported configuration, then
-verify the effective Docker memory and host headroom (a restart may be required).
-Keep the existing CPU allocation and other settings. Before a separately admitted
-pair, require at least 23 GiB effective Docker memory, zero host swap, normal host
+Keep the existing CPU allocation and other settings. After the measured live
+single lane passes and before a separately admitted pair, require at least 23 GiB
+effective Docker memory, zero host swap, normal host
 pressure and at least 30% host free memory. Retain aggregate Docker/process and
 host telemetry; stop on any OOM, more than 64 MiB host swap growth, or two samples
 with host free memory below 20%, non-normal pressure, or VM available memory below
