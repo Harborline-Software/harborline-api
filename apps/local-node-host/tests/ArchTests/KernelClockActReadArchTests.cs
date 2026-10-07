@@ -152,6 +152,30 @@ public sealed class KernelClockActReadArchTests
 
     internal sealed record RouteHandler(MethodBase Handler, string MappedAt);
 
+    [Fact(DisplayName = "T-690: clock reads in repeating exception regions count twice; a single handler read counts once")]
+    public void ExceptionRegionsPreserveRepeatedAndSingleReads()
+    {
+        var assemblies = new[] { typeof(PlantedExceptionRoutes).Assembly };
+        var handlers = DiscoverHandlers(assemblies, out var unpaired,
+            type => IsWithin(type, typeof(PlantedExceptionRoutes)));
+        Assert.Empty(unpaired);
+        var graph = new ReadGraph(assemblies, ActOwnedTypes(assemblies, [.. handlers.Select(handler => handler.Handler)]));
+        var reads = handlers.ToDictionary(handler => handler.Handler.Name,
+            handler => ActReads(handler.Handler, assemblies, graph).Count);
+
+        Assert.Equal(10, reads.Count);
+        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingCatch)]);
+        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFilter)]);
+        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingFinally)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleCatch)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFilter)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleFinally)]);
+        Assert.Equal(2, reads[nameof(PlantedExceptionRoutes.RepeatingNestedFinally)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.SingleNestedFinally)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchBreaksTheLoop)]);
+        Assert.Equal(1, reads[nameof(PlantedExceptionRoutes.CatchReturnsFromTheLoop)]);
+    }
+
     /// <summary>
     /// Each <c>Map*(…, Delegate)</c> call's handler, recognised only in the shapes the compiler emits for a handler
     /// argument: a fresh delegate (<c>ldftn; newobj</c>), the compiler's cached lambda or method-group delegate, a
@@ -442,7 +466,7 @@ public sealed class KernelClockActReadArchTests
             var code = il.Code;
             // An instruction can repeat when it lies on a cycle of the method's control flow. A backward jump alone is
             // not a loop (an instrumented build jumps back to a shared exit), so the cycle itself is found.
-            var cyclic = CyclicOffsets(code, il.Edges);
+            var cyclic = CyclicOffsets(method, code, il.Edges);
             bool InLoop(int at) => cyclic.Contains(at);
             // A join point merges values from several paths, so the value on the stack there is not provably one source.
             var joins = il.Joins;
@@ -496,10 +520,12 @@ public sealed class KernelClockActReadArchTests
     }
 
     /// <summary>
-    /// The instructions that lie on a cycle of the method's control-flow graph (fall-through plus every branch and
-    /// switch edge): each strongly connected component with more than one instruction, or with an edge to itself.
+    /// The instructions that lie on a cycle of the method's control-flow graph (fall-through, branch/switch and
+    /// conservative exception-region edges): each strongly connected component with more than one instruction,
+    /// or with an edge to itself. Any protected instruction may enter its handler; exception feasibility is not
+    /// inferred, just as mutually exclusive normal branches are counted conservatively.
     /// </summary>
-    private static HashSet<int> CyclicOffsets((int Offset, OpCode OpCode, int Operand)[] code, IReadOnlyList<(int From, int To)> edges)
+    private static HashSet<int> CyclicOffsets(MethodBase method, (int Offset, OpCode OpCode, int Operand)[] code, IReadOnlyList<(int From, int To)> edges)
     {
         var successors = code.ToDictionary(instruction => instruction.Offset, _ => new List<int>());
         for (var index = 0; index < code.Length; index++)
@@ -511,6 +537,38 @@ public sealed class KernelClockActReadArchTests
         foreach (var (from, to) in edges)
             if (successors.TryGetValue(from, out var next) && successors.ContainsKey(to))
                 next.Add(to);
+
+        // Normal branch edges never enter a catch/filter/finally. Include conservative exceptional
+        // entries, otherwise a handler inside a loop appears acyclic and its clock read counts once.
+        // Offsets still refer to the original IL; advance entries past removed coverage probes.
+        int Entry(int offset) => code.First(instruction => instruction.Offset >= offset).Offset;
+        foreach (var clause in method.GetMethodBody()?.ExceptionHandlingClauses ?? [])
+        {
+            var handler = Entry(clause.HandlerOffset);
+            var entry = clause.Flags == ExceptionHandlingClauseOptions.Filter ? Entry(clause.FilterOffset) : handler;
+            var protectedCode = code.Where(instruction => instruction.Offset >= clause.TryOffset
+                && instruction.Offset < clause.TryOffset + clause.TryLength).ToArray();
+            foreach (var instruction in protectedCode)
+                successors[instruction.Offset].Add(entry);
+            if (clause.Flags == ExceptionHandlingClauseOptions.Filter)
+                foreach (var instruction in code.Where(instruction => instruction.Offset >= clause.FilterOffset
+                    && instruction.Offset < clause.HandlerOffset && instruction.OpCode == OpCodes.Endfilter))
+                    successors[instruction.Offset].Add(handler);
+            if (clause.Flags == ExceptionHandlingClauseOptions.Finally)
+            {
+                // A leave runs the finally before continuing at its target. Keep the normal edge as
+                // an over-approximation and also connect endfinally to every protected leave exit.
+                var exits = protectedCode.Where(instruction => instruction.OpCode == OpCodes.Leave
+                    || instruction.OpCode == OpCodes.Leave_S).Select(instruction => instruction.Operand)
+                    // An inner catch can leave to a point still inside this try. That does not run
+                    // the outer finally; connecting it would invent a cycle in a single-entry act.
+                    .Where(target => target < clause.TryOffset || target >= clause.TryOffset + clause.TryLength)
+                    .Where(successors.ContainsKey).Distinct().ToArray();
+                foreach (var instruction in code.Where(instruction => instruction.Offset >= clause.HandlerOffset
+                    && instruction.Offset < clause.HandlerOffset + clause.HandlerLength && instruction.OpCode == OpCodes.Endfinally))
+                    successors[instruction.Offset].AddRange(exits);
+            }
+        }
 
         // Tarjan, iteratively: a method body can be long enough to overflow a recursive walk.
         var order = new Dictionary<int, int>();
@@ -879,6 +937,135 @@ public sealed class KernelClockActReadArchTests
             .ToArray();
 
     // ── planted offenders: the fence must report these without anyone listing them ──────────────────────────
+
+    private static class PlantedExceptionRoutes
+    {
+        internal static void Map(WebApplication app)
+        {
+            app.MapGet("/exception/repeating-catch", RepeatingCatch);
+            app.MapGet("/exception/repeating-filter", RepeatingFilter);
+            app.MapGet("/exception/repeating-finally", RepeatingFinally);
+            app.MapGet("/exception/single-catch", SingleCatch);
+            app.MapGet("/exception/single-filter", SingleFilter);
+            app.MapGet("/exception/single-finally", SingleFinally);
+            app.MapGet("/exception/repeating-nested-finally", RepeatingNestedFinally);
+            app.MapGet("/exception/single-nested-finally", SingleNestedFinally);
+            app.MapGet("/exception/catch-break", CatchBreaksTheLoop);
+            app.MapGet("/exception/catch-return", CatchReturnsFromTheLoop);
+        }
+
+        internal static IResult RepeatingCatch(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { throw new InvalidOperationException(); }
+                catch (InvalidOperationException) { _ = time.GetUtcNow(); }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult RepeatingFilter(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { throw new InvalidOperationException(); }
+                catch (InvalidOperationException) when (ReadFilter(time)) { }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult RepeatingFinally(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { _ = index.ToString(); }
+                finally { _ = time.GetUtcNow(); }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult SingleCatch(TimeProvider time)
+        {
+            try { throw new InvalidOperationException(); }
+            catch (InvalidOperationException) { _ = time.GetUtcNow(); }
+            return Results.Ok();
+        }
+
+        internal static IResult SingleFilter(TimeProvider time)
+        {
+            try { throw new InvalidOperationException(); }
+            catch (InvalidOperationException) when (ReadFilter(time)) { }
+            return Results.Ok();
+        }
+
+        internal static IResult SingleFinally(TimeProvider time)
+        {
+            try { _ = time.ToString(); }
+            finally { _ = time.GetUtcNow(); }
+            return Results.Ok();
+        }
+
+        internal static IResult RepeatingNestedFinally(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try
+                {
+                    try { throw new InvalidOperationException(); }
+                    catch (InvalidOperationException) { }
+                    _ = index.ToString();
+                }
+                finally { _ = time.GetUtcNow(); }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult SingleNestedFinally(TimeProvider time)
+        {
+            try
+            {
+                try { throw new InvalidOperationException(); }
+                catch (InvalidOperationException) { }
+                _ = time.ToString();
+            }
+            finally { _ = time.GetUtcNow(); }
+            return Results.Ok();
+        }
+
+        internal static IResult CatchBreaksTheLoop(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { if (index == 1) throw new InvalidOperationException(); }
+                catch (InvalidOperationException)
+                {
+                    _ = time.GetUtcNow();
+                    break;
+                }
+            }
+            return Results.Ok();
+        }
+
+        internal static IResult CatchReturnsFromTheLoop(TimeProvider time)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                try { if (index == 1) throw new InvalidOperationException(); }
+                catch (InvalidOperationException)
+                {
+                    _ = time.GetUtcNow();
+                    return Results.Ok();
+                }
+            }
+            return Results.Ok();
+        }
+
+        private static bool ReadFilter(TimeProvider time)
+        {
+            _ = time.GetUtcNow();
+            return true;
+        }
+    }
 
     private static class PlantedRoutes
     {

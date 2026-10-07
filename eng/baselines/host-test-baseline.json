@@ -81,37 +81,7 @@
     "T-691 PR 231: FormDefinitionRoutes.cs's definition PUT and restore routes now catch GateReferenceShapeException around their persistence calls (RegisterAsync/RegisterAndPublishAsync), matching the catch already present around BuildDefinition in the same file and around WorkflowDefinitionRoutes.cs:199's own RegisterAndPublishAsync. Two added cases, both passing: FormDefinitionRouteTests.Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token and FormDefinitionRouteTests.Restore_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token. No test method, class or file is removed, renamed away, or skipped; no skip identity changes. A native Windows CI exact-clone at commit 391d6b101fd448fc2c1f9df518fcf796722819d9 (run 36262302652, the branch head itself, not a provisional local measurement) measured 4508 total, 4487 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Re-measured after merging origin/main (which had independently advanced to 4507/4486/0/21 via T-736): native Windows destination exact-clone (node eng/run-exact-clone.mjs) at merge commit d549beec measured 4509 total, 4488 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0."
   ],
   "permittedFailures": [],
-  "knownFlaky": [
-    {
-      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
-      "owner": "284",
-      "firstSeen": "2026-09-06",
-      "expires": "2026-10-06",
-      "verdict": "a-pre-existing-at-sha (load-sensitive)",
-      "measuredRate": "red once in the ticket 213 slice 1 exact-clone run while the box carried three other lanes; green in the immediately following full suite run on the same tree (3358 passed, 0 failed)",
-      "cause": "five-principal fleet startup exceeds its admission timeout when the machine is saturated; not a functional failure.",
-      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
-      "retryLimit": 1
-    },
-    {
-      "test": "G-4 arch (behavioural): while a fenced JE post is inside its read-through-write window, a concurrent writer is BLOCKED (the BEGIN IMMEDIATE write lock is really held across the fence read)",
-      "method": "Harborline.Api.LocalNodeHost.Tests.ArchTests.HomeEpochFenceAtomicityArchTests.FencedWrite_HoldsWriteLock_AcrossFenceRead_ConcurrentWriterIsBlocked",
-      "owner": "284",
-      "firstSeen": "2026-09-06",
-      "expires": "2026-10-06",
-      "verdict": "a-pre-existing-at-sha (load-sensitive)",
-      "measuredRate": "red once in the ticket 094 gate re-run under box load (gate-evidence 20260907T055836Z-791ee7014cd67e973a39d6bc607c8022a1893396.json: Failed 1, Passed 3358); green on the re-run",
-      "cause": "the 30 s window the assertion allows for the blocked writer to be observed is not enough when the box is saturated.",
-      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
-      "retryLimit": 1
-    },
-    {
-      "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
-      "owner": "348",
-      "firstSeen": "2026-09-08",
-      "expires": "2026-10-08"
-    }
-  ],
+  "knownFlaky": [],
   "skips": {
     "count": 19,
     "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent \u00e2\u20ac\u201d it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
@@ -150,7 +120,7 @@
     "rows": "knownFlaky",
     "identity": "`test` is the identity the runner prints on its Failed line: the fully qualified name for a plain test, the DisplayName string when the test declares one (`method` then records the method, for the reader).",
     "rules": "Every row is exact, owned by a ticket, dated (firstSeen) and expiring. An expired or unowned row fails the gate. Validated by eng/flake-registry.mjs; ratcheted by REGISTERED_FLAKE_COUNT there, which must move in the same commit as any growth.",
-    "retry": "ONE identical retry per registered row; both outcomes are recorded in the exact-clone report's host-flake-retry step."
+    "retry": "Zero registered flake allowances and zero rescue retries. Initial host-suite failures remain enforced; the host-flake-retry step retains diagnostic shape without rescuing failures."
   },
   "knownTests": [
     "#1304 F1 PERSISTED REBOOT after a supersession-purge FAILURE: B's own genesis survives the failed purge (would re-poison on reboot); a RETRY purges it durably; a fresh process over the SAME db then hydrates only A → B CONVERGES to A (no silent cross-reboot poison)",
