@@ -2,11 +2,10 @@
 
 ## Required Linux route (v3)
 
-The first required cutover is intentionally narrow. A hosted `verify-route` job
-selects `mini` for the already qualified owner-authored `pipeline/mini-*` PR
-shape, or its exact first-position single-PR squash merge group. Known batches,
-other authors/branches, manual and scheduled events retain the existing hosted
-Linux route. Unavailable, partial, stale or contradictory metadata is red.
+A hosted `verify-route` job selects `mini` for ready, non-stacked owner-authored
+same-repository PRs on any branch, or their exact first-position single-PR squash
+merge groups. The development cutover removes the pilot-only branch prefix.
+Known batches, other authors, manual and scheduled events retain hosted Linux. Unavailable, partial, stale or contradictory metadata is red.
 Eligible mini attempts cannot switch to hosted after failure or lack of capacity.
 Owner-triggered PR/queue events require a fresh first attempt even if a different
 maintainer requests a rerun. Unrecognized queue refs fail closed; known batches
@@ -19,9 +18,15 @@ Python execution. Module changes require reviewed workflow hash updates. The
 required aggregate is inline workflow code and imports no candidate modules.
 
 `verify` requires selector success and the selected Linux job's success in the
-same workflow run. The other Linux job must be skipped. The Windows fallback
-is explicitly limited to the existing scheduled/Dependabot routes. Full hosted
-Windows/macOS, shared/perf/package jobs, SBOM and quality ownership remain.
+same workflow run. The other Linux job must be skipped. Under the owner's
+2026-10-07 development-only suspension, automatic PR, merge-group and scheduled
+events require both Windows jobs to be explicitly skipped. The aggregate records
+the suspension; it does not claim Windows success. Manual `workflow_dispatch`
+requires full hosted Windows success and skips winbox. macOS, shared/perf/package
+jobs and SBOM remain required. Quality and quality-baseline remain mandatory in
+the mini's all-17 gate, or in hosted Linux when that fallback route is selected.
+Mini quality evidence is retained in the scoped controller evidence directory;
+hosted Linux retains and publishes its own quality artifacts.
 An all-lane mini receipt is additional portable proof; it does not replace
 package distribution artifacts or authoritative quality publication.
 
@@ -66,6 +71,28 @@ CI time and must appear in the post-cutover measurement.
 This required-route change remains unqualified until its real PR and merge-group
 runs, selector token access, artifact validation and protected landing pass.
 Neither v2 qualification nor local unit tests establish that result.
+
+## Temporary Windows suspension and rollback
+
+The owner explicitly authorized suspending automatic Windows during development
+on 2026-10-07. Windows DPAPI, Event Log, file locking, native DLL, executable and
+process behavior can regress without detection by the required mini/Linux gate.
+No Windows equivalence or release readiness is claimed. Windows narrowing/shadow
+experiments are not a prerequisite for this requested suspension.
+
+Before any release: restore automatic Windows job conditions and the aggregate's
+Windows-success requirement through review; run the full hosted Windows lane on
+the exact release candidate, resolve failures, and preserve its raw evidence.
+During development, run `gh workflow run verify.yml --ref <reviewed-ref>` for the
+unchanged full Windows suite on demand (alongside the existing hosted gates).
+That manual event requires real Windows success, not a skipped job.
+
+To roll back the entire cutover, revert the squash commit for PR #382 through a
+normal reviewed PR and protected merge. This restores the prior full hosted Linux
+and automatic Windows workflow. To restore only Windows while keeping the mini,
+restore the Windows conditions and required aggregate rule from #382's parent;
+keep portable quality ownership explicit. No repository variables, branch rules,
+credential grants or persistent services are changed by this suspension.
 
 ## Verified qualification checkpoint, 2026-10-07
 

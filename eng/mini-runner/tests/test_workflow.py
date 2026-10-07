@@ -23,8 +23,8 @@ def script(marker):
 class WorkflowAggregate(unittest.TestCase):
     def test_workflow_itself_refuses_every_missing_or_failed_required_lane(self):
         body = script('required mini aggregate')
-        def execute(route, needs, fallback='false', draft='false'):
-            env = dict(os.environ, LINUX_ROUTE=route, NEEDS=json.dumps(needs), WINDOWS_FALLBACK=fallback, DRAFT=draft)
+        def execute(route, needs, windows='required', draft='false'):
+            env = dict(os.environ, LINUX_ROUTE=route, NEEDS=json.dumps(needs), WINDOWS_POLICY=windows, DRAFT=draft, GITHUB_STEP_SUMMARY=os.devnull)
             return subprocess.run(['bash','-c',body],env=env,capture_output=True,text=True,timeout=10).returncode
         for route, selected, other in [('mini','verify-mini','verify-linux'),('hosted','verify-linux','verify-mini')]:
             required = ['verify-route','verify-shared','verify-macos','verify-perf-hosted','verify-windows-hosted',selected]
@@ -40,11 +40,15 @@ class WorkflowAggregate(unittest.TestCase):
                 self.assertNotEqual(execute(route,altered),0)
             self.assertNotEqual(execute('',needs),0)
             self.assertNotEqual(execute(route,needs,draft='true'),0)
-            needs['verify-windows-hosted']['result']='skipped';needs['verify-windows']['result']='success'
+            needs['verify-windows-hosted']['result']='skipped'
             self.assertNotEqual(execute(route,needs),0)
-            self.assertEqual(execute(route,needs,fallback='true'),0)
-            needs['verify-windows-hosted']['result']='failure'
-            self.assertNotEqual(execute(route,needs,fallback='true'),0)
+            self.assertEqual(execute(route,needs,windows='development-suspended'),0)
+            for name in ('verify-windows-hosted','verify-windows'):
+                for bad in ('success','failure','cancelled',None):
+                    altered=copy.deepcopy(needs);altered[name]['result']=bad
+                    self.assertNotEqual(execute(route,altered,windows='development-suspended'),0)
+            for policy in ('','optional'):
+                self.assertNotEqual(execute(route,needs,windows=policy),0)
 
 
 class WorkflowSelector(unittest.TestCase):

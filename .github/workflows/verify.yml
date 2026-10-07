@@ -1,4 +1,4 @@
-# verify: required API lanes run on GitHub-hosted macOS and the existing Windows and perf runners.
+# verify: mini portable/Linux plus macOS/shared/perf; Windows is manual during development.
 # Fork and draft guards still protect the self-hosted lanes; the required aggregator remains unconditional.
 name: verify
 
@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   schedule:
-    - cron: '17 6 * * *'   # nightly Windows datapoint against main (verify-windows below)
+    - cron: '17 6 * * *'   # nightly portable/macOS datapoint; Windows is temporarily manual-only
   workflow_dispatch:
 
 concurrency:
@@ -45,9 +45,9 @@ jobs:
           python3 -I - <<'PY'
           import hashlib, pathlib, subprocess, sys, tempfile
           approved = {
-              'required-route.py': '4e8c84a2a390e9ff16dd8e2e97e0e91dbb18c9c061bc95ddaf416561867fc071',
-              'controller.py': '80ee1cf21a295ad0854f3ef901780fe66b90e440328620739beee2d17b52920f',
-              'admission.py': 'b78af47bb5a2bfce1a3421d9a4e6f695cf0ec67e883df69863adcf7a88f6a705',
+              'required-route.py': '24294b44da4937ed74508f75fa8fd3615dc8db3605a208a6a66147c416526368',
+              'controller.py': 'b09333e8e60914e0aa63ce60370e8487f3af42d202c83abe2f6caa06874debfe',
+              'admission.py': '1b492a8d46423ef71dfe292cbf2d3d22953a5bf0e62b8c63293e614c01b4d551',
           }
           with tempfile.TemporaryDirectory(prefix='mini-selector-') as temporary:
               target = pathlib.Path(temporary)
@@ -92,9 +92,8 @@ jobs:
         shell: bash
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      # quality and quality-baseline are NOT in this lane: they read the SARIF that exact-clone
-      # writes, and exact-clone runs on the hosts. HARBORLINE_GATE_QUALITY therefore lives on
-      # verify-windows below, which is the one host that carries the comparison.
+      # Quality reads exact-clone SARIF and remains with the selected portable/Linux
+      # lane. The immutable mini runs all 17 steps; hosted Linux explicitly enables quality.
       # 2026-09-29 (owner): the shared lane also skips the package lanes (contracts TypeScript / C# /
       # Rust, operator-cli-headless, packages). packages.yml's required protocol-lane-conformance,
       # operator-cli-headless and pack-consume jobs run the same commands and own that proof, so this
@@ -166,21 +165,11 @@ jobs:
             artifacts/quality/
 
   verify:
-    # T-633: the required context. Deliberately unconditional (`always()`), so neither the kill
-    # switch nor a fork head nor a failed dependency can leave it skipped-and-therefore-green. It
-    # passes only when every job in `needs` reports success; a skipped lane fails it.
-    # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
-    # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
-    # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
-    # 2026-09-29 (owner): the Windows half is the hosted windows-2025 lane; winbox is advisory, so no
-    # self-hosted runner is on the merge path. Dependabot PRs cannot read the secret the hosted lane
-    # needs for its pinned checkouts, so for them (and only them) winbox's result stands in.
-    # 2026-09-29 (owner): Ubuntu is a supported host, so verify-linux (moved from packages.yml's
-    # build-and-test) is a host lane on the same terms as verify-macos.
-    # 2026-09-29 (owner, CI load): the one exception. A pull request labelled `stacked` skips this
-    # context and its lanes (skipped counts as passing), because the parent's squash merge forces a
-    # rerun anyway. The merge group payload has no pull_request object, so contains() is false and
-    # this context runs and gates exactly as before: nothing lands without the full gate.
+    # Required context stays unconditional and fail-closed for the selected Linux
+    # route and common lanes. Owner-authorized development policy requires both
+    # Windows jobs to be explicitly skipped on automatic events, not successful.
+    # workflow_dispatch requires the full hosted Windows job. Restore automatic
+    # Windows validation before release; see eng/mini-runner/README.md.
     needs: [verify-route, verify-mini, verify-shared, verify-macos, verify-linux, verify-windows, verify-windows-hosted, verify-perf-hosted]
     if: always() && !contains(github.event.pull_request.labels.*.name, 'stacked')
     runs-on: ubuntu-latest
@@ -191,14 +180,14 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           LINUX_ROUTE: ${{ needs.verify-route.outputs.route }}
           DRAFT: ${{ github.event.pull_request.draft }}
-          WINDOWS_FALLBACK: ${{ github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]') }}
+          WINDOWS_POLICY: ${{ github.event_name == 'workflow_dispatch' && 'required' || 'development-suspended' }}
         run: |
           # BEGIN required mini aggregate
           if [ "$DRAFT" = "true" ]; then
             echo "::error::draft PR cannot satisfy required verification"
             exit 1
           fi
-          jq -e --arg route "$LINUX_ROUTE" --arg fallback "$WINDOWS_FALLBACK" '
+          jq -e --arg route "$LINUX_ROUTE" --arg windows "$WINDOWS_POLICY" '
             ($route == "mini" or $route == "hosted")
             and ([."verify-route", ."verify-shared", ."verify-macos", ."verify-perf-hosted"] | all(.result == "success"))
             and (if $route == "mini" then
@@ -206,10 +195,16 @@ jobs:
                  else
                    ."verify-linux".result == "success" and ."verify-mini".result == "skipped"
                  end)
-            and (."verify-windows-hosted".result == "success"
-                 or ($fallback == "true" and ."verify-windows-hosted".result == "skipped"
-                     and ."verify-windows".result == "success"))
+            and ."verify-windows".result == "skipped"
+            and (if $windows == "development-suspended" then
+                   ."verify-windows-hosted".result == "skipped"
+                 elif $windows == "required" then
+                   ."verify-windows-hosted".result == "success"
+                 else false end)
           ' <<< "$NEEDS" >/dev/null || { echo "::error::a selected required lane did not succeed"; exit 1; }
+          if [ "$WINDOWS_POLICY" = "development-suspended" ]; then
+            echo "Windows validation suspended for development; restore and pass it before release." >> "$GITHUB_STEP_SUMMARY"
+          fi
           # END required mini aggregate
 
   verify-perf:
@@ -422,6 +417,8 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       HARBORLINE_VERIFY_LANE: host
+      HARBORLINE_GATE_QUALITY: '1'
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
       - name: Runner identity
         shell: bash
@@ -444,13 +441,42 @@ jobs:
 
       - uses: ./.github/actions/platform-feed
 
-      - name: Use pinned platform
+      - name: Read the quality pin
+        id: quality_pin
+        run: echo "commit=$(jq -r '.commit' eng/quality-pin.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-control
+          ref: main
+          path: .control
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-quality
+          ref: ${{ steps.quality_pin.outputs.commit }}
+          path: .quality
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
+
+      - name: Use pinned checkouts
         run: |
-          echo '.platform/' >> .git/info/exclude
+          printf '.control/\n.quality/\n.platform/\n' >> .git/info/exclude
+          echo "HARBORLINE_CONTROL_REPO=$GITHUB_WORKSPACE/.control" >> "$GITHUB_ENV"
+          echo "HARBORLINE_QUALITY_REPO=$GITHUB_WORKSPACE/.quality" >> "$GITHUB_ENV"
           echo "HARBORLINE_PLATFORM_REPO=$GITHUB_WORKSPACE/.platform" >> "$GITHUB_ENV"
 
       - name: Host lane (exact-clone against the Ubuntu baseline)
         run: bash eng/verify.sh
+
+      - name: Publish main quality findings
+        if: always() && github.event_name == 'merge_group'
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-findings-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()
@@ -462,44 +488,14 @@ jobs:
           retention-days: 14
           path: |
             .git/harborline-api-verify-receipt.json
+            .git/harborline-api-quality-decision.json
             .claude/gate-evidence/
+            artifacts/quality/
 
   verify-windows:
-    # The cross-platform half of the gate: the host and capability suites against the WINDOWS
-    # baseline, and nothing else.
-    #
-    # Ticket 421. This job used to run eng/verify.sh end to end -- which is exactly what the macOS
-    # `verify` job above does -- so thirteen of its fifteen steps produced the same answer twice per
-    # event. boundaries, identity-r3, both codegen steps, contracts TypeScript / C# / Rust,
-    # localfirst, rule-engine, operator-cli-headless, quality, quality-baseline and packages do not
-    # read the host: the same cargo build, the same pnpm install and the same quality comparison ran
-    # on both machines. Only exact-clone answers differently, because it selects its baseline from
-    # uname -s. Each landing paid that duplication three times -- the pull-request run, the
-    # merge-queue run, and main's own push run.
-    #
-    # The shared steps now run once, in `verify`; this job keeps the part that is genuinely its own.
-    # Both host suites still run, in parallel, against their own baselines -- Windows permits zero
-    # failures where macOS permits six -- and neither host waits for the other.
-    #
-    # Deliberately gone from this job: the quality-baseline fetch (its step no longer runs here, and
-    # the fetch can wait 600s for an artifact nothing would read) and the Rust toolchain install (the
-    # clone gate builds no Rust; contracts-rust is a shared step).
-    #
-    # T-662: the fork guard, character for character the one verify-shared carries above. A fork
-    # pull request does not start this job, so it does not run its author's code on winbox. The
-    # nightly schedule datapoint is unaffected -- `schedule` is the first disjunct.
-    # 2026-09-29 (owner): advisory. Pull requests and merge groups verify Windows on the hosted
-    # verify-windows-hosted lane; winbox runs nightly, on demand, and for Dependabot PRs, which the
-    # hosted lane cannot check out.
-    if: >-
-      vars.ACTIONS_ENABLED == 'true' &&
-      (github.event_name == 'schedule' ||
-       github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'pull_request' &&
-        github.actor == 'dependabot[bot]' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.draft == false &&
-        !contains(github.event.pull_request.labels.*.name, 'stacked')))
+    # Temporary development suspension: no automatic Windows execution.
+    # Full hosted Windows remains available through workflow_dispatch.
+    if: ${{ false }}
     runs-on: [self-hosted, Windows, winbox]
     timeout-minutes: 90
     defaults:
@@ -628,17 +624,9 @@ jobs:
             .claude/gate-evidence/
 
   verify-windows-hosted:
-    # The required Windows host lane, on a fresh VM (2026-09-29, owner: replaces winbox on the merge
-    # path). The verify context depends on it; verify-windows (winbox) is advisory.
-    # Dependabot PRs have no access to the Actions secret needed for private pinned checkouts.
-    if: >-
-      vars.ACTIONS_ENABLED == 'true' &&
-      github.actor != 'dependabot[bot]' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'merge_group' ||
-       (github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.draft == false &&
-        !contains(github.event.pull_request.labels.*.name, 'stacked')))
+    # Temporary development suspension: no automatic Windows execution.
+    # Full hosted Windows remains available through workflow_dispatch.
+    if: vars.ACTIONS_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:
@@ -739,10 +727,9 @@ jobs:
     # in packages.yml) replaces with a per-run checkout at the recorded pin.
     # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
     # guards are the other self-hosted lanes'.
-    # T-1001: it waits on verify-windows-hosted, the required Windows lane an ordinary PR runs. It
-    # used to wait on verify-windows (winbox), which a PR runs only for Dependabot since the
-    # 2026-09-29 ruling, so on every other PR this job was skipped with it.
-    needs: [verify-windows-hosted]
+    # Follow the required portable verdict while Windows is suspended, so skipped
+    # Windows work cannot silently disable this existing advisory mutation job.
+    needs: [verify]
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       github.event_name == 'pull_request' &&

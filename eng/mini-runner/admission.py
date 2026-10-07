@@ -37,8 +37,10 @@ def candidate_shape(candidate):
         if candidate['prMerge'] != candidate['head']:
             return False
         ref = f"refs/pull/{candidate['prNumber']}/merge"
-        if not isinstance(candidate['headBranch'], str) or not re.fullmatch(
-                r'pipeline/mini-[A-Za-z0-9._/-]+', candidate['headBranch']):
+        branch = candidate['headBranch']
+        if not isinstance(branch, str) or not branch or '\x00' in branch:
+            return False
+        if not required and not re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', branch):
             return False
     elif event == 'merge_group':
         branch = f"gh-readonly-queue/main/pr-{candidate['prNumber']}-{candidate['base']}"

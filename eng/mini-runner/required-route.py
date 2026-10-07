@@ -45,8 +45,7 @@ def choose(env, event, api=c.api, queue=queue_entry):
         if (pr['draft'] or any(label['name'] == 'stacked' for label in pr['labels'])
                 or pr['head']['repo']['id'] != 1360432948 or pr['head']['repo']['fork'] is True
                 or pr['base']['ref'] != 'main' or pr['user']['id'] != 1328090
-                or pr['user']['login'] != 'ctwoodwa'
-                or not re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref'])):
+                or pr['user']['login'] != 'ctwoodwa'):
             return hosted('pr-outside-qualified-mini-scope')
         number, head, base = pr['number'], env['GITHUB_SHA'], pr['base']['sha']
         c.require(event['number'] == number and env['GITHUB_REF'] == f'refs/pull/{number}/merge', 'PR event binding mismatch')
@@ -73,8 +72,7 @@ def choose(env, event, api=c.api, queue=queue_entry):
         pr = api('pulls/'+str(number))
         c.require(pr['number'] == number and pr['head']['sha'] == members[0]['headRefOid'], 'Queue PR head mismatch')
         if (pr['head']['repo']['id'] != 1360432948 or pr['head']['repo']['fork'] is True
-                or pr['user']['id'] != 1328090 or pr['user']['login'] != 'ctwoodwa'
-                or not re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref'])):
+                or pr['user']['id'] != 1328090 or pr['user']['login'] != 'ctwoodwa'):
             return hosted('group-pr-outside-qualified-mini-scope')
         pr_merge = api('git/ref/pull/'+str(number)+'/merge')['object']['sha']
         branch = group['head_ref'].removeprefix('refs/heads/')
@@ -89,7 +87,7 @@ def choose(env, event, api=c.api, queue=queue_entry):
     return {**decision, 'route': 'mini', 'reason': 'exact-qualified-candidate', 'candidate': candidate}
 
 
-def accepts(route, results, *, windows_fallback=False):
+def accepts(route, results, *, windows_policy="required"):
     """Required aggregate truth table, including no skipped-mini acceptance."""
     common = ('verify-route', 'verify-shared', 'verify-macos', 'verify-perf-hosted')
     if route not in ('mini', 'hosted') or any(results.get(name) != 'success' for name in common):
@@ -97,16 +95,18 @@ def accepts(route, results, *, windows_fallback=False):
     selected, other = ('verify-mini', 'verify-linux') if route == 'mini' else ('verify-linux', 'verify-mini')
     if results.get(selected) != 'success' or results.get(other) != 'skipped':
         return False
-    return (results.get('verify-windows-hosted') == 'success'
-            or (windows_fallback and results.get('verify-windows-hosted') == 'skipped'
-                and results.get('verify-windows') == 'success'))
+    if results.get('verify-windows') != 'skipped':
+        return False
+    if windows_policy == 'development-suspended':
+        return results.get('verify-windows-hosted') == 'skipped'
+    return windows_policy == 'required' and results.get('verify-windows-hosted') == 'success'
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'aggregate':
         needs = json.loads(os.environ['NEEDS'])
         result = accepts(os.environ['LINUX_ROUTE'], {name: value['result'] for name, value in needs.items()},
-                         windows_fallback=os.environ.get('WINDOWS_FALLBACK') == 'true')
+                         windows_policy=os.environ['WINDOWS_POLICY'])
         c.require(os.environ.get('DRAFT') != 'true' and result, 'A selected required lane did not succeed')
     else:
         decision = choose(os.environ, json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()))

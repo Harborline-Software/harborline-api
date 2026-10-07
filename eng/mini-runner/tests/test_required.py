@@ -120,12 +120,29 @@ class RequiredSelection(unittest.TestCase):
             self.assertEqual(selected['candidate'], candidate)
             state.assert_called_once_with(candidate)
 
+    def test_regular_owner_branches_keep_exact_ref_binding_without_pilot_prefix(self):
+        for branch in ('fix/host-startup', 'feature/ordinary-pr'):
+            candidate, policy, env, payload, run, _ = required_fixture()
+            candidate['headBranch'] = branch
+            payload['pull_request']['head']['ref'] = branch
+            env['GITHUB_HEAD_REF'] = branch
+            run['head_branch'] = branch
+            self.assertTrue(admission.admitted(policy, env, payload))
+            selected = route.choose(env, payload, api=lambda _: {'object': {'sha': MERGE}})
+            self.assertEqual(selected['route'], 'mini')
+            self.assertEqual(selected['candidate']['headBranch'], branch)
+            self.assertFalse(admission.admitted(policy, {**env, 'GITHUB_HEAD_REF': 'unrelated'}, payload))
+            # Historical v2 qualification retains its narrower contract.
+            old, *_ = fixture('pull_request')
+            old['headBranch'] = branch
+            self.assertFalse(admission.candidate_shape(old))
+
     def test_known_other_routes_are_hosted_but_stale_attempt_or_ref_is_red(self):
         _, _, env, payload, _, _ = required_fixture()
         for kind in ('schedule', 'workflow_dispatch'):
             self.assertEqual(route.choose({**env, 'GITHUB_EVENT_NAME': kind}, {})['route'], 'hosted')
         self.assertEqual(route.choose({**env, 'GITHUB_ACTOR_ID': '49699333', 'GITHUB_ACTOR': 'dependabot[bot]'}, payload)['route'], 'hosted')
-        for path, value in [(('head', 'repo', 'fork'), True), (('draft',), True), (('head', 'ref'), 'other-branch'),
+        for path, value in [(('head', 'repo', 'fork'), True), (('draft',), True),
                             (('user', 'id'), 1), (('labels',), [{'name': 'stacked'}])]:
             altered = copy.deepcopy(payload); target = altered['pull_request']
             for part in path[:-1]:
@@ -177,6 +194,20 @@ class RequiredSelection(unittest.TestCase):
                 route.choose(env, payload, api=lambda key: records[key], queue=lambda _: entry)
 
 
+class RequiredOwnerBranchState(unittest.TestCase):
+    def test_pr_and_single_group_resolve_owner_regular_branch(self):
+        for event in ('pull_request', 'merge_group'):
+            candidate, records, entry = candidate_tests.CandidateHost().state_fixture(event)
+            candidate['required'] = True
+            candidate['workflowRef'] = candidate['workflowRef'].replace('mini-candidate-gate.yml', 'verify.yml')
+            records['pulls/380']['head']['ref'] = 'fix/ordinary-owner-branch'
+            if event == 'pull_request':
+                candidate['headBranch'] = 'fix/ordinary-owner-branch'
+            with patch.object(c, 'api', side_effect=lambda key: records[key]), \
+                    patch.object(c, 'command', return_value=json.dumps({'data': {'repository': {'pullRequest': {'mergeQueueEntry': entry}}}})):
+                self.assertEqual(c.candidate_state(candidate), TREE)
+
+
 class RequiredAggregation(unittest.TestCase):
     def results(self, selected):
         return {'verify-route': 'success', 'verify-shared': 'success', 'verify-macos': 'success',
@@ -199,11 +230,16 @@ class RequiredAggregation(unittest.TestCase):
         self.assertFalse(route.accepts('unknown', self.results('mini')))
         self.assertFalse(route.accepts('mini', {**self.results('mini'), 'verify-mini': 'failure', 'verify-linux': 'success'}))
 
-    def test_windows_fallback_is_explicit_and_never_accepts_failed_hosted(self):
-        rows = {**self.results('hosted'), 'verify-windows-hosted': 'skipped', 'verify-windows': 'success'}
-        self.assertFalse(route.accepts('hosted', rows))
-        self.assertTrue(route.accepts('hosted', rows, windows_fallback=True))
-        self.assertFalse(route.accepts('hosted', {**rows, 'verify-windows-hosted': 'failure'}, windows_fallback=True))
+    def test_development_suspension_is_explicit_and_does_not_claim_windows_success(self):
+        for selected in ('mini', 'hosted'):
+            rows = {**self.results(selected), 'verify-windows-hosted': 'skipped'}
+            self.assertFalse(route.accepts(selected, rows))
+            self.assertTrue(route.accepts(selected, rows, windows_policy='development-suspended'))
+            for name in ('verify-windows-hosted', 'verify-windows'):
+                for bad in ('success', 'failure', 'cancelled', None):
+                    self.assertFalse(route.accepts(selected, {**rows, name: bad}, windows_policy='development-suspended'))
+            for bad in ('', 'optional', None):
+                self.assertFalse(route.accepts(selected, rows, windows_policy=bad))
 
 
 class RequiredFocusedSelection(unittest.TestCase):

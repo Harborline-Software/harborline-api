@@ -135,7 +135,8 @@ def candidate_state(candidate, *, allow_landed=False):
               and pr.get('merge_commit_sha') == candidate['head'])
     require(pr['number'] == number and (pr['state'] == 'open' or landed) and not pr['draft'], 'PR is not ready and open')
     require(pr['user']['id'] == 1328090 and pr['user']['login'] == 'ctwoodwa', 'PR author not admitted')
-    require(re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref']), 'PR branch not admitted')
+    if candidate.get('required') is not True:
+        require(re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref']), 'PR branch not admitted')
     require(pr['head']['repo']['id'] == 1360432948 and pr['head']['repo']['fork'] is False
             and pr['base']['repo']['id'] == 1360432948, 'Cross-repository candidate refused')
     require(pr['head']['sha'] == candidate['prHead'] and (landed or pr['base']['sha'] == candidate['base'])
