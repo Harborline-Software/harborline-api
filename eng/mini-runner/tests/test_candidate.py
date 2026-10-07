@@ -141,7 +141,7 @@ class CandidateHost(unittest.TestCase):
         with patch.object(c, 'api', side_effect=lambda path: records[path]), patch.object(c, 'command', return_value=json.dumps(data)):
             return c.candidate_state(candidate, allow_landed=allow_landed)
 
-    def test_exact_landed_group_only_allowed_at_terminal_check(self):
+    def test_exact_landed_group_requires_explicit_post_activation_allowance(self):
         candidate, records, entry = self.state_fixture('merge_group')
         records['pulls/380'].update(state='closed', merged=True, merge_commit_sha=GROUP)
         records['git/ref/heads/main']['object']['sha'] = GROUP
@@ -307,6 +307,34 @@ class CandidateEvidence(unittest.TestCase):
                 (directory/'receipts.json').write_text(json.dumps(value))
             save_receipts(record)
             c.validate_candidate_evidence(root, policy)
+            # Correlated corruption: matching OFF/ON rows and their own expected
+            # object are not an independent runtime/dependency oracle.
+            required = copy.deepcopy(policy)
+            required.update(version=3, jobId='73', jobKey='verify-mini',
+                            comparisonDiff='M\0eng/mini-runner/controller.py\0')
+            required['candidate']['required'] = True
+            required['candidate']['workflowRef'] = required['candidate']['workflowRef'].replace('mini-candidate-gate.yml', 'verify.yml')
+            bound = {**provenance, **{key: required[key] for key in ('candidate', 'jobId', 'jobKey', 'comparisonDiff')}}
+            save_provenance(bound)
+            runtime = {'host': 'fixture/linux/arm64', 'dependencies': 'sha256:'+'b'*64}
+            c.validate_candidate_evidence(root, required, runtime=runtime)
+            with self.assertRaisesRegex(RuntimeError, 'measurement absent'):
+                c.validate_candidate_evidence(root, required)
+            for key, value in [('host', 'another/windows/x64'), ('dependencies', 'sha256:'+'c'*64), ('run', 'run-stale')]:
+                altered = copy.deepcopy(record)
+                altered['expected'][key] = value
+                for row in altered['receipts']:
+                    row[key] = value
+                save_receipts(altered)
+                with self.subTest(correlated=key), self.assertRaisesRegex(RuntimeError, 'runtime binding'):
+                    c.validate_candidate_evidence(root, required, runtime=runtime)
+            save_receipts(record)
+            renamed = directory.with_name('run-renamed')
+            directory.rename(renamed)
+            with self.assertRaisesRegex(RuntimeError, 'runtime binding mismatch: run'):
+                c.validate_candidate_evidence(root, required, runtime=runtime)
+            renamed.rename(directory)
+            save_provenance(provenance)
             for key in provenance:
                 altered = copy.deepcopy(provenance)
                 altered.pop(key)
@@ -355,6 +383,47 @@ class CandidateEvidence(unittest.TestCase):
 
 
 class CandidateLifecycle(unittest.TestCase):
+    def test_exact_landing_during_execution_continues_but_new_main_refuses(self):
+        import argparse
+        from types import SimpleNamespace
+        for advanced_main in (False, True):
+            with self.subTest(advanced_main=advanced_main), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                candidate, records, _ = CandidateHost().state_fixture('merge_group')
+                records['pulls/380'].update(state='closed', merged=True, merge_commit_sha=GROUP)
+                records['git/ref/heads/main']['object']['sha'] = BASE if advanced_main else GROUP
+                del records['git/ref/heads/gh-readonly-queue/main/pr-380-'+BASE]
+                del records['git/ref/pull/380/merge']
+                _, policy, *_ = fixture('merge_group')
+                policy.update(tree=TREE, sdk='11.0.100-rc.1.26425.128')
+                (root/'policy.json').write_text(json.dumps(policy)); (root/'heavy.lock').touch()
+                args = argparse.Namespace(policy=str(root/'policy.json'), lock=str(root/'heavy.lock'),
+                                          output=str(root/'evidence'), image='sha256:'+'a'*64)
+                states = iter(('in_progress', 'completed'))
+                def api(path, method='GET'):
+                    if method == 'POST':
+                        return {'token': 'fixture-only'}
+                    if '/jobs?' in path:
+                        return {'total_count': 1, 'jobs': [{'runner_name': 'hl-mini-'+'a'*32+'-a', 'conclusion': 'success'}]}
+                    if path.startswith('actions/runs/'):
+                        return {'run_attempt': 1, 'head_sha': GROUP, 'status': next(states), 'conclusion': 'success'}
+                    return records[path]
+                def docker(*args, **kwargs):
+                    return '2.338.0' if args[-1] == '--version' else ''
+                with patch.object(c, 'pending', return_value=policy), patch.object(c, 'preflight_image', return_value={}), \
+                        patch.object(c, 'api', side_effect=api), patch.object(c, 'docker', side_effect=docker), \
+                        patch.object(c, 'candidate_pending', return_value=policy), \
+                        patch.object(c.uuid, 'uuid4', return_value=SimpleNamespace(hex='a'*32)), \
+                        patch.object(c, 'validate_receipt'), patch.object(c, 'validate_candidate_evidence'), \
+                        patch.object(c.time, 'sleep'), patch.object(c, 'cleanup', return_value={'clean': True}) as cleanup:
+                    if advanced_main:
+                        with self.assertRaisesRegex(RuntimeError, 'Main changed'):
+                            c.execute(args)
+                    else:
+                        c.execute(args)
+                    cleanup.assert_called_once_with('a'*32)
+                self.assertEqual(json.loads((root/'evidence/result.json').read_text())['success'], not advanced_main)
+
     def test_supersession_at_each_activation_boundary_cleans_up(self):
         import argparse
         from types import SimpleNamespace

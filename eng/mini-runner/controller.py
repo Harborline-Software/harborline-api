@@ -16,11 +16,36 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
-from admission import REPO, WORKFLOW, CANDIDATE_WORKFLOW, candidate_shape
+from admission import REPO, WORKFLOW, CANDIDATE_WORKFLOW, REQUIRED_WORKFLOW, candidate_shape
 
 ROOT = Path(__file__).resolve().parent
 LABEL = 'org.harborline.mini.session'
 RUNNER_SHA = '628b4a7258487b80c1d3c221095a7ded349f5ae0175fd3dfab708d07428f041b'
+VALIDATORS = ROOT/'validators' if (ROOT/'validators').is_dir() else ROOT.parent
+
+
+def selected_candidate_job(jobs, candidate):
+    if candidate.get('required') is not True:
+        require(len(jobs) == 1 and jobs[0]['name'] == 'portable', 'Unexpected candidate job set')
+        selected = jobs[0]
+        label = 'harborline-api-mini-candidate-v2'
+    else:
+        # Dependent jobs are not materialized until their prerequisites finish.
+        # Permit only the reviewed workflow's named jobs; require the one mini.
+        allowed = {'verify', 'verify-route', 'verify-shared', 'verify-macos', 'verify-linux', 'verify-mini',
+                   'verify-windows', 'verify-windows-hosted', 'verify-perf', 'verify-perf-hosted', 'stryker'}
+        require(len({j['name'] for j in jobs}) == len(jobs)
+                and {j['name'] for j in jobs} <= allowed, 'Unexpected verify job set')
+        matches = [j for j in jobs if j['name'] == 'verify-mini']
+        require(len(matches) == 1, 'Required mini job absent or duplicated')
+        selected = matches[0]
+        for job in jobs:
+            if job is not selected:
+                require(not any(label.startswith('harborline-api-mini-') for label in job['labels']), 'Another job targets mini')
+        require(type(selected.get('id')) is int and selected['id'] > 0, 'Invalid mini job ID')
+        label = 'harborline-api-mini-required-v3'
+    require(set(selected['labels']) == {'self-hosted', label, 'linux-arm64-orbstack', 'lane-a'}, 'Unexpected candidate labels')
+    return selected
 
 
 def require(condition, message):
@@ -158,16 +183,19 @@ def validate_candidate_run(run, jobs, candidate, workflow, reviewed, *, queued=T
     # REST head_sha is the PR source head; runtime GITHUB_SHA is its merge commit.
     expected_head = candidate['prHead'] if candidate['event'] == 'pull_request' else candidate['head']
     require(run['head_sha'] == expected_head and run['head_branch'] == candidate['headBranch'], 'Run source changed')
-    require(run['path'] == CANDIDATE_WORKFLOW and workflow == reviewed, 'Workflow bytes require review')
+    required = candidate.get('required') is True
+    require(run['path'] == (REQUIRED_WORKFLOW if required else CANDIDATE_WORKFLOW) and workflow == reviewed, 'Workflow bytes require review')
     for actor in ('actor', 'triggering_actor'):
         require(run[actor]['id'] == 1328090 and run[actor]['login'] == 'ctwoodwa', 'Actor not admitted')
-    require(len(jobs) == 1 and jobs[0]['name'] == 'portable', 'Unexpected candidate job set')
-    require(set(jobs[0]['labels']) == {'self-hosted', 'harborline-api-mini-candidate-v2', 'linux-arm64-orbstack', 'lane-a'}, 'Unexpected candidate labels')
+    selected = selected_candidate_job(jobs, candidate)
     if queued:
         require(run['status'] in ('queued', 'waiting', 'pending', 'in_progress') and run['conclusion'] is None, 'Run is not pending')
-        require(jobs[0]['status'] == 'queued' and not jobs[0].get('runner_id'), 'Job already assigned')
-    return {'version': 2, 'runId': str(run['id']), 'head': candidate['head'], 'candidate': candidate,
-            'coverage': candidate['event'] == 'merge_group'}
+        require(selected['status'] == 'queued' and not selected.get('runner_id'), 'Job already assigned')
+    result = {'version': 3 if required else 2, 'runId': str(run['id']), 'head': candidate['head'], 'candidate': candidate,
+              'coverage': candidate['event'] == 'merge_group'}
+    if required:
+        result.update(jobId=str(selected['id']), jobKey='verify-mini')
+    return result
 
 
 def candidate_pending(run_id, candidate, *, queued=True):
@@ -176,9 +204,10 @@ def candidate_pending(run_id, candidate, *, queued=True):
     require(str(run['id']) == run_id, 'Run ID mismatch')
     jobs = api('actions/runs/'+run_id+'/attempts/1/jobs?per_page=100')
     require(jobs['total_count'] == len(jobs['jobs']), 'Incomplete job inventory')
-    remote = api('contents/'+CANDIDATE_WORKFLOW+'?ref='+candidate['workflowHead'])
+    workflow = REQUIRED_WORKFLOW if candidate.get('required') is True else CANDIDATE_WORKFLOW
+    remote = api('contents/'+workflow+'?ref='+candidate['workflowHead'])
     policy = validate_candidate_run(run, jobs['jobs'], candidate, base64.b64decode(remote['content']),
-                                    (ROOT.parent.parent/CANDIDATE_WORKFLOW).read_bytes(), queued=queued)
+                                    (ROOT.parent.parent/workflow).read_bytes(), queued=queued)
     sdk = json.loads(base64.b64decode(api('contents/global.json?ref='+candidate['head'])['content']))['sdk']
     require(sdk['rollForward'] == 'disable', 'Review changed SDK policy')
     policy.update(sdk=sdk['version'], tree=tree)
@@ -219,6 +248,8 @@ def prepare(args):
     require(git(paths['api'], 'rev-parse', 'HEAD') == policy['head'], 'API checkout must be at admitted tested commit')
     if candidate:
         require(git(paths['api'], 'merge-base', candidate['base'], policy['head']) == candidate['base'], 'Missing or unrelated base history')
+        if policy['version'] == 3:
+            policy['comparisonDiff'] = git(paths['api'], 'diff', '--name-status', '-z', '--find-renames', candidate['base'], 'HEAD')
     expected = {'api': policy['head'], 'control': args.control_head}
     for name in ('platform', 'quality'):
         expected[name] = json.loads(git(paths['api'], 'show', 'HEAD:eng/'+name+'-pin.json'))['commit']
@@ -238,8 +269,11 @@ def prepare(args):
         sources[name] = {'head': expected[name], 'bundleSha256': digest(bundle)}
         if name == 'api' and candidate:
             sources[name]['comparisonBase'] = candidate['base']
-    for name in ('Dockerfile', 'admission.py', 'checkout-sources.py', 'entrypoint.sh', 'start-hook.sh', 'portable-gate.sh'):
+    for name in ('Dockerfile', 'admission.py', 'controller.py', 'finish-gate.py', 'checkout-sources.py', 'entrypoint.sh', 'start-hook.sh', 'portable-gate.sh'):
         shutil.copyfile(ROOT/name, target/name)
+    (target/'validators').mkdir()
+    for name in ('focused-mode-policy.mjs', 'host-baseline.mjs', 'coverage.mjs'):
+        shutil.copyfile(VALIDATORS/name, target/'validators'/name)
     shutil.copyfile(args.runner_archive, target/'runner.tar.gz')
     write(target/'sources.json', sources)
     policy['sourcesSha256'] = digest(target/'sources.json')
@@ -305,9 +339,27 @@ def preflight_image(image, policy, session):
     sources = docker(*prefix, 'cat', image, '/opt/mini/sources.json')
     require(hashlib.sha256(sources.encode()).hexdigest() == policy['sourcesSha256'], 'Baked source manifest mismatch')
     # Compare all controller-owned executable bytes, not merely image labels.
-    for name in ('admission.py', 'checkout-sources.py', 'entrypoint.sh', 'start-hook.sh', 'portable-gate.sh'):
+    for name in ('admission.py', 'controller.py', 'finish-gate.py', 'checkout-sources.py', 'entrypoint.sh', 'start-hook.sh', 'portable-gate.sh'):
         require(docker(*prefix, 'cat', image, '/opt/mini/'+name).encode() == (ROOT/name).read_bytes(), 'Image runtime differs from reviewed code')
+    for name in ('focused-mode-policy.mjs', 'host-baseline.mjs', 'coverage.mjs'):
+        require(docker(*prefix, 'cat', image, '/opt/mini/validators/'+name).encode() == (VALIDATORS/name).read_bytes(), 'Image validator differs from reviewed code')
     return json.loads(sources)
+
+
+def coverage_summary(path):
+    xml = ET.parse(path).getroot()
+    require(xml.tag == 'coverage', 'Invalid coverage root')
+    lines = {}
+    for cls in xml.iter('class'):
+        filename = cls.attrib['filename']
+        require(bool(filename), 'Missing coverage filename')
+        for line in cls.iter('line'):
+            number, hits = line.attrib['number'], line.attrib['hits']
+            require(re.fullmatch('[0-9]+', number) and re.fullmatch('[0-9]+', hits), 'Invalid coverage line')
+            key = (filename, int(number))
+            lines[key] = max(int(hits), lines.get(key, 0))
+    return {'validLines': len(lines), 'coveredLines': sum(hits > 0 for hits in lines.values()),
+            'paths': sorted({filename for filename, _ in lines})}
 
 
 def validate_receipt(directory, head, tree, coverage=False):
@@ -321,7 +373,9 @@ def validate_receipt(directory, head, tree, coverage=False):
         for name in ('host', 'contracts'):
             item = receipt['coverage'][name]
             require(item['validLines'] > 0 and 0 <= item['coveredLines'] <= item['validLines'], 'Empty coverage evidence')
-            require((directory/'quality'/(name+'.cobertura.xml')).is_file(), 'Coverage artifact absent')
+            require(item['path'] == 'artifacts/quality/'+name+'.cobertura.xml', 'Wrong coverage artifact path')
+            measured = coverage_summary(directory/'quality'/(name+'.cobertura.xml'))
+            require(all(item[key] == measured[key] for key in ('validLines', 'coveredLines')), 'Coverage contents mismatch')
     else:
         require(receipt['coverage'] == 'none', 'Unexpected coverage mode')
     # v1 qualification contract, independent of production-generated receipt.
@@ -345,16 +399,57 @@ def reserve(path):
         raise
 
 
-def validate_candidate_evidence(directory, policy):
+def measure_focused_runtime(inputs, gate):
+    """Measure independently of receipts, inside the admitted execution container."""
+    policy = json.loads((inputs/'policy.json').read_text())
+    feed = gate/'api'/'.feed'
+    files = sorted((p for p in feed.iterdir() if p.name.endswith('.nupkg') or p.name == 'packed-version.props'),
+                   key=lambda p: p.name.encode('utf-16-be'))
+    require(any(p.name == 'packed-version.props' for p in files)
+            and any(p.name.endswith('.nupkg') for p in files), 'Focused dependency feed absent')
+    require(all(p.is_file() and not p.is_symlink() for p in files), 'Invalid focused dependency file')
+    payload = json.dumps([[p.name, digest(p)] for p in files], ensure_ascii=False, separators=(',', ':'))
+    host = command(['node', '-e', 'process.stdout.write(require("node:os").hostname()+"/"+process.platform+"/"+process.arch)'])
+    return {'policySha256': digest(inputs/'policy.json'), 'runId': policy['runId'],
+            'jobId': policy.get('jobId'), 'head': policy['head'], 'host': host,
+            'dependencies': 'sha256:'+hashlib.sha256(payload.encode()).hexdigest()}
+
+
+def validate_runtime_anchor(runtime, policy, policy_digest):
+    require(isinstance(runtime, dict), 'Independent focused runtime measurement absent')
+    require(all(runtime.get(key) == value for key, value in {
+        'policySha256': policy_digest, 'runId': policy['runId'],
+        'jobId': policy.get('jobId'), 'head': policy['head']}.items()), 'Focused runtime policy mismatch')
+    require(isinstance(runtime.get('host'), str) and bool(runtime['host'])
+            and re.fullmatch('sha256:[0-9a-f]{64}', runtime.get('dependencies', '')), 'Invalid focused runtime measurement')
+
+
+def validate_candidate_evidence(directory, policy, *, runtime=None):
     value = json.loads((directory/'candidate-provenance.json').read_text())
     for key in ('runId', 'head', 'tree', 'candidate', 'coverage', 'sourcesSha256'):
         require(value.get(key) == policy[key], 'Candidate evidence binding mismatch: '+key)
     require(value.get('comparisonBase') == policy['candidate']['base'], 'Wrong comparison base')
-    require(isinstance(value.get('changedPaths'), list) and bool(value['changedPaths']), 'No changed-path qualification evidence')
+    if policy['version'] == 3:
+        require(value.get('jobId') == policy['jobId'] and value.get('jobKey') == 'verify-mini', 'Wrong job evidence')
+        require(value.get('comparisonDiff') == policy['comparisonDiff'], 'Wrong source diff evidence')
+    require(isinstance(value.get('changedPaths'), list)
+            and (policy['version'] == 3 or bool(value['changedPaths'])), 'No changed-path qualification evidence')
     # Initial candidate qualification deliberately requires a non-documentation
     # delta and actual completed focused OFF/ON evidence, not just selection.
     files = list((directory/'gate-evidence'/'focused-modes').glob('run-*/receipts.json'))
+    expected_plan = None
+    if policy['version'] == 3:
+        script = ('import {readFileSync} from "node:fs"; import {classifyFocusedModes,parseChangedFiles,requireRunnableSelection} from '
+                  +json.dumps((VALIDATORS/'focused-mode-policy.mjs').as_uri())+'; '
+                  'const plan=classifyFocusedModes(parseChangedFiles(readFileSync(0,"utf8"))); '
+                  'requireRunnableSelection(plan); console.log(JSON.stringify(plan));')
+        expected_plan = json.loads(command(['node', '--input-type=module', '-e', script], input=policy['comparisonDiff']))
+        if not expected_plan['requiredModes']:
+            require(not files, 'Unexpected focused evidence for unchanged/documentation-only source')
+            return
     require(bool(files), 'Focused OFF/ON receipts absent')
+    if policy['version'] == 3:
+        require(isinstance(runtime, dict), 'Independent focused runtime measurement absent')
     required_names = {
         'ck-10 fence: no production code runs its own loop over the ADR 0038 stage order',
         'ck-10 fence: only the executor calls a KernelWrite stage',
@@ -364,7 +459,14 @@ def validate_candidate_evidence(directory, policy):
     }
     for path in files:
         data = json.loads(path.read_text())
+        if expected_plan is not None:
+            require(data['plan'] == expected_plan, 'Focused plan does not match admitted source diff')
         require(data['plan']['requiredModes'] == ['coverage-off', 'coverage-on'], 'Focused modes not selected')
+        if policy['version'] == 3:
+            # The anchor is measured by immutable code, never read from these receipts.
+            for key, expected in {'host': runtime['host'], 'dependencies': runtime['dependencies'],
+                                  'run': path.parent.name}.items():
+                require(data['expected'].get(key) == expected, 'Focused runtime binding mismatch: '+key)
         rows = data['receipts']
         require(len(rows) == 2 and {r['mode'] for r in rows} == {'coverage-off', 'coverage-on'}, 'Missing focused mode')
         for row in rows:
@@ -381,26 +483,14 @@ def validate_candidate_evidence(directory, policy):
                 require(row['coverage']['validLines'] > 0
                         and row['coverageDigest'] == 'sha256:'+digest(path.parent/'coverage-on'/'focused.cobertura.xml'),
                         'Focused coverage missing or changed')
-                xml = ET.parse(path.parent/'coverage-on'/'focused.cobertura.xml').getroot()
-                require(xml.tag == 'coverage', 'Invalid coverage root')
-                lines = {}
-                for cls in xml.iter('class'):
-                    filename = cls.attrib['filename']
-                    require(bool(filename), 'Missing coverage filename')
-                    for line in cls.iter('line'):
-                        number, hits = line.attrib['number'], line.attrib['hits']
-                        require(re.fullmatch('[0-9]+', number) and re.fullmatch('[0-9]+', hits), 'Invalid coverage line')
-                        key = (filename, int(number))
-                        lines[key] = max(int(hits), lines.get(key, 0))
-                measured = {'validLines': len(lines), 'coveredLines': sum(hits > 0 for hits in lines.values()),
-                            'paths': sorted({filename for filename, _ in lines})}
+                measured = coverage_summary(path.parent/'coverage-on'/'focused.cobertura.xml')
                 require(row['coverage'] == measured, 'Focused coverage contents mismatch')
             else:
                 require(row['coverageDigest'] is None and row['coverage'] is None, 'Unexpected focused OFF coverage')
         # Execute the reviewed host-side validator, never import candidate code
         # from the container's exported source. Re-read the archived raw TRX too.
-        validator = (ROOT.parent/'focused-mode-policy.mjs').as_uri()
-        trx_reader = (ROOT.parent/'host-baseline.mjs').as_uri()
+        validator = (VALIDATORS/'focused-mode-policy.mjs').as_uri()
+        trx_reader = (VALIDATORS/'host-baseline.mjs').as_uri()
         script = ('import {readFileSync} from "node:fs"; import path from "node:path"; '
                   'import assert from "node:assert/strict"; '
                   'import {validateFocusedModeEvidence} from '+json.dumps(validator)+'; '
@@ -426,6 +516,7 @@ def execute(args):
     lock = reserve(args.lock)
     clean = None
     result = {'success': False}
+    focused_runtime = None
     try:
         sources = preflight_image(args.image, policy, session)
         write(evidence/'sources.json', sources)
@@ -440,7 +531,8 @@ def execute(args):
             docker('exec', name, 'timeout', '30', 'bash', '-c', 'until test -f /runner/READY; do sleep 1; done')
             require(docker('exec', name, '/runner/bin/Runner.Listener', '--version').strip() == '2.338.0', 'Runner version changed')
             token = api('actions/runners/registration-token', 'POST')['token']
-            runner_label = 'harborline-api-mini-candidate-v2' if candidate else 'harborline-api-mini-portable-v1'
+            runner_label = ('harborline-api-mini-required-v3' if policy['version'] == 3 else
+                            'harborline-api-mini-candidate-v2' if candidate else 'harborline-api-mini-portable-v1')
             script = 'IFS= read -r token; ./config.sh --unattended --ephemeral --disableupdate --url https://github.com/'+REPO+' --token "$token" --name '+name+' --no-default-labels --labels self-hosted,'+runner_label+',linux-arm64-orbstack,lane-'+row['lane']+' --work _work >/runner/configure.log 2>&1; result=$?; unset token; exit "$result"'
             try:
                 docker('exec', '-i', '--workdir', '/runner', name, 'bash', '-c', script, input=token+'\n')
@@ -455,10 +547,34 @@ def execute(args):
             run = api('actions/runs/'+policy['runId'])
             run_head = candidate['prHead'] if candidate and candidate['event'] == 'pull_request' else policy['head']
             require(run['run_attempt'] == 1 and run['head_sha'] == run_head, 'Run provenance changed')
+            if policy['version'] == 3:
+                jobs = api('actions/runs/'+policy['runId']+'/attempts/1/jobs?per_page=100')
+                require(jobs['total_count'] == len(jobs['jobs']), 'Incomplete job inventory')
+                job = selected_candidate_job(jobs['jobs'], candidate)
+                require(str(job['id']) == policy['jobId'], 'Selected job changed')
+                if job.get('runner_id'):
+                    require(job['runner_name'] == resources(session)[0]['name'], 'Job assigned elsewhere')
+                if focused_runtime is None and job['status'] == 'in_progress' and job.get('runner_id'):
+                    # The ephemeral listener may exit before GitHub reports completion.
+                    # Capture a host-held anchor while execution is active. The readiness
+                    # marker only schedules measurement; it supplies none of its values.
+                    measured = docker('exec', resources(session)[0]['name'], 'sh', '-c',
+                                      'if test -f /runner/gate/FOCUSED_READY; then python3 -I /opt/mini/finish-gate.py --measure-focused; fi')
+                    if measured.strip():
+                        focused_runtime = json.loads(measured)
+                        validate_runtime_anchor(focused_runtime, policy, digest(args.policy))
+                if job['status'] == 'completed':
+                    require(job['runner_name'] == resources(session)[0]['name'], 'Job completed elsewhere')
+                    # This candidate-specific verdict does not wait on the verify
+                    # aggregate (which depends on this job) or on protected landing.
+                    result = {'success': job['conclusion'] == 'success', 'runId': policy['runId'],
+                              'head': policy['head'], 'jobs': [job], 'selectedJobOnly': True}
+                    break
             if candidate and run['status'] != 'completed' and time.monotonic() >= next_candidate_check:
                 # A superseded candidate must not continue consuming capacity or
                 # acquire a success verdict merely because the old job exits 0.
-                require(candidate_state(candidate) == policy['tree'], 'Candidate superseded during execution')
+                require(candidate_state(candidate, allow_landed=candidate['event'] == 'merge_group') == policy['tree'],
+                        'Candidate superseded during execution')
                 next_candidate_check = time.monotonic()+30
             if run['status'] == 'completed':
                 if candidate:
@@ -486,7 +602,10 @@ def execute(args):
                 for row in resources(session):
                     validate_receipt(evidence/row['lane'], policy['head'], policy['tree'], policy.get('coverage', row['lane'] == 'b'))
                     if candidate:
-                        validate_candidate_evidence(evidence/row['lane'], policy)
+                        if policy['version'] == 3:
+                            validate_runtime_anchor(focused_runtime, policy, digest(args.policy))
+                            write(evidence/'focused-runtime.json', focused_runtime)
+                        validate_candidate_evidence(evidence/row['lane'], policy, runtime=focused_runtime)
         except (RuntimeError, OSError, ValueError, KeyError, TypeError, StopIteration, ET.ParseError):
             result['success'] = False
             result['evidenceFailure'] = 'Missing or invalid exact-head gate/quality evidence'

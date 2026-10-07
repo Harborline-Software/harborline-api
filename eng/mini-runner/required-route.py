@@ -1,0 +1,115 @@
+"""Choose a required Linux route before execution; never fall back after failure."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import controller as c
+
+
+def queue_entry(number):
+    query = ('query { repository(owner:"Harborline-Software", name:"harborline-api") { '
+             'pullRequest(number:'+str(number)+') { mergeQueueEntry { position baseCommit { oid } '
+             'headCommit { oid } mergeQueue { configuration { mergeMethod } entries(first:100) { '
+             'pageInfo { hasNextPage } nodes { pullRequest { number headRefOid } headCommit { oid } } } } } } } }')
+    result = json.loads(c.command(['gh', 'api', 'graphql', '-f', 'query='+query]))
+    c.require(not result.get('errors'), 'Queue query refused')
+    return result['data']['repository']['pullRequest']['mergeQueueEntry']
+
+
+def choose(env, event, api=c.api, queue=queue_entry):
+    c.require(env.get('GITHUB_REPOSITORY_ID') == '1360432948'
+              and env.get('GITHUB_REPOSITORY') == 'Harborline-Software/harborline-api', 'Wrong repository')
+    kind = env['GITHUB_EVENT_NAME']
+    c.require(kind in ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch'), 'Unsupported event')
+    c.require(re.fullmatch('[0-9a-f]{40}', env['GITHUB_SHA']), 'Invalid tested head')
+    decision = {'runId': env['GITHUB_RUN_ID'], 'attempt': env['GITHUB_RUN_ATTEMPT'],
+                'event': kind, 'testedHead': env['GITHUB_SHA'], 'route': 'hosted', 'candidate': None}
+    def hosted(reason):
+        return {**decision, 'reason': reason}
+    if kind in ('schedule', 'workflow_dispatch'):
+        return hosted('scheduled-or-manual-hosted-route')
+    c.require(event['repository']['id'] == 1360432948 and event['repository']['fork'] is False, 'Wrong event repository')
+    if env['GITHUB_ACTOR_ID'] != '1328090' or env['GITHUB_ACTOR'] != 'ctwoodwa' or env['GITHUB_TRIGGERING_ACTOR'] != 'ctwoodwa':
+        return hosted('actor-outside-qualified-mini-scope')
+    c.require(event['sender']['id'] == 1328090 and event['sender']['login'] == 'ctwoodwa', 'Event sender mismatch')
+    if kind == 'pull_request':
+        pr = event['pull_request']
+        if (pr['draft'] or any(label['name'] == 'stacked' for label in pr['labels'])
+                or pr['head']['repo']['id'] != 1360432948 or pr['head']['repo']['fork'] is True
+                or pr['base']['ref'] != 'main' or pr['user']['id'] != 1328090
+                or pr['user']['login'] != 'ctwoodwa'
+                or not re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref'])):
+            return hosted('pr-outside-qualified-mini-scope')
+        number, head, base = pr['number'], env['GITHUB_SHA'], pr['base']['sha']
+        c.require(event['number'] == number and env['GITHUB_REF'] == f'refs/pull/{number}/merge', 'PR event binding mismatch')
+        pr_merge = api('git/ref/pull/'+str(number)+'/merge')['object']['sha']
+        c.require(pr_merge == head, 'PR merge replaced during selection')
+        branch = pr['head']['ref']
+    else:
+        group = event['merge_group']
+        c.require(event['action'] == 'checks_requested' and group['head_sha'] == env['GITHUB_SHA']
+                  and group['head_ref'] == env['GITHUB_REF'] and group['base_ref'] == 'refs/heads/main', 'Group event binding mismatch')
+        match = re.fullmatch(r'refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]*)-([0-9a-f]{40})', group['head_ref'])
+        if not match:
+            return hosted('group-ref-shape-outside-qualified-mini-scope')
+        number, head, base = int(match[1]), group['head_sha'], group['base_sha']
+        c.require(match[2] == base, 'Group ref/base mismatch')
+        entry = queue(number)
+        c.require(entry is not None and entry['headCommit']['oid'] == head, 'Group queue identity missing or changed')
+        entries = entry['mergeQueue']['entries']
+        c.require(not entries['pageInfo']['hasNextPage'], 'Incomplete queue membership')
+        members = [row['pullRequest'] for row in entries['nodes'] if row.get('headCommit') and row['headCommit']['oid'] == head]
+        c.require(any(row['number'] == number for row in members), 'Queue member missing')
+        if len(members) != 1 or entry['position'] != 1 or entry['mergeQueue']['configuration']['mergeMethod'] != 'SQUASH':
+            return hosted('batch-position-or-method-outside-qualified-mini-scope')
+        c.require(entry['baseCommit']['oid'] == base, 'Queue base mismatch')
+        pr = api('pulls/'+str(number))
+        c.require(pr['number'] == number and pr['head']['sha'] == members[0]['headRefOid'], 'Queue PR head mismatch')
+        if (pr['head']['repo']['id'] != 1360432948 or pr['head']['repo']['fork'] is True
+                or pr['user']['id'] != 1328090 or pr['user']['login'] != 'ctwoodwa'
+                or not re.fullmatch(r'pipeline/mini-[A-Za-z0-9._/-]+', pr['head']['ref'])):
+            return hosted('group-pr-outside-qualified-mini-scope')
+        pr_merge = api('git/ref/pull/'+str(number)+'/merge')['object']['sha']
+        branch = group['head_ref'].removeprefix('refs/heads/')
+    c.require(env['GITHUB_RUN_ATTEMPT'] == '1', 'Mini candidates require a newly reviewed first attempt')
+    c.require(pr['state'] == 'open' and pr['draft'] is False and pr['base']['sha'] == base, 'Candidate no longer ready')
+    candidate = {'required': True, 'event': kind, 'prNumber': number, 'prHead': pr['head']['sha'],
+                 'prMerge': pr_merge, 'head': head, 'base': base, 'headBranch': branch,
+                 'ref': env['GITHUB_REF'], 'workflowHead': head,
+                 'workflowRef': 'Harborline-Software/harborline-api/.github/workflows/verify.yml@'+env['GITHUB_REF']}
+    # Independently resolve all commit/PR/queue relationships, just as the host
+    # will recheck before registration. A contradiction is red, not hosted.
+    c.candidate_state(candidate)
+    return {**decision, 'route': 'mini', 'reason': 'exact-qualified-candidate', 'candidate': candidate}
+
+
+def accepts(route, results, *, windows_fallback=False):
+    """Required aggregate truth table, including no skipped-mini acceptance."""
+    common = ('verify-route', 'verify-shared', 'verify-macos', 'verify-perf-hosted')
+    if route not in ('mini', 'hosted') or any(results.get(name) != 'success' for name in common):
+        return False
+    selected, other = ('verify-mini', 'verify-linux') if route == 'mini' else ('verify-linux', 'verify-mini')
+    if results.get(selected) != 'success' or results.get(other) != 'skipped':
+        return False
+    return (results.get('verify-windows-hosted') == 'success'
+            or (windows_fallback and results.get('verify-windows-hosted') == 'skipped'
+                and results.get('verify-windows') == 'success'))
+
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'aggregate':
+        needs = json.loads(os.environ['NEEDS'])
+        result = accepts(os.environ['LINUX_ROUTE'], {name: value['result'] for name, value in needs.items()},
+                         windows_fallback=os.environ.get('WINDOWS_FALLBACK') == 'true')
+        c.require(os.environ.get('DRAFT') != 'true' and result, 'A selected required lane did not succeed')
+    else:
+        decision = choose(os.environ, json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()))
+        digest = hashlib.sha256(json.dumps(decision, sort_keys=True).encode()).hexdigest()
+        with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+            output.write('route='+decision['route']+'\n')
+            output.write('decision-digest='+digest+'\n')
+        print('MINI_ROUTE_DECISION '+json.dumps(decision, sort_keys=True), flush=True)

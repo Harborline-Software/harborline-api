@@ -35,6 +35,8 @@ ET.SubElement(ET.SubElement(project,'ItemGroup'),'PackageReference',Include='Mic
 ET.ElementTree(project).write(root/'tmp/ledger-prerequisites/restore.csproj')
 METADATA
 dotnet restore "$root/tmp/ledger-prerequisites/restore.csproj" > "$root/out/ledger-prerequisites.log" 2>&1
+# Host can now independently measure stable feed bytes before focused execution.
+touch "$root/FOCUSED_READY"
 set +e
 bash eng/verify.sh > "$root/out/gate.log" 2>&1
 code=$?
@@ -45,4 +47,9 @@ done
 if [ -d artifacts/quality ]; then cp -R artifacts/quality "$root/out/quality"; fi
 if [ -d .claude/gate-evidence ]; then cp -R .claude/gate-evidence "$root/out/gate-evidence"; fi
 tail -n 60 "$root/out/gate.log"
+if [ "$code" -eq 0 ]; then
+  python3 -I /opt/mini/finish-gate.py
+  code=$?
+  printf '%s\n' "$code" > "$root/out/gate-exit.txt"
+fi
 exit "$code"

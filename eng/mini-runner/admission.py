@@ -9,6 +9,7 @@ import time
 REPO = 'Harborline-Software/harborline-api'
 WORKFLOW = '.github/workflows/mini-portable-gate.yml'
 CANDIDATE_WORKFLOW = '.github/workflows/mini-candidate-gate.yml'
+REQUIRED_WORKFLOW = '.github/workflows/verify.yml'
 
 
 def candidate_shape(candidate):
@@ -17,9 +18,12 @@ def candidate_shape(candidate):
     This validates structure, not authorization. The host independently checks
     the reviewed candidate against live GitHub state before issuing credentials.
     """
-    if not isinstance(candidate, dict) or set(candidate) != {
+    if not isinstance(candidate, dict):
+        return False
+    required = candidate.get('required') is True
+    if set(candidate) != ({
             'event', 'prNumber', 'prHead', 'prMerge', 'head', 'base', 'ref', 'headBranch',
-            'workflowHead', 'workflowRef'}:
+            'workflowHead', 'workflowRef'} | ({'required'} if required else set())):
         return False
     if type(candidate['prNumber']) is not int or candidate['prNumber'] < 1:
         return False
@@ -45,8 +49,9 @@ def candidate_shape(candidate):
         return False
     # This qualification workflow is sourced from the tested synthetic commit.
     # Other workflow-authority shapes need a separately reviewed contract.
+    workflow = REQUIRED_WORKFLOW if required else CANDIDATE_WORKFLOW
     return (candidate['ref'] == ref and candidate['workflowHead'] == candidate['head']
-            and candidate['workflowRef'] == f'{REPO}/{CANDIDATE_WORKFLOW}@{ref}')
+            and candidate['workflowRef'] == f'{REPO}/{workflow}@{ref}')
 
 
 def candidate_admitted(policy, env, event):
@@ -55,6 +60,12 @@ def candidate_admitted(policy, env, event):
         return False
     if policy.get('coverage') is not (candidate['event'] == 'merge_group'):
         return False
+    required = candidate.get('required') is True
+    if policy.get('version') != (3 if required else 2):
+        return False
+    if required and (policy.get('jobKey') != 'verify-mini' or not isinstance(policy.get('jobId'), str)
+                     or not re.fullmatch('[1-9][0-9]*', policy['jobId'])):
+        return False
     run_id = policy.get('runId')
     if not isinstance(run_id, str) or not re.fullmatch('[1-9][0-9]*', run_id):
         return False
@@ -62,7 +73,7 @@ def candidate_admitted(policy, env, event):
         'GITHUB_EVENT_NAME': candidate['event'], 'GITHUB_REPOSITORY': REPO,
         'GITHUB_REPOSITORY_ID': '1360432948', 'GITHUB_REF': candidate['ref'],
         'GITHUB_ACTOR': 'ctwoodwa', 'GITHUB_ACTOR_ID': '1328090',
-        'GITHUB_TRIGGERING_ACTOR': 'ctwoodwa', 'GITHUB_JOB': 'portable',
+        'GITHUB_TRIGGERING_ACTOR': 'ctwoodwa', 'GITHUB_JOB': 'verify-mini' if required else 'portable',
         'GITHUB_WORKFLOW_REF': candidate['workflowRef'],
         'GITHUB_SHA': candidate['head'], 'GITHUB_WORKFLOW_SHA': candidate['workflowHead'],
         'GITHUB_RUN_ID': run_id, 'GITHUB_RUN_ATTEMPT': '1',
@@ -104,7 +115,7 @@ def candidate_admitted(policy, env, event):
 
 
 def admitted(policy, env, event):
-    if isinstance(policy, dict) and policy.get('version') == 2:
+    if isinstance(policy, dict) and policy.get('version') in (2, 3):
         return candidate_admitted(policy, env, event)
     if not isinstance(policy, dict) or policy.get('version') != 1:
         return False

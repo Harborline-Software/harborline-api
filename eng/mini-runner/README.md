@@ -1,5 +1,62 @@
 # Bounded mini portable qualification
 
+## Required Linux route (v3)
+
+The first required cutover is intentionally narrow. A hosted `verify-route` job
+selects `mini` for the already qualified owner-authored `pipeline/mini-*` PR
+shape, or its exact first-position single-PR squash merge group. Known batches,
+other authors/branches, manual and scheduled events retain the existing hosted
+Linux route. Unavailable, partial, stale or contradictory metadata is red.
+Eligible mini attempts cannot switch to hosted after failure or lack of capacity.
+The selector's read-only GitHub token needs contents and pull-request access;
+actual queue-field access must be qualified before protected landing.
+The workflow pins SHA-256 values for the selector and its two Python modules,
+copies only verified bytes into a private temporary directory, and uses isolated
+Python execution. Module changes require reviewed workflow hash updates. The
+required aggregate is inline workflow code and imports no candidate modules.
+
+`verify` requires selector success and the selected Linux job's success in the
+same workflow run. The other Linux job must be skipped. The Windows fallback
+is explicitly limited to the existing scheduled/Dependabot routes. Full hosted
+Windows/macOS, shared/perf/package jobs, SBOM and quality ownership remain.
+An all-lane mini receipt is additional portable proof; it does not replace
+package distribution artifacts or authoritative quality publication.
+
+A required descriptor adds `"required": true`, binds the verify workflow at
+its tested SHA/ref, and resolves the exact `verify-mini` job ID. The controller
+allows the reviewed hosted jobs to progress independently and monitors the mini
+job alone, avoiding a cycle with its dependent `verify` aggregate. Unexpected
+mini-targeted jobs, changed job IDs/assignment, attempts or reviewed workflow
+bytes are refused. The API bundle includes the exact base history and source
+diff; bootstrap and completion verify it independently. Documentation-only
+changes omit only the existing additional focused check, using the reviewed
+classifier over that bound diff. Unknown selection is refused.
+
+The immutable image now contains the reviewed receipt/focused/TRX validators.
+The wrapper invokes them before returning a successful job exit, checking source,
+base, runtime run/attempt/job, pins, all 17 steps, quality, coverage and focused
+artifacts. Candidate code cannot provide validator modules through cwd or
+PYTHONPATH. Missing/tampered proof produces a failing GitHub job, not merely a
+post-job controller failure. `immutable-validation.json` records the policy and
+receipt digests. Host validation and exact-session cleanup remain independent.
+Focused runtime identity and dependency digests are measured from the actual
+container and feed bytes by immutable code, independently of both receipts and
+their shared expected object. The controller retains its own measurement while
+the job is active; completion remeasures before green, and run identities must
+match their evidence directories. Missing live measurements refuse host success.
+
+The required verdict means this exact admitted candidate passed validation.
+Controller polling/cancellation are operational safeguards; a later controller
+failure cannot revoke an already-issued candidate-specific verdict. Protected
+queue checks bind every new group to its own synthetic commit. There is no
+"latest successful" receipt reuse, controller-approval handshake, persistent
+runner service, daemon or autostart. Operator queue wait remains real elapsed
+CI time and must appear in the post-cutover measurement.
+
+This required-route change remains unqualified until its real PR and merge-group
+runs, selector token access, artifact validation and protected landing pass.
+Neither v2 qualification nor local unit tests establish that result.
+
 ## Candidate qualification (additive v2)
 
 `mini-candidate-gate.yml` adds a separate, non-required PR/merge-group lane.
@@ -23,7 +80,7 @@ live GitHub PR/ref/commit/queue state, and compares the actual workflow bytes
 at its bound source SHA with the reviewed local file. It checks again before
 credentials, before listener activation, during execution, and at completion.
 A moved base, new PR head, replaced group, changed job set or workflow refuses
-the session. At completion only, an exact group landing is also accepted when
+the session. During execution and at completion, an exact group landing is accepted when
 GitHub records that same PR/head as merged at the admitted squash commit, main
 is exactly that commit, and the recorded PR merge parents/tree still match. Review a fresh candidate instead of editing a baked policy.
 

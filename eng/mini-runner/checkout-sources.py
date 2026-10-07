@@ -42,11 +42,15 @@ def restore(inputs, root, env):
             raise RuntimeError('Comparison ref mismatch')
         if name == 'api' and candidate:
             changed = git('diff', '--name-status', '--no-renames', base, 'HEAD')
+            if policy.get('version') == 3:
+                if git('diff', '--name-status', '-z', '--find-renames', base, 'HEAD') != policy['comparisonDiff']:
+                    raise RuntimeError('Admitted source diff mismatch')
             (root/'out'/'candidate-provenance.json').write_text(json.dumps({
                 'runId': policy['runId'], 'head': policy['head'], 'tree': policy['tree'],
                 'candidate': candidate, 'coverage': policy['coverage'],
                 'sourcesSha256': source_digest, 'comparisonBase': base,
                 'changedPaths': changed.splitlines(),
+                **({k: policy[k] for k in ('jobId', 'jobKey', 'comparisonDiff')} if policy.get('version') == 3 else {}),
             }, indent=2)+'\n')
 
 

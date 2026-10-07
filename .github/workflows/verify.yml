@@ -22,6 +22,59 @@ permissions:
   contents: read
 
 jobs:
+  verify-route:
+    # Admission is decided before either Linux lane executes. Unsupported known
+    # shapes retain hosted Linux; inconsistent/unavailable metadata fails red.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      route: ${{ steps.select.outputs.route }}
+      decision-digest: ${{ steps.select.outputs.decision-digest }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # BEGIN immutable mini selector
+          python3 -I - <<'PY'
+          import hashlib, pathlib, subprocess, sys, tempfile
+          approved = {
+              'required-route.py': 'fe4d2047aa6b27a9d95b5680daa7cae3c79bd34fec6ca26db5e7559bedd6e6b3',
+              'controller.py': '80ee1cf21a295ad0854f3ef901780fe66b90e440328620739beee2d17b52920f',
+              'admission.py': 'b78af47bb5a2bfce1a3421d9a4e6f695cf0ec67e883df69863adcf7a88f6a705',
+          }
+          with tempfile.TemporaryDirectory(prefix='mini-selector-') as temporary:
+              target = pathlib.Path(temporary)
+              for name, expected in approved.items():
+                  data = (pathlib.Path('eng/mini-runner') / name).read_bytes()
+                  if hashlib.sha256(data).hexdigest() != expected:
+                      raise SystemExit('Unreviewed selector module: ' + name)
+                  (target / name).write_bytes(data)
+              subprocess.run([sys.executable, '-I', str(target / 'required-route.py')], check=True)
+          PY
+          # END immutable mini selector
+
+  verify-mini:
+    needs: [verify-route]
+    if: vars.ACTIONS_ENABLED == 'true' && needs.verify-route.outputs.route == 'mini'
+    permissions: {}
+    runs-on: [self-hosted, harborline-api-mini-required-v3, linux-arm64-orbstack, lane-a]
+    timeout-minutes: 50
+    env:
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '0' }}
+    steps:
+      # No actions, secrets, checkout or preparation before the immutable hook.
+      # The immutable wrapper validates evidence before this job can succeed.
+      - name: Required portable gate at admitted candidate
+        shell: bash
+        run: /opt/mini/portable-gate.sh
+
   verify-shared:
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
@@ -128,25 +181,36 @@ jobs:
     # context and its lanes (skipped counts as passing), because the parent's squash merge forces a
     # rerun anyway. The merge group payload has no pull_request object, so contains() is false and
     # this context runs and gates exactly as before: nothing lands without the full gate.
-    needs: [verify-shared, verify-macos, verify-linux, verify-windows, verify-windows-hosted, verify-perf-hosted]
+    needs: [verify-route, verify-mini, verify-shared, verify-macos, verify-linux, verify-windows, verify-windows-hosted, verify-perf-hosted]
     if: always() && !contains(github.event.pull_request.labels.*.name, 'stacked')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every lane this context stands for ran and passed
+      - name: Every selected lane this context stands for ran and passed
         env:
           NEEDS: ${{ toJSON(needs) }}
+          LINUX_ROUTE: ${{ needs.verify-route.outputs.route }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          WINDOWS_FALLBACK: ${{ github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]') }}
         run: |
-          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            echo "::error::draft PR: self-hosted lanes are not run; mark ready for review to verify"
+          # BEGIN required mini aggregate
+          if [ "$DRAFT" = "true" ]; then
+            echo "::error::draft PR cannot satisfy required verification"
             exit 1
           fi
-          echo "$NEEDS"
-          jq -e '
-            ([."verify-shared", ."verify-macos", ."verify-linux", ."verify-perf-hosted"] | all(.result == "success"))
+          jq -e --arg route "$LINUX_ROUTE" --arg fallback "$WINDOWS_FALLBACK" '
+            ($route == "mini" or $route == "hosted")
+            and ([."verify-route", ."verify-shared", ."verify-macos", ."verify-perf-hosted"] | all(.result == "success"))
+            and (if $route == "mini" then
+                   ."verify-mini".result == "success" and ."verify-linux".result == "skipped"
+                 else
+                   ."verify-linux".result == "success" and ."verify-mini".result == "skipped"
+                 end)
             and (."verify-windows-hosted".result == "success"
-                 or (."verify-windows-hosted".result == "skipped" and ."verify-windows".result == "success"))
-          ' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
+                 or ($fallback == "true" and ."verify-windows-hosted".result == "skipped"
+                     and ."verify-windows".result == "success"))
+          ' <<< "$NEEDS" >/dev/null || { echo "::error::a selected required lane did not succeed"; exit 1; }
+          # END required mini aggregate
 
   verify-perf:
     # Advisory comparison with the hosted perf gate during mac16's retirement window. The
@@ -342,7 +406,9 @@ jobs:
     # packages.yml's build-and-test, which ran the same exact-clone against the same baseline but only
     # on merge groups and outside any required context. The guards are verify-macos's, character for
     # character. eng/verify.sh selects host-test-baseline.ubuntu.json from uname -s.
+    needs: [verify-route]
     if: >-
+      needs.verify-route.outputs.route == 'hosted' &&
       vars.ACTIONS_ENABLED == 'true' &&
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
