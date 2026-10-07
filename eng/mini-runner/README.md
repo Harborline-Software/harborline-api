@@ -67,11 +67,13 @@ This required-route change remains unqualified until its real PR and merge-group
 runs, selector token access, artifact validation and protected landing pass.
 Neither v2 qualification nor local unit tests establish that result.
 
-## Candidate qualification (additive v2)
+## Historical candidate qualification (additive v2)
 
-`mini-candidate-gate.yml` adds a separate, non-required PR/merge-group lane.
-It does not change `verify`, packages, Windows, macOS, quality ownership, or
-Stryker. There is no daemon: each reviewed run needs a bounded controller.
+`mini-candidate-gate.yml` supplied the separate non-required qualification lane
+in #381. The required-route change removes that automatic trigger to avoid a
+second mini job for the same candidate. The v2 source and qualified receipts remain
+in Git history; existing v2 recovery journals still use their reviewed controller.
+There is no daemon: each required run needs its bounded controller.
 
 `prepare --candidate REVIEWED.json` accepts an explicit descriptor with
 `event`, `prNumber`, `prHead`, `prMerge`, `head` (tested synthetic commit), `base`, `ref`,
