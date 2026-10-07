@@ -30,7 +30,7 @@ local `sha256:` image ID; record the resolved base ID and final image ID.
 architecture/user/entrypoint/hook, exact executable bytes, policy, SDK and source
 manifest before requesting any registration token. It rechecks the queued run
 before registration and before starting the listener. It acquires the existing
-heavy.lock inode without creating/replacing it. Each lane gets 5 CPUs, 7 GiB,
+heavy.lock inode without creating/replacing it. The single qualification lane gets 5 CPUs, 10 GiB,
 1,024 PIDs, a private volume/network, read-only root, no capabilities, no privilege
 escalation, no host bind mount, and no Docker socket.
 
@@ -149,3 +149,21 @@ and the first mini full-gate goal. There is no additional permission prerequisit
 for routine image preparation or that approved bounded run. Protected landing,
 the existing smoke sequence, actual runner admission controls and required checks
 remain execution prerequisites; no queue/protection bypass is implied.
+
+
+## SDK-11 resource and consumer-runtime correction
+
+A fresh SDK-11 all-lane run exceeded the former 7-GiB limit during host tests.
+The container recorded OOM and an aborted test host; the unchanged identity
+comparison refused 571 missing baseline identities. A same-candidate 10-GiB
+trial completed the named host baseline, with an 8.874-GiB cgroup peak, no OOM,
+no host swap, and at least 6.185 GiB available inside the Docker VM. Compiler
+and MSBuild processes overlap the tests. Test parallelism remains unchanged.
+This observation supports only one lane; it is not two-lane capacity evidence.
+
+That trial then exposed a separate final-step prerequisite: the existing package
+consumer targets net10.0. The toolchain copies only Microsoft.NETCore.App 10.0.12
+from the immutable official ARM64 SDK-10 image, alongside SDK/runtime 11.
+It does not install SDK 10, retarget source, or enable runtime roll-forward.
+Actual package consumption and a fresh complete gate must qualify the combined
+configuration; the local probe excludes live Listener/Worker overhead.
