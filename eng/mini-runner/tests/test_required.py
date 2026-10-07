@@ -210,7 +210,7 @@ class RequiredOwnerBranchState(unittest.TestCase):
 
 class RequiredAggregation(unittest.TestCase):
     def results(self, selected):
-        return {'verify-route': 'success', 'verify-shared': 'success', 'verify-macos': 'success',
+        return {'verify-route': 'success', 'verify-shared': 'skipped' if selected == 'mini' else 'success', 'verify-macos': 'success',
                 'verify-perf-hosted': 'success', 'verify-windows-hosted': 'success', 'verify-windows': 'skipped',
                 'verify-mini': 'success' if selected == 'mini' else 'skipped',
                 'verify-linux': 'success' if selected == 'hosted' else 'skipped'}
@@ -230,16 +230,16 @@ class RequiredAggregation(unittest.TestCase):
         self.assertFalse(route.accepts('unknown', self.results('mini')))
         self.assertFalse(route.accepts('mini', {**self.results('mini'), 'verify-mini': 'failure', 'verify-linux': 'success'}))
 
-    def test_development_suspension_is_explicit_and_does_not_claim_windows_success(self):
+    def test_development_suspension_is_explicit_and_does_not_claim_native_success(self):
         for selected in ('mini', 'hosted'):
-            rows = {**self.results(selected), 'verify-windows-hosted': 'skipped'}
+            rows = {**self.results(selected), 'verify-windows-hosted': 'skipped', 'verify-macos': 'skipped'}
             self.assertFalse(route.accepts(selected, rows))
-            self.assertTrue(route.accepts(selected, rows, windows_policy='development-suspended'))
-            for name in ('verify-windows-hosted', 'verify-windows'):
+            self.assertTrue(route.accepts(selected, rows, native_policy='development-suspended'))
+            for name in ('verify-windows-hosted', 'verify-windows', 'verify-macos'):
                 for bad in ('success', 'failure', 'cancelled', None):
-                    self.assertFalse(route.accepts(selected, {**rows, name: bad}, windows_policy='development-suspended'))
+                    self.assertFalse(route.accepts(selected, {**rows, name: bad}, native_policy='development-suspended'))
             for bad in ('', 'optional', None):
-                self.assertFalse(route.accepts(selected, rows, windows_policy=bad))
+                self.assertFalse(route.accepts(selected, rows, native_policy=bad))
 
 
 class RequiredFocusedSelection(unittest.TestCase):

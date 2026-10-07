@@ -87,26 +87,30 @@ def choose(env, event, api=c.api, queue=queue_entry):
     return {**decision, 'route': 'mini', 'reason': 'exact-qualified-candidate', 'candidate': candidate}
 
 
-def accepts(route, results, *, windows_policy="required"):
+def accepts(route, results, *, native_policy="required"):
     """Required aggregate truth table, including no skipped-mini acceptance."""
-    common = ('verify-route', 'verify-shared', 'verify-macos', 'verify-perf-hosted')
+    common = ('verify-route', 'verify-perf-hosted')
     if route not in ('mini', 'hosted') or any(results.get(name) != 'success' for name in common):
         return False
     selected, other = ('verify-mini', 'verify-linux') if route == 'mini' else ('verify-linux', 'verify-mini')
     if results.get(selected) != 'success' or results.get(other) != 'skipped':
         return False
+    if results.get('verify-shared') != ('skipped' if route == 'mini' else 'success'):
+        return False
     if results.get('verify-windows') != 'skipped':
         return False
-    if windows_policy == 'development-suspended':
-        return results.get('verify-windows-hosted') == 'skipped'
-    return windows_policy == 'required' and results.get('verify-windows-hosted') == 'success'
+    if native_policy == 'development-suspended':
+        return (results.get('verify-windows-hosted') == 'skipped'
+                and results.get('verify-macos') == 'skipped')
+    return (native_policy == 'required' and results.get('verify-windows-hosted') == 'success'
+            and results.get('verify-macos') == 'success')
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'aggregate':
         needs = json.loads(os.environ['NEEDS'])
         result = accepts(os.environ['LINUX_ROUTE'], {name: value['result'] for name, value in needs.items()},
-                         windows_policy=os.environ['WINDOWS_POLICY'])
+                         native_policy=os.environ['NATIVE_POLICY'])
         c.require(os.environ.get('DRAFT') != 'true' and result, 'A selected required lane did not succeed')
     else:
         decision = choose(os.environ, json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()))

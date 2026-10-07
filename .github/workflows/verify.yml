@@ -1,4 +1,4 @@
-# verify: mini portable/Linux plus macOS/shared/perf; Windows is manual during development.
+# verify: required mini portable proof; native Windows/macOS are manual during development.
 # Fork and draft guards still protect the self-hosted lanes; the required aggregator remains unconditional.
 name: verify
 
@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   schedule:
-    - cron: '17 6 * * *'   # nightly portable/macOS datapoint; Windows is temporarily manual-only
+    - cron: '17 6 * * *'   # nightly hosted portable datapoint; native Windows/macOS are temporarily manual-only
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +45,7 @@ jobs:
           python3 -I - <<'PY'
           import hashlib, pathlib, subprocess, sys, tempfile
           approved = {
-              'required-route.py': '24294b44da4937ed74508f75fa8fd3615dc8db3605a208a6a66147c416526368',
+              'required-route.py': '6a225dfd9fe1b75b3f311cf20600f81faa595f293db21316e5b80598615cce84',
               'controller.py': 'b09333e8e60914e0aa63ce60370e8487f3af42d202c83abe2f6caa06874debfe',
               'admission.py': '1b492a8d46423ef71dfe292cbf2d3d22953a5bf0e62b8c63293e614c01b4d551',
           }
@@ -76,7 +76,9 @@ jobs:
         run: /opt/mini/portable-gate.sh
 
   verify-shared:
+    needs: [verify-route]
     if: >-
+      needs.verify-route.outputs.route == 'hosted' &&
       vars.ACTIONS_ENABLED == 'true' &&
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
@@ -84,8 +86,8 @@ jobs:
        (github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.draft == false &&
         !contains(github.event.pull_request.labels.*.name, 'stacked')))
-    # The shared lane reads no host-specific baseline.
-    runs-on: macos-15
+    # Hosted fallback only: the mini all-17 gate already includes every shared step.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
@@ -99,7 +101,6 @@ jobs:
       # operator-cli-headless and pack-consume jobs run the same commands and own that proof, so this
       # lane compiles no Rust and needs no toolchain for it.
       HARBORLINE_VERIFY_LANE: shared
-      DEVELOPER_DIR: /Library/Developer/CommandLineTools
     steps:
       - name: Runner identity
         shell: bash
@@ -166,10 +167,10 @@ jobs:
 
   verify:
     # Required context stays unconditional and fail-closed for the selected Linux
-    # route and common lanes. Owner-authorized development policy requires both
-    # Windows jobs to be explicitly skipped on automatic events, not successful.
-    # workflow_dispatch requires the full hosted Windows job. Restore automatic
-    # Windows validation before release; see eng/mini-runner/README.md.
+    # route and hosted perf. Shared proof comes from mini all-17 or hosted shared.
+    # Development policy requires native jobs skipped on automatic events;
+    # workflow_dispatch requires full hosted Windows and macOS success. Restore
+    # automatic native validation before release; see eng/mini-runner/README.md.
     needs: [verify-route, verify-mini, verify-shared, verify-macos, verify-linux, verify-windows, verify-windows-hosted, verify-perf-hosted]
     if: always() && !contains(github.event.pull_request.labels.*.name, 'stacked')
     runs-on: ubuntu-latest
@@ -180,30 +181,32 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           LINUX_ROUTE: ${{ needs.verify-route.outputs.route }}
           DRAFT: ${{ github.event.pull_request.draft }}
-          WINDOWS_POLICY: ${{ github.event_name == 'workflow_dispatch' && 'required' || 'development-suspended' }}
+          NATIVE_POLICY: ${{ github.event_name == 'workflow_dispatch' && 'required' || 'development-suspended' }}
         run: |
           # BEGIN required mini aggregate
           if [ "$DRAFT" = "true" ]; then
             echo "::error::draft PR cannot satisfy required verification"
             exit 1
           fi
-          jq -e --arg route "$LINUX_ROUTE" --arg windows "$WINDOWS_POLICY" '
+          jq -e --arg route "$LINUX_ROUTE" --arg native "$NATIVE_POLICY" '
             ($route == "mini" or $route == "hosted")
-            and ([."verify-route", ."verify-shared", ."verify-macos", ."verify-perf-hosted"] | all(.result == "success"))
+            and ([."verify-route", ."verify-perf-hosted"] | all(.result == "success"))
             and (if $route == "mini" then
                    ."verify-mini".result == "success" and ."verify-linux".result == "skipped"
+                   and ."verify-shared".result == "skipped"
                  else
                    ."verify-linux".result == "success" and ."verify-mini".result == "skipped"
+                   and ."verify-shared".result == "success"
                  end)
             and ."verify-windows".result == "skipped"
-            and (if $windows == "development-suspended" then
-                   ."verify-windows-hosted".result == "skipped"
-                 elif $windows == "required" then
-                   ."verify-windows-hosted".result == "success"
+            and (if $native == "development-suspended" then
+                   ."verify-windows-hosted".result == "skipped" and ."verify-macos".result == "skipped"
+                 elif $native == "required" then
+                   ."verify-windows-hosted".result == "success" and ."verify-macos".result == "success"
                  else false end)
           ' <<< "$NEEDS" >/dev/null || { echo "::error::a selected required lane did not succeed"; exit 1; }
-          if [ "$WINDOWS_POLICY" = "development-suspended" ]; then
-            echo "Windows validation suspended for development; restore and pass it before release." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$NATIVE_POLICY" = "development-suspended" ]; then
+            echo "Native Windows/macOS validation suspended for development; restore and pass both before release." >> "$GITHUB_STEP_SUMMARY"
           fi
           # END required mini aggregate
 
@@ -327,22 +330,9 @@ jobs:
   # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
   # lane, and since T-578 each is on the landing's critical path through the `verify` aggregator.
   verify-macos:
-    # The macOS half of the host lane. Before ticket 421 this ran inside `verify` only because that
-    # job happened to be pinned to a Mac; now the shared lane floats across runners, so the macOS
-    # host suite needs a job of its own or a shared lane that landed on Windows would silently stop
-    # running it. Its baseline permits six failures where the Windows one permits zero -- four of
-    # those are T-425 and T-426, not facilities macOS lacks.
-    #
-    # T-662: the fork guard, character for character the one verify-shared carries above. A fork
-    # pull request does not start this job, so it does not run its author's code on our Mac.
-    if: >-
-      vars.ACTIONS_ENABLED == 'true' &&
-      (github.event_name == 'schedule' ||
-       github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'merge_group' ||
-       (github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.draft == false &&
-        !contains(github.event.pull_request.labels.*.name, 'stacked')))
+    # Owner-authorized development suspension. Restore automatic native checks
+    # before release; full macOS remains available on manual workflow_dispatch.
+    if: vars.ACTIONS_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 90
     env:

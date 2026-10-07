@@ -20,9 +20,11 @@ required aggregate is inline workflow code and imports no candidate modules.
 `verify` requires selector success and the selected Linux job's success in the
 same workflow run. The other Linux job must be skipped. Under the owner's
 2026-10-07 development-only suspension, automatic PR, merge-group and scheduled
-events require both Windows jobs to be explicitly skipped. The aggregate records
-the suspension; it does not claim Windows success. Manual `workflow_dispatch`
-requires full hosted Windows success and skips winbox. macOS, shared/perf/package
+events require Windows and native macOS jobs to be explicitly skipped. The
+aggregate records the suspension; it does not claim native-platform success.
+Manual `workflow_dispatch` requires full hosted Windows and macOS success and
+skips winbox. Shared proof comes from the mini all-17 gate, with the duplicate
+shared job skipped; hosted fallback runs shared on Ubuntu. Hosted perf/package
 jobs and SBOM remain required. Quality and quality-baseline remain mandatory in
 the mini's all-17 gate, or in hosted Linux when that fallback route is selected.
 Mini quality evidence is retained in the scoped controller evidence directory;
@@ -72,25 +74,32 @@ This required-route change remains unqualified until its real PR and merge-group
 runs, selector token access, artifact validation and protected landing pass.
 Neither v2 qualification nor local unit tests establish that result.
 
-## Temporary Windows suspension and rollback
+## Temporary native Windows/macOS suspension and rollback
 
-The owner explicitly authorized suspending automatic Windows during development
-on 2026-10-07. Windows DPAPI, Event Log, file locking, native DLL, executable and
+The owner explicitly authorized suspending automatic Windows and macOS during
+development on 2026-10-07. Windows DPAPI, Event Log, file locking, native DLL, executable and
 process behavior can regress without detection by the required mini/Linux gate.
-No Windows equivalence or release readiness is claimed. Windows narrowing/shadow
+No Windows/macOS equivalence or release readiness is claimed. Windows narrowing/shadow
 experiments are not a prerequisite for this requested suspension.
 
-Before any release: restore automatic Windows job conditions and the aggregate's
-Windows-success requirement through review; run the full hosted Windows lane on
-the exact release candidate, resolve failures, and preserve its raw evidence.
+Before any release: restore automatic Windows/macOS job conditions and the
+aggregate's native-success requirement through review; run both full native suites
+on the exact release candidate, resolve failures, and preserve raw evidence.
 During development, run `gh workflow run verify.yml --ref <reviewed-ref>` for the
-unchanged full Windows suite on demand (alongside the existing hosted gates).
-That manual event requires real Windows success, not a skipped job.
+unchanged full Windows and macOS suites on demand alongside hosted portable gates.
+That manual event requires real native success, not skipped jobs. macOS-specific
+filesystem, process and platform behavior is unverified by Linux inside OrbStack.
+
+The Mac mini can later execute native macOS checks directly on its macOS host,
+separately from the Linux containers. That setup must reserve host CPU/memory under
+the canonical workload lock, isolate workspaces and ports, and preserve native
+evidence. No native runner, persistent credential or autostart service is installed
+by this change; review that resource scheduling before the release validation.
 
 To roll back the entire cutover, revert the squash commit for PR #382 through a
 normal reviewed PR and protected merge. This restores the prior full hosted Linux
-and automatic Windows workflow. To restore only Windows while keeping the mini,
-restore the Windows conditions and required aggregate rule from #382's parent;
+and automatic native workflow. To restore native checks while keeping the mini,
+restore the Windows/macOS conditions and native aggregate rule from #382's parent;
 keep portable quality ownership explicit. No repository variables, branch rules,
 credential grants or persistent services are changed by this suspension.
 
