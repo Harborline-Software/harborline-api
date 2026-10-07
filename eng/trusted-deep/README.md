@@ -12,15 +12,46 @@ clean local teardown and zero runner registrations. The protected group and land
 API tree match that qualified tree. Exact source identities still differ; historical
 receipts are not automatic approval for a later candidate or product release.
 
-Unattended trusted deep remains unfinished. The private workflow is manual-only,
-and a local host command supplies ephemeral runners for each run. Control's bounded
-`tools/api-trusted-deep/nightly.py` implementation and launchd/policy templates are
-in review: recurring unattended use of existing private keychain access needs
-explicit approval, timer installation and a real automatic dispatch-to-cleanup
-qualification. A hosted API nightly does not supply private runners. Source being
-landed or a manual pair passing must never be described as an operational unattended
-nightly. No new credentials, persistent runner, custom scheduler or wake setting
-is installed by this documentation change.
+Unattended trusted deep remains unfinished. The owner approved daily 03:17 Eastern
+use of existing private keychain access. Control's bounded wrapper and the manifest
+delivery repair landed normally through #979, #981 and #982. Actual automatic run
+`37700483872`, API `d112b6e2fd5d0fc5295026ef17d18ba55dba9e68` and Control
+`ecff5fe6b15030e23908c27f4d201e876317b19e`, proved calendar dispatch, immutable
+manifest delivery and two private runners, then stopped on two consecutive host
+memory-pressure warnings. It did not produce complete test/coverage receipts.
+The run is cancelled, registrations and owned Docker resources are absent, both
+timers are unloaded, and failure journals/telemetry remain retained. A real automatic
+full-gate completion and cleanup proof remain required. Source landing or historical
+manual success does not establish an operational unattended nightly.
+
+## Private build-server reclamation
+
+At that stop, each lane retained about 1.9 GiB of compiler/MSBuild RSS alongside its
+host test process. RSS includes shared pages, so this is overlap evidence, not a
+promise of reclaimable capacity. The immutable private resource profile now calls
+the fixed SDK's `dotnet build-server shutdown` immediately before exact-clone host
+tests. The helper requires root-protected manifest/binding/assignment, the verified
+numeric job identity, UID 1001, private CLI/temp endpoints and the existing cgroup
+limits. It waits for job-owned compiler/MSBuild worker nodes to disappear and records
+the before/after process inventory. Command failure, timeout, undrained servers or
+invalid authority refuses host-test execution. It sends no PID signals.
+
+The ordinary and native paths have no activation flag and execute their original
+test command. Local pilot admission cannot enable the private hook. Coverage,
+test selection/parallelism, baseline comparisons and output locations stay intact.
+Private completion additionally requires the binding-matched reclamation record.
+The new helper and profile must be bundled into a freshly approved immutable image;
+installed older candidates cannot adopt the change in place. Capacity benefit and
+full automatic qualification remain unproven until a newly reserved actual run.
+
+The observer still requires zero **used** host swap at initial admission, normal
+host pressure and its existing headroom limits. Its pressure and runtime swap-growth
+guards are unchanged. The separate final zero-swap qualification also remains
+unchanged. No system, power, credential or shared-host process setting is changed.
+
+Lightweight checks are `python3 -B -m unittest discover -s eng/trusted-deep/tests`
+and `node --test eng/tests/private-build-server-reclamation.test.mjs`. Fixtures
+exercise refusal and command ordering without starting SDK workloads or containers.
 
 ## Ordinary PRs and protected merges
 

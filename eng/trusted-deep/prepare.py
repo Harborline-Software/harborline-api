@@ -36,7 +36,8 @@ def prepare(args):
     environment = {'memoryBytes':10*2**30,'swapBytes':0,'cpus':5,'pids':1024,'user':'1001:1001',
                    'readOnly':True,'hostBinds':False,'dockerSocket':False,'privateNetwork':True,'toolchain':TOOLCHAIN,
                    'xdgData':'/runner/gate/cache/xdg-data','xdgConfig':'/runner/gate/cache/xdg-config',
-                   'dotnetGcHeapHardLimitPercent':'0x32'}
+                   'dotnetGcHeapHardLimitPercent':'0x32',
+                   'privateBuildServerReclamation':'exact-clone-host-tests'}
     selection = {'portable':'existing all17','portable-coverage':'existing all17+coverage',
                  'mutation-benchmark':'full tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj','native-full':'full existing host and capability suites'}
     categories = {
@@ -63,7 +64,7 @@ def prepare(args):
     # All execution/validation bytes come from this reviewed controller checkout, not the tested clone.
     for name in ('controller.py','admission.py','checkout-sources.py','portable-gate.sh'):
         shutil.copyfile(ROOT/'eng/mini-runner'/name,target/name)
-    for name in ('run.sh','job.py','coverage_evidence.py','manifest.py','private_admission.py','private-job.sh','evidence.py','raw-evidence.mjs','Dockerfile','observer.py','telemetry.py'):
+    for name in ('run.sh','job.py','reclaim.py','coverage_evidence.py','manifest.py','private_admission.py','private-job.sh','evidence.py','raw-evidence.mjs','Dockerfile','observer.py','telemetry.py'):
         shutil.copyfile(ROOT/'eng/trusted-deep'/name,target/name)
     shutil.copyfile(ROOT/'eng/host-baseline.mjs',target/'host-baseline.mjs')
     (target/'manifest-inputs.json').write_text(json.dumps({'version':1,'repositoryId':1360432948,'owner':'ctwoodwa',
