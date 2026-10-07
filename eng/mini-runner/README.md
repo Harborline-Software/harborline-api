@@ -165,5 +165,34 @@ That trial then exposed a separate final-step prerequisite: the existing package
 consumer targets net10.0. The toolchain copies only Microsoft.NETCore.App 10.0.12
 from the immutable official ARM64 SDK-10 image, alongside SDK/runtime 11.
 It does not install SDK 10, retarget source, or enable runtime roll-forward.
-Actual package consumption and a fresh complete gate must qualify the combined
-configuration; the local probe excludes live Listener/Worker overhead.
+The combined configuration passed actual package consumption and all 17 gate
+steps at `46ddb7a3d114927b7992add61badb87952e89848` on 2026-10-07. The existing
+controller validated the exact commit/tree, required steps and quality digests.
+Receipt SHA-256: `25baceb9180eac5ca26c57d5465803e0b233e47ebc053c485cdde687de4d746b`.
+The fresh local probe took 772.061 seconds, including focused consumer and ledger
+causal controls. Peak cgroup memory was 9,674,051,584 bytes (9.010 GiB); OOM and
+memory-limit events were zero, host swap was zero, and VM available memory stayed
+at or above 6.415 GiB. Both named identity baselines matched. Cleanup was verified.
+Coverage was off; the local probe excludes live Listener/Worker overhead. Protected
+landing and a measured exact-main GitHub-dispatched single lane remain necessary.
+
+## Two-lane memory preparation (not activated)
+
+The 32-GiB host currently configures OrbStack for 16,384 MiB, exposing 15.664 GiB
+to Docker. Do not start two 10-GiB lanes at that allocation. The proposed first
+capacity trial is 24,576 MiB for OrbStack: two 10-GiB container caps plus roughly
+4 GiB for the VM, leaving 8 GiB outside the VM for macOS and applications. Treat
+these as admission budgets, not proven concurrency capacity; live runner overhead
+and any coverage lane still need measurement.
+
+Only with no running workloads and after the measured live single lane passes,
+apply the memory-only adjustment through OrbStack's supported configuration, then
+verify the effective Docker memory and host headroom (a restart may be required).
+Keep the existing CPU allocation and other settings. Before a separately admitted
+pair, require at least 23 GiB effective Docker memory, zero host swap, normal host
+pressure and at least 30% host free memory. Retain aggregate Docker/process and
+host telemetry; stop on any OOM, more than 64 MiB host swap growth, or two samples
+with host free memory below 20%, non-normal pressure, or VM available memory below
+2 GiB. Preserve the existing heavy-work reservation and independently bounded
+teardown. No pair, required CI cutover, or post-cutover timing claim follows from
+this single-lane result.
