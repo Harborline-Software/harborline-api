@@ -360,6 +360,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     public async Task C3_Field_Gate_Locations_Distinguish_Direct_And_Aspect_Lanes(string lane, string pointer)
     {
         var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        // Leave name outside the section's inherited role ceiling so classification admission
+        // reaches the actual field role gate instead of refusing a policy-widening attempt first.
+        body["overlay"]!["sections"]![0]!["fields"] = new JsonArray("unit");
         var field = body["overlay"]!["fields"]!["name"]!.AsObject();
         if (lane == "direct") field["readRoles"] = new JsonArray("private/unresolved-role");
         else
