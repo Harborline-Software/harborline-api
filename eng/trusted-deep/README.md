@@ -44,10 +44,39 @@ The new helper and profile must be bundled into a freshly approved immutable ima
 installed older candidates cannot adopt the change in place. Capacity benefit and
 full automatic qualification remain unproven until a newly reserved actual run.
 
-The observer still requires zero **used** host swap at initial admission, normal
-host pressure and its existing headroom limits. Its pressure and runtime swap-growth
-guards are unchanged. The separate final zero-swap qualification also remains
-unchanged. No system, power, credential or shared-host process setting is changed.
+## Explicit operational and benchmark resource proofs
+
+`prepare.py --resource-profile operational-stable-swap-v1` selects the operational
+nightly profile in the immutable environment digest and externally approved manifest.
+It permits stable pre-existing **used** host swap, with a fresh 30–45 second baseline,
+samples at most five seconds apart, pressure level 1 and at least 30% free host
+memory. Admission must follow the final baseline sample within fifteen seconds.
+Every sampled increase in used swap (including a rebound below the baseline), any
+new host Swapouts, missing/reset counters, container swap or OOM refuses completion.
+The existing two-consecutive-sample pressure guard remains: host free memory below
+20%, pressure level other than 1, or VM available memory below 2 GiB alarms.
+
+Apple `vm_stat(1)` defines Swapouts as compressed pages written to disk, Swapins as
+reads back from swap, and Pageins as pager reads that include file-backed pages.
+Swapins and Pageins are recorded telemetry; neither alone indicates a new swap
+write. This profile proves **no observed new swap writes**, not no paging or
+zero-used-swap capacity. Counters are system-wide and do not identify the workload
+responsible. The observer retains its sampled-telemetry/final-sample limitation.
+Reference: https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.1
+
+The default `zero-used-swap-v1` profile still requires absolute zero used swap at
+admission and completion. Mutation benchmarks and release/capacity qualification
+require that profile; an operational receipt cannot substitute. Receipts retain
+actual absolute used swap, selected profile, the full baseline and its hash, and
+admission timestamp. Completion and reuse independently rederive these claims from
+hashed raw baseline/admission/telemetry and reject changed or cross-profile proof.
+Old manifests/receipts lacking the explicit profile are refused and must be rebuilt
+and reviewed; installed inputs are never upgraded in place.
+
+These source changes are not a successful nightly or capacity qualification. The
+failed automatic run, cleanup evidence, journals and promotion holds remain retained;
+timers stay unloaded until a separately reserved fresh immutable-image acceptance.
+No system, power, credential or shared-host process setting is changed.
 
 Lightweight checks are `python3 -B -m unittest discover -s eng/trusted-deep/tests`
 and `node --test eng/tests/private-build-server-reclamation.test.mjs`. Fixtures
@@ -134,7 +163,7 @@ exclusive until independently qualified.
 ## Failure, recovery and promotion
 
 Owner: `ctwoodwa`. A pending promotion hold is durably written before workload
-creation; failures keep an open hold. A crash, timeout, interruption, OOM, swap,
+creation; failures keep an open hold. A crash, timeout, interruption, OOM, forbidden swap growth/writes,
 resource alarm, dirty source, incomplete evidence or cleanup failure cannot yield
 a trusted completion. Teardown drains both child process groups even if evidence
 writes fail. Termination is bounded, then killed and reaped; scoped Docker cleanup
