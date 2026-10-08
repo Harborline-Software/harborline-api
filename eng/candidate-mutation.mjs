@@ -3,7 +3,6 @@ import {spawnSync} from 'node:child_process'
 import {readFileSync,writeFileSync,mkdirSync,existsSync,readdirSync,cpSync,openSync,closeSync} from 'node:fs'
 import path from 'node:path'
 import {createHash} from 'node:crypto'
-import {pathToFileURL} from 'node:url'
 import {sliceMutate,inMutate,projectSources,checkSlices,thresholdsFor,summarise} from './mutation-report.mjs'
 const controller=path.resolve(import.meta.dirname,'..')
 export const PROJECT='apps/local-node-host/tests/tests.csproj'
@@ -204,4 +203,4 @@ export function main(env=process.env) {
     }catch(error){manifest.status='incomplete';manifest.archiveError=String(error);save();process.exitCode=1}
   }
 }
-if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url)main()
+if(process.argv[1]?.replaceAll('\\','/').endsWith('eng/candidate-mutation.mjs'))main()
