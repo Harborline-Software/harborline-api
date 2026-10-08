@@ -64,6 +64,20 @@ zero-used-swap capacity. Counters are system-wide and do not identify the worklo
 responsible. The observer retains its sampled-telemetry/final-sample limitation.
 Reference: https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.1
 
+Read-only command failures retain `resources/command-failures.jsonl` and, after
+baseline admission, the last record in the observer summary. Fixed operation IDs distinguish container discovery,
+inspection, process sampling and host/stat reads. Records include the unchanged
+timeout, measured elapsed time, observer/command child/controller PIDs, owned session
+and last known container status. They contain no argv, environment or exception text.
+Partial stdout/stderr retain byte counts and at most 4 KiB of allowlisted fragments
+(owned container name and fixed benign error phrases); other text, including
+incomplete JSON and unmarked secrets, is redacted. An unavailable diagnostics file
+does not mask the original alarm; after baseline admission, the sampling summary
+retains the sanitized failure record.
+This adds no retry, timeout extension, admission change or successful qualification.
+Installing it still requires normal source review/protected landing and fresh exact
+source/image/automatic full-gate qualification. Historical failures remain failures.
+
 The default `zero-used-swap-v1` profile still requires absolute zero used swap at
 admission and completion. Mutation benchmarks and release/capacity qualification
 require that profile; an operational receipt cannot substitute. Receipts retain
