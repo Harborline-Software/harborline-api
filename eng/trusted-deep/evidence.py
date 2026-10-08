@@ -38,7 +38,7 @@ def validate_native_raw(root,expected):
 
 
 def required_artifacts(expected):
-    if expected['kind'] in ('native-full','mutation-benchmark'):
+    if expected['kind']=='native-full':
         return {'out/gate-evidence/native-context.json','hosted-job.json','out/harborline-api-verify-receipt.json',
                 'out/gate-evidence/host-tests.trx','out/gate-evidence/named-test-outcomes.json',
                 'out/gate-evidence/capability-tests.json','out/gate-evidence/exact-clone-report.json','out/raw-validation.json'}

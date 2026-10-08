@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -81,6 +82,36 @@ class Contract(unittest.TestCase):
         with self.assertRaises(ValueError):e.equivalent(raw,fingerprint,self.root,digest,now+dt.timedelta(days=4))
         (self.root/'out/gate-evidence/host-tests.trx').write_text('tampered')
         with self.assertRaises(ValueError):e.equivalent(raw,fingerprint,self.root,digest,now)
+    def test_zero_swap_mutation_reuse_uses_literal_local_artifact_contract(self):
+        self.value['tasks']=[{'id':'mutation','kind':'mutation-benchmark'}]
+        fingerprint=m.fingerprint(self.value,self.value['tasks'][0]);now=dt.datetime.now(dt.timezone.utc)
+        # Independent literal inventory of the local producer, never copied from required_artifacts().
+        names={'session.json','cleanup.json','resources/baseline.json','resources/admission.json',
+               'resources/telemetry.jsonl','resources/summary.json','out/immutable-completion.json',
+               'out/raw-validation.json','out/gc-preflight.json','out/mutation-exit.txt','out/mutation-reports/report.json'}
+        self.assertEqual(e.required_artifacts(fingerprint),names)
+        for name in names:
+            p=self.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('literal retained proof')
+        proof=resource_fixture(self.root,fingerprint)
+        (self.root/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
+        (self.root/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,
+            'task':{'id':'mutation','kind':'mutation-benchmark'},'resourceProfile':'zero-used-swap-v1'}))
+        (self.root/'out/gc-preflight.json').write_text(json.dumps({'requestedEnv':'0x32','availableBytes':5368709120,
+            'config':{'GCHeapHardLimit':5368709120,'GCHeapHardLimitPercent':50}}))
+        (self.root/'out/mutation-exit.txt').write_text('0\n')
+        (self.root/'out/mutation-reports/report.json').write_text('{"files":{"single.cs":{"mutants":[{"status":"Killed"}]}}}')
+        (self.root/'out/raw-validation.json').write_text(json.dumps({'project':'tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj',
+            'tested':1,'generated':1,'counts':{'Killed':1},'scope':'one small configured project; no whole-host or paired-mutation capacity claim'}))
+        subprocess.run(['node',str(e.MODULE/'raw-evidence.mjs'),'mutation-benchmark',str(self.root/'out'),str(e.ROOT),'check'],check=True)
+        receipt={'fingerprint':fingerprint,'status':'passed','cleanup':True,'oom':0,'swapMiB':0,'resourceProof':proof,
+            'completedAt':now.isoformat(),'artifacts':{name:m.digest(self.root/name) for name in names},'suite':'mutation-benchmark'}
+        def check(record):
+            raw=json.dumps(record).encode();return e.equivalent(raw,fingerprint,self.root,hashlib.sha256(raw).hexdigest(),now)
+        self.assertEqual(check(receipt)['suite'],'mutation-benchmark')
+        for name in names:
+            changed=copy.deepcopy(receipt);del changed['artifacts'][name]
+            with self.subTest(missing=name),self.assertRaises(ValueError):check(changed)
+
     def test_private_reuse_requires_hashed_bound_reclamation_and_assignment(self):
         fingerprint,receipt,now=self.fixture()
         binding={'runId':'42','jobId':'99','jobKey':'deep','workflowSha':'d'*40,
