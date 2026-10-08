@@ -28,6 +28,7 @@ import {qualityArtifacts} from './quality-step.mjs'
 import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
 import {observeNuGetRoot} from './validation-nuget-root.mjs'
+import {runAfterPrivateReclamation} from './private-build-server-reclamation.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -296,7 +297,7 @@ try {
   const hostResultsDirectory = collectCoverage
     ? path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'host')
     : path.join(clone, 'TestResults', 'host')
-  const hostTests = run('dotnet-host-tests', 'dotnet',
+  const hostTests = runAfterPrivateReclamation(() => run('dotnet-host-tests', 'dotnet',
     // Owner ruling Q38: tests tagged Lane=perf (the Layout timing-parity collection) measure wall-clock
     // timing and run only in verify-perf, alone on mac16 (perf-quiet); every host lane excludes them.
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
@@ -305,7 +306,8 @@ try {
       // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
       '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
-    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')}),
+    (id, command, args) => run(id, command, args, clone))
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
