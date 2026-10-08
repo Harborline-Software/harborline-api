@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 from manifest import digest, require
+from resource_profile import PROFILES, ZERO
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLCHAIN = 'sha256:a0f23ee21d5b3b689451bd09219342b7f985d893babf8fdce71cbb87b98f44c0'
@@ -36,7 +37,8 @@ def prepare(args):
     environment = {'memoryBytes':10*2**30,'swapBytes':0,'cpus':5,'pids':1024,'user':'1001:1001',
                    'readOnly':True,'hostBinds':False,'dockerSocket':False,'privateNetwork':True,'toolchain':TOOLCHAIN,
                    'xdgData':'/runner/gate/cache/xdg-data','xdgConfig':'/runner/gate/cache/xdg-config',
-                   'dotnetGcHeapHardLimitPercent':'0x32'}
+                   'dotnetGcHeapHardLimitPercent':'0x32',
+                   'privateBuildServerReclamation':'exact-clone-host-tests','resourceProfile':args.resource_profile}
     selection = {'portable':'existing all17','portable-coverage':'existing all17+coverage',
                  'mutation-benchmark':'full tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj','native-full':'full existing host and capability suites'}
     categories = {
@@ -63,14 +65,15 @@ def prepare(args):
     # All execution/validation bytes come from this reviewed controller checkout, not the tested clone.
     for name in ('controller.py','admission.py','checkout-sources.py','portable-gate.sh'):
         shutil.copyfile(ROOT/'eng/mini-runner'/name,target/name)
-    for name in ('run.sh','job.py','coverage_evidence.py','manifest.py','private_admission.py','private-job.sh','evidence.py','raw-evidence.mjs','Dockerfile','observer.py','telemetry.py'):
+    for name in ('run.sh','job.py','reclaim.py','coverage_evidence.py','resource_profile.py','manifest.py','private_admission.py','private-job.sh','evidence.py','raw-evidence.mjs','Dockerfile','observer.py','telemetry.py'):
         shutil.copyfile(ROOT/'eng/trusted-deep'/name,target/name)
     shutil.copyfile(ROOT/'eng/host-baseline.mjs',target/'host-baseline.mjs')
     (target/'manifest-inputs.json').write_text(json.dumps({'version':1,'repositoryId':1360432948,'owner':'ctwoodwa',
-        'sources':heads,'tree':tree,'base':heads['api'],'sdk':sdk['version'],'inputDigests':input_digests},indent=2)+'\n')
+        'resourceProfile':args.resource_profile,'sources':heads,'tree':tree,'base':heads['api'],'sdk':sdk['version'],'inputDigests':input_digests},indent=2)+'\n')
     print(target)
 
 if __name__ == '__main__':
     p=argparse.ArgumentParser()
     for name in ('api','platform','quality','control','control-head','output'):p.add_argument('--'+name,required=True)
+    p.add_argument('--resource-profile', choices=sorted(PROFILES), default=ZERO)
     prepare(p.parse_args())

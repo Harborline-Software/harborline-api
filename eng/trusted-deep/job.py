@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import manifest as m
 import private_admission
+import reclaim
 from coverage_evidence import summary as coverage_summary
 sys.path.insert(0,'/opt/mini')
 import controller as c
@@ -29,6 +30,7 @@ def admit(kind):
     m.require(policy['head']==value['sources']['api'] and policy['tree']==value['tree'] and policy['sdk']==value['sdk'],'Source/tree/SDK changed')
     m.require(value['base']==policy['head'],'Snapshot base differs from restored origin/main')
     m.require(policy['inputDigests']==value['inputDigests'],'Verification input profile changed')
+    m.require(policy['environment'].get('resourceProfile')==value['resourceProfile'],'Immutable resource profile differs')
     m.require(os.environ.get('XDG_DATA_HOME')==policy['environment']['xdgData'] and
               os.environ.get('XDG_CONFIG_HOME')==policy['environment']['xdgConfig'],'Writable private runtime profile differs')
     m.require(os.environ.get('DOTNET_GCHeapHardLimitPercent')==policy['environment']['dotnetGcHeapHardLimitPercent']=='0x32','Managed heap budget differs')
@@ -49,6 +51,9 @@ def finish(kind):
     m.require(c.git(ROOT/'api','rev-parse','refs/remotes/origin/main')==value['base'],'Measured comparison base differs')
     m.require(subprocess.check_output(['dotnet','--version'],text=True).strip()==value['sdk'],'SDK changed')
     if kind.startswith('portable'):
+        if Path('/opt/trusted/private-binding.json').exists():
+            binding=json.loads(Path('/opt/trusted/private-binding.json').read_text())
+            reclaim.validate_result(json.loads((ROOT/'out/private-build-server-reclamation.json').read_text()), binding, value)
         c.validate_receipt(ROOT/'out',value['sources']['api'],value['tree'],kind=='portable-coverage')
         if kind=='portable-coverage':
             receipt=json.loads((ROOT/'out/harborline-api-verify-receipt.json').read_text())
@@ -57,7 +62,7 @@ def finish(kind):
                 m.require(all(receipt['coverage'][name][key]==measured[key] for key in ('validLines','coveredLines')),'Coverage receipt/XML mismatch')
     subprocess.run(['node','/opt/trusted/raw-evidence.mjs',kind,str(ROOT/'out'),str(ROOT/'api')],check=True)
     (ROOT/'out/immutable-completion.json').write_text(json.dumps({'manifestSha256':m.digest('/runner/approved-manifest.json'),
-        'task':task,'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',
+        'task':task,'resourceProfile':value['resourceProfile'],'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',
         'privateAssignment':json.loads(Path('/opt/trusted/private-assignment.json').read_text()) if Path('/opt/trusted/private-assignment.json').exists() else None},indent=2)+'\n')
 
 if __name__=='__main__':

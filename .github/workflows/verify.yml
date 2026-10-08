@@ -81,6 +81,15 @@ jobs:
         with:
           version: 11.1.3
 
+      - name: Private resource proof contracts (no SDK workload)
+        run: |
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_reclaim.py
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_resource_profile.py
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_observer_profile.py
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_contract.py
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_teardown.py
+          node --test eng/tests/private-build-server-reclamation.test.mjs
+
       - uses: ./.github/actions/platform-feed
 
       - name: Use pinned checkouts

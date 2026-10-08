@@ -12,15 +12,75 @@ clean local teardown and zero runner registrations. The protected group and land
 API tree match that qualified tree. Exact source identities still differ; historical
 receipts are not automatic approval for a later candidate or product release.
 
-Unattended trusted deep remains unfinished. The private workflow is manual-only,
-and a local host command supplies ephemeral runners for each run. Control's bounded
-`tools/api-trusted-deep/nightly.py` implementation and launchd/policy templates are
-in review: recurring unattended use of existing private keychain access needs
-explicit approval, timer installation and a real automatic dispatch-to-cleanup
-qualification. A hosted API nightly does not supply private runners. Source being
-landed or a manual pair passing must never be described as an operational unattended
-nightly. No new credentials, persistent runner, custom scheduler or wake setting
-is installed by this documentation change.
+Unattended trusted deep remains unfinished. The owner approved daily 03:17 Eastern
+use of existing private keychain access. Control's bounded wrapper and the manifest
+delivery repair landed normally through #979, #981 and #982. Actual automatic run
+`37700483872`, API `d112b6e2fd5d0fc5295026ef17d18ba55dba9e68` and Control
+`ecff5fe6b15030e23908c27f4d201e876317b19e`, proved calendar dispatch, immutable
+manifest delivery and two private runners, then stopped on two consecutive host
+memory-pressure warnings. It did not produce complete test/coverage receipts.
+The run is cancelled, registrations and owned Docker resources are absent, both
+timers are unloaded, and failure journals/telemetry remain retained. A real automatic
+full-gate completion and cleanup proof remain required. Source landing or historical
+manual success does not establish an operational unattended nightly.
+
+## Private build-server reclamation
+
+At that stop, each lane retained about 1.9 GiB of compiler/MSBuild RSS alongside its
+host test process. RSS includes shared pages, so this is overlap evidence, not a
+promise of reclaimable capacity. The immutable private resource profile now calls
+the fixed SDK's `dotnet build-server shutdown` immediately before exact-clone host
+tests. The helper requires root-protected manifest/binding/assignment, the verified
+numeric job identity, UID 1001, private CLI/temp endpoints and the existing cgroup
+limits. It waits for job-owned compiler/MSBuild worker nodes to disappear and records
+the before/after process inventory. Command failure, timeout, undrained servers or
+invalid authority refuses host-test execution. It sends no PID signals.
+
+The ordinary and native paths have no activation flag and execute their original
+test command. Local pilot admission cannot enable the private hook. Coverage,
+test selection/parallelism, baseline comparisons and output locations stay intact.
+Private completion additionally requires the binding-matched reclamation record.
+The new helper and profile must be bundled into a freshly approved immutable image;
+installed older candidates cannot adopt the change in place. Capacity benefit and
+full automatic qualification remain unproven until a newly reserved actual run.
+
+## Explicit operational and benchmark resource proofs
+
+`prepare.py --resource-profile operational-stable-swap-v1` selects the operational
+nightly profile in the immutable environment digest and externally approved manifest.
+It permits stable pre-existing **used** host swap, with a fresh 30–45 second baseline,
+samples at most five seconds apart, pressure level 1 and at least 30% free host
+memory. Admission must follow the final baseline sample within fifteen seconds.
+Every sampled increase in used swap (including a rebound below the baseline), any
+new host Swapouts, missing/reset counters, container swap or OOM refuses completion.
+The existing two-consecutive-sample pressure guard remains: host free memory below
+20%, pressure level other than 1, or VM available memory below 2 GiB alarms.
+
+Apple `vm_stat(1)` defines Swapouts as compressed pages written to disk, Swapins as
+reads back from swap, and Pageins as pager reads that include file-backed pages.
+Swapins and Pageins are recorded telemetry; neither alone indicates a new swap
+write. This profile proves **no observed new swap writes**, not no paging or
+zero-used-swap capacity. Counters are system-wide and do not identify the workload
+responsible. The observer retains its sampled-telemetry/final-sample limitation.
+Reference: https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.1
+
+The default `zero-used-swap-v1` profile still requires absolute zero used swap at
+admission and completion. Mutation benchmarks and release/capacity qualification
+require that profile; an operational receipt cannot substitute. Receipts retain
+actual absolute used swap, selected profile, the full baseline and its hash, and
+admission timestamp. Completion and reuse independently rederive these claims from
+hashed raw baseline/admission/telemetry and reject changed or cross-profile proof.
+Old manifests/receipts lacking the explicit profile are refused and must be rebuilt
+and reviewed; installed inputs are never upgraded in place.
+
+These source changes are not a successful nightly or capacity qualification. The
+failed automatic run, cleanup evidence, journals and promotion holds remain retained;
+timers stay unloaded until a separately reserved fresh immutable-image acceptance.
+No system, power, credential or shared-host process setting is changed.
+
+Lightweight checks are `python3 -B -m unittest discover -s eng/trusted-deep/tests`
+and `node --test eng/tests/private-build-server-reclamation.test.mjs`. Fixtures
+exercise refusal and command ordering without starting SDK workloads or containers.
 
 ## Ordinary PRs and protected merges
 
@@ -103,7 +163,7 @@ exclusive until independently qualified.
 ## Failure, recovery and promotion
 
 Owner: `ctwoodwa`. A pending promotion hold is durably written before workload
-creation; failures keep an open hold. A crash, timeout, interruption, OOM, swap,
+creation; failures keep an open hold. A crash, timeout, interruption, OOM, forbidden swap growth/writes,
 resource alarm, dirty source, incomplete evidence or cleanup failure cannot yield
 a trusted completion. Teardown drains both child process groups even if evidence
 writes fail. Termination is bounded, then killed and reaped; scoped Docker cleanup

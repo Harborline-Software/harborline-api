@@ -16,3 +16,5 @@ Harborline is pre-release and moves fast; read the README banner first.
 - **Small slices.** Keep each pull request to one coherent change of roughly two hundred production lines or fewer.
 - **Tests that mean it.** Integration tests boot the real composition; fences discover their inventory by symbol; a mutation claimed as killed was actually run. Expected values come from an oracle independent of the code under test (AGENTS.md, Test oracles).
 - **Names.** Do not introduce source-era names in new identities; "Harborline" and the logos are trademarks (see TRADEMARKS.md).
+
+Private Mac mini CI resource proofs use explicit reviewed profiles. The [trusted deep guide](eng/trusted-deep/README.md#explicit-operational-and-benchmark-resource-proofs) distinguishes operational stable used swap from absolute-zero benchmark/release qualification. Changed source or profiles require fresh immutable inputs and raw proof; source checks alone establish no new runtime qualification or incident resolution.
