@@ -159,12 +159,19 @@ public sealed class RoleGateAdmissionTests
             if (layer == CascadeLayer.Tenant)
             {
                 Assert.Equal(HttpStatusCode.UnprocessableEntity, route!.Value.Status);
-                Assert.Equal($"authorization.role_gate.{rule}", route.Value.Body.GetProperty("code").GetString());
-                // 094: the refusal's machine-read facts live under the envelope's `detail` object, not
-                // flat beside `code`. Same facts, stable place.
-                var refusalDetail = route.Value.Body.GetProperty("detail");
-                Assert.Equal(subject, refusalDetail.GetProperty("role").GetString());
-                Assert.Equal(rule, refusalDetail.GetProperty("rule").GetString());
+                // T-1016 / DES-0014 C3: the matrix's real Forms PUT publishes, with safe detail
+                // on the individual refusal. The tenant case is the literal unresolved-role oracle.
+                Assert.Equal("publish", route.Value.Body.GetProperty("stage").GetString());
+                var refusal = Assert.Single(route.Value.Body.GetProperty("refusals").EnumerateArray());
+                Assert.Equal("authorization.role_gate.unresolved_role", refusal.GetProperty("code").GetString());
+                Assert.Equal("/overlay/sections/0/access/readRoles", refusal.GetProperty("pointer").GetString());
+                Assert.False(refusal.TryGetProperty("target", out _));
+                var refusalDetail = refusal.GetProperty("detail");
+                Assert.False(refusalDetail.TryGetProperty("role", out _));
+                Assert.False(refusalDetail.TryGetProperty("definition", out _));
+                Assert.Equal("section:main.read", refusalDetail.GetProperty("gate").GetString());
+                Assert.Equal("unresolved_role", refusalDetail.GetProperty("rule").GetString());
+                Assert.DoesNotContain(subject, route.Value.Body.GetRawText(), StringComparison.Ordinal);
                 Assert.Empty(await Definitions(store));
                 Assert.DoesNotContain("writer", writerEvents);
                 return;
