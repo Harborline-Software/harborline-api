@@ -103,10 +103,12 @@ public static class ContactRoutes
     {
         app.MapPost($"{RouteBase}/{{id}}/roles", async (string id, AttachRoleBody body, HttpContext http, CancellationToken ct) =>
         {
-            var admittedAt = timeProvider.GetUtcNow();
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
@@ -133,10 +135,12 @@ public static class ContactRoutes
         app.MapDelete($"{RouteBase}/{{id}}/roles/{{roleId}}", async (
             string id, string roleId, HttpContext http, CancellationToken ct) =>
         {
-            var admittedAt = timeProvider.GetUtcNow();
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
@@ -217,10 +221,12 @@ public static class ContactRoutes
     {
         app.MapPost(RouteBase, async (CreateContactBody body, HttpContext http, CancellationToken ct) =>
         {
-            var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsCreate, RouteRecord.TheInstall, ct);
+                    http, actAuthority, Permission.ContactsCreate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
@@ -369,10 +375,12 @@ public static class ContactRoutes
     {
         app.MapPost($"{RouteBase}/{{id}}/update", async (string id, UpdateContactBody body, HttpContext http, CancellationToken ct) =>
         {
-            var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+                    http, actAuthority, Permission.ContactsWrite, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var repo = parties;
@@ -443,10 +451,12 @@ public static class ContactRoutes
         TimeProvider timeProvider) =>
         async (string id, HttpContext http, CancellationToken ct) =>
         {
-            var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsArchive, RouteRecord.Of(id), ct);
+                    http, actAuthority, Permission.ContactsArchive, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
             var repo = parties;

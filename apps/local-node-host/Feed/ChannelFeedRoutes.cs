@@ -76,8 +76,10 @@ public static class ChannelFeedRoutes
             var tenant = ResolveTenant();
             // The act addresses a CHANNEL, not one pack: no pack record target, so the gate admits it only
             // because `packages:operate` is declared install-wide on the definition side.
+            // T-690: one authority, one clock read; every staged preview below runs at its instant.
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -92,7 +94,7 @@ public static class ChannelFeedRoutes
             foreach (var staged in result.StagedPacks)
             {
                 var ctx = new PackInstallContext(
-                    tenant, previewTrustStore, previewRevocation, AdmittedInstant.Read(time), ChannelFeedClient.RevocationMaxAge);
+                    tenant, previewTrustStore, previewRevocation, authority.Instant, ChannelFeedClient.RevocationMaxAge);
                 var preview = installer.Preview(staged.ArtifactBytes.Span, ctx);
 
                 // §5.3 derivation: feed latest vs installed (F5) vs the S-8 watermark hits the preview

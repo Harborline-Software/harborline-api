@@ -367,7 +367,14 @@ public sealed class RawMutationPortSymbolInventoryTests
         return (relative, pointValue.StartLine);
     }
 
-    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
+    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method) =>
+        MethodOperands(method).Select(operand => (operand.Target, operand.Offset));
+
+    /// <summary>
+    /// Every instruction with its opcode and integer operand (a token, a local index, or 0), including the short
+    /// forms whose operand is implicit (<c>stloc.0</c> reports 0). T-690 follows a delegate through a local with it.
+    /// </summary>
+    internal static IEnumerable<(int Offset, OpCode OpCode, int Operand)> Instructions(MethodBase method)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il is null)
@@ -376,26 +383,81 @@ public sealed class RawMutationPortSymbolInventoryTests
         while (position < il.Length)
         {
             var instructionOffset = position;
-            OpCode opCode;
             var first = il[position++];
-            if (first == 0xfe)
-                opCode = MultiByteOpCodes[il[position++]];
-            else
-                opCode = SingleByteOpCodes[first];
-            if (opCode.OperandType == OperandType.InlineMethod)
+            var opCode = first == 0xfe ? MultiByteOpCodes[il[position++]] : SingleByteOpCodes[first];
+            var next = position + OperandSize(opCode.OperandType, il, position);
+            var operand = opCode.OperandType switch
             {
-                var token = BitConverter.ToInt32(il, position);
-                MethodBase? target = null;
-                try
-                {
-                    target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
-                        method is MethodInfo info ? info.GetGenericArguments() : null);
-                }
-                catch (ArgumentException) { }
-                if (target is not null)
-                    yield return (target, instructionOffset);
+                OperandType.ShortInlineVar => il[position],
+                OperandType.InlineVar => BitConverter.ToUInt16(il, position),
+                OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineType or OperandType.InlineField
+                    => BitConverter.ToInt32(il, position),
+                OperandType.ShortInlineBrTarget => next + (sbyte)il[position], // the absolute branch target
+                OperandType.InlineBrTarget => next + BitConverter.ToInt32(il, position),
+                _ => ImplicitLocal(opCode),
+            };
+            yield return (instructionOffset, opCode, operand);
+            position = next;
+        }
+    }
+
+    /// <summary>Every branch and switch edge, from the branching instruction's offset to its target (T-690).</summary>
+    internal static IReadOnlyList<(int From, int To)> BranchEdges(MethodBase method)
+    {
+        var edges = new List<(int From, int To)>();
+        var il = method.GetMethodBody()?.GetILAsByteArray();
+        if (il is null)
+            return edges;
+        foreach (var (offset, opCode, operand) in Instructions(method))
+        {
+            if (opCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
+                edges.Add((offset, operand));
+            else if (opCode.OperandType == OperandType.InlineSwitch)
+            {
+                var start = offset + opCode.Size;
+                var count = BitConverter.ToInt32(il, start);
+                var end = start + 4 + count * 4;
+                for (var index = 0; index < count; index++)
+                    edges.Add((offset, end + BitConverter.ToInt32(il, start + 4 + index * 4)));
             }
-            position += OperandSize(opCode.OperandType, il, position);
+        }
+        return edges;
+    }
+
+    /// <summary>Every offset some branch, switch or exception handler can jump to (T-690: where values merge).</summary>
+    internal static HashSet<int> BranchTargets(MethodBase method)
+    {
+        var targets = BranchEdges(method).Select(edge => edge.To).ToHashSet();
+        foreach (var clause in method.GetMethodBody()?.ExceptionHandlingClauses ?? [])
+        {
+            targets.Add(clause.HandlerOffset);
+            if (clause.Flags == ExceptionHandlingClauseOptions.Filter) targets.Add(clause.FilterOffset);
+        }
+        return targets;
+    }
+
+    private static int ImplicitLocal(OpCode opCode) =>
+        opCode == OpCodes.Stloc_1 || opCode == OpCodes.Ldloc_1 ? 1
+        : opCode == OpCodes.Stloc_2 || opCode == OpCodes.Ldloc_2 ? 2
+        : opCode == OpCodes.Stloc_3 || opCode == OpCodes.Ldloc_3 ? 3
+        : 0;
+
+    /// <summary>Every method-token operand with its opcode, so a caller can tell <c>ldftn</c> from a call (T-690).</summary>
+    internal static IEnumerable<(MethodBase Target, int Offset, OpCode OpCode)> MethodOperands(MethodBase method)
+    {
+        foreach (var (offset, opCode, token) in Instructions(method))
+        {
+            if (opCode.OperandType != OperandType.InlineMethod)
+                continue;
+            MethodBase? target = null;
+            try
+            {
+                target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
+                    method is MethodInfo info ? info.GetGenericArguments() : null);
+            }
+            catch (ArgumentException) { }
+            if (target is not null)
+                yield return (target, offset, opCode);
         }
     }
 

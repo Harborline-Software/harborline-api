@@ -346,8 +346,10 @@ public static class AssetRegistryRoutes
             AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
+            // T-690: one authority, one clock read; the containment reads are as of the instant the guard decided on.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
                     decision => accepted = decision)
                 .ConfigureAwait(false);
             if (denied is not null)
@@ -356,7 +358,7 @@ public static class AssetRegistryRoutes
             if (entity is null)
                 return Results.NotFound();
 
-            var now = new Instant(clock.GetUtcNow());
+            var now = new Instant(actAuthority.At);
             var container = await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var path = await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var values = boundRecords is null
@@ -383,10 +385,12 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
+            // T-690: one authority, one clock read, for whichever branch this create takes.
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
             if (body.Id is not null)
             {
                 var denied = await RequestAuthorization.RefusalAsync(
-                        http, RequestAuthorization.Authority(http, tenant, clock),
+                        http, authority,
                         TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
                     .ConfigureAwait(false);
                 if (denied is not null)
@@ -413,7 +417,6 @@ public static class AssetRegistryRoutes
                     ? JsonDocument.Parse(supplied.GetRawText())
                     : JsonDocument.Parse("{}");
                 var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
-                var authority = RequestAuthorization.Authority(http, tenant, clock);
                 try
                 {
                     var written = await boundRecords.CreateAsync(
@@ -461,9 +464,8 @@ public static class AssetRegistryRoutes
                 }
             }
 
-            var unboundAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var unboundDenied = await RequestAuthorization.RefusalAsync(
-                    http, unboundAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
                 .ConfigureAwait(false);
             if (unboundDenied is not null)
                 return unboundDenied;
@@ -475,7 +477,7 @@ public static class AssetRegistryRoutes
                 DisplayName = body.DisplayName.Trim(),
                 PropertyForm = propertyForm,
                 ScanKey = string.IsNullOrWhiteSpace(body.ScanKey) ? null : body.ScanKey.Trim(),
-                CreatedAt = new Instant(unboundAuthority.At),
+                CreatedAt = new Instant(authority.At),
             };
             await entities.UpsertAsync(entity, entity.CreatedAt, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
 

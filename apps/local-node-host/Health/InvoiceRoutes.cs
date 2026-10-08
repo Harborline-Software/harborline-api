@@ -203,11 +203,13 @@ public static class InvoiceRoutes
         app.MapGet($"{RouteBase}/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the detail reads as of the instant the guard decided on.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct);
+                    http, actAuthority, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct);
             if (denied is not null)
                 return denied;
-            var invoice = await invoices.GetAsync(LocalTenantId, new InvoiceId(id), timeProvider.GetUtcNow(), ct).ConfigureAwait(false);
+            var invoice = await invoices.GetAsync(LocalTenantId, new InvoiceId(id), actAuthority.At, ct).ConfigureAwait(false);
             return invoice is null
                 ? Results.NotFound()
                 : Results.Ok(new InvoiceDetailResponse(InvoiceDetailWire.From(invoice)));
@@ -223,11 +225,13 @@ public static class InvoiceRoutes
         app.MapPost(RouteBase, async (CreateInvoiceRequest body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the draft is stamped with it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
+            var admittedAt = actAuthority.At;
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+                    http, actAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
-            var admittedAt = timeProvider.GetUtcNow();
             if (body is null)
             {
                 return Results.BadRequest(new { error = "request_null" });
