@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import subprocess
 from manifest import FINGERPRINT_KEYS, require
+from private_admission import binding_shape
+import reclaim
 ROOT=Path(__file__).resolve().parents[2]
 MODULE=Path(__file__).resolve().parent
 
@@ -73,6 +75,23 @@ def equivalent(receipt_bytes, expected, artifact_root, trusted_receipt_digest, n
         resources=json.loads((root/'resources/summary.json').read_bytes())
         completion=json.loads((root/'out/immutable-completion.json').read_bytes())
         gc=json.loads((root/'out/gc-preflight.json').read_bytes())
+        session=json.loads((root/'session.json').read_bytes())
+        assignment=completion.get('privateAssignment')
+        binding=session.get('privateBinding')
+        if binding is not None or assignment is not None or 'assignment.json' in artifacts:
+            require(expected['kind'] in ('portable','portable-coverage'), 'Private reclamation profile differs')
+            require({'assignment.json','out/private-build-server-reclamation.json'} <= set(artifacts), 'Private reclamation raw hashes missing')
+            require(isinstance(binding,dict) and isinstance(assignment,dict), 'Private completion authority missing')
+            binding_shape(binding)
+            require(binding['workflowSha']==expected['control'] and binding['taskId']==completion['task']['id']
+                    and session['manifestSha256']==binding['manifestSha256'], 'Private source/task/manifest differs')
+            retained=json.loads((root/'assignment.json').read_bytes())
+            require(retained==assignment and assignment['binding']==binding and assignment['verified'] is True
+                    and type(assignment['runnerId']) is int and assignment['runnerId']>0
+                    and assignment['runnerName']=='hl-trusted-'+binding['runId']+'-'+binding['jobId'], 'Private assignment/completion differs')
+            reclaim.validate_result(json.loads((root/'out/private-build-server-reclamation.json').read_bytes()), binding,
+                                    {'sources':{'api':expected['api']},'sdk':expected['sdk']})
+
         require(gc['requestedEnv']=='0x32' and gc['availableBytes']==5368709120 and
                 gc['config']['GCHeapHardLimit']==5368709120 and gc['config']['GCHeapHardLimitPercent']==50,'Runtime heap budget evidence differs')
         require(cleanup['clean'] is True and not cleanup['failures'],'Cleanup evidence failed')

@@ -81,6 +81,11 @@ jobs:
         with:
           version: 11.1.3
 
+      - name: Private resource hook contracts (no SDK workload)
+        run: |
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_reclaim.py
+          node --test eng/tests/private-build-server-reclamation.test.mjs
+
       - uses: ./.github/actions/platform-feed
 
       - name: Use pinned checkouts

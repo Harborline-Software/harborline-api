@@ -2,6 +2,9 @@
 set -euo pipefail
 umask 077
 python3 -I /opt/trusted/job.py admit "$1"
+if [ -f /opt/trusted/private-binding.json ]; then
+  export HARBORLINE_PRIVATE_BUILD_RECLAIM=1
+fi
 mkdir -p /runner/gate/out /runner/gate/cache/{xdg,xdg-data,xdg-config}
 export XDG_CACHE_HOME=/runner/gate/cache/xdg
 pwsh -NoProfile -NonInteractive -Command '

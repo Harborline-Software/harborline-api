@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import manifest as m
 import private_admission
+import reclaim
 from coverage_evidence import summary as coverage_summary
 sys.path.insert(0,'/opt/mini')
 import controller as c
@@ -49,6 +50,9 @@ def finish(kind):
     m.require(c.git(ROOT/'api','rev-parse','refs/remotes/origin/main')==value['base'],'Measured comparison base differs')
     m.require(subprocess.check_output(['dotnet','--version'],text=True).strip()==value['sdk'],'SDK changed')
     if kind.startswith('portable'):
+        if Path('/opt/trusted/private-binding.json').exists():
+            binding=json.loads(Path('/opt/trusted/private-binding.json').read_text())
+            reclaim.validate_result(json.loads((ROOT/'out/private-build-server-reclamation.json').read_text()), binding, value)
         c.validate_receipt(ROOT/'out',value['sources']['api'],value['tree'],kind=='portable-coverage')
         if kind=='portable-coverage':
             receipt=json.loads((ROOT/'out/harborline-api-verify-receipt.json').read_text())
