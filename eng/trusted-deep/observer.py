@@ -12,6 +12,7 @@ import time
 import hashlib
 import resource_profile as rp
 from observer_commands import Commands
+from host_diagnostics import HostProcesses, memory_facts
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--session-file', required=True)
@@ -26,14 +27,16 @@ script = pathlib.Path(__file__).with_name('telemetry.py').read_text()
 context = {'phase': 'baseline'}
 commands = Commands(out / 'command-failures.jsonl', context)
 command = commands.run
+host_processes = HostProcesses()
 
 def host():
     free = command(['/usr/bin/memory_pressure', '-Q'], 'host.memory-pressure')
     swap = command(['/usr/sbin/sysctl', '-n', 'vm.swapusage'], 'host.swap-usage')
     level = command(['/usr/sbin/sysctl', '-n', 'kern.memorystatus_vm_pressure_level'], 'host.pressure-level')
+    vm = command(['/usr/bin/vm_stat'], 'host.vm-stat')
     return {'time': time.time(), 'freePercent': int(re.search(r'free percentage: (\d+)', free)[1]),
             'swapUsedMiB': float(re.search(r'used = ([\d.]+)M', swap)[1]), 'pressureLevel': int(level),
-            **rp.counters(command(['/usr/bin/vm_stat'], 'host.vm-stat'))}
+            **rp.counters(vm), 'memory': memory_facts(vm)}
 
 admitted=json.loads(session_path.read_text())
 session=admitted['session']
@@ -116,6 +119,8 @@ try:
             raise
         context['phase'] = 'host-sample'
         sample['host'] = host()
+        # Optional previous snapshot: asynchronous collection never gates a stop.
+        sample['hostProcesses'] = host_processes.snapshot()
         context['phase'] = 'docker-stats'
         sample['aggregateDockerStats'] = [json.loads(line) for line in
             command(['docker', 'stats', '--no-stream', '--format', '{{json .}}'], 'docker.aggregate-stats').splitlines()]
@@ -131,6 +136,7 @@ try:
             raise RuntimeError('Cgroup OOM alarm')
         if pressured >= 2:
             raise RuntimeError('Host or VM pressure alarm')
+        host_processes.refresh()
         time.sleep(3)
     else:
         raise RuntimeError('Observer deadline exceeded')

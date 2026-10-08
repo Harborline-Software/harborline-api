@@ -87,6 +87,7 @@ jobs:
           python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_resource_profile.py
           python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_observer_profile.py
           python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_observer_commands.py
+          python3 -B -m unittest discover -s eng/trusted-deep/tests -p test_host_diagnostics.py
           test -f .control/tools/api-trusted-deep/test_readiness.py
           printf 'Readiness contracts API=%s Control=%s\n' "$(git rev-parse HEAD)" "$(git -C .control rev-parse HEAD)"
           HARBORLINE_API_REPO="$GITHUB_WORKSPACE" python3 -B -m unittest discover -s .control/tools/api-trusted-deep -p test_readiness.py

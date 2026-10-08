@@ -78,6 +78,20 @@ This adds no retry, timeout extension, admission change or successful qualificat
 Installing it still requires normal source review/protected landing and fresh exact
 source/image/automatic full-gate qualification. Historical failures remain failures.
 
+Optional diagnostics add wired, compressor and file-backed memory from the existing
+host `vm_stat` read. A single daemon probe collects at most 32 host processes by RSS
+using only PID, parent PID, RSS and kernel process name through macOS libproc.
+It creates no child process, uses a fixed PID buffer and 250 ms collection budget,
+and never blocks or joins the guard loop.
+Every attached snapshot records its own collection timestamps: it may precede the
+current pressure sample or be unavailable. The unchanged pressure guard evaluates
+and stops without waiting for diagnostics. Container telemetry adds parent/name,
+up to 32 RSS-ranked processes and active/inactive file-cache counters; the existing
+GC preflight additionally records runtime processor count. None of these facts
+changes test selection, xUnit/VSTest concurrency, admission or resource budgets.
+Direct cgroup memory includes cache; Docker CLI stats subtract inactive-file cache.
+Separate lane high-water peaks cannot be added as simultaneous host consumption.
+
 The default `zero-used-swap-v1` profile still requires absolute zero used swap at
 admission and completion. Mutation benchmarks and release/capacity qualification
 require that profile; an operational receipt cannot substitute. Receipts retain
