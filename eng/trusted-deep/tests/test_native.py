@@ -38,7 +38,7 @@ class NativeProof(unittest.TestCase):
         root=self.root/platform;gate=root/'out/gate-evidence';gate.mkdir(parents=True)
         fingerprint={key:'1'*64 for key in m.FINGERPRINT_KEYS}
         fingerprint.update(api=self.sha,tree=self.tree,base=self.sha,platform='b'*40,quality='c'*40,control='d'*40,image='sha256:'+'f'*64,
-                           sdk='11.0.100',os=platform,architecture='arm64',kind='native-full')
+                           resourceProfile='zero-used-swap-v1',sdk='11.0.100',os=platform,architecture='arm64',kind='native-full')
         source={k:fingerprint[k] for k in ('api','platform','quality','control')};inputs={k:fingerprint[k] for k in ('scripts','dependencyInputs','testSelection','coverageProfile','environment','baselines','testInventory')}
         context={'sources':source,'inputDigests':inputs,'sha':self.sha,'tree':self.tree,'base':self.sha,'sdk':'11.0.100','image':fingerprint['image'],
                  'platform':platform,'architecture':'arm64','runId':'42','attempt':'1','jobKey':'verify-windows-hosted' if platform=='windows' else 'verify-macos',

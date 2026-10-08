@@ -10,13 +10,14 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import manifest as m
 import evidence as e
+from resource_fixture import fixture as resource_fixture
 
 
 class Contract(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.value = {'version':1,'repositoryId':1360432948,'owner':'ctwoodwa',
+        self.value = {'resourceProfile':'zero-used-swap-v1','version':1,'repositoryId':1360432948,'owner':'ctwoodwa',
                       'sources':{name:digit*40 for name,digit in zip(('api','platform','quality','control'),'abcd')},
                       'tree':'e'*40,'base':'a'*40,'sdk':'11.0.100-rc.1.26425.128','image':'sha256:'+'f'*64,
                       'inputDigests':{name:'1'*64 for name in ('scripts','dependencyInputs','testSelection','coverageProfile','environment','baselines','testInventory')},
@@ -58,13 +59,13 @@ class Contract(unittest.TestCase):
         fingerprint=m.fingerprint(self.value,self.value['tasks'][0]);now=dt.datetime.now(dt.timezone.utc)
         for name in e.required_artifacts(fingerprint):
             path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('retained raw evidence')
-        (self.root/'session.json').write_text('{}')
+        proof=resource_fixture(self.root,fingerprint)
         (self.root/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
-        (self.root/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
-        (self.root/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':'portable'}}))
+
+        (self.root/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':'portable'},'resourceProfile':'zero-used-swap-v1'}))
         (self.root/'out/gc-preflight.json').write_text(json.dumps({'requestedEnv':'0x32','availableBytes':5368709120,'config':{'GCHeapHardLimit':5368709120,'GCHeapHardLimitPercent':50}}))
         receipt={'fingerprint':fingerprint,'status':'passed','cleanup':True,'oom':0,'swapMiB':0,
-                 'completedAt':now.isoformat(),'artifacts':{name:m.digest(self.root/name) for name in e.required_artifacts(fingerprint)},
+                 'resourceProof':proof,'completedAt':now.isoformat(),'artifacts':{name:m.digest(self.root/name) for name in e.required_artifacts(fingerprint)},
                  'suite':'full','criticalCheckSet':'api-required-v1'}
         return fingerprint,receipt,now
     def test_reuse_requires_same_approved_bytes_inputs_and_raw_artifacts(self):
@@ -86,11 +87,11 @@ class Contract(unittest.TestCase):
                  'workflowRef':'Harborline-Software/harborline-control/.github/workflows/api-trusted-deep.yml@refs/heads/main',
                  'taskId':'deep-a','manifestSha256':'2'*64}
         assignment={'binding':binding,'runnerId':7,'runnerName':'hl-trusted-42-99','verified':True}
-        completion={'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'id':'deep-a','kind':'portable'},'privateAssignment':assignment}
+        completion={'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'id':'deep-a','kind':'portable'},'privateAssignment':assignment,'resourceProfile':'zero-used-swap-v1'}
         reclamation={'phase':'exact-clone-host-tests','binding':binding,'apiHead':'a'*40,'sdk':self.value['sdk'],
                      'uid':1001,'after':[],'command':['/usr/share/dotnet/dotnet','build-server','shutdown'],
                      'exitCode':0,'signalsSent':False,'elapsedSeconds':1}
-        records={'session.json':{'privateBinding':binding,'manifestSha256':'2'*64},
+        records={'session.json':{'session':'a'*32,'fingerprint':fingerprint,'privateBinding':binding,'manifestSha256':'2'*64},
                  'assignment.json':assignment,'out/immutable-completion.json':completion,
                  'out/private-build-server-reclamation.json':reclamation}
         def check(changed=None,omit=None):
@@ -123,14 +124,15 @@ class Contract(unittest.TestCase):
             for name in e.required_artifacts(expected[platform]):
                 path=directory/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('retained raw proof')
             if platform=='linux':
-                (directory/'session.json').write_text('{}')
+                resource_proof=resource_fixture(directory,expected[platform])
                 (directory/'cleanup.json').write_text(json.dumps({'clean':True,'failures':[]}))
-                (directory/'resources/summary.json').write_text(json.dumps({'alarm':None,'samples':1,'maxHostSwapMiB':0}))
-                (directory/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':profile}}))
+
+                (directory/'out/immutable-completion.json').write_text(json.dumps({'verdict':'passed','head':'a'*40,'tree':'e'*40,'task':{'kind':profile},'resourceProfile':'zero-used-swap-v1'}))
                 (directory/'out/gc-preflight.json').write_text(json.dumps({'requestedEnv':'0x32','availableBytes':5368709120,'config':{'GCHeapHardLimit':5368709120,'GCHeapHardLimitPercent':50}}))
             else:
                 (directory/'out/gate-evidence/native-context.json').write_text(json.dumps({'sha':'a'*40,'platform':platform,'architecture':'arm64'}))
             record=dict(receipt,fingerprint=expected[platform],artifacts={name:m.digest(directory/name) for name in e.required_artifacts(expected[platform])})
+            if platform=='linux':record['resourceProof']=resource_proof
             raw[platform]=json.dumps(record).encode();digests[platform]=hashlib.sha256(raw[platform]).hexdigest();roots[platform]=directory
         with patch.object(e,'validate_native_raw') as validate:
             self.assertTrue(e.release_ready('a'*40,expected,raw,roots,digests,[],now))

@@ -10,10 +10,13 @@ import pathlib
 import re
 import subprocess
 import time
+import hashlib
+import resource_profile as rp
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--session-file', required=True)
 parser.add_argument('--output', required=True)
+parser.add_argument('--resource-profile', required=True, choices=sorted(rp.PROFILES))
 args = parser.parse_args()
 session_path = pathlib.Path(args.session_file)
 out = pathlib.Path(args.output)
@@ -31,21 +34,33 @@ def host():
     swap = command(['/usr/sbin/sysctl', '-n', 'vm.swapusage'])
     level = command(['/usr/sbin/sysctl', '-n', 'kern.memorystatus_vm_pressure_level'])
     return {'time': time.time(), 'freePercent': int(re.search(r'free percentage: (\d+)', free)[1]),
-            'swapUsedMiB': float(re.search(r'used = ([\d.]+)M', swap)[1]), 'pressureLevel': int(level)}
+            'swapUsedMiB': float(re.search(r'used = ([\d.]+)M', swap)[1]), 'pressureLevel': int(level),
+            **rp.counters(command(['/usr/bin/vm_stat']))}
 
-initial = host()
-if initial['swapUsedMiB'] != 0 or initial['freePercent'] < 30 or initial['pressureLevel'] != 1:
-    raise RuntimeError('Initial host headroom is insufficient')
-(out / 'initial-host.json').write_text(json.dumps(initial, indent=2) + '\n')
 admitted=json.loads(session_path.read_text())
-if not re.fullmatch('[0-9a-f]{32}',admitted['session']):
-    raise RuntimeError('Invalid initial session identity')
+session=admitted['session']
+if not re.fullmatch('[0-9a-f]{32}',session) or admitted['fingerprint']['resourceProfile']!=args.resource_profile:
+    raise RuntimeError('Initial session/profile differs')
+mode=rp.profile(args.resource_profile)
+base={'profile':mode,'session':session,'hostSamples':[host()]}
+if mode==rp.OPERATIONAL:
+    while base['hostSamples'][-1]['time']-base['hostSamples'][0]['time']<30:
+        time.sleep(3)
+        base['hostSamples'].append(host())
+        current=base['hostSamples'][-1]
+        rp.transition(base['hostSamples'][0],base['hostSamples'][-2],current,mode)
+        if current['swapUsedMiB']!=base['hostSamples'][0]['swapUsedMiB'] or current['pressureLevel']!=1 or current['freePercent']<30:
+            raise RuntimeError('Operational host baseline unstable')
+initial=rp.baseline(base,mode,session)
+(out/'baseline.json').write_text(json.dumps(base,indent=2)+'\n')
+baseline_digest=hashlib.sha256((out/'baseline.json').read_bytes()).hexdigest()
+(out/'initial-host.json').write_text(json.dumps(initial,indent=2)+'\n')
 ready=out/'ready.tmp'
-ready.write_text(json.dumps({'session':admitted['session'],'initialHost':initial})+'\n')
+ready.write_text(json.dumps({'session':session,'profile':mode,'initialHost':initial,'baselineSha256':baseline_digest})+'\n')
 ready.replace(out/'ready.json')
 deadline = time.monotonic() + 3500
 samples = []
-session = None
+previous = initial
 alarm = None
 pressured = 0
 try:
@@ -54,13 +69,10 @@ try:
             time.sleep(1)
             continue
         record = json.loads(session_path.read_text())
-        if session is None:
-            session = record['session']
-            if not re.fullmatch('[0-9a-f]{32}', session):
-                raise RuntimeError('Invalid session identity')
-            (out / 'admitted-session.json').write_text(json.dumps(record, indent=2) + '\n')
-        if record['session'] != session:
+        if record['session'] != session or record['fingerprint']['resourceProfile']!=mode:
             raise RuntimeError('Session identity changed')
+        if not (out / 'admitted-session.json').exists():
+            (out / 'admitted-session.json').write_text(json.dumps(record, indent=2) + '\n')
         if (session_path.parent / 'result.json').exists():
             break
         name = 'hl-mini-' + session + '-a'
@@ -105,11 +117,14 @@ try:
         samples.append(sample)
         with (out / 'telemetry.jsonl').open('a') as stream:
             stream.write(json.dumps(sample) + '\n')
+        rp.sample(sample)
+        rp.transition(initial,previous,sample['host'],mode)
+        previous=sample['host']
         danger = sample['host']['freePercent'] < 20 or sample['host']['pressureLevel'] != 1 or sample['vmMemAvailable'] < 2 * 1024**3
         pressured = pressured + 1 if danger else 0
         if sample['memoryEvents'].get('oom', 0) or sample['memoryEvents'].get('oom_kill', 0):
             raise RuntimeError('Cgroup OOM alarm')
-        if sample['host']['swapUsedMiB'] - initial['swapUsedMiB'] > 64 or pressured >= 2:
+        if pressured >= 2:
             raise RuntimeError('Host or VM pressure alarm')
         time.sleep(3)
     else:
@@ -120,11 +135,13 @@ finally:
     result = {'session': session, 'alarm': alarm, 'samples': len(samples),
               'peakIsSampledCgroupHighWater': True,
               'limitation': 'Container may exit between samples; no final cgroup sample is guaranteed.'}
+    result.update(profile=mode,baselineSha256=baseline_digest)
     if samples:
-        result.update(peakMemoryBytes=max(s['memoryPeak'] for s in samples),
-                      maxHostSwapMiB=max(s['host']['swapUsedMiB'] for s in samples),
-                      minVmAvailableBytes=min(s['vmMemAvailable'] for s in samples),
-                      minHostFreePercent=min(s['host']['freePercent'] for s in samples))
+        try:
+            result.update(rp.measures(base,samples,mode,session))
+        except Exception as error:
+            alarm=alarm or str(error)
+            result['alarm']=alarm
     (out / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result))
 if alarm:

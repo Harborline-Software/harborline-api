@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import patch,Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import pilot
+import time
+from resource_fixture import fixture as resource_fixture
 
 class Teardown(unittest.TestCase):
     def test_real_docker_filter_grammar_and_all_resource_absence_checks(self):
@@ -27,7 +29,9 @@ class Teardown(unittest.TestCase):
             root=Path(tmp);(root/'resources').mkdir();observer=Mock();observer.poll.return_value=None
             ready=root/'resources/ready.json'
             def slow_baseline(_):
-                ready.write_text(json.dumps({'session':'approved','initialHost':{'swapUsedMiB':0,'freePercent':30,'pressureLevel':1}}))
+                resource_fixture(root,{'resourceProfile':'zero-used-swap-v1'})
+                value=json.loads((root/'resources/baseline.json').read_text());value['session']='approved';value['hostSamples'][-1]['time']=time.time();(root/'resources/baseline.json').write_text(json.dumps(value))
+                ready.write_text(json.dumps({'session':'approved','profile':'zero-used-swap-v1','baselineSha256':pilot.digest(root/'resources/baseline.json'),'initialHost':value['hostSamples'][-1]}))
             with patch.object(pilot.time,'sleep',side_effect=slow_baseline) as wait:
                 pilot.await_resource_admission(observer,root,'approved')
                 self.assertEqual(wait.call_count,1)

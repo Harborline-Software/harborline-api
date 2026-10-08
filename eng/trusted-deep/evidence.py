@@ -7,13 +7,14 @@ import subprocess
 from manifest import FINGERPRINT_KEYS, require
 from private_admission import binding_shape
 import reclaim
+import resource_profile as rp
 ROOT=Path(__file__).resolve().parents[2]
 MODULE=Path(__file__).resolve().parent
 
 def native_context(root,expected):
     context=json.loads((root/'out/gate-evidence/native-context.json').read_bytes())
     measured={**context['sources'],'tree':context['tree'],'base':context['base'],'sdk':context['sdk'],
-              'image':context['image'],**context['inputDigests'],'kind':'native-full','os':context['platform'],'architecture':context['architecture']}
+              'image':context['image'],**context['inputDigests'],'kind':'native-full','resourceProfile':rp.ZERO,'os':context['platform'],'architecture':context['architecture']}
     require(measured==expected,'Native measured inputs differ from approved fingerprint')
     job_key={'windows':'verify-windows-hosted','macos':'verify-macos'}[expected['os']]
     require(context['sha']==expected['api'] and context['workflowSha']==expected['api'] and
@@ -37,11 +38,11 @@ def validate_native_raw(root,expected):
 
 
 def required_artifacts(expected):
-    if expected['kind']=='native-full':
+    if expected['kind'] in ('native-full','mutation-benchmark'):
         return {'out/gate-evidence/native-context.json','hosted-job.json','out/harborline-api-verify-receipt.json',
                 'out/gate-evidence/host-tests.trx','out/gate-evidence/named-test-outcomes.json',
                 'out/gate-evidence/capability-tests.json','out/gate-evidence/exact-clone-report.json','out/raw-validation.json'}
-    common={'session.json','cleanup.json','resources/summary.json','out/immutable-completion.json','out/raw-validation.json','out/gc-preflight.json'}
+    common={'session.json','cleanup.json','resources/baseline.json','resources/admission.json','resources/telemetry.jsonl','resources/summary.json','out/immutable-completion.json','out/raw-validation.json','out/gc-preflight.json'}
     if expected['kind'] in ('portable','portable-coverage'):
         common |= {'out/gate-exit.txt','out/harborline-api-verify-receipt.json','out/harborline-api-quality-decision.json',
                    'out/gate-evidence/host-tests.trx','out/gate-evidence/named-test-outcomes.json'}
@@ -59,7 +60,10 @@ def equivalent(receipt_bytes, expected, artifact_root, trusted_receipt_digest, n
     receipt = json.loads(receipt_bytes)
     require(set(expected) == FINGERPRINT_KEYS and receipt.get("fingerprint") == expected, "Evidence inputs are not equivalent; rerun")
     require(receipt.get("status") == "passed" and receipt.get("cleanup") is True, "Failed/incomplete evidence")
-    require(receipt.get("oom") == 0 and receipt.get("swapMiB") == 0, "Resource alarm")
+    mode=rp.profile(expected['resourceProfile'])
+    require(receipt.get('oom')==0, 'Resource OOM alarm')
+    if expected['kind'] in ('native-full','mutation-benchmark'):
+        require(mode==rp.ZERO and receipt.get('swapMiB')==0, 'Native/benchmark resource profile differs')
     completed = datetime.datetime.fromisoformat(receipt["completedAt"])
     require(completed.tzinfo is not None and 0 <= (now - completed).total_seconds() <= 72 * 3600, "Stale or future evidence")
     artifacts = receipt.get("artifacts")
@@ -76,6 +80,7 @@ def equivalent(receipt_bytes, expected, artifact_root, trusted_receipt_digest, n
         completion=json.loads((root/'out/immutable-completion.json').read_bytes())
         gc=json.loads((root/'out/gc-preflight.json').read_bytes())
         session=json.loads((root/'session.json').read_bytes())
+        require(session.get('fingerprint')==expected,'Retained session fingerprint differs')
         assignment=completion.get('privateAssignment')
         binding=session.get('privateBinding')
         if binding is not None or assignment is not None or 'assignment.json' in artifacts:
@@ -95,7 +100,9 @@ def equivalent(receipt_bytes, expected, artifact_root, trusted_receipt_digest, n
         require(gc['requestedEnv']=='0x32' and gc['availableBytes']==5368709120 and
                 gc['config']['GCHeapHardLimit']==5368709120 and gc['config']['GCHeapHardLimitPercent']==50,'Runtime heap budget evidence differs')
         require(cleanup['clean'] is True and not cleanup['failures'],'Cleanup evidence failed')
-        require(resources['alarm'] is None and resources['samples']>0 and resources['maxHostSwapMiB']==0,'Telemetry absent or failed')
+        proof=rp.validate(root,mode,session['session'])
+        require(receipt.get('resourceProof')==proof and receipt.get('swapMiB')==proof['maxHostSwapMiB'], 'Resource receipt/raw proof differs')
+        require(completion.get('resourceProfile')==mode,'Immutable completion resource profile differs')
         require(completion['verdict']=='passed' and completion['head']==expected['api'] and completion['tree']==expected['tree'], 'Immutable source completion mismatch')
         require(completion['task']['kind']==expected['kind'],'Completed profile differs')
     else:
@@ -117,6 +124,7 @@ def release_ready(candidate, expected, raw_receipts, artifact_roots, trusted_dig
         fingerprint = expected[platform]
         require(fingerprint["api"] == candidate and fingerprint["os"] == platform,
                 "Release candidate/platform does not match approved expectation")
+        require(fingerprint['resourceProfile']==rp.ZERO,'Operational nightly proof cannot qualify benchmark/release capacity')
         require(fingerprint['kind']==('portable-coverage' if platform=='linux' else 'native-full'),'Release requires full coverage/native profiles')
         proof = equivalent(raw_receipts[platform], fingerprint, artifact_roots[platform],
                            trusted_digests[platform], now)

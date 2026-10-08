@@ -30,6 +30,7 @@ def admit(kind):
     m.require(policy['head']==value['sources']['api'] and policy['tree']==value['tree'] and policy['sdk']==value['sdk'],'Source/tree/SDK changed')
     m.require(value['base']==policy['head'],'Snapshot base differs from restored origin/main')
     m.require(policy['inputDigests']==value['inputDigests'],'Verification input profile changed')
+    m.require(policy['environment'].get('resourceProfile')==value['resourceProfile'],'Immutable resource profile differs')
     m.require(os.environ.get('XDG_DATA_HOME')==policy['environment']['xdgData'] and
               os.environ.get('XDG_CONFIG_HOME')==policy['environment']['xdgConfig'],'Writable private runtime profile differs')
     m.require(os.environ.get('DOTNET_GCHeapHardLimitPercent')==policy['environment']['dotnetGcHeapHardLimitPercent']=='0x32','Managed heap budget differs')
@@ -61,7 +62,7 @@ def finish(kind):
                 m.require(all(receipt['coverage'][name][key]==measured[key] for key in ('validLines','coveredLines')),'Coverage receipt/XML mismatch')
     subprocess.run(['node','/opt/trusted/raw-evidence.mjs',kind,str(ROOT/'out'),str(ROOT/'api')],check=True)
     (ROOT/'out/immutable-completion.json').write_text(json.dumps({'manifestSha256':m.digest('/runner/approved-manifest.json'),
-        'task':task,'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',
+        'task':task,'resourceProfile':value['resourceProfile'],'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',
         'privateAssignment':json.loads(Path('/opt/trusted/private-assignment.json').read_text()) if Path('/opt/trusted/private-assignment.json').exists() else None},indent=2)+'\n')
 
 if __name__=='__main__':
