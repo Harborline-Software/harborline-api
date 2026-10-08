@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync,writeFileSync,existsSync,rmSync,mkdirSync,copyFileSync,readFileSync,readdirSync} from 'node:fs'
+import {mkdtempSync,writeFileSync,existsSync,rmSync,mkdirSync,copyFileSync,readFileSync,readdirSync,realpathSync} from 'node:fs'
+import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {spawnSync,execFileSync} from 'node:child_process'
@@ -144,6 +145,17 @@ test('actual authentication action resolves launcher and dependency from protect
   assert.equal(tracingControl.status,0);assert.match(tracingControl.stderr,/SHELL-TRACE-WITNESS/)
   const tracingProtected=spawnSync(bash,[...shell,'-c',tracingCommand],{env:tracingEnv,encoding:'utf8',timeout:10000})
   assert.equal(tracingProtected.status,0,tracingProtected.stderr);assert.equal(tracingProtected.stderr.includes('SHELL-TRACE-WITNESS'),false)
+  const bashVersion=spawnSync(bash,['--version'],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:10000})
+  assert.equal(bashVersion.status,0,bashVersion.stderr)
+  const digest=value=>createHash('sha256').update(value).digest('hex')
+  // Archive the literal controls and interpreter identity without printing inherited environment or trace output.
+  t.diagnostic(JSON.stringify({kind:'imported-xtrace-controls',platform:process.platform,
+    executable:bash,realpath:realpathSync(bash),executableSha256:digest(readFileSync(bash)),
+    version:bashVersion.stdout.split(/\r?\n/)[0],environment:{SHELLOPTS:'xtrace'},command:tracingCommand,
+    ordinary:{argv:['--noprofile','--norc','-c',tracingCommand],exitCode:tracingControl.status,
+      markerPresent:tracingControl.stderr.includes('SHELL-TRACE-WITNESS'),stderrSha256:digest(tracingControl.stderr)},
+    privileged:{argv:[...shell,'-c',tracingCommand],exitCode:tracingProtected.status,
+      markerPresent:tracingProtected.stderr.includes('SHELL-TRACE-WITNESS'),stderrSha256:digest(tracingProtected.stderr)}}))
   rmSync(witness);rmSync(output)
   for(const changed of [{TRUSTED_FEED_ACTION_REF:'candidate'},{TRUSTED_FEED_ACTION_REPOSITORY:'attacker/repo'}]) {
     assert.equal(spawnSync(bash,protectedArgs,{env:{...env,...changed},cwd:candidate,encoding:'utf8'}).status,1)
