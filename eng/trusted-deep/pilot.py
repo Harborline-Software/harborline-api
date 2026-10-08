@@ -14,6 +14,7 @@ import time
 import uuid
 from manifest import digest, fingerprint, load, require
 import slots
+import resource_profile as rp
 
 ROOT=Path(__file__).resolve().parents[2]
 OBSERVER=Path(__file__).with_name('observer.py')
@@ -83,7 +84,7 @@ def stop_and_wait(process):
             os.killpg(process.pid,signal.SIGKILL)
             process.wait(timeout=10)
 
-def await_resource_admission(observer,output,session):
+def await_resource_admission(observer,output,session,mode=rp.ZERO):
     deadline=time.monotonic()+60;path=output/'resources/ready.json'
     while not path.exists():
         require(observer.poll() is None,'Resource admission failed before ready')
@@ -91,7 +92,11 @@ def await_resource_admission(observer,output,session):
         time.sleep(.2)
     ready=json.loads(path.read_bytes());initial=ready['initialHost']
     require(observer.poll() is None and ready['session']==session,'Resource admission identity/liveness differs')
-    require(initial['swapUsedMiB']==0 and initial['freePercent']>=30 and initial['pressureLevel']==1,'Resource baseline admission failed')
+    base=json.loads((output/'resources/baseline.json').read_bytes())
+    measured=rp.baseline(base,mode,session);at=time.time()
+    require(ready.get('profile')==mode and ready.get('baselineSha256')==digest(output/'resources/baseline.json')
+            and initial==measured and 0<=at-initial['time']<=15, 'Resource baseline admission failed/stale')
+    write(output/'resources/admission.json',dict(ready,admittedAt=at))
 
 def teardown(session,name,output,child,observer,claim_path,claim_published):
     """Resource/process draining precedes optional evidence I/O, even on ENOSPC."""
@@ -151,9 +156,9 @@ def run(args):
                 docker('cp',str(Path(args.manifest).resolve()),name+':/runner/approved-manifest.json')
             finally:os.close(admission)
             with (output/'observer.log').open('x') as obs,(output/'container.log').open('x') as log:
-                observer=subprocess.Popen(['python3','-B',str(OBSERVER),'--session-file',str(output/'session.json'),'--output',str(output/'resources')],
+                observer=subprocess.Popen(['python3','-B',str(OBSERVER),'--session-file',str(output/'session.json'),'--output',str(output/'resources'),'--resource-profile',value['resourceProfile']],
                                           stdout=obs,stderr=subprocess.STDOUT,pass_fds=fds,start_new_session=True)
-                await_resource_admission(observer,output,session)
+                await_resource_admission(observer,output,session,value['resourceProfile'])
                 child=subprocess.Popen(['docker','start','-a',name],stdout=log,stderr=subprocess.STDOUT,pass_fds=fds,start_new_session=True)
                 started=time.monotonic();deadline=started+3400;next_inventory=started+15
                 while child.poll() is None:
@@ -169,7 +174,7 @@ def run(args):
                 write(output/'result.json',{'success':False,'awaitingCleanup':True})
                 observer.wait(timeout=60)
                 resources=json.loads((output/'resources/summary.json').read_text())
-                require(resources['alarm'] is None and resources['maxHostSwapMiB']==0,'Incomplete/failed telemetry')
+                resource_proof=rp.validate(output,value['resourceProfile'],session)
                 write(output/'timing.json',{'executionSeconds':time.monotonic()-started})
         except BaseException as caught:
             error=caught
@@ -183,7 +188,7 @@ def run(args):
             else:
                 try:
                     artifacts={str(p.relative_to(output)):digest(p) for p in sorted(output.rglob('*')) if p.is_file() and p.name!='result.json'}
-                    receipt={'fingerprint':fingerprint(value,task),'status':'passed','cleanup':True,'oom':0,'swapMiB':0,
+                    receipt={'fingerprint':fingerprint(value,task),'status':'passed','cleanup':True,'oom':0,'swapMiB':resource_proof['maxHostSwapMiB'],'resourceProof':resource_proof,
                              'completedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'suite':'full' if task['kind'].startswith('portable') else 'mutation-benchmark',
                              'criticalCheckSet':'api-portable-all17-v1','artifacts':artifacts,'manifestSha256':args.approved_digest}
                     write(output/'receipt.json',receipt)
