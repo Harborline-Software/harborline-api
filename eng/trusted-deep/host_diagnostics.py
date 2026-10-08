@@ -91,8 +91,11 @@ class HostProcesses:
     def refresh(self):
         if self.worker is not None and self.worker.is_alive():
             return
-        self.worker = threading.Thread(target=self._collect, daemon=True)
-        self.worker.start()
+        try:
+            self.worker = threading.Thread(target=self._collect, daemon=True)
+            self.worker.start()
+        except Exception:
+            self.latest = {'status': 'unavailable', 'reason': 'probe-start-failed'}
 
     def _collect(self):
         started = self.clock()

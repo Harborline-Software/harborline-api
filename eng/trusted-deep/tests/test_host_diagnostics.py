@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from host_diagnostics import BsdInfo, TaskInfo, HostProcesses, memory_facts, read_processes, safe_name
 
@@ -69,6 +70,13 @@ class HostDiagnosticTests(unittest.TestCase):
         value._collect()
         self.assertEqual(value.snapshot(), {'startedAt': 1, 'completedAt': 1.25,
                                           'status': 'unavailable', 'reason': 'probe-failed'})
+    def test_thread_start_failure_is_optional_without_exception_text(self):
+        for target in ['host_diagnostics.threading.Thread', 'host_diagnostics.threading.Thread.start']:
+            with self.subTest(target=target):
+                value = HostProcesses()
+                with patch(target, side_effect=RuntimeError('secret exhaustion')):
+                    value.refresh()
+                self.assertEqual(value.snapshot(), {'status': 'unavailable', 'reason': 'probe-start-failed'})
     def test_blocked_probe_is_not_joined_and_never_duplicated(self):
         entered, release = threading.Event(), threading.Event()
         calls = []
