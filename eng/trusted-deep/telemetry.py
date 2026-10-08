@@ -16,7 +16,7 @@ for p in P('/proc').iterdir():
   name=fields.get('Name','unknown')
   kind=next((label for token,label in [('MSBuild.dll','msbuild'),('VBCSCompiler.dll','compiler-server'),('testhost.dll','testhost'),('vstest.console.dll','vstest'),('Harborline','harborline'),('vitest','vitest')] if token in cmd),name)
   classes[kind]['count']+=1;classes[kind]['rssBytes']+=rss;classes[kind]['threads']+=threads
-  processes.append({'pid':int(p.name),'class':kind,'rssBytes':rss,'threads':threads})
+  processes.append({'pid':int(p.name),'parentPid':int(fields.get('PPid','0')),'name':name[:64],'class':kind,'rssBytes':rss,'threads':threads})
  except (OSError,ValueError):pass
 mem={line.split(':',1)[0]:int(line.split(':',1)[1].split()[0])*1024 for line in P('/proc/meminfo').read_text().splitlines() if line.endswith('kB')}
 phase='bootstrap'
@@ -27,4 +27,9 @@ if log.exists():
   if line.startswith('[exact-clone] '):
    try:row=json.loads(line[len('[exact-clone] '):]);phase='exact-clone/'+row['id']+'/'+row['state']
    except (ValueError,KeyError):pass
-print(json.dumps({'time':time.time(),'phase':phase,'memoryCurrent':int(val('memory.current')),'memoryPeak':int(val('memory.peak')),'memoryMax':val('memory.max'),'memorySwapMax':val('memory.swap.max'),'memorySwapCurrent':int(val('memory.swap.current')),'memoryEvents':pairs(val('memory.events')),'memoryStat':{k:v for k,v in pairs(val('memory.stat')).items() if k in ('anon','file','kernel','slab','sock','shmem')},'cpuMax':val('cpu.max'),'pidsCurrent':val('pids.current'),'vmMemAvailable':mem.get('MemAvailable'),'vmMemTotal':mem.get('MemTotal'),'classes':dict(classes),'topProcesses':sorted(processes,key=lambda p:p['rssBytes'],reverse=True)[:12]}))
+facts={}
+try:
+ gc=json.loads(P('/runner/gate/out/gc-preflight.json').read_text())
+ facts={'runtimeProcessorCount':gc.get('processorCount'),'managedHeapAvailableBytes':gc.get('availableBytes')}
+except (OSError,ValueError):pass
+print(json.dumps({'time':time.time(),'phase':phase,'concurrency':facts,'memoryCurrent':int(val('memory.current')),'memoryPeak':int(val('memory.peak')),'memoryMax':val('memory.max'),'memorySwapMax':val('memory.swap.max'),'memorySwapCurrent':int(val('memory.swap.current')),'memoryEvents':pairs(val('memory.events')),'memoryStat':{k:v for k,v in pairs(val('memory.stat')).items() if k in ('anon','file','inactive_file','active_file','kernel','slab','sock','shmem')},'cpuMax':val('cpu.max'),'pidsCurrent':val('pids.current'),'vmMemAvailable':mem.get('MemAvailable'),'vmMemTotal':mem.get('MemTotal'),'classes':dict(classes),'topProcesses':sorted(processes,key=lambda p:p['rssBytes'],reverse=True)[:32]}))

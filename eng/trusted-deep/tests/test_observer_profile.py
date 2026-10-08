@@ -12,7 +12,10 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
 class ObserverProfile(unittest.TestCase):
-    def observe(self,change=None):
+    def observe(self,change=None,diagnostics=None):
+        class NoProbe:
+            def snapshot(self):return {'status':'not-yet-collected'}
+            def refresh(self):pass
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);path=root/'session.json';out=root/'resources';session='a'*32
             path.write_text(json.dumps({'session':session,'fingerprint':{'resourceProfile':'operational-stable-swap-v1'}}))
@@ -20,7 +23,7 @@ class ObserverProfile(unittest.TestCase):
             def read(argv,**kwargs):
                 calls.append(argv)
                 if argv[0]=='/usr/bin/memory_pressure':value='System-wide memory free percentage: 79%'
-                elif argv[0]=='/usr/sbin/sysctl':value='total = 100.00M used = 15.00M free = 85.00M' if argv[-1]=='vm.swapusage' else '1'
+                elif argv[0]=='/usr/sbin/sysctl':value='total = 100.00M used = 15.00M free = 85.00M' if argv[-1]=='vm.swapusage' else ('2' if change=='pressure' and n[0]>=1 else '1')
                 elif argv[0]=='/usr/bin/vm_stat':
                     vmreads[0]+=1
                     if change=='session' and vmreads[0]==11:path.write_text(json.dumps({'session':'b'*32,'fingerprint':{'resourceProfile':'operational-stable-swap-v1'}}))
@@ -61,7 +64,7 @@ class ObserverProfile(unittest.TestCase):
                 def wait(self):return self.returncode
             observer=Path(__file__).resolve().parents[1]/'observer.py'
             argv=['observer.py','--session-file',str(path),'--output',str(out),'--resource-profile','operational-stable-swap-v1']
-            with patch.object(sys,'argv',argv),patch('observer_commands.subprocess.Popen',side_effect=Process),patch.object(time,'time',side_effect=lambda:clock[0]),patch.object(time,'monotonic',side_effect=lambda:clock[0]),patch.object(time,'sleep',side_effect=sleep),patch('builtins.print'):
+            with patch.object(sys,'argv',argv),patch('host_diagnostics.HostProcesses',return_value=diagnostics or NoProbe()),patch('observer_commands.subprocess.Popen',side_effect=Process),patch.object(time,'time',side_effect=lambda:clock[0]),patch.object(time,'monotonic',side_effect=lambda:clock[0]),patch.object(time,'sleep',side_effect=sleep),patch('builtins.print'):
                 if change and change!='created-running':
                     with self.assertRaises(SystemExit) as refused:runpy.run_path(str(observer),run_name='__main__')
                     self.assertEqual(refused.exception.code,1)
@@ -109,5 +112,23 @@ class ObserverProfile(unittest.TestCase):
         first_exec=next(i for i,a in enumerate(calls) if a[:2]==['docker','exec'])
         self.assertEqual(sum(a[:2]==['docker','inspect'] for a in calls[:first_exec]),21)
         self.assertEqual(sum(a[:2]==['docker','exec'] for a in calls),2)
+
+    def test_actual_pressure_stop_ignores_blocked_optional_process_probe(self):
+        import threading
+        from host_diagnostics import HostProcesses
+        entered,release=threading.Event(),threading.Event()
+        def blocked():
+            entered.set();release.wait()
+            return {'processes':[]}
+        diagnostics=HostProcesses(collect=blocked)
+        try:
+            diagnostics.refresh();self.assertTrue(entered.wait(1))
+            summary,calls=self.observe('pressure',diagnostics)
+            self.assertEqual(summary['alarm'],'Host or VM pressure alarm')
+            self.assertEqual(summary['samples'],2)
+            self.assertTrue(diagnostics.worker.is_alive())
+            self.assertEqual(sum(a[:2]==['docker','exec'] for a in calls),2)
+        finally:
+            release.set();diagnostics.worker.join(1)
 
 if __name__=='__main__':unittest.main()
