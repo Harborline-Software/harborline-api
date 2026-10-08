@@ -1,6 +1,22 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {inputs,effective,validateReport,tool} from '../candidate-mutation.mjs'
+import {inputs,effective,validateReport,tool,strykerStartupArguments,pinnedStrykerVersion,validateStrykerHelp} from '../candidate-mutation.mjs'
+// Pinned Stryker5 primary source: --version supplies ProjectVersionInput;
+// --help is covered by ShouldNotStartStryker_WithHelpArgument. The package
+// identity comes from the independent literal tool manifest, not a help banner.
+test('Stryker startup uses local inventory and non-mutating help, never bare --version',()=>{
+  assert.deepEqual(strykerStartupArguments(),{inventory:['tool','list','--local'],help:['tool','run','dotnet-stryker','--','--help']})
+})
+test('local restored Stryker package requires exact version and command',()=>{
+  const listing='Package Id      Version      Commands          Roll forward\n----------------------------------------------------------\ndotnet-stryker  5.0.0        dotnet-stryker      False\n'
+  assert.equal(pinnedStrykerVersion(listing),'5.0.0')
+  assert.equal(pinnedStrykerVersion('dotnet-stryker\t5.0.0\tdotnet-stryker\r\n'),'5.0.0')
+  for(const bad of ['', 'other-tool 5.0.0 dotnet-stryker', 'dotnet-stryker 5.0.1 dotnet-stryker', 'dotnet-stryker 15.0.0 dotnet-stryker', 'dotnet-stryker 5.0.0 other-command', 'dotnet-stryker 5.0.0', 'dotnet-stryker 5.0.0 dotnet-stryker\ndotnet-stryker 5.0.0 dotnet-stryker'])assert.throws(()=>pinnedStrykerVersion(bad))
+})
+test('startup help requires the pinned CLI identity and actual config option',()=>{
+  assert.doesNotThrow(()=>validateStrykerHelp('Stryker: Stryker mutator for .Net\nOptions:\n  --config-file <relative-path>'))
+  for(const bad of ['', 'Missing value for option \'version\'', 'Version: 5.0.0', 'Other tool --config-file', 'Stryker: Stryker mutator for .Net'])assert.throws(()=>validateStrykerHelp(bad))
+})
 // Independent literals from the approved T-1005 preset contract, also exposed by
 // candidate-mutation.yml. Never import the controller's project/filter as an oracle.
 const expectedProject='apps/local-node-host/tests/tests.csproj'
