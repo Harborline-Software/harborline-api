@@ -58,7 +58,7 @@ internal static class FormsAuthoringC3Wire
         var write = gate.EndsWith(".write", StringComparison.Ordinal);
         if (read || write)
         {
-            var prefix = gate[..gate.LastIndexOf('.')];
+            var prefix = gate[..gate.LastIndexOf(".", StringComparison.Ordinal)];
             var member = (read ? "read" : "write") + lane;
             if (prefix == "form") return $"/overlay/aspects/access/{member}";
             if (prefix.StartsWith("field:", StringComparison.Ordinal))
