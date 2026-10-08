@@ -330,7 +330,9 @@ jobs:
         with:
           version: 11.1.3
 
-      - uses: ./.github/actions/platform-feed
+      # Credential-bearing verifier and all its imports come from protected main,
+      # independently of the pull-request checkout. Candidate API gates still run below.
+      - uses: Harborline-Software/harborline-api/.github/actions/platform-feed@main
 
       - name: Read the quality pin
         id: quality_pin

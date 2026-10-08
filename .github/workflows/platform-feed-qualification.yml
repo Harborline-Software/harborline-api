@@ -1,22 +1,56 @@
-# Register the manual entrypoint without landing the experimental implementation.
-# Maintainers select an independently reviewed candidate using workflow_dispatch ref.
 name: platform-feed-qualification
 on:
   workflow_dispatch:
-    inputs:
-      benchmark:
-        description: Select benchmark mode on an independently reviewed candidate ref
-        type: boolean
-        default: false
-permissions: {}
+  pull_request:
+    paths:
+      - '.github/workflows/platform-feed-qualification.yml'
+      - '.github/workflows/platform-feed-producer.yml'
+      - '.github/actions/platform-feed/action.yml'
+      - 'eng/tests/platform-feed*.test.mjs'
+      - 'eng/tests/same-job-platform-feed.test.mjs'
+      - 'eng/tests/exact-clone-platform-feed.test.mjs'
+      - 'eng/platform-feed-*.mjs'
+      - 'eng/platform-feed-profile.json'
+      - 'eng/build-local-feed.mjs'
+      - 'eng/same-job-platform-feed.mjs'
+      - 'eng/exact-clone-platform-feed.mjs'
+      - 'eng/platform-pin.json'
+permissions:
+  contents: read
+concurrency:
+  group: platform-feed-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  registration-only:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    cache-mode: none
+  qualify-linux-docker-node24:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
-      - name: Explain registration without claiming qualification
-        run: |
-          echo 'Manual entrypoint registered. This version performs no qualification or benchmark.'
-          echo 'Dispatch a reviewed candidate ref only after the disposable cache denial qualification passes.'
-          echo 'No production reuse is enabled by this workflow.'
+      - name: Bound qualification diagnostics and preserve upload time
+        run: echo "HARBORLINE_QUALIFICATION_DEADLINE_MS=$(( ($(date +%s) + 1800) * 1000 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read platform pin
+        id: pin
+        run: echo "commit=$(node -p "JSON.parse(require('fs').readFileSync('eng/platform-pin.json')).commit")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.pin.outputs.commit }}
+          path: .platform
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Qualify production builder and restored bytes
+        run: node eng/platform-feed-qualification.mjs "$GITHUB_WORKSPACE/.platform"
+      - name: Scoped qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-feed-qualification-${{ github.run_id }}
+          if-no-files-found: error
+          include-hidden-files: true # explicit bounded evidence JSON only
+          path: .claude/platform-feed-qualification/evidence.json
