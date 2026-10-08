@@ -68,6 +68,7 @@ node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-feed-benchmark.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed-reuse.test.mjs" \
   "$repo_root/eng/tests/platform-feed-consumer-launch.test.mjs" \
   "$repo_root/eng/tests/platform-feed-credential-boundary.test.mjs" \
