@@ -12,7 +12,7 @@ KINDS = {"portable", "portable-coverage", "mutation-benchmark"}
 FINGERPRINT_KEYS = {
     "api", "tree", "base", "platform", "quality", "control", "image", "sdk",
     "scripts", "dependencyInputs", "testSelection", "coverageProfile", "environment", "baselines", "testInventory",
-    "os", "architecture", "kind",
+    "os", "architecture", "kind", "resourceProfile",
 }
 
 
@@ -30,7 +30,8 @@ def load(path, approved_digest):
     raw = Path(path).read_bytes()
     require(hashlib.sha256(raw).hexdigest() == approved_digest, "Manifest differs from reviewed bytes")
     value = json.loads(raw)
-    require(set(value) == {"version", "repositoryId", "owner", "sources", "tree", "base", "sdk", "image", "inputDigests", "tasks"}, "Unknown or incomplete manifest")
+    require(set(value) == {"version", "repositoryId", "owner", "sources", "tree", "base", "sdk", "image", "inputDigests", "tasks", "resourceProfile"}, "Unknown or incomplete manifest")
+    require(value["resourceProfile"] in {"zero-used-swap-v1", "operational-stable-swap-v1"}, "Unknown resource profile")
     require(type(value["version"]) is int and value["version"] == 1 and value["repositoryId"] == API_ID and value["owner"] == "ctwoodwa", "Wrong API/owner contract")
     require(set(value["sources"]) == {"api", "platform", "quality", "control"}, "Incomplete source pins")
     require(all(isinstance(v, str) and SHA.fullmatch(v) for v in value["sources"].values()), "Sources must be immutable full SHAs")
@@ -49,6 +50,7 @@ def load(path, approved_digest):
     # Mutation has separate memory/process behavior. It cannot inherit portable pair qualification.
     if any(t["kind"] == "mutation-benchmark" for t in value["tasks"]):
         require(len(value["tasks"]) == 1, "Mutation benchmark must reserve the machine exclusively")
+        require(value['resourceProfile']=='zero-used-swap-v1', 'Mutation benchmark requires absolute-zero profile')
     return value
 
 
@@ -69,7 +71,7 @@ def admit_event(event, env, approved_workflow_sha):
 def fingerprint(value, task):
     return {**value["sources"], "tree": value["tree"], "base": value["base"], "sdk": value["sdk"],
             "image": value["image"], **value["inputDigests"], "kind": task["kind"],
-            "os": "linux", "architecture": "arm64"}
+            "os": "linux", "architecture": "arm64", "resourceProfile":value["resourceProfile"]}
 
 
 def classify(paths):
