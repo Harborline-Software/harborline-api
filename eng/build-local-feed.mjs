@@ -6,6 +6,7 @@ import {mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {inflateRawSync} from 'node:zlib'
+import {buildEnvironment, scrubBuildCredentials} from './platform-feed-environment.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 export function readPin(file = path.join(root, 'eng/platform-pin.json')) {
@@ -25,10 +26,12 @@ export function assertProducers(manifest, pin) {
   return identities
 }
 export function assertFeed(file = path.join(root, 'nuget.config')) {
-  const sources = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+  const sources = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, ' ')
   if (!/<add\s+key="harborline-local"\s+value="\.feed"\s*\/>/.test(sources)) throw new Error('nuget.config must declare the local .feed')
 }
 async function main() {
+  // Platform-controlled JavaScript runs in this process before dotnet children exist.
+  scrubBuildCredentials()
   const pin = readPin()
   if (process.argv[2] === '--check-manifest') {
     assertProducers(JSON.parse(readFileSync(process.argv[3], 'utf8')), pin)
@@ -44,7 +47,7 @@ async function main() {
   if (git('status', '--porcelain', '--untracked-files=normal')) throw new Error('platform checkout must be clean before packing')
   // Discover the pinned platform's explicit packable inventory; the producer pin catches drift.
   const manifest = git('ls-files', '*.csproj').split('\n').flatMap(project => {
-    const source = readFileSync(path.join(platform, project), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    const source = readFileSync(path.join(platform, project), 'utf8').replace(/<!--[\s\S]*?-->/g, ' ')
     if (!/<IsPackable>\s*true\s*<\/IsPackable>/.test(source)) return []
     const id = /<PackageId>([^<]+)<\/PackageId>/.exec(source)?.[1] ?? path.basename(project, '.csproj')
     const assembly = /<AssemblyName>([^<]+)<\/AssemblyName>/.exec(source)?.[1] ?? path.basename(project, '.csproj')
@@ -53,19 +56,22 @@ async function main() {
   assertProducers(manifest, pin) // Reject duplicates before dotnet can overwrite one nupkg with another.
   const {computePackageVersion} = await import(pathToFileURL(path.join(platform, 'tooling/package-version.mjs')).href)
   const packedVersion = computePackageVersion(platform)
-  const feed = path.join(root, '.feed')
+  // Container output is an owned child of a writable mount, never the mount root.
+  const feed = process.env.HARBORLINE_FEED_OUTPUT_ROOT ?? path.join(root, '.feed')
+  if (!path.isAbsolute(feed) || path.basename(feed) !== '.feed') throw new Error('feed output must be an absolute .feed directory')
   // Stop MSBuild's upward targets search at the platform boundary. The API's targets add MinVer;
   // the pinned platform has no targets file. An explicit path also honors one if a future pin adds it.
   const commands = manifest.map(({project}) => ['pack', path.join(platform, project), '-c', 'Release', '--output', feed,
     `-p:DirectoryBuildTargetsPath=${path.resolve(platform, 'Directory.Build.targets')}`,
-    `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6'])
+    `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6',
+    ...(process.env.HARBORLINE_FEED_NO_RESTORE === '1' ? ['--no-restore'] : [])])
   if (dryRun) {
     console.log(JSON.stringify({packedVersion, producers: assertProducers(manifest, pin), commands}, null, 2))
     return
   }
   rmSync(feed, {recursive: true, force: true})
   mkdirSync(feed, {recursive: true})
-  for (const args of commands) execFileSync('dotnet', args, {cwd: platform, stdio: 'inherit'})
+  for (const args of commands) execFileSync('dotnet', args, {cwd: platform, stdio: 'inherit', env: buildEnvironment()})
   const packed = readdirSync(feed).filter(name => name.endsWith('.nupkg'))
   const packages = packed.map(name => readNuspec(path.join(feed, name)))
   const producers = assertProducers(packages, pin)
