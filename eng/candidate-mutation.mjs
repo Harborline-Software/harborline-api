@@ -11,6 +11,19 @@ const TENANCY='scope-tenancy-identity-tenant'
 const APPROVED_ROW={score:60.23,break:60,tested:1139,killed:778,timeout:2,survived:359,noCoverage:156,measured:'2026-10-05',commit:'560dfc26',tool:'dotnet-stryker 5.0.0',run:'node eng/mutation-report.mjs --full --only apps/local-node-host/tests/tests.csproj --slice scope-tenancy-identity-tenant (winbox, 109 min); T-1005'}
 const SDK='11.0.100-rc.1.26425.128'
 export function tool(exe,args,options) { return spawnSync(exe,args,options) }
+// Stryker 5's --version is a report/project option requiring a value, not a
+// tool-version switch. Bind the restored local package separately from startup.
+export function strykerStartupArguments() {
+  return {inventory:['tool','list','--local'],help:['tool','run','dotnet-stryker','--','--help']}
+}
+export function pinnedStrykerVersion(inventory) {
+  const rows=inventory.split(/\r?\n/).map(line=>line.trim().split(/\s+/)).filter(row=>row[0].toLowerCase()==='dotnet-stryker')
+  if(rows.length!==1||rows[0][1]!=='5.0.0'||rows[0][2]!=='dotnet-stryker')throw Error('Pinned local Stryker package/version/command mismatch')
+  return rows[0][1]
+}
+export function validateStrykerHelp(help) {
+  if(!help.includes('Stryker: Stryker mutator for .Net')||!help.includes('--config-file'))throw Error('Stryker startup help mismatch')
+}
 export function inputs(sha,project,preset) {
   if (!/^[a-f0-9]{40}$/.test(sha??'') || project!==PROJECT || !['tenancy-identity-tenant-full','forms-authoring-files'].includes(preset)) throw Error('Invalid candidate/project/preset')
   return {sha,project,preset}
@@ -79,6 +92,14 @@ export function buildEnvironment(env,root) {
     TMPDIR:path.join(root,'tmp'),LANG:'C.UTF-8',DOTNET_CLI_TELEMETRY_OPTOUT:'1',DOTNET_SKIP_FIRST_TIME_EXPERIENCE:'1',
     VSTEST_CONNECTION_TIMEOUT:'300',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'}
   if(env.DOTNET_ROOT)result.DOTNET_ROOT=env.DOTNET_ROOT
+  // Retain only the controller's literal 4 GiB / one-processor limits.
+  // Arbitrary inherited values must not widen or disable those limits.
+  for(const [key,limit] of [['DOTNET_GCHeapHardLimit','0x100000000'],['DOTNET_PROCESSOR_COUNT','1']]) {
+    if(env[key]!==undefined) {
+      if(env[key]!==limit)throw Error('Unapproved child resource limit: '+key)
+      result[key]=limit
+    }
+  }
   return result // Allowlist drops credentials, Actions brokers, GH identity/cache and all startup injection variables.
 }
 export function snapshot(root,tracked) {return Object.fromEntries(tracked.map(f=>[f,hash(readFileSync(path.join(root,f)))]))}
@@ -175,8 +196,10 @@ export function main(env=process.env) {
       const bytes=readFileSync(path.join(controller,'.feed',f));if(!bytes.equals(readFileSync(path.join(candidate,'.feed',f))))throw Error('Feed copy mismatch');return[f,hash(bytes)]
     }))
     checked('dotnet',['tool','restore'],controller,'tool-restore')
-    manifest.toolVersion=checked('dotnet',['tool','run','dotnet-stryker','--','--version'],controller,'tool-version')
-    if(!/(?:^|[^0-9.])5\.0\.0(?:$|[^0-9.])/.test(manifest.toolVersion))throw Error('Stryker version mismatch')
+    const startup=strykerStartupArguments()
+    manifest.toolVersion=pinnedStrykerVersion(checked('dotnet',startup.inventory,controller,'tool-inventory'))
+    validateStrykerHelp(checked('dotnet',startup.help,controller,'tool-help'))
+    manifest.toolIdentity={packageId:'dotnet-stryker',version:manifest.toolVersion,versionEvidence:'local restored tool inventory',startupEvidence:'help only; no project analysis or mutation'}
     manifest.toolPackageHashes=snapshot(childEnv.NUGET_PACKAGES,files(childEnv.NUGET_PACKAGES).filter(f=>f.startsWith('dotnet-stryker/5.0.0/')))
     if(!Object.keys(manifest.toolPackageHashes).length)throw Error('Pinned restored tool package absent')
     const configPath=path.join(output,'effective-config.json');writeFileSync(configPath,JSON.stringify({'stryker-config':config},null,2))
