@@ -58,8 +58,11 @@ export function validateReport(report,required,source,exit) {
     const matches=Object.entries(report.files??{}).filter(([key])=>key.replaceAll('\\','/')===file || key.replaceAll('\\','/').endsWith('/'+file))
     if(matches.length!==1) throw Error('Missing/ambiguous intended file: '+file)
     const [reportPath,value]=matches[0]
-    // Stryker source mapping: project-relative suffix; normalize CRLF only, never trim or rewrite content.
-    if(typeof value.source!=='string' || value.source.replaceAll('\r\n','\n')!==source(file).replaceAll('\r\n','\n')) throw Error('Embedded source mismatch: '+file)
+    // Retained Stryker text omits one original leading encoding BOM; raw byte hashes stay unchanged.
+    // Preserve existing CRLF mapping; never trim, drop an internal BOM or accept other content changes.
+    const original=source(file).replaceAll('\r\n','\n')
+    const embedded=typeof value.source==='string'?value.source.replaceAll('\r\n','\n'):null
+    if(embedded!==original && (!original.startsWith('\uFEFF') || embedded!==original.slice(1))) throw Error('Embedded source mismatch: '+file)
     if(!value.mutants?.some(m=>['Killed','Timeout','Survived'].includes(m.status))) throw Error('Zero tested file: '+file)
     for(const mutant of value.mutants??[]) if(mutant.status==='Killed') {
       if(!mutant.killedBy?.length || mutant.killedBy.some(id=>!catalogue.has(String(id)))) throw Error('Invalid killing-test joins')
