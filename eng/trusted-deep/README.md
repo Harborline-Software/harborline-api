@@ -64,6 +64,34 @@ zero-used-swap capacity. Counters are system-wide and do not identify the worklo
 responsible. The observer retains its sampled-telemetry/final-sample limitation.
 Reference: https://github.com/apple-oss-distributions/system_cmds/blob/main/vm_stat/vm_stat.1
 
+Read-only command failures retain `resources/command-failures.jsonl` and, after
+baseline admission, the last record in the observer summary. Fixed operation IDs distinguish container discovery,
+inspection, process sampling and host/stat reads. Records include the unchanged
+timeout, measured elapsed time, observer/command child/controller PIDs, owned session
+and last known container status. They contain no argv, environment or exception text.
+Partial stdout/stderr retain byte counts and at most 4 KiB of allowlisted fragments
+(owned container name and fixed benign error phrases); other text, including
+incomplete JSON and unmarked secrets, is redacted. An unavailable diagnostics file
+does not mask the original alarm; after baseline admission, the sampling summary
+retains the sanitized failure record.
+This adds no retry, timeout extension, admission change or successful qualification.
+Installing it still requires normal source review/protected landing and fresh exact
+source/image/automatic full-gate qualification. Historical failures remain failures.
+
+Optional diagnostics add wired, compressor and file-backed memory from the existing
+host `vm_stat` read. A single daemon probe collects at most 32 host processes by RSS
+using only PID, parent PID, RSS and kernel process name through macOS libproc.
+It creates no child process, uses a fixed PID buffer and 250 ms collection budget,
+and never blocks or joins the guard loop.
+Every attached snapshot records its own collection timestamps: it may precede the
+current pressure sample or be unavailable. The unchanged pressure guard evaluates
+and stops without waiting for diagnostics. Container telemetry adds parent/name,
+up to 32 RSS-ranked processes and active/inactive file-cache counters; the existing
+GC preflight additionally records runtime processor count. None of these facts
+changes test selection, xUnit/VSTest concurrency, admission or resource budgets.
+Direct cgroup memory includes cache; Docker CLI stats subtract inactive-file cache.
+Separate lane high-water peaks cannot be added as simultaneous host consumption.
+
 The default `zero-used-swap-v1` profile still requires absolute zero used swap at
 admission and completion. Mutation benchmarks and release/capacity qualification
 require that profile; an operational receipt cannot substitute. Receipts retain
