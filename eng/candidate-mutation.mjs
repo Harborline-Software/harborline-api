@@ -92,6 +92,14 @@ export function buildEnvironment(env,root) {
     TMPDIR:path.join(root,'tmp'),LANG:'C.UTF-8',DOTNET_CLI_TELEMETRY_OPTOUT:'1',DOTNET_SKIP_FIRST_TIME_EXPERIENCE:'1',
     VSTEST_CONNECTION_TIMEOUT:'300',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'}
   if(env.DOTNET_ROOT)result.DOTNET_ROOT=env.DOTNET_ROOT
+  // Retain only the controller's literal 4 GiB / one-processor limits.
+  // Arbitrary inherited values must not widen or disable those limits.
+  for(const [key,limit] of [['DOTNET_GCHeapHardLimit','0x100000000'],['DOTNET_PROCESSOR_COUNT','1']]) {
+    if(env[key]!==undefined) {
+      if(env[key]!==limit)throw Error('Unapproved child resource limit: '+key)
+      result[key]=limit
+    }
+  }
   return result // Allowlist drops credentials, Actions brokers, GH identity/cache and all startup injection variables.
 }
 export function snapshot(root,tracked) {return Object.fromEntries(tracked.map(f=>[f,hash(readFileSync(path.join(root,f)))]))}
