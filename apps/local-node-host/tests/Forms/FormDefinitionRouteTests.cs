@@ -198,6 +198,234 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         (await _client.GetStringAsync($"{DefBase}/{formId}"),
             await _client.GetStringAsync($"{DefBase}/{formId}/versions"));
 
+    // Literal C3/DTO oracles from reviewed T-1016; IDs refer only to the retained report.
+    // New fixtures exercise production HTTP routes. Predicted mutation kills are not evidence.
+    private async Task<(string Head, string History)> SeedC3RetainedHistoryAsync(string id)
+    {
+        using var published = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, published.StatusCode);
+        var draft = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        draft["draft"] = true;
+        using var savedDraft = await _client.PutAsJsonAsync($"{DefBase}/{id}", draft);
+        Assert.Equal(HttpStatusCode.OK, savedDraft.StatusCode);
+        var snapshot = await SnapshotAsync(id);
+        using var history = JsonDocument.Parse(snapshot.History);
+        Assert.Equal(new[] { "1.0.1", "1.0.0" }, history.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("version").GetString()));
+        Assert.Equal(new[] { "Draft", "Published" }, history.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("status").GetString()));
+        return snapshot;
+    }
+
+    [Theory]
+    [InlineData("form-write", "/overlay/aspects/access/writeRoles")]
+    [InlineData("direct-write", "/overlay/fields/name/writeRoles")]
+    [InlineData("aspect-write", "/overlay/fields/name/aspects/access/writeRoles")]
+    [InlineData("mixed-read", "/overlay/fields/name")]
+    public async Task C3_Write_And_Mixed_Gates_Preserve_Their_Actual_Locations(string lane, string pointer)
+    {
+        const string id = "c3-lane-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var overlay = body["overlay"]!.AsObject();
+        overlay["sections"]![0]!["fields"] = new JsonArray("unit");
+        var access = new JsonObject
+        {
+            ["readRoles"] = new JsonArray(),
+            ["writeRoles"] = new JsonArray(),
+        };
+        var field = overlay["fields"]!["name"]!.AsObject();
+        field["readRoles"] = new JsonArray();
+        field["writeRoles"] = new JsonArray();
+        if (lane == "form-write")
+        {
+            access["readRoles"] = new JsonArray("Admin");
+            access["writeRoles"] = new JsonArray("private/unresolved-role");
+            overlay["aspects"] = new JsonObject { ["access"] = access };
+        }
+        else
+        {
+            field["aspects"] = new JsonObject { ["access"] = access };
+            if (lane == "direct-write") field["writeRoles"] = new JsonArray("private/unresolved-role");
+            else if (lane == "aspect-write") access["writeRoles"] = new JsonArray("private/unresolved-role");
+            else
+            {
+                field["readRoles"] = new JsonArray("Admin");
+                access["readRoles"] = new JsonArray("private/unresolved-role");
+            }
+        }
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "publish", "authorization.role_gate.unresolved_role", pointer);
+        Assert.DoesNotContain("private/unresolved-role", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Fact]
+    public async Task C3_Second_Section_Write_Role_Uses_Section_Index_Despite_Field_Name_Collision()
+    {
+        const string id = "c3-second-section";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["n:second"] = JsonSerializer.SerializeToNode(new { label = Text("Other field"), piiSensitivity = "None" });
+        body["fieldsMeta"]!["n:second"] = new JsonObject { ["type"] = "text" };
+        body["overlay"]!["sections"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "second", ["title"] = JsonSerializer.SerializeToNode(Text("Second")),
+            ["fields"] = new JsonArray("n:second"),
+            ["access"] = new JsonObject
+            {
+                ["readRoles"] = new JsonArray("Admin"),
+                ["writeRoles"] = new JsonArray("Administrator"),
+            },
+        });
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, "publish", "authorization.gate_reference.required_roles_invalid",
+            "/overlay/sections/1/access/writeRoles");
+        Assert.Equal("section:second.write", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Administrator", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("section", "/overlay/sections", "sections.access.writeStandings")]
+    [InlineData("form", "/overlay", "aspects.access.writeStandings")]
+    public async Task C3_Standing_Parse_Locations_Remain_Author(string location, string pointer, string detailField)
+    {
+        const string id = "c3-standing-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var access = new JsonObject { ["writeStandings"] = new JsonArray("private rejected standing!") };
+        if (location == "section") body["overlay"]!["sections"]![0]!["access"] = access;
+        else body["overlay"]!["aspects"] = new JsonObject { ["access"] = access };
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, "author", "authorization.gate_reference.required_standings_invalid", pointer);
+        Assert.Equal(detailField, item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("private rejected standing!", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("connector", "form.checks.empty_connector")]
+    [InlineData("id", "form.checks.bad_id")]
+    [InlineData("failCode", "form.checks.empty_fail_code")]
+    public async Task C3_Async_Check_Omitted_Values_Refuse_At_Publish(string omitted, string code)
+    {
+        const string id = "c3-async-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var check = new JsonObject { ["id"] = "check-1", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate" };
+        check.Remove(omitted);
+        body["overlay"]!["asyncChecks"] = new JsonArray(check);
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "publish", code, "/overlay/asyncChecks");
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Fact]
+    public async Task C3_Async_Acknowledgment_And_Pii_Projection_Have_Literal_Values()
+    {
+        const string id = "c3-projection-oracle";
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["unit"]!["piiSensitivity"] = "Sensitive";
+        body["overlay"]!["asyncChecks"] = new JsonArray(
+            new JsonObject { ["id"] = "ack-false", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate", ["inputs"] = new JsonArray("name"), ["allowsSensitiveInputs"] = false },
+            new JsonObject { ["id"] = "ack-true", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate", ["inputs"] = new JsonArray("name"), ["allowsSensitiveInputs"] = true });
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/{id}");
+        var overlay = loaded.GetProperty("overlay");
+        Assert.Equal("None", overlay.GetProperty("fields").GetProperty("name").GetProperty("piiSensitivity").GetString());
+        Assert.Equal("Sensitive", overlay.GetProperty("fields").GetProperty("unit").GetProperty("piiSensitivity").GetString());
+        var checks = overlay.GetProperty("asyncChecks");
+        Assert.Equal(2, checks.GetArrayLength());
+        Assert.Equal("ack-false", checks[0].GetProperty("id").GetString());
+        Assert.False(checks[0].TryGetProperty("allowsSensitiveInputs", out _));
+        Assert.Equal("ack-true", checks[1].GetProperty("id").GetString());
+        Assert.True(checks[1].GetProperty("allowsSensitiveInputs").GetBoolean());
+        foreach (var check in checks.EnumerateArray())
+        {
+            Assert.Equal("lookup", check.GetProperty("connector").GetString());
+            Assert.Equal("duplicate", check.GetProperty("failCode").GetString());
+            Assert.Equal(new[] { "name" }, check.GetProperty("inputs").EnumerateArray().Select(value => value.GetString()));
+        }
+    }
+
+    [Fact]
+    public async Task C3_Admissible_Empty_Model_Inputs_Are_Omitted_By_Real_Get()
+    {
+        const string id = "c3-native-empty-inputs";
+        using var saved = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var source = await _definitions.GetAsync(new DefinitionCoordinates(tenant, id, "1.0.0"));
+        var version = new SemanticVersion(1, 0, 1);
+        // Seed an admissible native model through the established raw-store fixture seam.
+        await _app.Services.GetRequiredService<IFormDefinitionStore>().RegisterAsync(source with
+        {
+            Version = version, Envelope = source.Envelope with { Version = version },
+            Overlay = source.Overlay with { AsyncChecks = new[] { new AsyncValidationCheck("empty-inputs", "lookup", "name", "duplicate", Inputs: Array.Empty<string>()) } },
+        });
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/{id}");
+        Assert.Equal("1.0.1", loaded.GetProperty("version").GetString());
+        var check = Assert.Single(loaded.GetProperty("overlay").GetProperty("asyncChecks").EnumerateArray());
+        Assert.Equal("empty-inputs", check.GetProperty("id").GetString());
+        Assert.False(check.TryGetProperty("inputs", out _));
+    }
+
+    [Fact]
+    public async Task C3_Omitted_Acknowledgment_Refuses_A_Sensitive_Aspect_Feed()
+    {
+        const string id = "c3-omitted-ack";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(ClassificationSaveBody(ackSensitiveCheck: true))!.AsObject();
+        body["overlay"]!["asyncChecks"]![0]!.AsObject().Remove("allowsSensitiveInputs");
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "publish",
+            "aspect.sensitive_input_unacknowledged", "/overlay/asyncChecks");
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("Direct")]
+    [InlineData("dIrEcT")]
+    public async Task C3_Direct_Pii_Compatibility_Projects_Sensitive(string value)
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = value;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/c3-direct", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/c3-direct");
+        Assert.Equal("Sensitive", loaded.GetProperty("overlay").GetProperty("fields").GetProperty("name").GetProperty("piiSensitivity").GetString());
+    }
+
+    [Theory]
+    [InlineData(false, "2")]
+    [InlineData(true, "2")]
+    [InlineData(false, "-1")]
+    [InlineData(true, "-1")]
+    public async Task C3_Undefined_Numeric_Pii_Refuses_At_Author_Without_Changing_History(bool draft, string value)
+    {
+        const string id = "c3-numeric-pii";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = value;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var item = AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "author",
+            "form_definition.pii_sensitivity_unknown", "/overlay/fields/name/piiSensitivity");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
