@@ -135,7 +135,7 @@ public sealed class LayoutDenialRouteTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var grants = provider.GetRequiredService<IGrantStore>();
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(tenant, Grant(Both, RoleReference.Auditor, "/"));

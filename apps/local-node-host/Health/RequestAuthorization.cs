@@ -74,12 +74,12 @@ internal static class RequestAuthorization
     internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(time);
-        return Authority(http, tenant, time.GetUtcNow());
+        return Authority(http, tenant, AdmittedInstant.Read(time));
     }
 
     /// <summary>The same authority at an instant the route has ALREADY read for this act, so an act that needs
     /// the instant before it knows its tenant still reads the kernel clock once (T-540, ck-7).</summary>
-    internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, DateTimeOffset at)
+    internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, AdmittedInstant at)
     {
         ArgumentNullException.ThrowIfNull(http);
         return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, at)

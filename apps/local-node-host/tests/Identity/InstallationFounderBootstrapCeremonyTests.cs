@@ -76,7 +76,7 @@ public sealed class InstallationFounderBootstrapCeremonyTests
         var antiforgery = new WebAntiforgeryPolicy(
             stores.SessionFactory,
             new WebSelectedSessionStore(stores.SessionFactory),
-            new WebAntiforgeryStateStore(stores.SessionFactory, TimeProvider.System),
+            new WebAntiforgeryStateStore(stores.SessionFactory),
             TimeProvider.System);
 
         // BEFORE: identity.Accounts is empty, so the challenge route refuses every actor.

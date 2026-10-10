@@ -30,7 +30,7 @@ public sealed class AuthorizationClosureTests
         await h.Grants.RecordReviewAsync(Tenant, grant.GrantId, Now, Admin);
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/a"), Alice, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), Now);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(Now));
 
         var snapshot = await h.Reader.ReadAsync(request);
 
@@ -58,7 +58,7 @@ public sealed class AuthorizationClosureTests
         var at = Now.AddMinutes(minutesFromGrantedAt);
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/a"), Alice, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), at);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(at));
 
         var snapshot = await h.Reader.ReadAsync(request);
 
@@ -73,7 +73,7 @@ public sealed class AuthorizationClosureTests
         await h.AppendAsync(Alice, Member, "/records/a");
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/a"), Alice, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), Now);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(Now));
         Assert.Single((await h.Reader.ReadAsync(request)).Derivations);
         await using (var db = h.Store.CreateContext())
             await db.Database.ExecuteSqlRawAsync(
@@ -106,7 +106,7 @@ public sealed class AuthorizationClosureTests
         var reader = new DefinitionJoinedAuthorizationReader(grants, configuration);
         var request = new AuthorizationGateRequest(
             PermissionAtom.Parse("records:write@/records/a"), Alice, Tenant,
-            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), Now);
+            new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(Now));
 
         await grants.RecordReviewAsync(Tenant, grant.GrantId, Now, Admin);
         Assert.Equal(2, Assert.Single((await reader.ReadAsync(request)).Derivations).GrantOwnerVersion);

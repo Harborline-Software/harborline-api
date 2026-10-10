@@ -48,7 +48,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
             new AuthorizationWriteContext(
                 new ActorId("principal-admin"),
                 new TenantId(TenantId),
-                admittedAt));
+                AdmittedInstant.Read(new FixedTimeProvider(admittedAt))));
         Assert.Equal(AdminRevokeMemberStatus.Revoked, result?.Status);
         await using var grants = fixture.GrantFactory.CreateDbContext();
         var row = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId);
@@ -161,7 +161,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         var store = new NodeEfGrantStore(fixture.GrantFactory);
         var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId).ToArray();
         var result = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
-            new AuthorizationWriteContext(new ActorId("principal-admin"), tenant, Now));
+            new AuthorizationWriteContext(new ActorId("principal-admin"), tenant, AdmittedInstant.Read(new FixedTimeProvider(Now))));
         Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
         Assert.Empty(captures.RosterWriterDecisions);
         Assert.Empty(captures.RosterAudit.Records);
@@ -529,7 +529,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
 
         await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
             fixture.Handle, TenantId, WebGrantId,
-            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))));
 
         var legs = await RestartAndDrainTwiceAsync(fixture);
         var revoked = Assert.Single(legs);
@@ -545,7 +545,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
     {
         await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
         var correlation = Guid.Parse("34900000-0000-4000-8000-000000000002");
-        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))
         { CorrelationId = correlation };
         await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
             fixture.Handle, TenantId, WebGrantId, authority));
@@ -565,7 +565,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         }
 
         var replay = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
-            authority with { At = Now.AddMinutes(1) });
+            authority with { Instant = AdmittedInstant.Read(new FixedTimeProvider(Now.AddMinutes(1))) });
         Assert.NotNull(replay);
         Assert.Equal(AdminRevokeMemberStatus.Revoked, replay.Status);
         Assert.Equal(owedId, replay.AuditId);
@@ -652,7 +652,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         var crashing = new CrashingAuditTrail();
         await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: crashing);
         var correlation = Guid.Parse("34900000-0000-4000-8000-000000000001");
-        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))
         { CorrelationId = correlation };
         await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.ReviewGrantAsync(
             fixture.Handle, TenantId, WebGrantId, authority));
@@ -666,7 +666,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         if (deliverBetweenReads)
             crashing.OnQuery = async () => { await RestartAndDrainTwiceAsync(fixture); };
         var replay = await fixture.Authority.ReviewGrantAsync(fixture.Handle, TenantId, WebGrantId,
-            authority with { At = Now.AddMinutes(1) });
+            authority with { Instant = AdmittedInstant.Read(new FixedTimeProvider(Now.AddMinutes(1))) });
         Assert.NotNull(replay);
         Assert.Equal(Guid.Parse(owedId), replay.AuditId);
         Assert.Equal(correlation, replay.CorrelationId);
@@ -692,7 +692,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         var admin = new ActorId("principal-admin");
         var decision = TestAuthorization.AllowedDecision(
             tenant, WebGrantId, "members", TeamRolePermissions.MembersManage, "principal-admin", Now);
-        var target = new AuthorizationWriteContext(admin, tenant, Now)
+        var target = new AuthorizationWriteContext(admin, tenant, AdmittedInstant.Read(new FixedTimeProvider(Now)))
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", WebGrantId);
         var signed = await new Ed25519Signer(KeyPair.Generate()).SignAsync(
             new AuditPayload(new Dictionary<string, object?> { ["grant_id"] = WebGrantId }), Now, Guid.NewGuid());
@@ -721,7 +721,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
 
         await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.NarrowMemberGrantAsync(
             fixture.Handle, TenantId, original, [TeamRolePermissions.MembersManage],
-            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))));
 
         var legs = (await RestartAndDrainTwiceAsync(fixture)).Where(record => !before.Contains(record.AuditId)).ToList();
         // All three share the decided instant, so the trail's order between them is not part of the contract.
@@ -769,7 +769,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
 
         await Assert.ThrowsAnyAsync<Exception>(() => fixture.Authority.NarrowMemberGrantAsync(
             fixture.Handle, TenantId, original, [TeamRolePermissions.MembersManage],
-            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))));
 
         await using (var grants = fixture.GrantFactory.CreateDbContext())
         {
@@ -967,7 +967,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
         var principal = new ActorId("principal-web");
         var inputs = EffectiveMemberPermissions.Read(roster, "party-web", principal);
         var decision = await TestAuthorization.GateWithRoster(allowed: true, roster: inputs).DecideAsync(
-            new AuthorizationWriteContext(principal, new TenantId(TenantId), Now)
+            new AuthorizationWriteContext(principal, new TenantId(TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now)))
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "ejection"));
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
         Assert.True(decision.Evidence.Roster!.Ejected);
@@ -1137,7 +1137,7 @@ public sealed partial class AdminTeamAccessAuthorityTests
                 new NodeAuthorizationRosterConstraintReader(partyReader, new FixedRosterReader(roster)));
             var issuer = new AccountSetupInvitationIssuer(
                 sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
-                new FixedRosterReader(roster), store, grantDerivedGate, new FixedTimeProvider(Now));
+                new FixedRosterReader(roster), store, grantDerivedGate);
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
             grantAudit ??= new InMemoryAuditTrail();

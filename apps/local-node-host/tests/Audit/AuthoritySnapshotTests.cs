@@ -331,7 +331,7 @@ public sealed class AuthoritySnapshotTests
             Tenant,
             trust,
             PackRevocationList.Empty,
-            At,
+            AdmittedInstant.FromRecordedAct(At),
             TimeSpan.FromDays(30),
             Principal: "test-operator");
 
@@ -485,7 +485,7 @@ public sealed class AuthoritySnapshotTests
             new ActorId(signer.IssuerId.ToBase64Url()),
             tenant,
             new AuthorizationTarget("record", "audit-record", scope),
-            at);
+            AdmittedInstant.FromRecordedAct(at));
         return (await gate.DecideAsync(request), source);
     }
 
@@ -559,7 +559,7 @@ public sealed class AuthoritySnapshotTests
             "packages/foundation-recovery/Crypto/SubjectKeyFieldDecryptor.cs|Harborline.Api.Foundation.Recovery.Crypto.SubjectKeyFieldDecryptor.EmitAuditAsync(Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Api.Kernel.Audit.AuditPayload,Harborline.Foundation.Assets.Common.TenantId,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-recovery/Crypto/TenantKeyProviderFieldDecryptor.cs|Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldDecryptor.EmitAuditAsync(Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Api.Kernel.Audit.AuditPayload,Harborline.Foundation.Assets.Common.TenantId,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-recovery/Erasure/SubjectErasureService.cs|Harborline.Api.Foundation.Recovery.Erasure.SubjectErasureService.EmitShredBlockedAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Foundation.Recovery.Erasure.SubjectId,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
-            "packages/foundation-recovery/Erasure/SubjectErasureService.cs|Harborline.Api.Foundation.Recovery.Erasure.SubjectErasureService.FinishAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Foundation.Recovery.Erasure.SubjectId,Harborline.Api.Foundation.Recovery.Erasure.SubjectErasureEvidence,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Recovery.Erasure.SubjectTombstone]|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "packages/foundation-recovery/Erasure/SubjectErasureService.cs|Harborline.Api.Foundation.Recovery.Erasure.SubjectErasureService.FinishAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Foundation.Recovery.Erasure.SubjectId,Harborline.Api.Foundation.Recovery.Erasure.SubjectErasureEvidence,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Recovery.Erasure.SubjectTombstone]|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-recovery/LegalHold/LegalHoldService.cs|Harborline.Api.Foundation.Recovery.LegalHold.LegalHoldService.EmitAsync(Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Api.Kernel.Audit.AuditPayload,Harborline.Foundation.Assets.Common.TenantId,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-security-policy/Issuance/DefaultSecurityPolicyIssuer.cs|Harborline.Api.Foundation.SecurityPolicy.Issuance.DefaultSecurityPolicyIssuer.EmitSecurityPolicyAuditAsync``1[!!0](Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Foundation.Assets.Common.TenantId,!!0,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-ship-common/DefaultPermissionResolver.cs|Harborline.Api.Foundation.Ship.Common.DefaultPermissionResolver.EmitAsync(Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Kernel.Audit.AuditPayload,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",

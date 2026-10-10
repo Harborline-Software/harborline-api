@@ -26,6 +26,8 @@ function category(file) {
     || /^(docs|adrs|designs)\/.*\.md$/.test(file)) return 'documentation'
   if (/coverage|\.runsettings$/i.test(file)) return 'coverage'
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
+    || /^(apps\/capability-host|packages\/contracts)\/pnpm-(lock|workspace)\.yaml$/.test(file)
+    || file === 'packages/contracts/package.json'
     || /^eng\/(platform|quality)-pin\.json$/.test(file)) return 'toolchain'
   if (/\.(csproj|props|targets|sln|slnx)$/.test(file) || /^artifacts\//.test(file)
     || /^eng\//.test(file) || /^\.github\//.test(file)

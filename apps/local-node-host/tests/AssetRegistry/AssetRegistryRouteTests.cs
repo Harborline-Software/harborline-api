@@ -407,7 +407,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
 
         await using var scope = _app.Services.CreateAsyncScope();
         var trace = await scope.ServiceProvider.GetRequiredService<AuthorizationTraceReader>().ReadAsync(
-            ActiveTeamTenantContext.ProjectTenantId(TeamA), Operator, auditId, DateTimeOffset.UtcNow);
+            ActiveTeamTenantContext.ProjectTenantId(TeamA), Operator, auditId, AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
         Assert.Equal(AuthorizationTraceAvailability.Available, trace.Availability);
         var facts = trace.Steps.SelectMany(step => step.Facts).ToArray();
         Assert.Contains($"act:{TeamRolePermissions.RecordsWrite}@/records/{receipt.GetProperty("id").GetString()}", facts);

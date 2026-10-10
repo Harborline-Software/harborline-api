@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Harborline.Api.Foundation.Assets.Common;
@@ -26,12 +27,13 @@ public interface ISubjectErasureRegistry
     /// Mark <paramref name="subject"/> as crypto-shredded for
     /// <paramref name="tenant"/>. Idempotent: a second call for the same subject
     /// returns <c>false</c> (already erased) without altering the recorded
-    /// tombstone. The registry is append-only — there is NO un-erase. After this
+    /// tombstone. The mark records <c>erasedAt</c>, the erasing act's instant: a registry holds no clock (T-1057).
+    /// The registry is append-only — there is NO un-erase. After this
     /// returns, every subject-key resolution for the subject fails closed.
     /// </summary>
     /// <returns>
     /// <c>true</c> when this call performed the erasure (first time);
     /// <c>false</c> when the subject was already erased.
     /// </returns>
-    ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default);
+    ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, DateTimeOffset erasedAt, CancellationToken ct = default);
 }

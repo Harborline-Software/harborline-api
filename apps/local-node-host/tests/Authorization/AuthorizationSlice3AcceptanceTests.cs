@@ -191,8 +191,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             partyReader,
             rosterReader,
             new AccountSetupInvitationStore(identityFactory),
-            TestAuthorization.Gate(false),
-            TimeProvider.System);
+            TestAuthorization.Gate(false));
         var authority = TestAuthorization.Write(Tenant, at: At);
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => invitationIssuer.IssueAsync(
@@ -295,7 +294,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             {
                 var service = new AccountSetupInvitationIssuer(
                     sessions, new WebSelectedSessionStore(sessions), identity, grants, party, roster,
-                    new AccountSetupInvitationStore(identity), denied, new FixedTimeProvider(At), capture.Audit);
+                    new AccountSetupInvitationStore(identity), denied, capture.Audit);
                 await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.IssueAsync(
                     "selected", new AccountSetupInvitationIssueRequest(adminTenant.Value, [TeamRolePermissions.RecordsRead], "invite"), authority));
                 break;
@@ -514,7 +513,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         active.Active.Returns(team);
         var tenant = NodeTenant.Resolve(active);
         var seed = authorization.GetRequiredService<AccessGrantAuthorizationSeed>();
-        await seed.InstallAsync(tenant, At, AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
+        await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(At)), AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
         var eventStore = new InMemoryCalendarEventStore();
         var firstEvent = CalendarEvent.Create(
             tenant,
@@ -551,7 +550,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         await grants.RevokeAsync(tenant, visible.GrantId, new GrantRevocation(
             new ActorId("tenant-administrator"), At.AddMinutes(1),
             new GrantReason(GrantReasonCodes.RevocationOffboarding)));
-        await seed.InstallAsync(tenant, At.AddMinutes(2), AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
+        await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(At.AddMinutes(2))), AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
         var stillRevoked = await grants.FindBySourceReferenceAsync(
             tenant, AccessGrantAuthorizationSeed.DevIndexerGrantSource);
         Assert.NotNull(stillRevoked);
@@ -586,7 +585,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         active.Active.Returns(team);
         var tenant = NodeTenant.Resolve(active);
         await authorization.GetRequiredService<AccessGrantAuthorizationSeed>()
-            .InstallAsync(tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            .InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(At)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         var events = new InMemoryCalendarEventStore();
         await events.SaveAsync(CalendarEvent.Create(
             tenant, "production seed", new DateOnly(2026, 9, 2), new DateOnly(2026, 9, 2), Guid.NewGuid()));
@@ -614,7 +613,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         await using var authorization = RealAuthorizationProvider(search);
         var tenant = new TenantId("three-way-development-seed");
         var seed = authorization.GetRequiredService<AccessGrantAuthorizationSeed>();
-        await seed.InstallAsync(tenant, At, AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
+        await seed.InstallAsync(tenant, AdmittedInstant.Read(new FixedTimeProvider(At)), AuthorizationSeedProfile.Development, TestDesktopOperator.Actor);
 
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var workflowAdmission = new WorkflowAdmissionValidator();
@@ -627,7 +626,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             authorization.GetRequiredService<AuthorizationGate>(),
             authorization.GetRequiredService<IRoleGateAdmission>());
         var authority = new AuthorizationWriteContext(
-            new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, At);
+            new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, AdmittedInstant.Read(new FixedTimeProvider(At)));
         var decision = await lifecycle.DecideAsync(NodeThreeWayMatchWorkflowSeed.DefinitionKey, authority);
 
         await NodeThreeWayMatchWorkflowSeed.EnsurePublishedAsync(
@@ -645,7 +644,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             new GrantReason(GrantReasonCodes.RevocationOffboarding)));
 
         var denied = new AuthorizationWriteContext(
-            new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, At.AddMinutes(2));
+            new ActorId(AccessGrantAuthorizationSeed.DevWorkflowSeederPrincipal), tenant, AdmittedInstant.Read(new FixedTimeProvider(At.AddMinutes(2))));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
             await lifecycle.DecideAsync("three-way-match.v2", denied));
     }

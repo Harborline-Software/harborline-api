@@ -26,6 +26,22 @@ public enum DefinitionLifecycleStatus
     Withdrawn = 3,
 }
 
+/// <summary>The lifecycle transitions a definition write applies (ck-10 S3b).</summary>
+public enum DefinitionLifecycleTransition
+{
+    /// <summary>Draft or published to published.</summary>
+    Publish,
+
+    /// <summary>Published or deprecated to deprecated.</summary>
+    Deprecate,
+
+    /// <summary>Any status to withdrawn.</summary>
+    Withdraw,
+
+    /// <summary>A withdrawn pack projection back to published.</summary>
+    Restore,
+}
+
 /// <summary>
 /// Implements the six storage-neutral lifecycle operations once over the entity store while domain
 /// adapters supply body serialization, status projection, and named domain failures.
@@ -124,46 +140,6 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
     }
 
     /// <inheritdoc />
-    protected ValueTask<TDefinition> PublishAsync(
-        DefinitionCoordinates coordinates,
-        CancellationToken cancellationToken = default)
-        => TransitionAsync(
-            coordinates,
-            DefinitionLifecycleStatus.Published,
-            [DefinitionLifecycleStatus.Draft, DefinitionLifecycleStatus.Published],
-            cancellationToken);
-
-    /// <inheritdoc />
-    protected ValueTask<TDefinition> WithdrawAsync(
-        DefinitionCoordinates coordinates,
-        CancellationToken cancellationToken = default)
-        => TransitionAsync(
-            coordinates,
-            DefinitionLifecycleStatus.Withdrawn,
-            [
-                DefinitionLifecycleStatus.Draft,
-                DefinitionLifecycleStatus.Published,
-                DefinitionLifecycleStatus.Deprecated,
-                DefinitionLifecycleStatus.Withdrawn,
-            ],
-            cancellationToken);
-
-    /// <inheritdoc />
-    protected async ValueTask<TDefinition> RestorePackProjectionAsync(
-        DefinitionCoordinates coordinates,
-        CancellationToken cancellationToken = default)
-    {
-        var existing = await GetAsync(coordinates, cancellationToken).ConfigureAwait(false);
-        await ValidatePackRestoreAsync(existing, cancellationToken).ConfigureAwait(false);
-        return await TransitionAsync(
-            existing,
-            coordinates,
-            DefinitionLifecycleStatus.Published,
-            [DefinitionLifecycleStatus.Withdrawn, DefinitionLifecycleStatus.Published],
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
     public async IAsyncEnumerable<TDefinition> ListByTenantAsync(
         TenantId tenant,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -240,39 +216,56 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
         }
     }
 
-    /// <summary>Transitions a domain-specific lifecycle operation through the shared persistence path.</summary>
-    protected ValueTask<TDefinition> TransitionAsync(
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        CancellationToken cancellationToken = default)
-        => TransitionLoadedAsync(coordinates, target, allowedFrom, cancellationToken);
+    /// <summary>The source statuses a publish accepts.</summary>
+    protected static readonly IReadOnlyCollection<DefinitionLifecycleStatus> PublishFrom =
+        [DefinitionLifecycleStatus.Draft, DefinitionLifecycleStatus.Published];
 
-    /// <summary>Transitions using an admitted caller-owned instant rather than the store clock.</summary>
-    protected ValueTask<TDefinition> TransitionAsync(
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        DateTimeOffset transitionedAt,
-        CancellationToken cancellationToken = default)
-        => TransitionLoadedAsync(coordinates, target, allowedFrom, transitionedAt, cancellationToken);
+    /// <summary>The source statuses a deprecation accepts.</summary>
+    protected static readonly IReadOnlyCollection<DefinitionLifecycleStatus> DeprecateFrom =
+        [DefinitionLifecycleStatus.Published, DefinitionLifecycleStatus.Deprecated];
 
-    /// <summary>Restores a validated pack revision using its admitted lifecycle instant.</summary>
-    protected async ValueTask<TDefinition> RestorePackProjectionAtAsync(
-        DefinitionCoordinates coordinates,
-        DateTimeOffset transitionedAt,
-        CancellationToken cancellationToken = default)
+    /// <summary>The source statuses a withdrawal accepts.</summary>
+    protected static readonly IReadOnlyCollection<DefinitionLifecycleStatus> WithdrawFrom =
+    [
+        DefinitionLifecycleStatus.Draft,
+        DefinitionLifecycleStatus.Published,
+        DefinitionLifecycleStatus.Deprecated,
+        DefinitionLifecycleStatus.Withdrawn,
+    ];
+
+    /// <summary>The source statuses a pack-projection restore accepts.</summary>
+    protected static readonly IReadOnlyCollection<DefinitionLifecycleStatus> RestoreFrom =
+        [DefinitionLifecycleStatus.Withdrawn, DefinitionLifecycleStatus.Published];
+
+    /// <summary>The target status and accepted source statuses of a transition.</summary>
+    protected static (DefinitionLifecycleStatus Target, IReadOnlyCollection<DefinitionLifecycleStatus> AllowedFrom) RuleFor(
+        DefinitionLifecycleTransition transition) => transition switch
+        {
+            DefinitionLifecycleTransition.Publish => (DefinitionLifecycleStatus.Published, PublishFrom),
+            DefinitionLifecycleTransition.Deprecate => (DefinitionLifecycleStatus.Deprecated, DeprecateFrom),
+            DefinitionLifecycleTransition.Withdraw => (DefinitionLifecycleStatus.Withdrawn, WithdrawFrom),
+            DefinitionLifecycleTransition.Restore => (DefinitionLifecycleStatus.Published, RestoreFrom),
+            _ => throw new ArgumentOutOfRangeException(nameof(transition), transition, "Unknown lifecycle transition."),
+        };
+
+    /// <summary>
+    /// The validate check of a lifecycle transition (ck-10 S3b): refuses a source status the transition does not
+    /// accept, and reports whether the status changes. The transition write itself is a <c>KernelWrite</c> in the
+    /// domain adapter, because this assembly cannot reference the kernel executor.
+    /// </summary>
+    protected bool RequireAllowedTransition(
+        TDefinition existing,
+        DefinitionLifecycleStatus target,
+        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom)
     {
-        var existing = await GetAsync(coordinates, cancellationToken).ConfigureAwait(false);
-        await ValidatePackRestoreAsync(existing, cancellationToken).ConfigureAwait(false);
-        return await TransitionAsync(
-            existing,
-            coordinates,
-            DefinitionLifecycleStatus.Published,
-            [DefinitionLifecycleStatus.Withdrawn, DefinitionLifecycleStatus.Published],
-            transitionedAt,
-            cancellationToken).ConfigureAwait(false);
+        var current = StatusOf(existing);
+        if (!allowedFrom.Contains(current))
+            throw CreateInvalidTransitionException(existing, target, allowedFrom);
+        return current != target;
     }
+
+    /// <summary>The store clock, for a transition that carries no admitted instant.</summary>
+    protected DateTimeOffset Now() => _time.GetUtcNow();
 
     /// <summary>Returns the deterministic entity id for registration and lifecycle operations.</summary>
     protected EntityId EntityIdFor(DefinitionCoordinates coordinates)
@@ -316,74 +309,6 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
     protected abstract ValueTask ValidatePackRestoreAsync(
         TDefinition definition,
         CancellationToken cancellationToken);
-
-    private async ValueTask<TDefinition> TransitionLoadedAsync(
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        CancellationToken cancellationToken)
-    {
-        var existing = await GetAsync(coordinates, cancellationToken).ConfigureAwait(false);
-        return await TransitionAsync(existing, coordinates, target, allowedFrom, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<TDefinition> TransitionLoadedAsync(
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        DateTimeOffset transitionedAt,
-        CancellationToken cancellationToken)
-    {
-        var existing = await GetAsync(coordinates, cancellationToken).ConfigureAwait(false);
-        return await TransitionAsync(
-            existing, coordinates, target, allowedFrom, transitionedAt, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<TDefinition> TransitionAsync(
-        TDefinition existing,
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        CancellationToken cancellationToken)
-    {
-        var current = StatusOf(existing);
-        if (!allowedFrom.Contains(current))
-        {
-            throw CreateInvalidTransitionException(existing, target, allowedFrom);
-        }
-
-        if (current == target)
-        {
-            return existing;
-        }
-
-        return await TransitionAsync(
-            existing, coordinates, target, allowedFrom, _time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<TDefinition> TransitionAsync(
-        TDefinition existing,
-        DefinitionCoordinates coordinates,
-        DefinitionLifecycleStatus target,
-        IReadOnlyCollection<DefinitionLifecycleStatus> allowedFrom,
-        DateTimeOffset transitionedAt,
-        CancellationToken cancellationToken)
-    {
-        var current = StatusOf(existing);
-        if (!allowedFrom.Contains(current))
-            throw CreateInvalidTransitionException(existing, target, allowedFrom);
-        if (current == target)
-            return existing;
-
-        var transitioned = WithStatus(existing, target, transitionedAt);
-        using var body = Serialize(transitioned);
-        await Mutations.UpdateAsync(
-            EntityIdFor(coordinates),
-            body,
-            new UpdateOptions(TransitionActor(transitioned)),
-            cancellationToken).ConfigureAwait(false);
-        return transitioned;
-    }
 
     private string PublishedOperand(DefinitionIdentity identity)
     {

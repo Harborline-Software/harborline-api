@@ -53,7 +53,7 @@ public sealed class DurableSubjectErasureRestartTests
 
         // ── BEFORE restart: run a real erasure through the DURABLE stores. ──────────────────────────────────
         {
-            var registry = new NodeEfSubjectErasureRegistry(store.Factory, TimeProvider.System);
+            var registry = new NodeEfSubjectErasureRegistry(store.Factory);
             var tombstones = new NodeEfSubjectTombstoneStore(store.Factory);
             var keyProvider = new RootSeedTenantKeyProvider(rootSeed);
 
@@ -80,7 +80,7 @@ public sealed class DurableSubjectErasureRestartTests
         //    already released every in-process handle — no global pool clear needed here (bug-20260702-8012e553).
         await using var afterRestart = SearchTestStore.Reopen(store);
         {
-            var registry = new NodeEfSubjectErasureRegistry(afterRestart.Factory, TimeProvider.System);
+            var registry = new NodeEfSubjectErasureRegistry(afterRestart.Factory);
             var tombstones = new NodeEfSubjectTombstoneStore(afterRestart.Factory);
             var keyProvider = new RootSeedTenantKeyProvider(rootSeed);
 

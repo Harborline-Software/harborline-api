@@ -105,7 +105,7 @@ public sealed class WebAntiforgeryPolicyTests
                 await context.Database.MigrateAsync();
             }
             var clock = new FixedTimeProvider();
-            var store = new WebAntiforgeryStateStore(factory, clock);
+            var store = new WebAntiforgeryStateStore(factory);
             return new Fixture(
                 path,
                 factory,

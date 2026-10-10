@@ -103,7 +103,7 @@ public sealed class NodeRehostServiceTests
             calls.Add("redeem-grant");
             Assert.Equal(new[] { SignedRosterRehostGrantProvider.ReadCanonical, SignedRosterRehostGrantProvider.PromoteHome }, requiredActs);
             return TestAuthorization.AllowGate().DecideAsync(new AuthorizationWriteContext(caller,
-                new TenantId(tenantId), TestAuthorization.At).Request(
+                new TenantId(tenantId), AdmittedInstant.FromRecordedAct(TestAuthorization.At)).Request(
                     AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId), ct);
         }
 

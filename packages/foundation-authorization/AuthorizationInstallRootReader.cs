@@ -14,7 +14,7 @@ public interface IAuthorizationInstallRootReader
     ValueTask<PermissionSet> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default);
 }
 
@@ -26,7 +26,7 @@ public sealed class AuthorizationInstallRootReader(IAuthorizationClosureSnapshot
     public async ValueTask<PermissionSet> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default)
     {
         var request = new AuthorizationGateRequest(

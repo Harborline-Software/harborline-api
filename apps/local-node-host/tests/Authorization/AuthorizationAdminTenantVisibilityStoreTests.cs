@@ -52,7 +52,7 @@ public sealed class AuthorizationAdminTenantVisibilityStoreTests
         var tenantAuthority = new AuthorizationWriteContext(
             new ActorId("test:authorization-writer"),
             tenantA,
-            DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.Parse("2026-09-02T12:00:00Z")));
         await writer.WriteAsync(new InstallAuthorizationDefinition(privateDefinition, tenantA), tenantAuthority);
         await writer.WriteAsync(
             new ReplaceAuthorizationDefinition(privateDefinition with { Revision = 2 }, tenantA),

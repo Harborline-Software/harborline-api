@@ -62,20 +62,7 @@
       "reason": "Ticket 360 (2026-09-13): the retained TRX gives this failure verbatim as {\"error\":\"no_response\"}. That is NOT the headless-bootstrap defect 360 fixed -- that one failed with 'founder attach status: Unavailable' and is now gone on BOTH platforms (winbox reports failed 0; the headless filesystem-owner claim test passes here too). 360 was two defects sharing one symptom list. This row is the second one, still open, and it is macOS-only: the same E2E case passes on Windows, so it is a behavioural defect on this platform, not an OS gap. The follow-up ticket is T-423, which owns these two rows: it fixes the no_response or proves it an OS gap and reclassifies them, and removes them from this file in the same PR as its fix."
     }
   ],
-  "knownFlaky": [
-    {
-      "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
-      "method": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests",
-      "owner": "361",
-      "firstSeen": "2026-09-09",
-      "expires": "2026-10-08",
-      "verdict": "a-pre-existing-at-sha (load-sensitive)",
-      "measuredRate": "red on the macpro merge gate at load 18 (api-batch1b.log, 2026-09-09); green on the rerun at load 3; a Windows knownFlaky row already exists",
-      "cause": "a wall-clock lock-window assertion under host contention; the test's own comment says the window should be driven from its deterministic hook (ticket 361 root-causes it)",
-      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
-      "retryLimit": 1
-    }
-  ],
+  "knownFlaky": [],
   "skips": {
     "count": 22
   },

@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import * as host from '../host-baseline.mjs'
 import {persistStepEvidence} from '../exact-clone-evidence.mjs'
+import {runAfterPrivateReclamation} from '../private-build-server-reclamation.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const fixture = path.join(import.meta.dirname, 'host-results.trx')
@@ -157,7 +158,8 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-runner-'))
   try {
     let invocation
-    new Function('path', 'clone', 'run', 'collectCoverage', 'scratch', hostBlock)(path, dir, (...args) => { invocation = args; return {} }, false, dir)
+    new Function('path', 'clone', 'run', 'collectCoverage', 'scratch', 'runAfterPrivateReclamation', hostBlock)(path, dir, (...args) => { invocation = args; return {} }, false, dir,
+      (hostTests, run) => runAfterPrivateReclamation(hostTests, run, {}))
     assert.equal(invocation[0], 'dotnet-host-tests')
     // Q38: the host suite excludes the perf lane; verify-perf runs it on mac16.
     assert.deepEqual(invocation[2], ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',

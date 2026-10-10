@@ -30,7 +30,6 @@ public sealed class DocumentIssuanceService
     private readonly ISubjectFieldEncryptor _subjectEncryptor;
     private readonly IIssuedDocumentStore _store;
     private readonly ILegalHoldService _legalHold;
-    private readonly TimeProvider _clock;
 
     /// <summary>Constructs the issuance service over the render pipeline + provenance stores.</summary>
     public DocumentIssuanceService(
@@ -39,8 +38,7 @@ public sealed class DocumentIssuanceService
         IBlobStore blobs,
         ISubjectFieldEncryptor subjectEncryptor,
         IIssuedDocumentStore store,
-        ILegalHoldService legalHold,
-        TimeProvider? clock = null)
+        ILegalHoldService legalHold)
     {
         _walker = walker ?? throw new ArgumentNullException(nameof(walker));
         _writer = writer ?? throw new ArgumentNullException(nameof(writer));
@@ -48,7 +46,6 @@ public sealed class DocumentIssuanceService
         _subjectEncryptor = subjectEncryptor ?? throw new ArgumentNullException(nameof(subjectEncryptor));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _legalHold = legalHold ?? throw new ArgumentNullException(nameof(legalHold));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     /// <summary>Walks a request's template + record into the semantic document — the shared render (no mint).</summary>
@@ -61,9 +58,11 @@ public sealed class DocumentIssuanceService
     /// <summary>
     /// Renders + mints the immutable issued document. The stored bytes are the authoritative artifact; a
     /// later <see cref="Render"/> of the same pinned template + data is content-equivalent (council F3) —
-    /// verifiable via <see cref="IssuedDocumentRecord.ContentHash"/>.
+    /// verifiable via <see cref="IssuedDocumentRecord.ContentHash"/>. The record is dated <paramref name="issuedAt"/>,
+    /// the issuing act's instant: the service holds no clock (T-1057).
     /// </summary>
-    public async Task<IssuedDocumentRecord> IssueAsync(DocumentIssuanceRequest request, CancellationToken ct = default)
+    public async Task<IssuedDocumentRecord> IssueAsync(
+        DocumentIssuanceRequest request, DateTimeOffset issuedAt, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -90,7 +89,6 @@ public sealed class DocumentIssuanceService
         var documentId = string.IsNullOrWhiteSpace(request.DocumentId)
             ? "doc-" + Guid.NewGuid().ToString("N")
             : request.DocumentId!;
-        var now = _clock.GetUtcNow();
 
         // 5. Register a legal hold (ADR 0142 / council F2). A record-scoped hold marks the issued money
         //    document retained; a subject-scoped hold is what makes SubjectErasureService's existing
@@ -122,7 +120,7 @@ public sealed class DocumentIssuanceService
             BlobCid: cid,
             ContentHash: contentHash,
             Snapshot: snapshot,
-            IssuedAtUtc: now,
+            IssuedAtUtc: issuedAt,
             LegalHoldId: legalHoldId);
 
         await _store.AddAsync(record, ct).ConfigureAwait(false);

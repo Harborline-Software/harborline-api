@@ -171,8 +171,10 @@ public static class BankAccountRoutes
             // Ticket 151 stage-one gate: a PERMISSION decision, not just the transport fence — the same
             // request-scoped mechanism the gated sibling routes use (ContactRoutes / InvoiceRoutes).
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write carries it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+                    http, actAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
 
@@ -183,8 +185,8 @@ public static class BankAccountRoutes
                 return Results.BadRequest(new { error = "display_name_required" });
 
             var id = BankAccountId.NewId();
-            var at = timeProvider.GetUtcNow();
-            var now = (Instant)at;
+            var at = actAuthority.Instant;
+            var now = (Instant)at.Value;
             var account = new BankAccount(
                 Id:                  id,
                 TenantId:            LocalTenantId,
@@ -241,12 +243,14 @@ public static class BankAccountRoutes
         app.MapPost($"{RouteBase}/{{accountId}}/archive", async (string accountId, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write carries it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
+                    http, actAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
             if (denied is not null)
                 return denied;
             var id = new BankAccountId(accountId);
-            var at = timeProvider.GetUtcNow();
+            var at = actAuthority.Instant;
             var archived = await writer.ArchiveAsync(id, Authority(http, LocalTenantId, id, at), ct).ConfigureAwait(false);
             if (archived is null) return Results.NotFound();
             var feedConnectedOnArchive = await IsFeedConnectedAsync(b, accountId, ct).ConfigureAwait(false);
@@ -260,8 +264,10 @@ public static class BankAccountRoutes
         app.MapPost($"{RouteBase}/{{accountId}}/opening-balance", async (string accountId, SetOpeningBalanceBody body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-690: one authority, one clock read; the guard decides on its instant and the write carries it.
+            var actAuthority = RequestAuthorization.Authority(http, LocalTenantId, timeProvider);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
+                    http, actAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
             if (denied is not null)
                 return denied;
             if (body is null) return Results.BadRequest(new { error = "body_required" });
@@ -269,7 +275,7 @@ public static class BankAccountRoutes
                 return Results.BadRequest(new { error = "invalid_date", detail = "openingBalanceDate must be ISO-8601." });
 
             var id = new BankAccountId(accountId);
-            var at = timeProvider.GetUtcNow();
+            var at = actAuthority.Instant;
             var updated = await writer.SetOpeningBalanceAsync(
                 id, body.OpeningBalance, cutover, Authority(http, LocalTenantId, id, at), ct).ConfigureAwait(false);
             if (updated is null) return Results.NotFound();
@@ -295,7 +301,7 @@ public static class BankAccountRoutes
         HttpContext http,
         TenantId tenant,
         BankAccountId account,
-        DateTimeOffset at)
+        AdmittedInstant at)
     {
         return new AuthorizationWriteContext(
             new ActorId(NodeCallerParty.Resolve(http).Value),

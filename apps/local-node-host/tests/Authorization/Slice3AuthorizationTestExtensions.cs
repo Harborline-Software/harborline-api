@@ -40,6 +40,7 @@ internal static class Slice3AuthorizationTestExtensions
         this AccountSetupInvitationIssuer issuer,
         string selectedSessionHandle,
         AccountSetupInvitationIssueRequest request,
+        DateTimeOffset at,
         CancellationToken ct = default) =>
         issuer.IssueAsync(
             selectedSessionHandle,
@@ -47,7 +48,7 @@ internal static class Slice3AuthorizationTestExtensions
             TestAuthorization.Write(
                 new TenantId(Guid.Parse(request.TenantId).ToString("D")),
                 "principal-admin",
-                issuer.CurrentInstant),
+                at),
             ct);
 
     internal static Task<RecoveryInvitationIssueResult?> IssueAsync(

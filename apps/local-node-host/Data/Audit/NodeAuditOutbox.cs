@@ -11,6 +11,7 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Recovery.Erasure;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Audit;
 
@@ -21,6 +22,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Audit;
 /// to the kernel audit trail, idempotently by audit id, and a failed delivery stays owed until the next drain.
 /// This replaces a post-commit append that could fail after the write had committed and be lost.
 /// </summary>
+[ClockAuthority("Out-of-act outbox drain: dates its own delivery (publishedAt); staging already takes the act's instant.")]
 public sealed class NodeAuditOutbox(
     IDbContextFactory<NodeLocalSearchDbContext> factory,
     IAuditTrail trail,

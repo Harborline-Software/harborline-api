@@ -1038,14 +1038,14 @@ public sealed class RoleGateAdmissionTests
         }
     }
 
-    private static AuthorizationWriteContext Authority() => new(new ActorId("operator"), Tenant, At);
+    private static AuthorizationWriteContext Authority() => new(new ActorId("operator"), Tenant, AdmittedInstant.FromRecordedAct(At));
 
     private static async ValueTask<AuthorizedFormDefinitionLifecycle.WriteAuthority> PlatformFormAuthority(
         AuthorizedFormDefinitionLifecycle lifecycle,
         string definitionId)
     {
         var authority = new AuthorizationWriteContext(
-            new ActorId("installer:authorization-definition-seed"), Tenant, At);
+            new ActorId("installer:authorization-definition-seed"), Tenant, AdmittedInstant.FromRecordedAct(At));
         var bootstrap = PlatformBootstrapDecision.Mint(AuthorizationDecision.CreateBootstrap(
             authority.Request(
                 AuthorizationOperation.Parse(Permission.FormsAuthor),
@@ -1060,7 +1060,7 @@ public sealed class RoleGateAdmissionTests
         var scope = ScopeExpression.Parse("/records/vendor-a");
         var decision = await TestAuthorization.AllowGate().DecideAsync(new AuthorizationGateRequest(
             new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
-            new ActorId("operator"), Tenant, new AuthorizationTarget("pack", "vendor-a", scope), At));
+            new ActorId("operator"), Tenant, new AuthorizationTarget("pack", "vendor-a", scope), AdmittedInstant.FromRecordedAct(At)));
         return new PackProjectionAuthority(decision, "vendor-a", "1.0.0", Tenant, new ActorId("operator"), At);
     }
 

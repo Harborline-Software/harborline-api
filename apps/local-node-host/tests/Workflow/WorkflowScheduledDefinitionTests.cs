@@ -81,7 +81,7 @@ public sealed class WorkflowScheduledDefinitionTests
             }
             var tenant = new TenantId("local");
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(tenant, clock.UtcNow, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+                .InstallAsync(tenant, AdmittedInstant.Read(new MutableClock(clock.UtcNow)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
             const string rrule = "FREQ=DAILY";
             using var authored = JsonDocument.Parse(

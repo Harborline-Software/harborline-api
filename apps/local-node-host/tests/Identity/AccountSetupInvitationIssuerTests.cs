@@ -31,11 +31,11 @@ public sealed class AccountSetupInvitationIssuerTests
             roles: vocabulary, authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty));
         var request = new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "same-command",
             AdmittedRole.Role.ToString());
-        var issued = await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request);
+        var issued = await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request, Now);
         Assert.NotNull(issued);
-        Assert.Null(await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request));
+        Assert.Null(await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request, Now));
         var member = await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
-            request with { InitialRole = InvitationInitialRole.Default });
+            request with { InitialRole = InvitationInitialRole.Default }, Now);
         Assert.NotNull(member);
         await using var identity = fixture.IdentityFactory.CreateDbContext();
         var rows = await identity.AccountSetupInvitations.ToArrayAsync();
@@ -60,7 +60,7 @@ public sealed class AccountSetupInvitationIssuerTests
             authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty,
                 escalating ? PermissionAtomSet.Of(PermissionAtom.Parse("records:write@/")) : PermissionAtomSet.Empty));
         Assert.Null(await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
-            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", role)));
+            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", role), Now));
         await AssertNoInvitationsAsync(fixture.IdentityFactory);
     }
 
@@ -71,7 +71,7 @@ public sealed class AccountSetupInvitationIssuerTests
             roles: new InMemoryRoleVocabulary([AdmittedRole]),
             authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Issuer.IssueAsync(fixture.SelectedHandle,
-            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", AdmittedRole.Role.ToString())));
+            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", AdmittedRole.Role.ToString()), Now));
         await AssertNoInvitationsAsync(fixture.IdentityFactory);
     }
 
@@ -84,7 +84,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 PermissionAtomSet.Of(PermissionAtom.Parse("unheld:read@/"))));
         var denied = await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Issuer.IssueAsync(
             fixture.SelectedHandle, new AccountSetupInvitationIssueRequest(fixture.TenantId,
-                ["records:read"], "role-escalation", AdmittedRole.Role.ToString())));
+                ["records:read"], "role-escalation", AdmittedRole.Role.ToString()), Now));
         Assert.Equal("authorization.grant.attenuation_failed", denied.Decision.Evidence.GrantRefusal);
         Assert.Equal("members:manage", denied.Decision.Request.Act.Operation.Value);
         Assert.Contains(denied.Decision.Resolution.SelectMany(step => step.Inputs),
@@ -116,14 +116,14 @@ public sealed class AccountSetupInvitationIssuerTests
                 capture.Audit);
             Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
                 new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
-                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
+                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), AdmittedInstant.Read(new FixedTimeProvider(Now))));
             if (allowed) Assert.NotNull(await issue());
             else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }
         else
         {
             Func<Task<AccountSetupInvitationIssueResult?>> issue = () => fixture.Issuer.IssueAsync(fixture.SelectedHandle,
-                Request(fixture.TenantId, ["records:read"], "roster-evidence"));
+                Request(fixture.TenantId, ["records:read"], "roster-evidence"), Now);
             if (allowed) Assert.NotNull(await issue());
             else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }
@@ -146,7 +146,7 @@ public sealed class AccountSetupInvitationIssuerTests
 
         var result = await fixture.Issuer.IssueAsync(
             fixture.SelectedHandle,
-            Request(fixture.TenantId, PermissionCompositions.Member.Permissions, "invite-bob"));
+            Request(fixture.TenantId, PermissionCompositions.Member.Permissions, "invite-bob"), Now);
 
         Assert.NotNull(result);
         Assert.Equal(fixture.TenantId, result!.TenantId);
@@ -175,7 +175,7 @@ public sealed class AccountSetupInvitationIssuerTests
         {
             await Assert.ThrowsAsync<AuthorizationDeniedException>(() => member.Issuer.IssueAsync(
                 member.SelectedHandle,
-                Request(member.TenantId, PermissionCompositions.Viewer.Permissions, "unauthorized")));
+                Request(member.TenantId, PermissionCompositions.Viewer.Permissions, "unauthorized"), Now));
             await AssertNoInvitationsAsync(member.IdentityFactory);
         }
 
@@ -183,7 +183,7 @@ public sealed class AccountSetupInvitationIssuerTests
         {
             await Assert.ThrowsAsync<AuthorizationDeniedException>(() => admin.Issuer.IssueAsync(
                 admin.SelectedHandle,
-                Request(admin.TenantId, [Permission.GrantPermissions], "escalated")));
+                Request(admin.TenantId, [Permission.GrantPermissions], "escalated"), Now));
             await AssertNoInvitationsAsync(admin.IdentityFactory);
         }
     }
@@ -196,10 +196,10 @@ public sealed class AccountSetupInvitationIssuerTests
         var otherTenant = "99999999-9999-9999-9999-999999999999";
         Assert.Null(await fixture.Issuer.IssueAsync(
             fixture.SelectedHandle,
-            Request(otherTenant, PermissionCompositions.Viewer.Permissions, "cross-tenant")));
+            Request(otherTenant, PermissionCompositions.Viewer.Permissions, "cross-tenant"), Now));
         Assert.Null(await fixture.Issuer.IssueAsync(
             "unknown-selected-session",
-            Request(fixture.TenantId, PermissionCompositions.Viewer.Permissions, "unknown")));
+            Request(fixture.TenantId, PermissionCompositions.Viewer.Permissions, "unknown"), Now));
 
         await using (var grants = fixture.GrantFactory.CreateDbContext())
         {
@@ -209,7 +209,7 @@ public sealed class AccountSetupInvitationIssuerTests
         }
         Assert.Null(await fixture.Issuer.IssueAsync(
             fixture.SelectedHandle,
-            Request(fixture.TenantId, PermissionCompositions.Viewer.Permissions, "stale")));
+            Request(fixture.TenantId, PermissionCompositions.Viewer.Permissions, "stale"), Now));
         await AssertNoInvitationsAsync(fixture.IdentityFactory);
     }
 
@@ -235,7 +235,7 @@ public sealed class AccountSetupInvitationIssuerTests
         var result = await fixture.Issuer.IssueAsync(
             fixture.SelectedHandle,
             Request(fixture.TenantId, PermissionCompositions.Viewer.Permissions,
-                staleOwnerVersion ? "stale-owner" : "stale-epoch"));
+                staleOwnerVersion ? "stale-owner" : "stale-epoch"), Now);
 
         Assert.Null(result); // the fixture's gate Allowed; the pinned freshness fence still refuses the act.
         await AssertNoInvitationsAsync(fixture.IdentityFactory);
@@ -410,7 +410,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 // Ticket 293 slice 4 - the inviter's own CONFERRED install-root grant is what admits the issue,
                 // not a roster permission set: the gate ANDs RequiredPermissions against the atoms it derives.
                 InviterGate(inviterPermissions, roster),
-                new FixedTimeProvider(Now), refusalAudit, roles,
+                refusalAudit, roles,
                 authorization is null ? null : new RoleAtomReader(authorization));
             return new IssueFixture(
                 [identityPath, sessionPath, grantPath],

@@ -55,9 +55,9 @@ public sealed class RawMutationPortSymbolInventoryTests
         new("apps/local-node-host/Data/Financial/NodeBankAccountWriter.cs", "Harborline.Api.LocalNodeHost.Data.Financial.NodeBankAccountWriter+AccountUpdate.CommitAsync(Harborline.Api.Blocks.Banking.Models.BankAccount,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Blocks.Banking.Services.IBankAccountMutationRepository.UpdateAsync(Harborline.Api.Blocks.Banking.Models.BankAccount,System.Threading.CancellationToken): System.Threading.Tasks.Task", 0, "admitted coordinator", "bank archive and opening balance, ck-10 S4 commit stage: the allowed decision precedes the tenant-scoped bind"),
         new("apps/local-node-host/Data/Identity/AuthorizedGrantRevocationWriter.cs", "Harborline.Api.LocalNodeHost.Data.Identity.AuthorizedGrantRevocationWriter+GrantRevoke.CommitAsync(Harborline.Api.Blocks.AccessGrant.GrantRevocation,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Blocks.AccessGrant.IGrantStore.RevokeAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Blocks.AccessGrant.GrantId,Harborline.Api.Blocks.AccessGrant.GrantRevocation,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Blocks.AccessGrant.AccessGrant]", 0, "decision-bearing adapter", "admin revocation, ck-10 S4 commit stage: the carried decision is checked at authorize and the evidence's attribution at validate"),
         new("apps/local-node-host/Data/Identity/AuthorizedGrantRevocationWriter.cs", "Harborline.Api.LocalNodeHost.Data.Identity.AuthorizedGrantRevocationWriter+GrantRevoke.CommitAsync(Harborline.Api.Blocks.AccessGrant.GrantRevocation,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.LocalNodeHost.Data.Search.Vector.NodeEfGrantStore.RevokeAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Blocks.AccessGrant.GrantId,Harborline.Api.Blocks.AccessGrant.GrantRevocation,System.Action`1[Harborline.Api.LocalNodeHost.Data.Search.NodeLocalSearchDbContext],System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Blocks.AccessGrant.AccessGrant]", 0, "decision-bearing adapter", "T-1048: the same commit stage on the durable store, staging the act's audit in the revocation's own commit"),
-        new("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs", "Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync(Harborline.Api.Blocks.Workflow.Durable.WorkflowDefinition,System.Text.Json.JsonElement,Harborline.Api.Blocks.Workflow.Durable.WorkflowDefinitionRegistrationOptions,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Blocks.Workflow.Durable.WorkflowDefinitionRecord]", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateAsync(Harborline.Api.Foundation.Assets.Common.SchemaId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.EntityId]", 0, "persistence adapter", "authorized workflow lifecycle owns its entity persistence backend"),
+        new("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs", "Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend+Register.CommitAsync(Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend+RegisterSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateAsync(Harborline.Api.Foundation.Assets.Common.SchemaId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.EntityId]", 0, "persistence adapter", "authorized workflow lifecycle owns its entity persistence backend; ck-10 S3b commit stage after the carried admission is authorized and the definition validated"),
         new("packages/foundation-forms-engine/IAuthorizedFormEntityWriter.cs", "Harborline.Api.Foundation.Forms.Engine.AuthorizedFormEntityWriter+SubmissionCreate.CommitAsync(Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateAsync(Harborline.Api.Foundation.Assets.Common.SchemaId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.EntityId]", 0, "decision-bearing adapter", "form engine passes the same allowed decision into its writer"),
-        new("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs", "Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync(Harborline.Api.Foundation.Forms.Models.FormDefinition,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Forms.Models.FormDefinition]", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateAsync(Harborline.Api.Foundation.Assets.Common.SchemaId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.EntityId]", 0, "persistence adapter", "authorized form lifecycle owns its entity persistence backend"),
+        new("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs", "Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend+Register.CommitAsync(Harborline.Api.Foundation.Forms.Models.FormDefinition,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateAsync(Harborline.Api.Foundation.Assets.Common.SchemaId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.CreateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.EntityId]", 0, "persistence adapter", "authorized form lifecycle owns its entity persistence backend; ck-10 S3b commit stage after the carried admission is authorized and the definition validated"),
         new("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller+Activation.CommitAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+ActivationBound,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Packs.Install.IPackInstallMutationStore.RecordKeyOwnership(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String): System.Void", 0, "admitted coordinator", "ck-10 S5b commit stage: activation persists its reviewed ownership choices"),
         new("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller+Activation.CommitAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+ActivationBound,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Packs.Install.IPackProjectionAdmissionStore.ActivateAndRecordProjectionAdmission(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String,Harborline.Api.Foundation.Packs.Install.PackProjectionAdmission): System.Void", 0, "admitted coordinator", "ck-10 S5b commit stage: activation atomically records its admission evidence"),
         // T-519 ck-10 S5a: configuration ownership is written only by its KernelWrite commit stage.
@@ -68,7 +68,8 @@ public sealed class RawMutationPortSymbolInventoryTests
         new("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller+Reconciliation.CommitAsync(Harborline.Api.Foundation.Packs.Install.IPackProjectionAdmissionStore,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Packs.Install.IPackProjectionAdmissionStore.MarkProjectionCompleted(System.Guid): System.Void", 0, "reconciliation", "reconciler completes evidence only after projection"),
         new("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller+Installation.CommitAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+InstallSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Packs.Install.IPackInstallMutationStore.Commit(Harborline.Api.Foundation.Packs.Install.PackInstallTransaction): System.Void", 0, "admitted coordinator", "install commits only after all admission stages"),
         new("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller+Projection.CommitAsync(Harborline.Api.Foundation.Packs.Install.PackProjectionAuthority,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Packs.Install.IPackProjectionAdmissionStore.MarkProjectionCompleted(System.Guid): System.Void", 0, "admitted coordinator", "projection completion is recorded before authority retirement"),
-        new("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs", "Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync(!0,Harborline.Api.Foundation.Definitions.DefinitionCoordinates,Harborline.Api.Foundation.Definitions.DefinitionLifecycleStatus,System.Collections.Generic.IReadOnlyCollection`1[Harborline.Api.Foundation.Definitions.DefinitionLifecycleStatus],System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[!0]", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.UpdateAsync(Harborline.Api.Foundation.Assets.Common.EntityId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.UpdateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.VersionId]", 0, "persistence adapter", "definition lifecycle persists its admitted transition"),
+        new("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs", "Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend+Transition.CommitAsync(Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend+TransitionSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.UpdateAsync(Harborline.Api.Foundation.Assets.Common.EntityId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.UpdateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.VersionId]", 0, "persistence adapter", "definition lifecycle persists its admitted transition; ck-10 S3b form commit stage after the allowed-from check"),
+        new("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs", "Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend+Transition.CommitAsync(Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend+TransitionSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask", "Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.UpdateAsync(Harborline.Api.Foundation.Assets.Common.EntityId,System.Text.Json.JsonDocument,Harborline.Api.Foundation.Assets.Entities.UpdateOptions,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Harborline.Api.Foundation.Assets.Common.VersionId]", 0, "persistence adapter", "definition lifecycle persists its admitted transition; ck-10 S3b workflow commit stage after the allowed-from check"),
     ];
 
     [Fact]
@@ -366,7 +367,14 @@ public sealed class RawMutationPortSymbolInventoryTests
         return (relative, pointValue.StartLine);
     }
 
-    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
+    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method) =>
+        MethodOperands(method).Select(operand => (operand.Target, operand.Offset));
+
+    /// <summary>
+    /// Every instruction with its opcode and integer operand (a token, a local index, or 0), including the short
+    /// forms whose operand is implicit (<c>stloc.0</c> reports 0). T-690 follows a delegate through a local with it.
+    /// </summary>
+    internal static IEnumerable<(int Offset, OpCode OpCode, int Operand)> Instructions(MethodBase method)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il is null)
@@ -375,26 +383,81 @@ public sealed class RawMutationPortSymbolInventoryTests
         while (position < il.Length)
         {
             var instructionOffset = position;
-            OpCode opCode;
             var first = il[position++];
-            if (first == 0xfe)
-                opCode = MultiByteOpCodes[il[position++]];
-            else
-                opCode = SingleByteOpCodes[first];
-            if (opCode.OperandType == OperandType.InlineMethod)
+            var opCode = first == 0xfe ? MultiByteOpCodes[il[position++]] : SingleByteOpCodes[first];
+            var next = position + OperandSize(opCode.OperandType, il, position);
+            var operand = opCode.OperandType switch
             {
-                var token = BitConverter.ToInt32(il, position);
-                MethodBase? target = null;
-                try
-                {
-                    target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
-                        method is MethodInfo info ? info.GetGenericArguments() : null);
-                }
-                catch (ArgumentException) { }
-                if (target is not null)
-                    yield return (target, instructionOffset);
+                OperandType.ShortInlineVar => il[position],
+                OperandType.InlineVar => BitConverter.ToUInt16(il, position),
+                OperandType.InlineMethod or OperandType.InlineTok or OperandType.InlineType or OperandType.InlineField
+                    => BitConverter.ToInt32(il, position),
+                OperandType.ShortInlineBrTarget => next + (sbyte)il[position], // the absolute branch target
+                OperandType.InlineBrTarget => next + BitConverter.ToInt32(il, position),
+                _ => ImplicitLocal(opCode),
+            };
+            yield return (instructionOffset, opCode, operand);
+            position = next;
+        }
+    }
+
+    /// <summary>Every branch and switch edge, from the branching instruction's offset to its target (T-690).</summary>
+    internal static IReadOnlyList<(int From, int To)> BranchEdges(MethodBase method)
+    {
+        var edges = new List<(int From, int To)>();
+        var il = method.GetMethodBody()?.GetILAsByteArray();
+        if (il is null)
+            return edges;
+        foreach (var (offset, opCode, operand) in Instructions(method))
+        {
+            if (opCode.OperandType is OperandType.ShortInlineBrTarget or OperandType.InlineBrTarget)
+                edges.Add((offset, operand));
+            else if (opCode.OperandType == OperandType.InlineSwitch)
+            {
+                var start = offset + opCode.Size;
+                var count = BitConverter.ToInt32(il, start);
+                var end = start + 4 + count * 4;
+                for (var index = 0; index < count; index++)
+                    edges.Add((offset, end + BitConverter.ToInt32(il, start + 4 + index * 4)));
             }
-            position += OperandSize(opCode.OperandType, il, position);
+        }
+        return edges;
+    }
+
+    /// <summary>Every offset some branch, switch or exception handler can jump to (T-690: where values merge).</summary>
+    internal static HashSet<int> BranchTargets(MethodBase method)
+    {
+        var targets = BranchEdges(method).Select(edge => edge.To).ToHashSet();
+        foreach (var clause in method.GetMethodBody()?.ExceptionHandlingClauses ?? [])
+        {
+            targets.Add(clause.HandlerOffset);
+            if (clause.Flags == ExceptionHandlingClauseOptions.Filter) targets.Add(clause.FilterOffset);
+        }
+        return targets;
+    }
+
+    private static int ImplicitLocal(OpCode opCode) =>
+        opCode == OpCodes.Stloc_1 || opCode == OpCodes.Ldloc_1 ? 1
+        : opCode == OpCodes.Stloc_2 || opCode == OpCodes.Ldloc_2 ? 2
+        : opCode == OpCodes.Stloc_3 || opCode == OpCodes.Ldloc_3 ? 3
+        : 0;
+
+    /// <summary>Every method-token operand with its opcode, so a caller can tell <c>ldftn</c> from a call (T-690).</summary>
+    internal static IEnumerable<(MethodBase Target, int Offset, OpCode OpCode)> MethodOperands(MethodBase method)
+    {
+        foreach (var (offset, opCode, token) in Instructions(method))
+        {
+            if (opCode.OperandType != OperandType.InlineMethod)
+                continue;
+            MethodBase? target = null;
+            try
+            {
+                target = method.Module.ResolveMethod(token, method.DeclaringType?.GetGenericArguments(),
+                    method is MethodInfo info ? info.GetGenericArguments() : null);
+            }
+            catch (ArgumentException) { }
+            if (target is not null)
+                yield return (target, offset, opCode);
         }
     }
 

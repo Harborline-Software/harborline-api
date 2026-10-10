@@ -203,7 +203,7 @@ public sealed class TenantSwitchRoutesTests
             antiforgery,
             new AdminTeamAccessRoutes.IssueInvitationRequest(["records:read"], "idem-1"),
             context,
-            Now);
+            AdmittedInstant.FromRecordedAct(Now));
         await result.ExecuteAsync(context);
         return context.Response.StatusCode;
     }
@@ -411,13 +411,13 @@ public sealed class TenantSwitchRoutesTests
                 await context.Database.MigrateAsync();
             }
             var clock = new FixedTimeProvider();
-            var store = new WebAntiforgeryStateStore(factory, clock);
+            var store = new WebAntiforgeryStateStore(factory);
             var issue = await store.RotateAsync(
                 WebCookieAudience.SelectedSession,
                 "account-1",
                 "session-1",
                 "coordination-1",
-                ExpiresAt);
+                ExpiresAt, clock.GetUtcNow());
             Assert.NotNull(issue);
 
             const string selectedHandle = "selected-secret";

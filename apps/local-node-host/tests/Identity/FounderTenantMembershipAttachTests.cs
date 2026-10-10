@@ -325,8 +325,7 @@ public sealed class FounderTenantMembershipAttachTests
             var memberships = new EncryptedTenantMembershipAuthorityStore(
                 tenantStore,
                 tenant.Value,
-                new InstallationIdentityHomeDecisionAuthority(identityFactory),
-                new FixedTimeProvider(Now));
+                new InstallationIdentityHomeDecisionAuthority(identityFactory));
             var leases = new AlwaysLeaseCoordinator();
             var grants = new Harborline.Api.LocalNodeHost.Data.Search.Vector.NodeEfGrantStore(
                 new BootstrapClaimRedemptionTests.SharedSearchFactory(homePath));

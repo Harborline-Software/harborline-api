@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
@@ -174,7 +175,7 @@ public sealed class DefinitionEnvelopeRoundTripTests
                 tenant,
                 trustStore,
                 PackRevocationList.Empty,
-                now,
+                AdmittedInstant.FromRecordedAct(now),
                 TimeSpan.FromDays(30),
                 Principal: "test-operator"));
         Assert.True(install.Installed, string.Join(",", install.RefusalCodes));

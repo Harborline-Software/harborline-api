@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
@@ -120,7 +121,7 @@ public sealed partial class AccessAdministrationPreloadTests
     }
 
     private PackInstallContext ReplacementContext() => new(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
-        DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
+        AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow), PackInstallRoutes.RevocationMaxAge,
         Principal: TestDesktopOperator.Principal);
 
     private PackExportRequest MixedReplacement(string version, bool refuse)
@@ -197,7 +198,7 @@ public sealed partial class AccessAdministrationPreloadTests
                 })!)).ToArray(),
         };
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
-            DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
@@ -232,7 +233,7 @@ public sealed partial class AccessAdministrationPreloadTests
         };
         var bytes = await ExportAsync(replacement);
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
-            DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
         Assert.True((await _installer.InstallAsync(bytes, context)).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);

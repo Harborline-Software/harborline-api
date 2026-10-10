@@ -246,7 +246,7 @@ public sealed class AuthorizationSnapshotFilterTests
 
     private static AuthorizationGateRequest Request() => new(
         PermissionAtom.Parse("records:write@/records/a"), Principal, Tenant,
-        new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), At);
+        new AuthorizationTarget("record", "a", ScopeExpression.Parse("/records/a")), AdmittedInstant.FromRecordedAct(At));
 
     private sealed class StaleListGrantStore(IGrantStore inner, GrantId staleId) : IGrantStore
     {

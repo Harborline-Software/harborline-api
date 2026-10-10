@@ -95,7 +95,7 @@ public sealed class CascadeDefaultsTests
                 [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         var context = new PackInstallContext(Tenant,
             new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, request.Epoch, TrustRootStatus.Current)]),
-            PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), TimeSpan.FromDays(30), Principal: "test-operator");
+            PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), TimeSpan.FromDays(30), Principal: "test-operator");
         var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
             new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
         var exported = await exporter.ExportAsync(request, new Ed25519Signer(keys));
@@ -110,7 +110,7 @@ public sealed class CascadeDefaultsTests
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
         var writer = new AuthorizationDefinitionWriter(configuration, configuration, new AuthorizationDefinitionAdmission(roles),
             new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
-        await new AccessGrantAuthorizationSeed(writer, configuration, grants).InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        await new AccessGrantAuthorizationSeed(writer, configuration, grants).InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(TestAuthorization.At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem();
         services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
             Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
@@ -215,7 +215,7 @@ public sealed class CascadeDefaultsTests
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant,
             new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, 1, TrustRootStatus.Current)]),
-            PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), TimeSpan.FromDays(30), Principal: "test-operator");
+            PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), TimeSpan.FromDays(30), Principal: "test-operator");
         var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
             new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
         async Task<byte[]> Export(string version, string body)
@@ -298,7 +298,7 @@ public sealed class CascadeDefaultsTests
             new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: fixture.Defaults),
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
-            TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
+            AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "test-operator");
         var decision = TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate);
         Assert.False((await installer.NarrowAsync(context, Package, "defaults", JsonNode.Parse("""{"schemaVersion":null}""")!, decision)).Recorded);
         Assert.Empty(fixture.Packs.GetOverrides(Tenant, Package));
@@ -411,7 +411,7 @@ public sealed class CascadeDefaultsTests
             new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: fixture.Defaults),
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
-            TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
+            AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "test-operator");
         var before = Assert.Single(fixture.Packs.ListInstalled(Tenant));
         var refusal = await installer.NarrowAsync(context, Package, "defaults", new JsonObject { ["defaults"] = declarations },
             TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate));
@@ -464,7 +464,7 @@ public sealed class CascadeDefaultsTests
             new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: fixture.Defaults),
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
-            TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
+            AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "test-operator");
         Assert.True((await installer.NarrowAsync(context, Package, "field-defaults", JsonNode.Parse("""{"defaults":[]}""")!,
             TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate))).Recorded);
         Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);

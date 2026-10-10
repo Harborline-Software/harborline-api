@@ -27,7 +27,7 @@ public sealed class AdminTeamAccessRoutesTests
     {
         var operation = AuthorizationOperation.Parse("members:manage");
         var write = new AuthorizationWriteContext(
-            new ActorId("party-1"), new TenantId("tenant-1"), Now);
+            new ActorId("party-1"), new TenantId("tenant-1"), AdmittedInstant.FromRecordedAct(Now));
         var decision = await TestRouteGate.Denying().DecideAsync(
             write.Request(operation, AuthorizationGate.RecordKindFor(operation), "grant-9"));
         var denial = Assert.Throws<AuthorizationDeniedException>(() => decision.RequireAllowed());
@@ -465,7 +465,7 @@ public sealed class AdminTeamAccessRoutesTests
             fixture.Policy,
             new AdminTeamAccessRoutes.IssueInvitationRequest(["records:read"], "idem-1"),
             invitation,
-            Now);
+            AdmittedInstant.FromRecordedAct(Now));
         await invitationResult.ExecuteAsync(invitation);
         var logoutToken =
             invitation.Response.Headers[WebAntiforgeryPolicy.HeaderName].ToString();
@@ -757,22 +757,22 @@ public sealed class AdminTeamAccessRoutesTests
 
         IResult result = path == AdminTeamAccessRoutes.ReviewGrantRequest.RouteTemplate
             ? await AdminTeamAccessRoutes.ReviewGrantAsync(authority, antiforgery,
-                (AdminTeamAccessRoutes.GrantBody)request, context, Now)
+                (AdminTeamAccessRoutes.GrantBody)request, context, AdmittedInstant.FromRecordedAct(Now))
             : path == AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate
             ? await AdminTeamAccessRoutes.NarrowScopeAsync(authority, antiforgery,
-                (AdminTeamAccessRoutes.NarrowScopeBody)request, context, Now)
+                (AdminTeamAccessRoutes.NarrowScopeBody)request, context, AdmittedInstant.FromRecordedAct(Now))
             : path == AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate
             ? await AdminTeamAccessRoutes.RevokeGrantAsync(authority, antiforgery,
-                (AdminTeamAccessRoutes.GrantBody)request, context, Now)
+                (AdminTeamAccessRoutes.GrantBody)request, context, AdmittedInstant.FromRecordedAct(Now))
             : path == AdminTeamAccessRoutes.InvitationsPath
             ? await AdminTeamAccessRoutes.IssueInvitationAsync(
-                authority, antiforgery, (AdminTeamAccessRoutes.IssueInvitationRequest)request, context, Now)
+                authority, antiforgery, (AdminTeamAccessRoutes.IssueInvitationRequest)request, context, AdmittedInstant.FromRecordedAct(Now))
             : path == AdminTeamAccessRoutes.RevokeMemberPath
                 ? await AdminTeamAccessRoutes.RevokeMemberAsync(
-                    authority, antiforgery, (AdminTeamAccessRoutes.RevokeMemberRequest)request, context, Now)
+                    authority, antiforgery, (AdminTeamAccessRoutes.RevokeMemberRequest)request, context, AdmittedInstant.FromRecordedAct(Now))
                 : await AdminTeamAccessRoutes.NarrowMemberAsync(
                     authority, antiforgery,
-                    (AdminTeamAccessRoutes.NarrowMemberRequest)request, context, Now);
+                    (AdminTeamAccessRoutes.NarrowMemberRequest)request, context, AdmittedInstant.FromRecordedAct(Now));
         await result.ExecuteAsync(context);
         var response = await ReadAsync(context, responseBody);
         return (
@@ -1108,13 +1108,13 @@ public sealed class AdminTeamAccessRoutesTests
             }
 
             var clock = new FixedTimeProvider();
-            var store = new WebAntiforgeryStateStore(factory, clock);
+            var store = new WebAntiforgeryStateStore(factory);
             var issue = await store.RotateAsync(
                 WebCookieAudience.SelectedSession,
                 "account-1",
                 "session-1",
                 "coordination-1",
-                ExpiresAt);
+                ExpiresAt, clock.GetUtcNow());
             Assert.NotNull(issue);
 
             const string selectedHandle = AdminTeamAccessRoutesTests.SelectedHandle;

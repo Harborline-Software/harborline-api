@@ -197,11 +197,12 @@ internal sealed class AccessGrantAuthorizationSeed(
     /// </summary>
     internal async ValueTask InstallAsync(
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant instant,
         AuthorizationSeedProfile profile,
         ActorId? nodeOperator = null,
         CancellationToken ct = default)
     {
+        var at = instant.Value;
         ArgumentNullException.ThrowIfNull(profile);
         var operations = PermissionVocabulary.Operations.Select(operation => operation.Value).ToHashSet(StringComparer.Ordinal);
         if (!operations.SetEquals(ReviewedOffers.Keys))
@@ -218,7 +219,7 @@ internal sealed class AccessGrantAuthorizationSeed(
         var foundingAuthority = new Harborline.Api.Foundation.Authorization.AuthorizationWriteContext(
             new ActorId("installer:authorization-definition-seed"),
             tenant,
-            at);
+            instant);
         foreach (var definition in missingFounding)
         {
             var request = foundingAuthority.Request(
@@ -237,7 +238,7 @@ internal sealed class AccessGrantAuthorizationSeed(
         var additiveAuthority = new Harborline.Api.Foundation.Authorization.AuthorizationWriteContext(
             AdditiveSeedPrincipal,
             tenant,
-            at);
+            instant);
         foreach (var definition in await FindMissingAsync(AdditiveSystemDefinitions, ct).ConfigureAwait(false))
         {
             await writer.WriteAdditiveSeedRevisionAsync(

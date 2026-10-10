@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Kernel.Lease;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -21,6 +22,7 @@ public interface IWebSelectedSessionLogoutAuthority
 /// <summary>
 /// Coordinates selected-session revocation with the owning tenant and installation audit heads.
 /// </summary>
+[ClockAuthority("Coordinates logout and recovers it: decides session liveness and dates its own saga and audit rows.")]
 internal sealed class WebSelectedSessionLogoutAuthority
     : IWebSelectedSessionLogoutAuthority, IInstallationIdentityHomeRecovery
 {

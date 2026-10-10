@@ -71,7 +71,7 @@ public static class AuthorizationAdminRoutes
                 http.Response.Headers.CacheControl = "no-store";
                 var authority = RequestAuthorization.Authority(http, RequestTenant(), timeProvider);
                 var (read, decision) = await reader.ReadWithDecisionAsync(
-                    authority.Tenant, authority.Principal, auditId, authority.At, ct).ConfigureAwait(false);
+                    authority.Tenant, authority.Principal, auditId, authority.Instant, ct).ConfigureAwait(false);
                 return read.Availability == AuthorizationTraceAvailability.Refused
                     ? await RequestAuthorization.RefusedAsync(http, decision, ct).ConfigureAwait(false)
                     : Results.Ok(read);
@@ -130,7 +130,11 @@ public static class AuthorizationAdminRoutes
         app.MapPost($"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding",
             async (Guid definitionId, NarrowAuthorizationBindingRequest? request, HttpContext http, CancellationToken ct) =>
             {
-                var (tenant, denied) = await SettingsAuthorityAsync(http, ct).ConfigureAwait(false);
+                // T-690: one authority, one clock read; the gate decides on its instant and the revision is stamped with it.
+                var tenant = RequestTenant();
+                var actAuthority = RequestAuthorization.Authority(http, tenant, timeProvider);
+                var denied = await RequestAuthorization.RefusalAsync(
+                    http, actAuthority, Permission.OrgManageSettings, RouteRecord.TheInstall, ct).ConfigureAwait(false);
                 if (denied is not null) return denied;
                 if (!http.Request.Headers.TryGetValue(IdempotencyContract.HeaderName, out var key)
                     || string.IsNullOrWhiteSpace(key.ToString()))
@@ -149,7 +153,8 @@ public static class AuthorizationAdminRoutes
                     // One server-derived actor and instant: the gate decides on them and the
                     // revision is stamped with them (ticket 199 slice 2).
                     var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
-                    var at = timeProvider.GetUtcNow();
+                    var admitted = actAuthority.Instant;
+                    var at = admitted.Value;
                     var result = await writer.WriteAsync(
                         new NarrowCapabilityRoleBinding(
                             tenant,
@@ -158,7 +163,7 @@ public static class AuthorizationAdminRoutes
                             actor,
                             at,
                             new BindingChangeReason(request.Reason)),
-                        new AuthorizationWriteContext(actor, tenant, at),
+                        new AuthorizationWriteContext(actor, tenant, admitted),
                         ct).ConfigureAwait(false);
                     var change = result.BindingChange
                         ?? throw new InvalidOperationException("The writer returned no binding result.");

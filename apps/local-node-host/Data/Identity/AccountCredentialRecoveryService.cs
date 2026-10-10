@@ -3,6 +3,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.PasswordHashing;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -69,6 +70,7 @@ public interface IAccountRecoveryAuthority
 /// each fail live revalidation on its next request). No tenant-bound or installation session is
 /// minted here; the recovered human re-authenticates through the standard login flow.
 /// </summary>
+[ClockAuthority("Redeems recovery codes and rotates credentials: dates its own recovery decision against the code's expiry.")]
 internal sealed class AccountCredentialRecoveryService : IAccountRecoveryAuthority
 {
     private const string RevocationReasonCode = "account-credential-recovery";

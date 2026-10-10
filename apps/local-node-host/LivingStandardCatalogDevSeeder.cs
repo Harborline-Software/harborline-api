@@ -92,7 +92,7 @@ public sealed class LivingStandardCatalogDevSeeder : IHostedService
 
         try
         {
-            await SeedAsync(_schemaRegistry, _store, _bindings, _catalogs, tenantId, _timeProvider.GetUtcNow(), cancellationToken)
+            await SeedAsync(_schemaRegistry, _store, _bindings, _catalogs, tenantId, AdmittedInstant.Read(_timeProvider), cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (AuthorizationDeniedException ex)
@@ -124,12 +124,13 @@ public sealed class LivingStandardCatalogDevSeeder : IHostedService
         IConditionRatingFieldBindingStore bindings,
         IStandardCatalogSeedStore catalogs,
         TenantId tenant,
-        DateTimeOffset now,
+        AdmittedInstant admitted,
         CancellationToken cancellationToken = default)
     {
+        var now = admitted.Value;
         var formId = new FormDefinitionId(LivingStandardCatalogForm.FormId);
         var authority = new AuthorizationWriteContext(
-            new ActorId("installer:development-living-standard-seed"), tenant, now);
+            new ActorId("installer:development-living-standard-seed"), tenant, admitted);
         var decision = await store.DecideAsync(formId.Value, authority, cancellationToken).ConfigureAwait(false);
 
         var existing = await store.GetCurrentPublishedAsync(

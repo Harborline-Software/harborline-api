@@ -137,7 +137,7 @@ public static class DeclarativeConfirmRoutes
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenantId,
-                timeProvider.GetUtcNow());
+                AdmittedInstant.Read(timeProvider));
             var originatingDecision = await gate.DecideAsync(
                 authority.Request(
                     AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite),

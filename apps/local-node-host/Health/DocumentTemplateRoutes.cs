@@ -234,7 +234,7 @@ public static class DocumentTemplateRoutes
             IssuedDocumentRecord issued;
             try
             {
-                issued = await issuance.IssueAsync(request, ct).ConfigureAwait(false);
+                issued = await issuance.IssueAsync(request, admittedAt, ct).ConfigureAwait(false);
             }
             catch (Exception)
             {

@@ -1,5 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.Packs.Install;
@@ -30,6 +31,7 @@ public sealed class PackProjectionAuthority
         Tenant = tenant;
         Principal = principal;
         ActivationInstant = activationInstant;
+        Admitted = decision.Request.Instant;
         Nonce = nonce ?? Guid.NewGuid();
         RequestAt = requestAt ?? decision.Request.At;
         DecidedAt = decidedAt ?? decision.DecidedAt;
@@ -53,6 +55,7 @@ public sealed class PackProjectionAuthority
         Tenant = admission.Tenant;
         Principal = admission.Principal;
         ActivationInstant = admission.Instant;
+        Admitted = AdmittedInstant.FromRecordedAct(admission.Instant);
         Nonce = Guid.NewGuid();
         RequestAt = admission.Instant;
         DecidedAt = admission.Instant;
@@ -71,6 +74,8 @@ public sealed class PackProjectionAuthority
     public TenantId Tenant { get; }
     internal ActorId Principal { get; }
     public DateTimeOffset ActivationInstant { get; }
+    /// <summary>The activation instant as the admitted instant its decision (or stored admission) carries (T-1015).</summary>
+    public AdmittedInstant Admitted { get; }
     public Guid Nonce { get; }
     internal DateTimeOffset RequestAt { get; }
     internal DateTimeOffset DecidedAt { get; }
@@ -113,6 +118,15 @@ public sealed class PackProjectionAuthority
     }
 
     internal void Retire() => Interlocked.Exchange(ref _lifetime, 2);
+
+    /// <summary>
+    /// The admission a definition write carries under this authority (ck-10 S3b): the live decision, or, for an
+    /// authority replayed from a stored <see cref="PackProjectionAdmission"/>, that admission's provenance.
+    /// </summary>
+    public DefinitionWriteAdmission ToWriteAdmission() => Decision is { } decision
+        ? DefinitionWriteAdmission.ForPack(decision, this)
+        : DefinitionWriteAdmission.Replay(
+            Tenant, Principal, Operation, PackId, PackVersion, TargetKind, TargetId, ActivationInstant, this);
 
     internal static PackProjectionAuthority FromAdmission(PackProjectionAdmission admission)
     {

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
@@ -34,7 +35,7 @@ internal static class PackInstallerTestExtensions
         tenant,
         Substitute.For<IPackTrustStore>(),
         Substitute.For<IPackRevocationList>(),
-        now,
+        AdmittedInstant.FromRecordedAct(now),
         TimeSpan.FromHours(1),
         Principal: principal);
 }

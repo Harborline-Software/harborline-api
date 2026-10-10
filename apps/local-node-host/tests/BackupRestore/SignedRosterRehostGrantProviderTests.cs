@@ -163,7 +163,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         var audit = Assert.Single(records);
         Assert.Equal("rehost.invalid_roster", audit.Payload.Payload.Body["code"]);
         var trace = await new AuthorizationTraceReader(trail, TestAuthorization.AllowGate())
-            .ReadAsync(new TenantId(Tenant), Caller, audit.AuditId, At);
+            .ReadAsync(new TenantId(Tenant), Caller, audit.AuditId, AdmittedInstant.FromRecordedAct(At));
         Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, trace.Availability);
         Assert.Empty(trace.Steps);
         Assert.Null(observed);

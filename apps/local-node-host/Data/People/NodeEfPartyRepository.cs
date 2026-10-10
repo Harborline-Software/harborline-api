@@ -58,14 +58,15 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
     private readonly IDomainEventPublisher _events;
 
-    /// <summary>Construct bound to the node EF context factory and (no-op) domain event publisher.</summary>
+    /// <summary>
+    /// Construct bound to the node EF context factory and (no-op) domain event publisher. A store holds no clock:
+    /// every write is dated with the instant its caller hands it (<c>at</c>; T-1057).
+    /// </summary>
     public NodeEfPartyRepository(
         IDbContextFactory<LocalNodeDbContext> contextFactory,
-        TimeProvider time,
         IDomainEventPublisher? events = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        ArgumentNullException.ThrowIfNull(time);
         _events = events ?? new NoopDomainEventPublisher();
     }
 

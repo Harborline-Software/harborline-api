@@ -267,7 +267,7 @@ public sealed class DefinitionLifecycleContractTests
         var authority = new AuthorizationWriteContext(
             new ActorId("installer:authorization-definition-seed"),
             tenant,
-            DateTimeOffset.UnixEpoch);
+            AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch));
         var target = Guid.Parse("21800000-0000-0000-0000-000000000218").ToString();
         var request = authority.Request(
             AuthorizationOperation.Parse(Harborline.Api.Foundation.IdentityAtlas.Permissions.Permission.GrantPermissions),
@@ -320,15 +320,44 @@ public sealed class DefinitionLifecycleContractTests
                 && method.GetParameters()[0].ParameterType == typeof(System.Text.Json.JsonElement)
                 && method.GetParameters()[1].ParameterType
                     == typeof(Harborline.Api.Foundation.Packs.Install.PackProjectionAuthority));
-        var stateMachine = transition.GetCustomAttribute<AsyncStateMachineAttribute>()!.StateMachineType;
-        var moveNext = stateMachine.GetMethod(
-            "MoveNext", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var persistedAdmission = lifecycle.GetMethod(
             "AdmitPersistedAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
+        // ck-10 S3b: the admission runs at the write's validate stage, in the bound-record check this method
+        // hands the writer, so the call is found in the method or in the compiler-generated code it creates.
         Assert.Contains(
-            AuthorizationGateArchTests.CalledMethods(moveNext),
+            CalledFromMethodOrItsClosures(transition, lifecycle),
             called => SameMethod(persistedAdmission, called));
+    }
+
+    /// <summary>
+    /// The calls a method makes, followed into the compiler-generated lambdas, closures and async state
+    /// machines it references (each async body's work is in its state machine's MoveNext).
+    /// </summary>
+    private static IEnumerable<MethodBase> CalledFromMethodOrItsClosures(MethodBase method, Type owner)
+    {
+        var seen = new HashSet<(Module, int)>();
+        var pending = new Stack<MethodBase>([method]);
+        while (pending.TryPop(out var current))
+        {
+            if (!seen.Add((current.Module, current.MetadataToken))) continue;
+            var body = current.GetCustomAttribute<AsyncStateMachineAttribute>() is { } machine
+                ? machine.StateMachineType.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic)!
+                : current;
+            foreach (var called in AuthorizationGateArchTests.CalledMethods(body).Append(body))
+            {
+                yield return called;
+                if (called.Name.StartsWith('<') && IsWithin(called.DeclaringType, owner))
+                    pending.Push(called);
+            }
+        }
+    }
+
+    private static bool IsWithin(Type? type, Type owner)
+    {
+        for (var current = type; current is not null; current = current.DeclaringType)
+            if (current == owner) return true;
+        return false;
     }
 
     [Fact]

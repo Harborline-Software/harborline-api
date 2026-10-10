@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Sync.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.BackupRestore;
 
@@ -15,6 +16,7 @@ public sealed record RehostGrantPayload(string TenantId, string ReplacedNodeId, 
     string ReplacementPublicKey, string[] Acts, DateTimeOffset ExpiresAt);
 
 /// <summary>Issues and redeems grants using the durable roster and its existing encrypted database.</summary>
+[ClockAuthority("Issues and redeems signed re-host grants: dates its own issue, expiry and refusal decisions.")]
 public sealed class SignedRosterRehostGrantProvider(
     IDbContextFactory<NodeLocalRosterDbContext> contexts, IOperationSigner signer, IOperationVerifier verifier,
     AuthorizationGate gate, AuthorizationRefusalAudit audit, TimeProvider time) : IRosterRehostGrantProvider
@@ -41,7 +43,8 @@ public sealed class SignedRosterRehostGrantProvider(
         string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
         CancellationToken ct = default)
     {
-        var now = time.GetUtcNow();
+        var admitted = AdmittedInstant.Read(time);
+        var now = admitted.Value;
         var tenant = TenantId.FromString(tenantId);
         SignedOperation<RehostGrantPayload>? signed = null;
         string? reason = null;
@@ -88,7 +91,7 @@ public sealed class SignedRosterRehostGrantProvider(
                 $"INSERT OR IGNORE INTO rehost_grant_burns (tenant, issuer, nonce) VALUES ({tenantId}, {issuer}, {nonce})", ct);
             if (inserted == 0) reason = "rehost.already_redeemed";
         }
-        var request = new AuthorizationWriteContext(caller, tenant, now).Request(
+        var request = new AuthorizationWriteContext(caller, tenant, admitted).Request(
             AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId);
         if (reason is not null)
         {

@@ -1,0 +1,77 @@
+"""Immutable local-pilot hook; a GitHub job cannot turn on the local admission path."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+import manifest as m
+import private_admission
+import reclaim
+from coverage_evidence import summary as coverage_summary
+sys.path.insert(0,'/opt/mini')
+import controller as c
+
+ROOT=Path('/runner/gate')
+def admit(kind):
+    if any(k.startswith('GITHUB_') for k in os.environ):
+        binding=json.loads(Path('/opt/trusted/private-binding.json').read_text())
+        event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+        assignment=json.loads(Path('/opt/trusted/private-assignment.json').read_text())
+        private_admission.admit(event,os.environ,binding,assignment)
+    else:
+        m.require(not Path('/opt/trusted/private-binding.json').exists(),'Private image cannot enter local admission')
+    value=m.load('/runner/approved-manifest.json',os.environ.get('HARBORLINE_APPROVED_MANIFEST_SHA256'))
+    task=next(t for t in value['tasks'] if t['id']==os.environ.get('HARBORLINE_TASK_ID'))
+    m.require(task['kind']==kind,'Task kind differs from approved manifest')
+    policy=json.loads(Path('/opt/mini/policy.json').read_text())
+    sources=json.loads(Path('/opt/mini/sources.json').read_text())
+    m.require({k:v['head'] for k,v in sources.items()}==value['sources'],'Source approval differs from image')
+    m.require(policy['head']==value['sources']['api'] and policy['tree']==value['tree'] and policy['sdk']==value['sdk'],'Source/tree/SDK changed')
+    m.require(value['base']==policy['head'],'Snapshot base differs from restored origin/main')
+    m.require(policy['inputDigests']==value['inputDigests'],'Verification input profile changed')
+    m.require(policy['environment'].get('resourceProfile')==value['resourceProfile'],'Immutable resource profile differs')
+    m.require(os.environ.get('XDG_DATA_HOME')==policy['environment']['xdgData'] and
+              os.environ.get('XDG_CONFIG_HOME')==policy['environment']['xdgConfig'],'Writable private runtime profile differs')
+    m.require(os.environ.get('DOTNET_GCHeapHardLimitPercent')==policy['environment']['dotnetGcHeapHardLimitPercent']=='0x32','Managed heap budget differs')
+    m.require(not any(k.startswith(('DOTNET_GCHeapHardLimit','COMPlus_GCHeapHardLimit')) and
+                      k!='DOTNET_GCHeapHardLimitPercent' for k in os.environ),'Managed heap budget override')
+    m.require(c.digest('/opt/mini/sources.json')==policy['sourcesSha256'],'Source bundle manifest changed')
+    return value,task
+
+def finish(kind):
+    value,task=admit(kind)
+    gc=json.loads((ROOT/'out/gc-preflight.json').read_text())
+    m.require(gc['requestedEnv']=='0x32' and gc['availableBytes']==5368709120 and
+              gc['config']['GCHeapHardLimit']==5368709120 and gc['config']['GCHeapHardLimitPercent']==50,'Effective managed heap budget differs')
+    for name,head in value['sources'].items():
+        m.require(c.git(ROOT/name,'rev-parse','HEAD')==head,'Source head changed')
+        m.require(not c.git(ROOT/name,'status','--porcelain'),'Dirty tested source: '+name)
+    m.require(c.git(ROOT/'api','rev-parse','HEAD^{tree}')==value['tree'],'Tree changed')
+    m.require(c.git(ROOT/'api','rev-parse','refs/remotes/origin/main')==value['base'],'Measured comparison base differs')
+    m.require(subprocess.check_output(['dotnet','--version'],text=True).strip()==value['sdk'],'SDK changed')
+    if kind.startswith('portable'):
+        if Path('/opt/trusted/private-binding.json').exists():
+            binding=json.loads(Path('/opt/trusted/private-binding.json').read_text())
+            reclaim.validate_result(json.loads((ROOT/'out/private-build-server-reclamation.json').read_text()), binding, value)
+        c.validate_receipt(ROOT/'out',value['sources']['api'],value['tree'],kind=='portable-coverage')
+        if kind=='portable-coverage':
+            receipt=json.loads((ROOT/'out/harborline-api-verify-receipt.json').read_text())
+            for name in ('host','contracts'):
+                measured=coverage_summary(ROOT/'out/quality'/(name+'.cobertura.xml'))['source']
+                m.require(all(receipt['coverage'][name][key]==measured[key] for key in ('validLines','coveredLines')),'Coverage receipt/XML mismatch')
+    subprocess.run(['node','/opt/trusted/raw-evidence.mjs',kind,str(ROOT/'out'),str(ROOT/'api')],check=True)
+    (ROOT/'out/immutable-completion.json').write_text(json.dumps({'manifestSha256':m.digest('/runner/approved-manifest.json'),
+        'task':task,'resourceProfile':value['resourceProfile'],'head':value['sources']['api'],'tree':value['tree'],'verdict':'passed',
+        'privateAssignment':json.loads(Path('/opt/trusted/private-assignment.json').read_text()) if Path('/opt/trusted/private-assignment.json').exists() else None},indent=2)+'\n')
+
+if __name__=='__main__':
+    if sys.argv[1]=='admit':admit(sys.argv[2])
+    elif sys.argv[1]=='finish':finish(sys.argv[2])
+    elif sys.argv[1]=='private-kind':
+        binding=json.loads(Path('/opt/trusted/private-binding.json').read_text())
+        event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+        private_admission.admit(event,os.environ,binding,json.loads(Path('/opt/trusted/private-assignment.json').read_text()))
+        value=m.load('/runner/approved-manifest.json',binding['manifestSha256'])
+        print(next(t['kind'] for t in value['tasks'] if t['id']==binding['taskId']))
+    else:raise SystemExit('Unknown hook action')

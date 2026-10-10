@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,7 +73,7 @@ internal static class TestRouteGate
     /// <param name="recordId">The one record the grant covers.</param>
     internal static AuthorizationGate ScopedToRecord(TenantId tenant, string recordKind, string recordId)
     {
-        var scope = new AuthorizationWriteContext(new ActorId("test-grant-subject"), tenant, DateTimeOffset.UnixEpoch)
+        var scope = new AuthorizationWriteContext(new ActorId("test-grant-subject"), tenant, AdmittedInstant.FromRecordedAct(DateTimeOffset.UnixEpoch))
             .Request(AuthorizationOperation.Parse("records:read"), recordKind, recordId)
             .Target.Scope;
         return Granting(_ => true, scope);
@@ -93,20 +94,22 @@ internal static class TestRouteGate
         return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
     }
 
-    private sealed class ScopedGrantSource(
+    internal sealed class ScopedGrantSource(
         Func<AuthorizationGateRequest, bool> holds,
         IReadOnlyList<ScopeExpression> grantScopes) :
         IAuthorizationClosureSnapshotReader,
         IAuthorizationDefinitionAtomReader
     {
-        private readonly List<PermissionAtom> _issued = [];
+        // ReadAsync intentionally completes synchronously: its immutable snapshot belongs to the
+        // calling gate decision's execution context and must survive that decision's later awaits.
+        // Singleton route fixtures can therefore authorize concurrent requests independently.
+        private readonly AsyncLocal<IReadOnlyList<PermissionAtom>?> _issued = new();
 
         public ValueTask<AuthorizationClosureSnapshot> ReadAsync(
             AuthorizationGateRequest request,
             CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
-            _issued.Clear();
             var scopes = grantScopes.Count == 0 ? [request.Target.Scope] : grantScopes;
             var derivations = new List<AuthorizationAtomDerivation>(scopes.Count);
             if (holds(request))
@@ -114,7 +117,6 @@ internal static class TestRouteGate
                 foreach (var grantScope in scopes)
                 {
                     var atom = new PermissionAtom(request.Act.Operation, grantScope);
-                    _issued.Add(atom);
                     derivations.Add(new AuthorizationAtomDerivation(
                         atom,
                         RoleReference.Administrator,
@@ -127,6 +129,7 @@ internal static class TestRouteGate
                 }
             }
 
+            _issued.Value = derivations.Select(item => item.Atom).ToImmutableArray();
             return ValueTask.FromResult(new AuthorizationClosureSnapshot(derivations));
         }
 
@@ -138,7 +141,7 @@ internal static class TestRouteGate
             ct.ThrowIfCancellationRequested();
             _ = tenantId;
             _ = role;
-            return ValueTask.FromResult<IReadOnlyList<PermissionAtom>>(_issued.ToArray());
+            return ValueTask.FromResult<IReadOnlyList<PermissionAtom>>(_issued.Value ?? []);
         }
     }
 }

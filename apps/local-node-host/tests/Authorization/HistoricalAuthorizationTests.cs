@@ -185,7 +185,7 @@ public sealed class HistoricalAuthorizationTests
         new AuthorizationWriteContext(
             new ActorId("test:authorization-writer"),
             command is NarrowCapabilityRoleBinding narrow ? narrow.TenantId : new TenantId("test"),
-            clock.GetUtcNow()));
+            AdmittedInstant.Read(new MutableTimeProvider(clock.GetUtcNow()))));
 
     private static AuthorizationCapabilityDefinition Definition(string operation, string scope) => new(
         new AuthorizationCapabilityDefinitionId(new Guid("20600000-0000-0000-0000-000000000001")),

@@ -16,7 +16,7 @@ import {execFileSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
-import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
+import {planFlakeRetries} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
@@ -25,8 +25,10 @@ import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx,
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
+import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
 import {observeNuGetRoot} from './validation-nuget-root.mjs'
+import {runAfterPrivateReclamation} from './private-build-server-reclamation.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -173,8 +175,17 @@ try {
     'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
     'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
     'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
-  run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedHandoff = handoffRestored(feedStep, process.env)
+  if (feedHandoff) {
+    process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
+    mkdirSync(process.env.NUGET_PACKAGES)
+    packageRootResolution = observeNuGetRoot({cwd: clone})
+  }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  if (feedHandoff && !run('platform-feed-consumption', process.execPath,
+    ['eng/platform-feed-consumption.mjs', clone, process.env.NUGET_PACKAGES], clone).passed)
+    throw new Error('Verified dependency bytes were not consumed; see stage evidence')
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
   // invocation. Directory.Build.targets expands the project name per compiler
   // invocation, so the single solution build cannot overwrite one global log.
@@ -286,7 +297,7 @@ try {
   const hostResultsDirectory = collectCoverage
     ? path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'host')
     : path.join(clone, 'TestResults', 'host')
-  const hostTests = run('dotnet-host-tests', 'dotnet',
+  const hostTests = runAfterPrivateReclamation(() => run('dotnet-host-tests', 'dotnet',
     // Owner ruling Q38: tests tagged Lane=perf (the Layout timing-parity collection) measure wall-clock
     // timing and run only in verify-perf, alone on mac16 (perf-quiet); every host lane excludes them.
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
@@ -295,7 +306,8 @@ try {
       // Plain blame observes test events only: no hang timeout, dump, abort or coverage change.
       '--blame', '--diag', `${path.join(scratch, 'host-diagnostics', 'vstest.log')};TraceLevel=Info`,
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone,
-    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')})
+    {expectNonZero: true, diagnosticDirectory: path.join(scratch, 'host-diagnostics')}),
+    (id, command, args) => run(id, command, args, clone))
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
@@ -350,6 +362,22 @@ try {
   const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({
     ...row, testName: normalizeIdentity(redactEvidence(row.testName)), rosterId: normalizeIdentity(redactEvidence(row.rosterId)),
   }))}
+
+  // Preserve actual outcomes on green as well as red runs. Baseline acceptance
+  // alone cannot establish cross-platform equivalence or distinguish an allowed
+  // failure from an executed pass when preparing a narrower Windows lane.
+  const namedEvidence = path.join(apiRoot, '.claude', 'gate-evidence')
+  mkdirSync(namedEvidence, {recursive: true})
+  writeFileSync(path.join(namedEvidence, 'named-test-outcomes.json'), JSON.stringify({
+    schemaVersion: 1, apiCommit: head, evidenceRoots: {clone, scratch},
+    runtime: {platform: process.platform, architecture: process.arch},
+    runId: process.env.GITHUB_RUN_ID ?? null, attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+    hostBaseline: BASELINES.host, capabilityBaseline: BASELINES.capability,
+    host: hostTrx, capability: capabilityTrx,
+  }, null, 2) + '\n')
+  const fullHostTrx = path.join(hostResultsDirectory, 'host-tests.trx')
+  if (existsSync(fullHostTrx)) copyFileSync(fullHostTrx, path.join(namedEvidence, 'host-tests.trx'))
+  if (existsSync(capabilityJsonPath)) copyFileSync(capabilityJsonPath, path.join(namedEvidence, 'capability-tests.json'))
 
   // T-724 ruling 119e: this candidate is written on EVERY run, pass or fail, --write-known-tests or
   // not -- it is what a nightly/CI run actually observed, kept as evidence (under
@@ -413,14 +441,8 @@ try {
     }
   }
 
-  // Bounded retry for the named flaky tests, exactly as host-test-baseline.json's knownFlaky
-  // entries prescribe, and ticket 284 caps at ONE identical retry: a second red is the gate's verdict.
-  //
-  // Why this is not leniency. A test pinned as a permitted failure is masked forever, and a test
-  // left out entirely reddens the gate on its own schedule; the retry is the only option that
-  // discriminates the two cases, because a genuine race clears on one identical retry while a
-  // real regression stays red through it. The entries were written with that reasoning and with
-  // a retryLimit, and the gate simply had not implemented it.
+  // The owner requested zero registered flake allowances. The shared planner
+  // refuses nonempty registries and cannot select a rescue retry under zero policy.
   //
   // Four properties keep it honest:
   //   1. Retries happen ONLY when every unexpected failure is a knownFlaky NAME. One unexpected
@@ -437,21 +459,17 @@ try {
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
-  const registryProblems = validateFlakeRegistry(hostBaseline.knownFlaky ?? [], new Date().toISOString().slice(0, 10))
+  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+  const unexpected = unpermitted(observedFailures, permittedNames)
+  const {registryProblems, flakyLimits, retryable} = planFlakeRetries(
+    hostBaseline.knownFlaky ?? [], new Date().toISOString().slice(0, 10), unexpected)
   steps.push({
     id: 'flake-registry-valid',
     passed: registryProblems.length === 0,
     problems: registryProblems,
     registered: (hostBaseline.knownFlaky ?? []).map(row => ({test: row.test, owner: row.owner, firstSeen: row.firstSeen, expires: row.expires})),
-    note: 'Every knownFlaky row is exact, owned, dated and unexpired, and the registry is within its ratchet (eng/flake-registry.mjs).',
+    note: 'Zero registered flake allowances: the registry must be empty and first-result failures cannot be rescued (eng/flake-registry.mjs).',
   })
-  const flakyLimits = registryProblems.length === 0
-    ? new Map((hostBaseline.knownFlaky ?? []).map(row => [row.test, RETRY_LIMIT]))
-    : new Map()
-
-  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
-  const unexpected = unpermitted(observedFailures, permittedNames)
-  const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
   let retryStage = 0
   for (const name of retryable) {
@@ -510,7 +528,7 @@ try {
     rescued,
     note: retryable.length === 0 && unexpected.length > 0
       ? 'An unexpected failure is NOT on the knownFlaky list, so nothing was retried and the gate fails on identity.'
-      : 'Attempts-to-green is the measurement this step exists to produce; a change in it is signal.',
+      : 'Registered flake retries are disabled; first host-suite failures remain authoritative.',
   })
 
   const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
@@ -521,14 +539,6 @@ try {
     mkdirSync(hostResultsDirectory, {recursive: true})
     const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
     writeFileSync(outputFile, hostTests.rawOutput)
-    // A red verdict is exactly when the TRX matters most, and "TRX missing" is itself one of the
-    // red reasons -- so copying unconditionally would throw on the very path it exists to explain.
-    const trxSource = path.join(hostResultsDirectory, 'host-tests.trx')
-    if (existsSync(trxSource)) {
-      const trxEvidence = path.join(apiRoot, '.claude', 'gate-evidence', 'host-tests.trx')
-      mkdirSync(path.dirname(trxEvidence), {recursive: true})
-      copyFileSync(trxSource, trxEvidence)
-    }
     hostComparison.problems = hostComparison.problems.map(line => `${line}; host output: ${outputFile}`)
     hostComparison.tail = hostComparison.problems.join('\n')
   }
@@ -543,7 +553,7 @@ try {
     newFailures,
     observedAfterFlakeRetry: adjustedFailed === null ? null : {...hostCounts, failed: adjustedFailed},
     rescuedByRetry: rescued,
-    note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
+    note: hostComparison.note ?? 'Initial counts AND failure identity (newFailures must be empty), with zero flake rescues. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
   // T-724 ruling 119d: the same identity comparison as the host step, not an exact-count match --
   // total is informational, a known test disappearing needs a policyRemovals row, and an unpermitted
@@ -612,6 +622,8 @@ if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
 // (.claude/gate-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
 // stays clean.
 const target = evidenceTarget({record, status: report.status, apiRoot, evidencePath})
+mkdirSync(path.join(apiRoot, '.claude', 'gate-evidence'), {recursive: true})
+writeFileSync(path.join(apiRoot, '.claude', 'gate-evidence', 'exact-clone-report.json'), `${JSON.stringify(persisted, null, 2)}\n`)
 if (target) {
   mkdirSync(path.dirname(target), {recursive: true})
   writeFileSync(target, `${JSON.stringify(persisted, null, 2)}\n`)

@@ -124,6 +124,7 @@ internal sealed class VerificationCandidateWorld
     internal async ValueTask<VerificationAuthorityWorld> OpenAsync(VerificationFixture fixture,
         CancellationToken cancellationToken)
     {
+        var rehearsal = AdmittedInstant.Exempt(fixture.Instant, AdmittedInstantExemption.ConfigurationRehearsal);
         // Nothing here constructs a gate or reads a closure: the module composes the REAL gate over
         // its own real readers, and the only thing registered ahead of it is the roster fact the
         // fixture declares. Ticket 199's fence says production may not mint an authorization closure
@@ -139,7 +140,7 @@ internal sealed class VerificationCandidateWorld
             // It confers nothing on the fixture's actor: the seed offers records:write to the member
             // and node-operator roles, and the actor holds a grant for neither.
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(_tenant, fixture.Instant, AuthorizationSeedProfile.Production, ct: cancellationToken)
+                .InstallAsync(_tenant, rehearsal, AuthorizationSeedProfile.Production, ct: cancellationToken)
                 .ConfigureAwait(false);
 
             var vocabulary = provider.GetRequiredService<IRoleVocabularyStore>();
@@ -162,7 +163,7 @@ internal sealed class VerificationCandidateWorld
             // pack's offered roles are the publisher ceiling and are bounded by every rule
             // AuthorizationDefinitionAdmission holds, exactly as they are at install.
             var writer = provider.GetRequiredService<AuthorizationDefinitionWriter>();
-            var installer = new AuthorizationWriteContext(composer, _tenant, fixture.Instant);
+            var installer = new AuthorizationWriteContext(composer, _tenant, rehearsal);
             foreach (var binding in _bindings)
                 await writer.WriteAsync(new InstallAuthorizationDefinition(binding), installer, cancellationToken)
                     .ConfigureAwait(false);

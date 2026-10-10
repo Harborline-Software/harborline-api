@@ -135,6 +135,8 @@ public static class SyncStatusRoutes
             // null ONLY for an UNREGISTERED service). An unhandled throw here is the 500 the Harborline App reported as
             // "node GET /api/local-node/sync-status failed: 500", which MASKED a join that may have actually
             // converged. A status READOUT failure must degrade to a calm/degraded snapshot, NOT 500 the endpoint.
+            // T-690: one observer instant for the readout, whichever of the paths below stamps it.
+            var observedAt = timeProvider.GetUtcNow();
             try
             {
                 var readModel = activeTeam.Active?.Services.GetService<ISyncStatusReadModel>();
@@ -144,7 +146,7 @@ public static class SyncStatusRoutes
                     // aggregate, no peers). Distinct-honesty: still stamps the
                     // observer clock. The enrollment signal still rides (a rebind can have
                     // faulted BEFORE a read-model materialized).
-                    return Results.Ok(SyncStatusResponse.Empty(timeProvider.GetUtcNow()) with { Enrollment = enrollment });
+                    return Results.Ok(SyncStatusResponse.Empty(observedAt) with { Enrollment = enrollment });
                 }
 
                 var snapshot = readModel.Snapshot();
@@ -159,7 +161,7 @@ public static class SyncStatusRoutes
                 // failing. This is a READOUT-resilience guard ONLY — it changes no enrollment/trust/sync behaviour;
                 // the underlying join converges (or its own rebind fault surfaces) independently.
                 return Results.Ok(
-                    SyncStatusResponse.Empty(timeProvider.GetUtcNow()) with
+                    SyncStatusResponse.Empty(observedAt) with
                     {
                         Enrollment = enrollment.AsUnreadable(ex.GetType().Name),
                     });

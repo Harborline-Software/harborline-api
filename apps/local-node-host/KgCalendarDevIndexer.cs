@@ -188,7 +188,7 @@ public sealed class KgCalendarDevIndexer : IHostedService
                 continue;
             }
 
-            var at = _time.GetUtcNow();
+            var at = AdmittedInstant.Read(_time);
             var authority = new AuthorizationWriteContext(
                 new ActorId(DevIndexerPrincipal), tenantId, at);
             var decision = await _gate.DecideAsync(

@@ -4,6 +4,7 @@ using System.Text;
 
 using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -327,6 +328,7 @@ internal sealed class LegacyWebIdentityInventoryReader
 internal sealed record LegacyInviteTombstoneProjectionResult(int CreatedCount, int ReplayCount);
 
 /// <summary>MIG-02A projection. It creates only tombstones and preserves source audit provenance.</summary>
+[ClockAuthority("Out-of-act legacy-identity migration projector: dates the tombstones it projects.")]
 internal sealed class LegacyInviteTombstoneProjector
 {
     internal const string UncredentialedInviteReason = "legacy_uncredentialed_invite_omitted";
@@ -452,6 +454,7 @@ internal sealed record RenameLegacyWebAccountResult(
 /// MIG-02B rename-only repair. The DB store receives no credential, membership, grant, principal,
 /// Party, or link/merge mutation. Installation audit finalization is restart-safe by idempotency key.
 /// </summary>
+[ClockAuthority("Out-of-act migration repair command under recovery evidence: dates its own collision and audit rows.")]
 internal sealed class LegacyWebAccountRenameService
 {
     private const string RenameEventType = "LegacyWebAccountRenamed";
