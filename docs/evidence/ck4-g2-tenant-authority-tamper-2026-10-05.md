@@ -2,19 +2,25 @@
 
 DES-0029 `kernel-core-ck-4` (Tenancy), ticket T-1005 (rank 2 of 7 in `ck4-tenant-slice-triage-2026-09-30.md`). The triage listed 73 real-but-not-silent (G) survivors in `TenantMembershipAuthorityStore`: `MutateAsync` 8, `LoadAsync` 2 and `ValidateIntegrity` 63.
 
-**No production code changed, and no mutant exposed a defect.** The change adds tests, makes `TenantMembershipAuthorityStoreTests` partial, and records the slice baseline.
+**This ticket changes tests and evidence only. Current mutation qualification is pending.** The change makes `TenantMembershipAuthorityStoreTests` partial. The historical measurement row below is retained temporarily as the reviewed executor input; it is not accepted current evidence.
 
-## Result
+## Historical reported results — raw report unrecovered, not current qualification
 
-- **Every surviving mutant on the ticket's listed lines is now killed**, in the full slice run at `560dfc26`: 53 Killed and 1 Timeout (`attempt--`, an infinite loop). Ticket mutants already killed on `main` at `bc78de3d` are counted in the mapping's last column. The T-1004 tests (#307) killed most of them.
-- **Slice `scope-tenancy-identity-tenant`** was `pending`. It is now recorded at **60.23%** (1,139 tested: 778 killed, 2 timeout, 359 survived, 156 no coverage), with `break` 60 in `eng/baselines/mutation-baseline.json`.
+- **Unverified historical report on the ticket's listed lines at `560dfc26`: 53 Killed and 1 Timeout** (`attempt--`, an infinite loop). Timeout is a distinct outcome, not a demonstrated killing test. Ticket mutants already killed on `main` at `bc78de3d` are counted in the mapping's last column. The T-1004 tests (#307) killed most of them.
+- **Slice `scope-tenancy-identity-tenant`: unverified historical reported score 60.23%** (1,139 tested: 778 killed, 2 timeout, 359 survived, 156 no coverage). The old row still appears in `eng/baselines/mutation-baseline.json` with `break` 60 for the narrowly reviewed executor input binding. It is not an accepted measurement of the current candidate.
   - Command: `node eng/mutation-report.mjs --full --only apps/local-node-host/tests/tests.csproj --slice scope-tenancy-identity-tenant`
-  - It ran on winbox in 109 minutes with dotnet-stryker 5.0.0, against all 5,507 host tests.
+  - The historical note reports winbox, 109 minutes, dotnet-stryker 5.0.0 and all 5,507 host tests; those run details remain unverified without the raw report.
 - **Store file, scoped run.** Same 17-class test filter both times.
   - Command: `node eng/mutation-report.mjs --only apps/local-node-host/tests/tests.csproj --scoped Data/Identity/TenantMembershipAuthorityStore.cs --filter <17 classes>`
   - Score: 61.04% before, 74.69% after the first test commit.
 
-### Equivalent mutants (not on the ticket's G list; the triage already classed them E)
+### Outstanding raw evidence binding
+
+Qualification preparation began at `f0a52fb55f53caee828c41261da2c85bd5b50d06` (tree `69311c6e95604cd000baf6f71bfa5d40c410aa11`, protected base `510056fdf495dd3e4d13be292cf52971019544c3`). Current measurement is pending; bind the final frozen candidate in the actual execution receipt. A fresh full five-file `scope-tenancy-identity-tenant` run must use all host tests, no test filter, and the unchanged score floor 60. Accept actual Killed outcomes only with raw killing-test joins and named oracle review; report Timeouts separately. Archive the raw JSON outside this tracked tree and pin its SHA-256. Then replace the baseline row and current evidence with actual fresh metrics; preserve this historical record as unverified.
+
+The archived full-slice JSON report and its SHA-256 are not yet linked here. The final source `b17491fbe128b71f4eb24083bffa6c1552dc363c` changed enum-derived assertions to independent literal-string oracles after the reported run at `560dfc26`. Before accepting the recorded slice score and listed-line outcomes for merge, retain the raw report and bind it to the final tests through exact input identity or an explicit reviewed equivalence proof. The table below preserves the historical report as described; it does not substitute for inspecting the raw JSON under AGENTS.md.
+
+### Historical equivalence annotations (not recovered mutation evidence)
 
 | Mutant | Line | Mutation | Why it is equivalent |
 | --- | ---: | --- | --- |
@@ -47,9 +53,11 @@ Every test is tagged `[Trait("Holds", "kernel-core-ck-4")]` and lives in `apps/l
 | `A_write_of_exactly_four_mib_commits_and_one_byte_more_is_refused` | The write ceiling is inclusive. A binary search over a sealed envelope's padding (one byte per character) proves the committed write is exactly 4,194,304 bytes. |
 | `A_stored_document_that_decodes_to_nothing_is_refused_as_invalid_authority` | A stored JSON `null` is refused with the authority code. |
 
-## Hand-mutant proof
+## Historical reported hand-mutant proof
 
-**Method.** Each rule group's mutant was applied by hand, the test project was built in Release, and `FullyQualifiedName~TenantMembershipAuthorityStoreTests` was run, gated on `Build succeeded`. The source was then restored and checked byte-identical.
+These reported control results do not qualify the current candidate. Fresh named control acceptance must bind the actual tested source, literal oracle, build and raw result.
+
+**Reported method.** Each rule group's mutant was applied by hand, the test project was built in Release, and `FullyQualifiedName~TenantMembershipAuthorityStoreTests` was run, gated on `Build succeeded`. The source was then restored and checked byte-identical.
 
 **The two clause deletions.** The last two rows delete a whole clause. They answer a review claim that the chain cases were not isolated: each deletion alone is killed.
 
@@ -71,9 +79,9 @@ Every test is tagged `[Trait("Holds", "kernel-core-ck-4")]` and lives in `apps/l
 | Envelope-hash clause (1180) | clause deleted | `A_tampered_audit_chain_is_refused_even_when_its_references_agree`, `Tampered_Authority_Evidence_Is_Refused` |
 | Sequence clause (1178) | clause deleted | `A_tampered_audit_chain_is_refused_even_when_its_references_agree` |
 
-## Mapping: the ticket's mutants to current ids
+## Historical mapping: the ticket's mutant ids
 
-The ticket's ids come from candidate `9076915d`. The line numbers are unchanged at `bc78de3d`; the ids moved by about 850. The baseline is the scoped run at `bc78de3d`, and "after" is the full slice run at `560dfc26`.
+The following unverified historical mapping uses ticket ids from `9076915d`, the earlier scoped report at `bc78de3d`, and the reported full run at `560dfc26`. These ids and claimed outcomes must not be treated as the current run. Match fresh mutants by source, location, mutator and replacement, and inspect their actual killing-test IDs.
 
 | Line | Listed at `9076915d` | At `bc78de3d`: baseline → after (full slice run at `560dfc26`) | Already killed at baseline |
 |---:|---|---|---:|
