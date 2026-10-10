@@ -14,6 +14,7 @@ using Harborline.Api.LocalNodeHost.Health;
 // NodePersistenceConflict narrows the layer-3 catch to UNIQUE/PK violations only.
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 
@@ -42,6 +43,7 @@ namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 /// the defence against two in-flight mints racing the same tip read within the process; the
 /// IMMEDIATE lock serializes across connections; the composite PK is the storage backstop.</para>
 /// </remarks>
+[ClockAuthority("Fences frame epochs and quarantines conflicts as its own decision, dating the quarantine and its audit (the in-act unseal audit is owed, T-1057 item 2).")]
 public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPort, IDisposable
 {
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;

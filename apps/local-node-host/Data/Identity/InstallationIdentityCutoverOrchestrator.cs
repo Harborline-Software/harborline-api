@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -112,6 +113,7 @@ public interface IInstallationIdentityV1AuthorityGate
 /// Owns the restart-safe v1-to-v2 installation cutover marker. No route or hosted worker is added:
 /// copy, verification, and legacy-writer integrations remain explicit collaborators of later cards.
 /// </summary>
+[ClockAuthority("Issues and expires the migration lease and advances the cutover stage at its own decision instant.")]
 public sealed class InstallationIdentityCutoverOrchestrator : IInstallationIdentityV1AuthorityGate
 {
     public const string MigrationInProgressRefusal = "identity_migration_in_progress";

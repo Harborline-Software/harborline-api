@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 
@@ -29,6 +30,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 /// this drain does. Rows committed before the authority column existed carry no snapshot: nothing is appended for
 /// them, and the verb's recovery audit names them as the evidence it stands in for.
 /// </remarks>
+[ClockAuthority("Out-of-act evidence outbox: dates its own publication, not the activation act.")]
 public sealed class ConfigurationEvidenceOutbox(
     IDbContextFactory<NodeLocalPacksDbContext> factory,
     IAuditTrail trail,

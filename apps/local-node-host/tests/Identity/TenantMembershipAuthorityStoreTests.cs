@@ -54,6 +54,26 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
         Assert.NotEqual(receipt.MembershipDigest, receipt.IntentDigest);
     }
 
+    [Fact(DisplayName = "T-1057: the authority document is dated with the instants its callers hand it, never a clock of its own")]
+    public async Task The_Document_Is_Dated_By_The_Acts_That_Write_It()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var tenantId = Guid.NewGuid().ToString("D");
+        var authority = Authority(database.Store, tenantId);
+
+        await authority.PrepareAsync(
+            "command-1", "fingerprint-1", "account-1", ActorAccountId, AuthorityEvidenceDigest,
+            Mutation(tenantId), FixedNow,
+            CancellationToken.None);
+        await authority.FinalizeAsync(
+            "command-1", "fingerprint-1", FixedNow.AddMinutes(7), CancellationToken.None);
+
+        var document = JsonNode.Parse(await database.Store.GetAsync(AuthorityKey, CancellationToken.None))!;
+        // The first write created the document at its act's instant; the last write updated it at its own.
+        Assert.Equal(new DateTimeOffset(2026, 7, 13, 22, 0, 0, TimeSpan.Zero), document["createdAtUtc"]!.GetValue<DateTimeOffset>());
+        Assert.Equal(new DateTimeOffset(2026, 7, 13, 22, 7, 0, TimeSpan.Zero), document["updatedAtUtc"]!.GetValue<DateTimeOffset>());
+    }
+
     [Fact]
     public async Task Finalization_Receipt_Remains_Exact_After_Later_Authority_Writes_And_Restart()
     {
@@ -628,7 +648,7 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
     }
 
     private static EncryptedTenantMembershipAuthorityStore Authority(IEncryptedStore store, string tenantId) =>
-        new(store, tenantId, new TestHomeDecisionAuthority(), new FixedTimeProvider(FixedNow));
+        new(store, tenantId, new TestHomeDecisionAuthority());
 
     private static TenantMembershipMutation Mutation(string tenantId, string principalId = "principal-1") =>
         new(
@@ -639,11 +659,6 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
             AuthorizationEpoch: 1,
             ExpectedMembershipOwnerVersion: 0,
             TenantMembershipStatus.Active);
-
-    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => utcNow;
-    }
 
     private sealed class TestHomeDecisionAuthority : IInstallationIdentityHomeDecisionAuthority
     {

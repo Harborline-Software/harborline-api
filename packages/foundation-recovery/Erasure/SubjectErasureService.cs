@@ -135,7 +135,7 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
         // deterministic id. Anything short of completion is an erasure a crash interrupted, and this call finishes it.
         var firstErasure = _recovery is not null
             ? await _recovery.MarkErasedAsync(request.Tenant, request.Subject, evidence, ct).ConfigureAwait(false)
-            : await _registry.MarkErasedAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
+            : await _registry.MarkErasedAsync(request.Tenant, request.Subject, now, ct).ConfigureAwait(false);
 
         if (!firstErasure)
         {
@@ -157,7 +157,7 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
             }
         }
 
-        var tombstone = await FinishAsync(request.Tenant, request.Subject, evidence, ct).ConfigureAwait(false);
+        var tombstone = await FinishAsync(request.Tenant, request.Subject, evidence, now, ct).ConfigureAwait(false);
         return new SubjectErasureResult(SubjectErasureOutcome.Erased, tombstone);
     }
 
@@ -181,7 +181,7 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
                     continue;
                 }
 
-                await FinishAsync(due.Tenant, due.Subject, due.Evidence, ct).ConfigureAwait(false);
+                await FinishAsync(due.Tenant, due.Subject, due.Evidence, now, ct).ConfigureAwait(false);
                 completed++;
             }
             // Any fault defers the row, an OperationCanceledException included unless it is this pass's own cancellation:
@@ -206,9 +206,10 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
     /// <summary>
     /// Finishes a marked erasure. Every step is idempotent: key destruction, the write-once tombstone, the purge,
     /// then the SubjectErased audit, which on a recovery registry is secured in the commit that clears the evidence.
+    /// <paramref name="now"/> is the finishing pass's instant (the erase request's, or the recovery pass's).
     /// </summary>
     private async Task<SubjectTombstone> FinishAsync(
-        TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct)
+        TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, DateTimeOffset now, CancellationToken ct)
     {
         // Destroy the stored subject key even on a resumed erasure: an earlier attempt may have marked the
         // erasure but been interrupted before key deletion.
@@ -249,7 +250,7 @@ public sealed class SubjectErasureService : ISubjectErasureService, ISubjectEras
             await _auditTrail.AppendAsync(audit, ct).ConfigureAwait(false);
         }
         if (_recovery is not null)
-            await _recovery.CompleteAsync(subject, audit, ct).ConfigureAwait(false);
+            await _recovery.CompleteAsync(subject, audit, now, ct).ConfigureAwait(false);
 
         return tombstone;
     }

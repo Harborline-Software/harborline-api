@@ -27,20 +27,24 @@ public sealed class HostedAccountingSummaryApiEndpoint : IHostedService
 {
     private readonly SharedHostedWebApp _sharedApp;
     private readonly NodeAccountingSummaryService _service;
+    private readonly TimeProvider _time;
     private readonly ILogger<HostedAccountingSummaryApiEndpoint> _logger;
 
     /// <summary>Constructs the hosted accounting-summary API endpoint.</summary>
     public HostedAccountingSummaryApiEndpoint(
         SharedHostedWebApp sharedApp,
         NodeAccountingSummaryService service,
+        TimeProvider time,
         ILogger<HostedAccountingSummaryApiEndpoint> logger)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
 
         _sharedApp = sharedApp;
         _service = service;
+        _time = time;
         _logger = logger;
     }
 
@@ -49,7 +53,8 @@ public sealed class HostedAccountingSummaryApiEndpoint : IHostedService
     {
         _sharedApp.MapApiRoutes(app => AccountingSummaryRoutes.Map(
             app.MapDeviceReachableProductDataGroup(),
-            _service));
+            _service,
+            _time));
 
         _logger.LogInformation(
             "T1 node-local accounting-summary API registered (GET {RouteBase}/summary + /outstanding).",

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.Foundation.Events;
 
@@ -21,6 +22,7 @@ namespace Harborline.Api.Foundation.Events;
 /// further events for that handler in the current cycle so the failure
 /// doesn't cascade.
 /// </remarks>
+[ClockAuthority("Out-of-act dispatcher drain: dates its own cursor-advance and retry rows; no request act is in flight.")]
 public sealed class SqliteEventReader : IEventReader
 {
     private readonly SqliteConnection _connection;

@@ -56,13 +56,14 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 public sealed class NodeAccountingPeriodService
 {
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
-    private readonly TimeProvider _time;
 
-    /// <summary>Construct bound to the local-node EF context factory.</summary>
-    public NodeAccountingPeriodService(IDbContextFactory<LocalNodeDbContext> contextFactory, TimeProvider time)
+    /// <summary>
+    /// Construct bound to the local-node EF context factory. It holds no clock: every write is dated with the
+    /// instant its caller's act supplies (T-1057).
+    /// </summary>
+    public NodeAccountingPeriodService(IDbContextFactory<LocalNodeDbContext> contextFactory)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _time = time ?? throw new ArgumentNullException(nameof(time));
     }
 
     /// <summary>Outcome of a period write — success carries the resulting period.</summary>
@@ -117,11 +118,10 @@ public sealed class NodeAccountingPeriodService
     /// period. A Locked covering period is an <see cref="Outcome.InvalidTransition"/> (unlock is a
     /// separate, deliberate admin step — not part of the offline first-run open path). Returns the
     /// open period covering the date on success. This is the offline "open a period" entry point.
-    /// An omitted date is today's UTC date from the same host clock read that stamps the write.
+    /// An omitted date is the UTC date of <paramref name="now"/>, the act's instant that also stamps the write.
     /// </summary>
-    public async Task<PeriodResult> OpenForDateAsync(DateOnly? requestedDate, CancellationToken ct = default)
+    public async Task<PeriodResult> OpenForDateAsync(DateOnly? requestedDate, DateTimeOffset now, CancellationToken ct = default)
     {
-        var now = _time.GetUtcNow();
         var at = new Instant(now);
         var date = requestedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
@@ -184,9 +184,9 @@ public sealed class NodeAccountingPeriodService
     /// <paramref name="lock"/> is <c>true</c>. An already-terminal transition (closing a SoftClosed
     /// without lock, or locking a Locked) is an <see cref="Outcome.InvalidTransition"/>.
     /// </summary>
-    public async Task<PeriodResult> CloseAsync(string periodId, bool @lock, CancellationToken ct = default)
+    public async Task<PeriodResult> CloseAsync(string periodId, bool @lock, DateTimeOffset at, CancellationToken ct = default)
     {
-        var now = new Instant(_time.GetUtcNow());
+        var now = new Instant(at);
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var chartId = await ResolveChartIdAsync(ctx, ct).ConfigureAwait(false);
         if (chartId is null)
@@ -244,9 +244,9 @@ public sealed class NodeAccountingPeriodService
     /// already exists). Returns <c>false</c> when no chart is seeded yet (the caller seeds the
     /// chart first). Invoked from the chart-seed path on the node.
     /// </summary>
-    public async Task<bool> SeedOpenPeriodForTodayAsync(DateOnly today, CancellationToken ct = default)
+    public async Task<bool> SeedOpenPeriodForTodayAsync(DateOnly today, DateTimeOffset at, CancellationToken ct = default)
     {
-        var result = await OpenForDateAsync(today, ct).ConfigureAwait(false);
+        var result = await OpenForDateAsync(today, at, ct).ConfigureAwait(false);
         return result.Outcome != Outcome.NoChart;
     }
 

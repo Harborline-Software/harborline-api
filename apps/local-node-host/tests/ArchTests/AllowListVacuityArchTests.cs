@@ -151,6 +151,8 @@ public sealed class AllowListVacuityArchTests
             "an inventory of scanned type names, not an exception list",
         ["PackNavigationAdmissionCallSiteFenceTests.Allowed"] =
             "the fence already asserts SequenceEqual against the discovered call sites, both directions",
+        ["KernelStoreClockArchTests.Owed"] =
+            "the fence already asserts the owed rows equal the discovered clocked stores, both directions",
         ["AdmittedInstantArchTests.ReviewedMints"] =
             "the fence already asserts an exact inventory against the discovered production mints, both directions",
         ["AdmittedInstantArchTests.ReviewedFriends"] =

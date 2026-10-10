@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -66,6 +67,7 @@ internal interface IWebPlaneAdmissionState
 /// the SAME liveness rule the grant-anchored Option-A admission + the atlas bridge use (single source, no drift),
 /// plus the #264 provenance narrowing that excludes the installer's bootstrap grant and seed set.
 /// </summary>
+[ClockAuthority("Decides whether the web plane is live (closing plain enrollment) at its own instant; persists nothing.")]
 internal sealed class LiveWebPlaneAdmissionState(
     IDbContextFactory<NodeLocalSearchDbContext> grantFactory,
     TimeProvider timeProvider) : IWebPlaneAdmissionState

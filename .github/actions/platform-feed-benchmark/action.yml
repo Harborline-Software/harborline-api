@@ -1,0 +1,5 @@
+name: Disposable full-build feed measurement
+description: Measure fresh full host work without promoting caches or validation verdicts
+runs:
+  using: node24
+  main: ../../../eng/platform-feed-benchmark.mjs

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "profile": "linux-x64-container-feed",
+  "image": "mcr.microsoft.com/dotnet/sdk@sha256:78559d13d8c810bfe87f329168739ae2ee31f402b1e2c66353d3ff9744d68520",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "architecture": "x64"
+}

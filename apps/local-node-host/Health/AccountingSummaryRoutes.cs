@@ -45,17 +45,19 @@ public static class AccountingSummaryRoutes
 
     /// <summary>
     /// Maps the accounting-summary routes onto <paramref name="app"/>, closing over the
-    /// <paramref name="service"/> from the outer host container.
+    /// <paramref name="service"/> from the outer host container. The summary act reads <paramref name="time"/> once
+    /// for "today"; the service holds no clock (T-1057, ck-9).
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, NodeAccountingSummaryService service)
+    public static void Map(IEndpointRouteBuilder app, NodeAccountingSummaryService service, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(time);
 
         // GET /api/local-node/accounting/summary
         app.MapGet($"{RouteBase}/summary", async (CancellationToken ct) =>
         {
-            var s = await service.GetSummaryAsync(ct: ct).ConfigureAwait(false);
+            var s = await service.GetSummaryAsync(DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime), ct).ConfigureAwait(false);
             return Results.Ok(new AccountingSummaryWire(s.Period, s.Income, s.Expenses, s.Net));
         });
 

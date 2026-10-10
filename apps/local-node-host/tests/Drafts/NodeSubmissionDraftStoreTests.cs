@@ -106,7 +106,7 @@ public sealed class NodeSubmissionDraftStoreTests : IDisposable
 
         await store.UpsertAsync(Draft(caseId, "{\"pii\":\"x\"}", subject: "subj-erase"));
         // The subject exercises their right to erasure.
-        await erasure.MarkErasedAsync(Tenant, new SubjectId("subj-erase"));
+        await erasure.MarkErasedAsync(Tenant, new SubjectId("subj-erase"), new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero));
 
         // The draft is now dark: read as absent AND hard-deleted from the store.
         Assert.Null(await store.GetAsync(new SubmissionDraftKey(Tenant, caseId, Party)));

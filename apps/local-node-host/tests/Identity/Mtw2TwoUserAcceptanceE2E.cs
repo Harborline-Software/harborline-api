@@ -943,8 +943,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var membershipAuthorityStore = new EncryptedTenantMembershipAuthorityStore(
                 membershipStore,
                 canonicalTenantId,
-                new InstallationIdentityHomeDecisionAuthority(identityFactory),
-                time);
+                new InstallationIdentityHomeDecisionAuthority(identityFactory));
             var partition = new TenantIdentityAuthorityPartition(
                 canonicalTenantId, membershipAuthorityStore, new AlwaysLeaseCoordinator());
             var partitionResolver = new FixturePartitionResolver(partition);
@@ -986,7 +985,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var invitationIssuer = new AccountSetupInvitationIssuer(
                 sessionFactory, selectedSessionStore, identityFactory, searchStore.Factory,
                 partyReader, rosterReader,
-                invitationStore, liveGate, time);
+                invitationStore, liveGate);
             var partyBindingMinter = new RecordingPartyBindingMinter();
 
             var minterServices = new ServiceCollection();

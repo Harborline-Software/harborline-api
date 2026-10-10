@@ -1032,8 +1032,7 @@ public sealed partial class InstallationIdentityCoordinatorServiceTests
                 new EncryptedTenantMembershipAuthorityStore(
                     store,
                     tenantId,
-                    new InstallationIdentityHomeDecisionAuthority(homeFactory),
-                    new FixedTimeProvider(FixedNow)),
+                    new InstallationIdentityHomeDecisionAuthority(homeFactory)),
                 key);
         }
 

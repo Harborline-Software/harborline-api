@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -67,6 +68,7 @@ public interface IWebFounderBindAuthority
 /// policy of its own: idempotency, singleton enforcement, and contention handling stay in the
 /// domain service.
 /// </summary>
+[ClockAuthority("Founder-bind front door: forwards its clock to the binding service, which decides and dates the designation.")]
 internal sealed class WebFounderBindAuthority : IWebFounderBindAuthority
 {
     private readonly InstallationFounderBindingService _binding;

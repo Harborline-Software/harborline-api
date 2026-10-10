@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.PasswordHashing;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -79,6 +80,7 @@ public sealed record InstallationFounderBootstrapResult(
 /// one file. No listener route reaches this authority, and none should: the actor recorded in its
 /// audit envelope is the local installation console, not a web caller.
 /// </remarks>
+[ClockAuthority("Once-only founder-bootstrap authority: dates the founding rows of its own decision.")]
 public sealed class InstallationFounderBootstrapService
 {
     private const string FounderEventType = InstallationIdentityAuditEventTypes.FounderBootstrapped;

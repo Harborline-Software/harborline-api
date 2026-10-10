@@ -33,7 +33,10 @@ public sealed record InterruptedSubjectErasure(TenantId Tenant, SubjectId Subjec
 /// </summary>
 public interface ISubjectErasureRecoveryRegistry : ISubjectErasureRegistry
 {
-    /// <summary>Marks the subject erased and records <paramref name="evidence"/> in the same commit.</summary>
+    /// <summary>
+    /// Marks the subject erased and records <paramref name="evidence"/> in the same commit. The mark is dated with
+    /// <see cref="SubjectErasureEvidence.ApprovedAt"/>, the instant the approved erasure took effect.
+    /// </summary>
     /// <returns><c>true</c> when this call performed the mark; <c>false</c> when the subject was already marked.</returns>
     ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct = default);
 
@@ -45,9 +48,10 @@ public interface ISubjectErasureRecoveryRegistry : ISubjectErasureRegistry
 
     /// <summary>
     /// Durably secures <paramref name="erasedAudit"/> for delivery to the trail and clears the subject's evidence,
-    /// in one commit. Idempotent: an audit already secured under the same id is not secured twice.
+    /// in one commit, dated <paramref name="completedAt"/> (the completing pass's instant: a registry holds no clock,
+    /// T-1057). Idempotent: an audit already secured under the same id is not secured twice.
     /// </summary>
-    ValueTask CompleteAsync(SubjectId subject, AuditRecord erasedAudit, CancellationToken ct = default);
+    ValueTask CompleteAsync(SubjectId subject, AuditRecord erasedAudit, DateTimeOffset completedAt, CancellationToken ct = default);
 
     /// <summary>The interrupted erasures due for recovery at <paramref name="now"/>, oldest first, at most <paramref name="limit"/>.</summary>
     ValueTask<IReadOnlyList<InterruptedSubjectErasure>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken ct = default);

@@ -25,6 +25,7 @@ import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx,
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
+import {handoffRestored} from './exact-clone-platform-feed.mjs'
 import {persistInputShadow} from './validation-inputs.mjs'
 import {observeNuGetRoot} from './validation-nuget-root.mjs'
 import {runAfterPrivateReclamation} from './private-build-server-reclamation.mjs'
@@ -174,8 +175,17 @@ try {
     'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
     'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
     'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
-  run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  const feedHandoff = handoffRestored(feedStep, process.env)
+  if (feedHandoff) {
+    process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
+    mkdirSync(process.env.NUGET_PACKAGES)
+    packageRootResolution = observeNuGetRoot({cwd: clone})
+  }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  if (feedHandoff && !run('platform-feed-consumption', process.execPath,
+    ['eng/platform-feed-consumption.mjs', clone, process.env.NUGET_PACKAGES], clone).passed)
+    throw new Error('Verified dependency bytes were not consumed; see stage evidence')
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
   // invocation. Directory.Build.targets expands the project name per compiler
   // invocation, so the single solution build cannot overwrite one global log.

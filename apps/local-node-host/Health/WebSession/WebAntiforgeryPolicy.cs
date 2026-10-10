@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -74,6 +75,7 @@ public interface IWebAntiforgeryPolicy
 /// cookie; authenticated tokens bind to the exact digest-resolved cookie subject and never fall
 /// through to another audience.
 /// </summary>
+[ClockAuthority("Issues and refuses antiforgery tokens, judges the subject's session liveness, and sets token expiry from its own clock.")]
 internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
 {
     internal const string HeaderName = "X-Harborline-Antiforgery";
@@ -112,13 +114,15 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
         {
             binding = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
         }
-        var expiresAt = _timeProvider.GetUtcNow() + AnonymousLifetime;
+        var now = _timeProvider.GetUtcNow();
+        var expiresAt = now + AnonymousLifetime;
         var issue = await _store.RotateAsync(
                 WebCookieAudience.AccountChallenge,
                 AnonymousAccountId,
                 WebAntiforgeryStateStore.Digest(binding!),
                 RandomHex(32),
                 expiresAt,
+                now,
                 context.RequestAborted)
             .ConfigureAwait(false);
         if (issue is null)
@@ -148,6 +152,7 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
                 AnonymousAccountId,
                 WebAntiforgeryStateStore.Digest(binding!),
                 ReadToken(context.Request),
+                _timeProvider.GetUtcNow(),
                 context.RequestAborted);
     }
 
@@ -172,9 +177,11 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
         string handle)
     {
         ArgumentNullException.ThrowIfNull(context);
+        var now = _timeProvider.GetUtcNow();
         var subject = await ResolveSubjectAsync(
                 audience,
                 handle,
+                now,
                 context.RequestAborted)
             .ConfigureAwait(false);
         if (subject is null)
@@ -187,6 +194,7 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
                 subject.SubjectCorrelationId,
                 RandomHex(32),
                 subject.ExpiresAtUtc,
+                now,
                 context.RequestAborted)
             .ConfigureAwait(false);
         if (issue is null)
@@ -218,13 +226,15 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
         string handle)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var subject = await ResolveSubjectAsync(audience, handle, context.RequestAborted)
+        var now = _timeProvider.GetUtcNow();
+        var subject = await ResolveSubjectAsync(audience, handle, now, context.RequestAborted)
             .ConfigureAwait(false);
         return subject is not null && await _store.ConsumeAsync(
                 subject.Audience,
                 subject.AccountId,
                 subject.SubjectCorrelationId,
                 ReadToken(context.Request),
+                now,
                 context.RequestAborted)
             .ConfigureAwait(false);
     }
@@ -232,6 +242,7 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
     private async Task<AntiforgerySubject?> ResolveSubjectAsync(
         WebCookieAudience audience,
         string? handle,
+        DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         if (!IsBoundedToken(handle))
@@ -239,7 +250,6 @@ internal sealed class WebAntiforgeryPolicy : IWebAntiforgeryPolicy
             return null;
         }
         var digest = WebAntiforgeryStateStore.Digest(handle!);
-        var now = _timeProvider.GetUtcNow();
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
         switch (audience)

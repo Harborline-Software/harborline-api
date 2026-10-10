@@ -9,6 +9,7 @@ using PasswordVerificationResult = Microsoft.AspNetCore.Identity.PasswordVerific
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.PasswordHashing;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -40,6 +41,7 @@ public interface IWebAccountAccessChallengeIssuer
 /// Durable ADR 0160 account-challenge issuer. The returned handle is never persisted; only its
 /// SHA-256 digest enters the dedicated web-session store.
 /// </summary>
+[ClockAuthority("Issues a login challenge before any admitted act and sets its own expiry; dates the challenge and antiforgery rows.")]
 public sealed class WebAccountAccessChallengeIssuer : IWebAccountAccessChallengeIssuer
 {
     /// <summary>ADR 0160's maximum account-challenge lifetime.</summary>

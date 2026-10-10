@@ -496,8 +496,7 @@ public sealed class WebTenantSwitchRealSeamTests
                 new EncryptedTenantMembershipAuthorityStore(
                     store,
                     tenantId,
-                    new InstallationIdentityHomeDecisionAuthority(identityFactory),
-                    time),
+                    new InstallationIdentityHomeDecisionAuthority(identityFactory)),
                 new AlwaysLeaseCoordinator());
             return (store, partition);
         }

@@ -13,6 +13,7 @@ using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
@@ -57,6 +58,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Roster;
 /// round (push-on-change keeps it short) but is NON-ZERO by design.
 /// </para>
 /// </remarks>
+[ClockAuthority("Out-of-act replication apply: dates refusals of unparseable inbound records from its own clock.")]
 public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProvider, IDeltaSink, IOwnTeamRosterSupersession, IAsyncDisposable
 {
     /// <summary>Logical CRDT document id for the roster doctype (shared across replicas).</summary>

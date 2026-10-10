@@ -91,6 +91,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         ActiveTeamTenantContext.ProjectTenantId(NodeTestActiveTeam.TestTeamId);
 
     private WebApplication _app = null!;
+    private readonly InMemoryIssuedDocumentStore _issued = new();
     private HttpClient _client = null!;
     private string _dir = null!;
     private ILegalHoldStore _holds = null!;
@@ -149,8 +150,8 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             new StubPdfWriter(),
             new FileSystemBlobStore(Path.Combine(_dir, "blobs")),
             recovery.GetRequiredService<Harborline.Api.Foundation.Recovery.Crypto.ISubjectFieldEncryptor>(),
-            new InMemoryIssuedDocumentStore(),
-            recovery.GetRequiredService<ILegalHoldService>(), clock: TimeProvider.System);
+            _issued,
+            recovery.GetRequiredService<ILegalHoldService>());
 
         // The seam the production selected-session authority uses: a request-scoped principal on
         // HttpContext.Features. Which member (if any) is bound is chosen per request by a header, so ONE
@@ -176,9 +177,9 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             registry,
             _renderWriter,
             invoices,
-            new NodeEfPartyRepository(factory, TimeProvider.System),
+            new NodeEfPartyRepository(factory),
             NodeTestActiveTeam.Accessor,
-            TimeProvider.System);
+            new FixedIssueClock());
 
         await _app.StartAsync();
 
@@ -193,6 +194,22 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         await _app.DisposeAsync();
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }
         catch (IOException) { /* best-effort temp cleanup */ }
+    }
+
+    [Fact(DisplayName = "T-1057 ck-9: the issued document is dated with the issuing act's instant; the issuance service holds no clock")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Issue_DatesTheDocumentWithTheActsInstant()
+    {
+        await IssueAsAsync(AliceParty, AliceInvoiceId);
+
+        var issued = Assert.Single(await _issued.ListForRecordAsync("invoice", AliceInvoiceId));
+        Assert.Equal(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero), issued.IssuedAtUtc);
+    }
+
+    /// <summary>The issue route's clock: a literal far enough ahead that every as-of read sees the seeded invoices.</summary>
+    private sealed class FixedIssueClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
     }
 
     [Fact(DisplayName =

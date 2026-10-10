@@ -91,7 +91,7 @@ test('nested and sibling layouts plan the same 36 packages and version without e
     }
     const siblingCommit = commitFixture(sibling)
     write(api, 'eng/platform-pin.json', JSON.stringify({...pin, commit: siblingCommit}))
-    for (const file of ['eng/build-local-feed.mjs', 'nuget.config', 'Directory.Build.targets', 'Directory.Packages.props']) {
+    for (const file of ['eng/build-local-feed.mjs', 'eng/platform-feed-environment.mjs', 'nuget.config', 'Directory.Build.targets', 'Directory.Packages.props']) {
       write(api, file, readFileSync(path.join(root, file)))
     }
     // Never copy a live repository's metadata: git may remove transient object files between

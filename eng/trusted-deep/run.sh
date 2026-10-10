@@ -11,7 +11,7 @@ pwsh -NoProfile -NonInteractive -Command '
   $bytes=[GC]::GetGCMemoryInfo().TotalAvailableMemoryBytes
   $config=[GC]::GetConfigurationVariables()
   if ($bytes -ne 5368709120 -or $config["GCHeapHardLimitPercent"] -ne 50) { throw "Effective managed heap budget differs" }
-  @{requestedEnv=$env:DOTNET_GCHeapHardLimitPercent;availableBytes=$bytes;runtime=[Environment]::Version.ToString();config=$config} | ConvertTo-Json -Depth 5
+  @{requestedEnv=$env:DOTNET_GCHeapHardLimitPercent;availableBytes=$bytes;runtime=[Environment]::Version.ToString();processorCount=[Environment]::ProcessorCount;config=$config} | ConvertTo-Json -Depth 5
 ' > /runner/gate/out/gc-preflight.json
 kind="$1"
 export HARBORLINE_GATE_COVERAGE=0

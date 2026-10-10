@@ -86,7 +86,8 @@ public sealed class AccountingSummaryRouteTests : IAsyncLifetime
         ChartOfAccountsRoutes.Map(deviceReachable, _factory, NodeTestActiveTeam.Accessor, TimeProvider.System);
         AccountingSummaryRoutes.Map(
             deviceReachable,
-            new NodeAccountingSummaryService(_factory, NodeTestActiveTeam.Accessor, TimeProvider.System));
+            new NodeAccountingSummaryService(_factory, NodeTestActiveTeam.Accessor),
+            TimeProvider.System);
 
         await _app.StartAsync();
 
@@ -195,9 +196,9 @@ public sealed class AccountingSummaryRouteTests : IAsyncLifetime
         Assert.Equal(0m, doc.GetProperty("income").GetDecimal());
     }
 
-    [Fact(DisplayName = "T-909 ck-9: the summary's current month comes from the host clock, and an explicit day overrides it")]
+    [Fact(DisplayName = "T-909, T-1057 ck-9: the summary's month comes from the act's clock read, and the service takes the day it is handed")]
     [Trait("Holds", "kernel-core-ck-9")]
-    public async Task Summary_month_follows_the_host_clock_unless_a_day_is_given()
+    public async Task Summary_month_follows_the_act_clock_and_the_service_takes_the_given_day()
     {
         var chartId = new ChartOfAccountsId(await SeedChartAsync());
         var revenue = await AccountIdByCodeAsync(chartId, "4100");
@@ -210,14 +211,30 @@ public sealed class AccountingSummaryRouteTests : IAsyncLifetime
             ]));
             await ctx.SaveChangesAsync();
         }
-        var service = new NodeAccountingSummaryService(
-            _factory, NodeTestActiveTeam.Accessor, new FixedClock(new DateTimeOffset(2020, 2, 15, 12, 0, 0, TimeSpan.Zero)));
+        var service = new NodeAccountingSummaryService(_factory, NodeTestActiveTeam.Accessor);
 
-        var clockMonth = await service.GetSummaryAsync();
+        // The route's act reads its clock once for "today": a route mapped over a fixed clock reports that month.
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        await using var app = builder.Build();
+        app.Use(async (http, next) =>
+        {
+            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            await next(http);
+        });
+        AccountingSummaryRoutes.Map(app.MapDeviceReachableProductDataGroup(), service,
+            new FixedClock(new DateTimeOffset(2020, 2, 15, 12, 0, 0, TimeSpan.Zero)));
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Services.GetRequiredService<IServer>()
+            .Features.Get<IServerAddressesFeature>()!.Addresses.First()) };
+        var clockMonth = await client.GetFromJsonAsync<JsonElement>("/api/local-node/accounting/summary");
+        await app.StopAsync();
+
         var givenMonth = await service.GetSummaryAsync(new DateOnly(2021, 5, 1));
 
-        Assert.Equal("2020-02", clockMonth.Period);
-        Assert.Equal(400m, clockMonth.Income);
+        Assert.Equal("2020-02", clockMonth.GetProperty("period").GetString());
+        Assert.Equal(400m, clockMonth.GetProperty("income").GetDecimal());
         Assert.Equal("2021-05", givenMonth.Period);
         Assert.Equal(0m, givenMonth.Income);
     }

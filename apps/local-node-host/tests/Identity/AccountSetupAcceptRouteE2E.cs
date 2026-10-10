@@ -401,7 +401,7 @@ public sealed class AccountSetupAcceptRouteE2E
             var antiforgery = new WebAntiforgeryPolicy(
                 sessionFactory,
                 new WebSelectedSessionStore(sessionFactory),
-                new WebAntiforgeryStateStore(sessionFactory, time),
+                new WebAntiforgeryStateStore(sessionFactory),
                 time);
             var challengeIssuer = new WebAccountAccessChallengeIssuer(
                 identityFactory, sessionFactory, hasher, FixtureV1AuthorityGate.Admitting, time);

@@ -46,15 +46,14 @@ namespace Harborline.Api.LocalNodeHost.Data.Search.Vector;
 public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegistry
 {
     private readonly IDbContextFactory<NodeLocalSearchDbContext> _contextFactory;
-    private readonly TimeProvider _timeProvider;
 
-    /// <summary>Construct bound to the search context factory (the SQLCipher file the gated index also lives in).</summary>
-    public NodeEfSubjectErasureRegistry(
-        IDbContextFactory<NodeLocalSearchDbContext> contextFactory,
-        TimeProvider timeProvider)
+    /// <summary>
+    /// Construct bound to the search context factory (the SQLCipher file the gated index also lives in). A store
+    /// holds no clock: every row is dated with the instant its caller hands it (T-1057).
+    /// </summary>
+    public NodeEfSubjectErasureRegistry(IDbContextFactory<NodeLocalSearchDbContext> contextFactory)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     /// <inheritdoc />
@@ -68,15 +67,15 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
     }
 
     /// <inheritdoc />
-    public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default) =>
-        MarkAsync(tenant, subject, evidence: null, ct);
+    public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, DateTimeOffset erasedAt, CancellationToken ct = default) =>
+        MarkAsync(tenant, subject, evidence: null, erasedAt, ct);
 
     /// <inheritdoc />
     public ValueTask<bool> MarkErasedAsync(
         TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(evidence);
-        return MarkAsync(tenant, subject, evidence, ct);
+        return MarkAsync(tenant, subject, evidence, evidence.ApprovedAt, ct);
     }
 
     /// <inheritdoc />
@@ -102,7 +101,8 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
     }
 
     /// <inheritdoc />
-    public async ValueTask CompleteAsync(SubjectId subject, AuditRecord erasedAudit, CancellationToken ct = default)
+    public async ValueTask CompleteAsync(
+        SubjectId subject, AuditRecord erasedAudit, DateTimeOffset completedAt, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(erasedAudit);
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
@@ -118,7 +118,7 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
         row.LegalBasis = null;
         row.ApprovedAtUnixMs = null;
         row.NextRecoveryAtUnixMs = null;
-        row.CompletedAtUnixMs ??= _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+        row.CompletedAtUnixMs ??= completedAt.ToUnixTimeMilliseconds();
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
@@ -166,7 +166,7 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
         TimeSpan.FromMinutes(Math.Min(60, Math.Pow(2, Math.Clamp(attempts - 1, 0, 6))));
 
     private async ValueTask<bool> MarkAsync(
-        TenantId tenant, SubjectId subject, SubjectErasureEvidence? evidence, CancellationToken ct)
+        TenantId tenant, SubjectId subject, SubjectErasureEvidence? evidence, DateTimeOffset erasedAt, CancellationToken ct)
     {
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
 
@@ -184,7 +184,7 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
         {
             TenantId = tenant.Value,
             SubjectId = subject.Value,
-            ErasedAtUnixMs = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
+            ErasedAtUnixMs = erasedAt.ToUnixTimeMilliseconds(),
             ApprovingActorsJson = evidence is null
                 ? null
                 : JsonSerializer.Serialize(evidence.ApprovingActors.Select(a => a.Value).ToArray()),

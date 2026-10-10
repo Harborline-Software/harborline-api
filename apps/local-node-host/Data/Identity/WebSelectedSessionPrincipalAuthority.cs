@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Session;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -21,6 +22,7 @@ internal interface IWebSelectedSessionPrincipalAuthority
 /// <summary>
 /// Reloads every selected-session authority owner before constructing one request principal.
 /// </summary>
+[ClockAuthority("Admits or refuses the request principal against session expiry; persists nothing.")]
 internal sealed class WebSelectedSessionPrincipalAuthority : IWebSelectedSessionPrincipalAuthority
 {
     private readonly WebSelectedSessionStore _sessions;

@@ -1,0 +1,64 @@
+name: candidate-mutation
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        required: true
+        description: Reviewed exact same-repository 40-hex commit
+      test_project:
+        type: choice
+        required: true
+        options: [apps/local-node-host/tests/tests.csproj]
+      scope_preset:
+        type: choice
+        required: true
+        options: [tenancy-identity-tenant-full, forms-authoring-files]
+permissions:
+  contents: read
+concurrency:
+  group: candidate-mutation
+  cancel-in-progress: false
+jobs:
+  mutation:
+    if: github.ref == 'refs/heads/main' && vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: 9abd9e016a45fc8756ef259763f8079d56352e4e
+          path: harborline-platform
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.100-rc.1.26425.128
+      - name: Execute trusted bounded preset
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          TEST_PROJECT: ${{ inputs.test_project }}
+          SCOPE_PRESET: ${{ inputs.scope_preset }}
+        run: node controller/eng/candidate-mutation.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: candidate-mutation-evidence
+          path: |
+            candidate-mutation-evidence/
+            candidate-mutation-evidence.zip
+            candidate-mutation-evidence.zip.sha256
+          include-hidden-files: true
+          if-no-files-found: error

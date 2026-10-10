@@ -14,6 +14,7 @@ using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -232,6 +233,7 @@ public interface IAdminTeamAccessAuthority
 /// Issuance is delegated to <see cref="IAccountSetupInvitationIssuer"/>, which independently runs the
 /// identical gate + the requested-permissions subset check.
 /// </remarks>
+[ClockAuthority("Admits and refuses admin sessions and their grants: dates its own admission (list acts re-read it, owed T-1057 item 2).")]
 internal sealed partial class AdminTeamAccessAuthority(
     IDbContextFactory<NodeLocalWebSessionDbContext> sessionFactory,
     WebSelectedSessionStore selectedSessionStore,

@@ -13,6 +13,7 @@ using Harborline.Api.Foundation.Ship.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.People;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -80,6 +81,7 @@ public enum FounderTenantMembershipAttachStatus
 /// different and stronger condition.
 /// </para>
 /// </remarks>
+[ClockAuthority("Startup founder-attach ceremony: reads the clock once per run and hands that instant to the writers it drives.")]
 internal sealed class FounderTenantMembershipAttachService
 {
     /// <summary>Domain separator for the founder's canonical tenant principal.</summary>

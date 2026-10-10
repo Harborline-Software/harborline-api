@@ -255,6 +255,32 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
         Assert.Equal(2, await CountAsync("search_audit_outbox"));
     }
 
+    [Fact(DisplayName = "T-1057: the registry dates the mark with the erasing act's instant and the completion with the finishing pass's, never a clock of its own")]
+    public async Task TheRegistryIsDatedByItsCallers()
+    {
+        var clock = new MutableClock();
+        var service = Service(_store, new NodeEfSubjectTombstoneStore(_store.Factory), new InMemoryAuditTrail(),
+            new Ed25519Signer(KeyPair.Generate()), new ScriptedPropagator(), clock);
+
+        // The erase act at 2026-01-01T00:00Z marks; its outbox stage fails, so the recovery pass finishes it later.
+        await ExecuteAsync("CREATE TRIGGER t1057_stage BEFORE INSERT ON search_audit_outbox BEGIN SELECT RAISE(ABORT, 't1057'); END;");
+        await Assert.ThrowsAnyAsync<Exception>(() => service.EraseAsync(Request(Alice)));
+        await ExecuteAsync("DROP TRIGGER t1057_stage;");
+        Assert.Equal(1767225600000, (await RowAsync(Alice)).ErasedAtUnixMs);
+        Assert.Null((await RowAsync(Alice)).CompletedAtUnixMs);
+
+        // The recovery pass at 03:00Z completes it, dated with that pass's instant.
+        clock.At = new DateTimeOffset(2026, 1, 1, 3, 0, 0, TimeSpan.Zero);
+        Assert.Equal(1, await service.RecoverInterruptedAsync(32));
+        Assert.Equal(1767236400000, (await RowAsync(Alice)).CompletedAtUnixMs);
+
+        // A mark without evidence records the instant its caller hands it.
+        var bob = new SubjectId("subject-bob");
+        Assert.True(await new NodeEfSubjectErasureRegistry(_store.Factory).MarkErasedAsync(
+            Tenant, bob, new DateTimeOffset(2026, 2, 3, 4, 5, 6, TimeSpan.Zero)));
+        Assert.Equal(1770091506000, (await RowAsync(bob)).ErasedAtUnixMs);
+    }
+
     [Fact]
     public async Task RecoveryEvidenceMigration_UpgradesMainPredecessorWithoutInventingLegacyApproval()
     {
@@ -275,7 +301,7 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
         Assert.Null(row.CompletedAtUnixMs);
         Assert.Null(row.NextRecoveryAtUnixMs);
         Assert.Equal(0, row.RecoveryAttempts);
-        Assert.Empty(await new NodeEfSubjectErasureRegistry(historical.Factory, TimeProvider.System).ListDueAsync(Now, 32));
+        Assert.Empty(await new NodeEfSubjectErasureRegistry(historical.Factory).ListDueAsync(Now, 32));
     }
 
     [Fact]
@@ -293,7 +319,7 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
         propagator.FailAll = false;
         propagator.Failing.Add(Alice.Value);
         using var pass = new CancellationTokenSource();
-        var registry = new CancelOnDeferralRegistry(new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System), pass);
+        var registry = new CancelOnDeferralRegistry(new NodeEfSubjectErasureRegistry(_store.Factory), pass);
         var service = new SubjectErasureService(registry, new NodeEfSubjectTombstoneStore(_store.Factory), trail, signer,
             new NoopTenantKeyDestroyer(), clock, minimumWindow: TimeSpan.Zero, propagators: [propagator]);
 
@@ -316,16 +342,16 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
 
         public ValueTask<bool> IsErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
             => inner.IsErasedAsync(tenant, subject, ct);
-        public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
-            => inner.MarkErasedAsync(tenant, subject, ct);
+        public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, DateTimeOffset erasedAt, CancellationToken ct = default)
+            => inner.MarkErasedAsync(tenant, subject, erasedAt, ct);
         public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct = default)
             => inner.MarkErasedAsync(tenant, subject, evidence, ct);
         public ValueTask<SubjectErasureEvidence?> FindEvidenceAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
             => inner.FindEvidenceAsync(tenant, subject, ct);
         public ValueTask<bool> IsCompletedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
             => inner.IsCompletedAsync(tenant, subject, ct);
-        public ValueTask CompleteAsync(SubjectId subject, AuditRecord audit, CancellationToken ct = default)
-            => inner.CompleteAsync(subject, audit, ct);
+        public ValueTask CompleteAsync(SubjectId subject, AuditRecord audit, DateTimeOffset completedAt, CancellationToken ct = default)
+            => inner.CompleteAsync(subject, audit, completedAt, ct);
         public ValueTask<IReadOnlyList<InterruptedSubjectErasure>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken ct = default)
             => inner.ListDueAsync(now, limit, ct);
         public async ValueTask DeferAsync(TenantId tenant, SubjectId subject, DateTimeOffset now, CancellationToken ct = default)
@@ -343,7 +369,7 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
         IOperationSigner signer,
         ISubjectErasurePropagator propagator,
         IRecoveryClock? clock = null) => new(
-        new NodeEfSubjectErasureRegistry(store.Factory, TimeProvider.System),
+        new NodeEfSubjectErasureRegistry(store.Factory),
         tombstones,
         trail,
         signer,

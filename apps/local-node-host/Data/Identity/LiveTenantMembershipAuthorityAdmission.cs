@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -25,6 +26,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// any decision and is dropped. #2620's E2E asserts the web joiner's membership via this predicate;
 /// #3107 later records atlas presence WITHOUT changing these semantics.
 /// </remarks>
+[ClockAuthority("Admits or refuses a membership against the grant liveness window at its own decision instant; persists nothing.")]
 internal sealed class LiveTenantMembershipAuthorityAdmission(
     ICanonicalPrincipalPartyReader partyReader,
     IDbContextFactory<NodeLocalSearchDbContext> grantFactory,

@@ -68,6 +68,13 @@ node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-feed-benchmark.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-feed-reuse.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-consumer-launch.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-credential-boundary.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-crash-diagnostics.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-pid1-probe.test.mjs" \
+  "$repo_root/eng/tests/platform-feed-qualification.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/reviewed-analyzer-suppressions.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
@@ -77,6 +84,7 @@ node --test "$repo_root/eng/tests/main-module-guard.test.mjs" || exit 1
 # T-236 row 5: every .NET test project has a Stryker config or a stated exclusion, and a run that
 # tested no mutant is refused (Stryker exits 0 having mutated nothing).
 node --test "$repo_root/eng/tests/mutation-report.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/candidate-mutation.test.mjs" || exit 1
 # T-720: the StrykerJS checker refuses a run that tested zero mutants; this is its self-test.
 node --test "$repo_root/eng/tests/strykerjs.test.mjs" || exit 1
 # The ESLint canary is a quality-engine control: it runs where the quality steps run (HARBORLINE_GATE_QUALITY=1,

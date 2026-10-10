@@ -13,6 +13,30 @@ public sealed class WebAntiforgeryStateStoreTests
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 0, 0, TimeSpan.Zero);
 
+    [Fact(DisplayName = "T-1057 ck-9: the antiforgery store dates issue, revocation and consumption with the instants its caller hands it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Rotation_And_Consumption_Are_Dated_By_The_Caller()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var expires = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var first = await fixture.Store.RotateAsync(WebCookieAudience.AccountChallenge, "account-1", "challenge-1",
+            "coordination-1", expires, new DateTimeOffset(2029, 6, 1, 8, 0, 0, TimeSpan.Zero));
+        var second = await fixture.Store.RotateAsync(WebCookieAudience.AccountChallenge, "account-1", "challenge-1",
+            "coordination-2", expires, new DateTimeOffset(2029, 6, 1, 8, 1, 0, TimeSpan.Zero));
+        Assert.True(await fixture.Store.ConsumeAsync(WebCookieAudience.AccountChallenge, "account-1", "challenge-1",
+            second!.Token, new DateTimeOffset(2029, 6, 1, 8, 2, 0, TimeSpan.Zero)));
+
+        await using var context = fixture.Factory.CreateDbContext();
+        var rows = await context.AntiforgeryStates.AsNoTracking().ToArrayAsync();
+        var revoked = Assert.Single(rows, row => row.CoordinationCorrelationId == "coordination-1");
+        var consumed = Assert.Single(rows, row => row.CoordinationCorrelationId == "coordination-2");
+        Assert.Equal(new DateTimeOffset(2029, 6, 1, 8, 0, 0, TimeSpan.Zero), revoked.IssuedAtUtc);
+        Assert.Equal(new DateTimeOffset(2029, 6, 1, 8, 1, 0, TimeSpan.Zero), revoked.RevokedAtUtc);
+        Assert.Equal(new DateTimeOffset(2029, 6, 1, 8, 1, 0, TimeSpan.Zero), consumed.IssuedAtUtc);
+        Assert.Equal(new DateTimeOffset(2029, 6, 1, 8, 2, 0, TimeSpan.Zero), consumed.ConsumedAtUtc);
+        Assert.NotNull(first);
+    }
+
     [Fact]
     [Trait("PlanCard", "SES-02D")]
     public async Task Token_Is_DigestOnly_At_Rest_And_Consumes_Exactly_Once()
@@ -23,7 +47,7 @@ public sealed class WebAntiforgeryStateStoreTests
             "account-1",
             "challenge-1",
             "coordination-1",
-            Now.AddMinutes(5));
+            Now.AddMinutes(5), fixture.Clock.UtcNow);
         Assert.NotNull(issue);
 
         await using (var context = fixture.Factory.CreateDbContext())
@@ -39,12 +63,12 @@ public sealed class WebAntiforgeryStateStoreTests
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
         Assert.False(await fixture.Store.ConsumeAsync(
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
     }
 
     [Fact]
@@ -57,24 +81,24 @@ public sealed class WebAntiforgeryStateStoreTests
             "account-1",
             "selected-1",
             "coordination-1",
-            Now.AddMinutes(10));
+            Now.AddMinutes(10), fixture.Clock.UtcNow);
         Assert.NotNull(issue);
 
         Assert.False(await fixture.Store.ConsumeAsync(
             WebCookieAudience.SelectedSession,
             "account-1",
             "selected-2",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
         Assert.False(await fixture.Store.ConsumeAsync(
             WebCookieAudience.InstallationSession,
             "account-1",
             "selected-1",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
         Assert.True(await fixture.Store.ConsumeAsync(
             WebCookieAudience.SelectedSession,
             "account-1",
             "selected-1",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
     }
 
     [Fact]
@@ -87,27 +111,27 @@ public sealed class WebAntiforgeryStateStoreTests
             "account-1",
             "challenge-1",
             "coordination-1",
-            Now.AddMinutes(5));
+            Now.AddMinutes(5), fixture.Clock.UtcNow);
         var second = await fixture.Store.RotateAsync(
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
             "coordination-2",
-            Now.AddMinutes(5));
+            Now.AddMinutes(5), fixture.Clock.UtcNow);
         Assert.NotNull(first);
         Assert.NotNull(second);
-        var restarted = new WebAntiforgeryStateStore(fixture.Factory, fixture.Clock);
+        var restarted = new WebAntiforgeryStateStore(fixture.Factory);
 
         Assert.False(await restarted.ConsumeAsync(
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
-            first.Token));
+            first.Token, fixture.Clock.UtcNow));
         Assert.True(await restarted.ConsumeAsync(
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
-            second.Token));
+            second.Token, fixture.Clock.UtcNow));
     }
 
     [Fact]
@@ -120,7 +144,7 @@ public sealed class WebAntiforgeryStateStoreTests
             "account-1",
             "challenge-1",
             "coordination-1",
-            Now.AddMinutes(5));
+            Now.AddMinutes(5), fixture.Clock.UtcNow);
         Assert.NotNull(issue);
         fixture.Clock.UtcNow = Now.AddMinutes(5);
 
@@ -128,7 +152,7 @@ public sealed class WebAntiforgeryStateStoreTests
             WebCookieAudience.AccountChallenge,
             "account-1",
             "challenge-1",
-            issue.Token));
+            issue.Token, fixture.Clock.UtcNow));
     }
 
     [Fact]
@@ -144,16 +168,14 @@ public sealed class WebAntiforgeryStateStoreTests
             {
                 await context.Database.MigrateAsync();
             }
-            var store = new WebAntiforgeryStateStore(
-                factory,
-                new MutableTimeProvider { UtcNow = Now });
+            var store = new WebAntiforgeryStateStore(factory);
 
             var refused = await store.RotateAsync(
                 WebCookieAudience.AccountChallenge,
                 "account-1",
                 "challenge-1",
                 "coordination-loser",
-                Now.AddMinutes(5));
+                Now.AddMinutes(5), Now);
 
             Assert.Null(refused);
             Assert.True(interceptor.Injected);
@@ -178,7 +200,7 @@ public sealed class WebAntiforgeryStateStoreTests
             _path = path;
             Factory = factory;
             Clock = clock;
-            Store = new WebAntiforgeryStateStore(factory, clock);
+            Store = new WebAntiforgeryStateStore(factory);
         }
 
         public WebAccountAccessChallengeIssuerTests.SessionContextFactory Factory { get; }
