@@ -222,6 +222,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     [InlineData("direct-write", "/overlay/fields/name/writeRoles")]
     [InlineData("aspect-write", "/overlay/fields/name/aspects/access/writeRoles")]
     [InlineData("mixed-read", "/overlay/fields/name")]
+    [InlineData("mixed-write", "/overlay/fields/name")]
     public async Task C3_Write_And_Mixed_Gates_Preserve_Their_Actual_Locations(string lane, string pointer)
     {
         const string id = "c3-lane-oracle";
@@ -248,6 +249,11 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             field["aspects"] = new JsonObject { ["access"] = access };
             if (lane == "direct-write") field["writeRoles"] = new JsonArray("private/unresolved-role");
             else if (lane == "aspect-write") access["writeRoles"] = new JsonArray("private/unresolved-role");
+            else if (lane == "mixed-write")
+            {
+                field["writeRoles"] = new JsonArray("Admin");
+                access["writeRoles"] = new JsonArray("private/unresolved-role");
+            }
             else
             {
                 field["readRoles"] = new JsonArray("Admin");
