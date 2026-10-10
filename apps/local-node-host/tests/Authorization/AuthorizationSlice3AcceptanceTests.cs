@@ -191,8 +191,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             partyReader,
             rosterReader,
             new AccountSetupInvitationStore(identityFactory),
-            TestAuthorization.Gate(false),
-            TimeProvider.System);
+            TestAuthorization.Gate(false));
         var authority = TestAuthorization.Write(Tenant, at: At);
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => invitationIssuer.IssueAsync(
@@ -295,7 +294,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             {
                 var service = new AccountSetupInvitationIssuer(
                     sessions, new WebSelectedSessionStore(sessions), identity, grants, party, roster,
-                    new AccountSetupInvitationStore(identity), denied, new FixedTimeProvider(At), capture.Audit);
+                    new AccountSetupInvitationStore(identity), denied, capture.Audit);
                 await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.IssueAsync(
                     "selected", new AccountSetupInvitationIssueRequest(adminTenant.Value, [TeamRolePermissions.RecordsRead], "invite"), authority));
                 break;

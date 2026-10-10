@@ -83,7 +83,7 @@ public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
             new FileSystemBlobStore(Path.Combine(_dir, "blobs")),
             recovery.GetRequiredService<Harborline.Api.Foundation.Recovery.Crypto.ISubjectFieldEncryptor>(),
             new InMemoryIssuedDocumentStore(),
-            recovery.GetRequiredService<ILegalHoldService>(), clock: TimeProvider.System);
+            recovery.GetRequiredService<ILegalHoldService>());
 
         _app.Use(async (HttpContext http, RequestDelegate next) =>
         {
@@ -96,7 +96,7 @@ public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
             registry,
             new StubPdfWriter(),
             new NodeEfInvoiceRepository(factory),
-            new Harborline.Api.LocalNodeHost.Data.People.NodeEfPartyRepository(factory, TimeProvider.System),
+            new Harborline.Api.LocalNodeHost.Data.People.NodeEfPartyRepository(factory),
             NodeTestActiveTeam.Accessor,
             TimeProvider.System);
 

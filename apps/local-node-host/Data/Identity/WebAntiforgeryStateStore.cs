@@ -24,14 +24,11 @@ internal sealed class WebAntiforgeryStateStore
     private const int MaximumCoordinateLength = 128;
 
     private readonly IDbContextFactory<NodeLocalWebSessionDbContext> _contextFactory;
-    private readonly TimeProvider _timeProvider;
 
-    public WebAntiforgeryStateStore(
-        IDbContextFactory<NodeLocalWebSessionDbContext> contextFactory,
-        TimeProvider timeProvider)
+    // T-1057: a store holds no clock. Rotation and consumption are judged and dated at the caller's instant.
+    public WebAntiforgeryStateStore(IDbContextFactory<NodeLocalWebSessionDbContext> contextFactory)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     /// <summary>Builds a fresh state for insertion in an authority transition's existing transaction.</summary>
@@ -78,9 +75,9 @@ internal sealed class WebAntiforgeryStateStore
         string subjectCorrelationId,
         string coordinationCorrelationId,
         DateTimeOffset absoluteExpiresAtUtc,
+        DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        var now = _timeProvider.GetUtcNow();
         var replacement = CreateState(
             audience,
             accountId,
@@ -130,6 +127,7 @@ internal sealed class WebAntiforgeryStateStore
         string accountId,
         string subjectCorrelationId,
         string? token,
+        DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
         ValidateCoordinate(accountId, nameof(accountId));
@@ -139,7 +137,6 @@ internal sealed class WebAntiforgeryStateStore
             return false;
         }
 
-        var now = _timeProvider.GetUtcNow();
         var tokenDigest = Digest(token);
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);

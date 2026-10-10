@@ -33,7 +33,7 @@ public sealed class InMemorySubjectErasureRegistry : ISubjectErasureRegistry
     }
 
     /// <inheritdoc />
-    public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default)
+    public ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, DateTimeOffset erasedAt, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         var added = _erased.TryAdd((tenant.Value, subject.Value), 0);

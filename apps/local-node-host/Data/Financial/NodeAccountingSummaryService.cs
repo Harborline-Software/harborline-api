@@ -39,17 +39,17 @@ public sealed class NodeAccountingSummaryService
 {
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
     private readonly Harborline.Api.Kernel.Runtime.Teams.IActiveTeamAccessor _activeTeam;
-    private readonly TimeProvider _time;
 
-    /// <summary>Construct bound to the local-node EF context factory + the active-team accessor.</summary>
+    /// <summary>
+    /// Construct bound to the local-node EF context factory + the active-team accessor. It holds no clock: the
+    /// caller's act supplies "today" (T-1057).
+    /// </summary>
     public NodeAccountingSummaryService(
         IDbContextFactory<LocalNodeDbContext> contextFactory,
-        Harborline.Api.Kernel.Runtime.Teams.IActiveTeamAccessor activeTeam,
-        TimeProvider time)
+        Harborline.Api.Kernel.Runtime.Teams.IActiveTeamAccessor activeTeam)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _activeTeam = activeTeam ?? throw new ArgumentNullException(nameof(activeTeam));
-        _time = time ?? throw new ArgumentNullException(nameof(time));
     }
 
     /// <summary>The active org's data tenant (ADR 0032 identity layer) — replaces the retired "local" literal.</summary>
@@ -67,9 +67,9 @@ public sealed class NodeAccountingSummaryService
     /// the install chart. Returns a zeroed summary (income/expenses/net = 0) when no chart is
     /// seeded or no posted activity exists this month — so the dashboard renders cleanly pre-data.
     /// </summary>
-    public async Task<Summary> GetSummaryAsync(DateOnly? today = null, CancellationToken ct = default)
+    public async Task<Summary> GetSummaryAsync(DateOnly today, CancellationToken ct = default)
     {
-        var now = today ?? DateOnly.FromDateTime(_time.GetUtcNow().UtcDateTime);
+        var now = today;
         var monthStart = new DateOnly(now.Year, now.Month, 1);
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
         var periodLabel = $"{monthStart:yyyy-MM}";

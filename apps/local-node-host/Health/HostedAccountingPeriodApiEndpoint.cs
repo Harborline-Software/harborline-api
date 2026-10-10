@@ -33,20 +33,24 @@ public sealed class HostedAccountingPeriodApiEndpoint : IHostedService
 {
     private readonly SharedHostedWebApp _sharedApp;
     private readonly NodeAccountingPeriodService _service;
+    private readonly TimeProvider _time;
     private readonly ILogger<HostedAccountingPeriodApiEndpoint> _logger;
 
     /// <summary>Constructs the hosted accounting-period API endpoint.</summary>
     public HostedAccountingPeriodApiEndpoint(
         SharedHostedWebApp sharedApp,
         NodeAccountingPeriodService service,
+        TimeProvider time,
         ILogger<HostedAccountingPeriodApiEndpoint> logger)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
 
         _sharedApp = sharedApp;
         _service = service;
+        _time = time;
         _logger = logger;
     }
 
@@ -55,7 +59,8 @@ public sealed class HostedAccountingPeriodApiEndpoint : IHostedService
     {
         _sharedApp.MapApiRoutes(app => AccountingPeriodRoutes.Map(
             app.MapDeviceReachableProductDataGroup(),
-            _service));
+            _service,
+            _time));
 
         _logger.LogInformation(
             "T1 node-local accounting-periods API registered (GET/POST {RouteBase}).",

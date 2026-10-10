@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Roster;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -148,6 +149,7 @@ public sealed record UsableAdministrator(
 /// separate provenance value that never consults the installer seal — and it never clears it either.
 /// </para>
 /// </remarks>
+[ClockAuthority("Administrator log authority: dates establish, expiry and convergence rows outside acts; in acts it takes the admitted decision instant.")]
 public sealed class NodeAdministratorAuthority
 {
     /// <summary>The stable refusal code for the last-usable-administrator invariant (ADR 0066 clause 7).</summary>
@@ -358,6 +360,7 @@ public sealed class NodeAdministratorAuthority
             }
         }
 
+        [ClockAuthority("Offline CLI recovery: forwards its clock to the administrator authority, which dates the recovery Established row.")]
         private sealed class RecoveryAuthority
         {
             private readonly NodeAdministratorAuthority _authority;

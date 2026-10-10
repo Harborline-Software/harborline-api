@@ -153,7 +153,7 @@ public sealed class VecCompositionTests
 
         // Crypto-shred fail-closed is preserved: a shredded subject's sub-key is un-derivable.
         var erasure = new InMemorySubjectErasureRegistry();
-        await erasure.MarkErasedAsync(tenant, subject, default);
+        await erasure.MarkErasedAsync(tenant, subject, new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero));
         await Assert.ThrowsAsync<SubjectErasedException>(() =>
             provA.DeriveSubjectKeyAsync(tenant, subject, "encrypted-field-aes", erasure, default));
     }

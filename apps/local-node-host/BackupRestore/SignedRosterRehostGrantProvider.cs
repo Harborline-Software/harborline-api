@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Sync.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.BackupRestore;
 
@@ -15,6 +16,7 @@ public sealed record RehostGrantPayload(string TenantId, string ReplacedNodeId, 
     string ReplacementPublicKey, string[] Acts, DateTimeOffset ExpiresAt);
 
 /// <summary>Issues and redeems grants using the durable roster and its existing encrypted database.</summary>
+[ClockAuthority("Issues and redeems signed re-host grants: dates its own issue, expiry and refusal decisions.")]
 public sealed class SignedRosterRehostGrantProvider(
     IDbContextFactory<NodeLocalRosterDbContext> contexts, IOperationSigner signer, IOperationVerifier verifier,
     AuthorizationGate gate, AuthorizationRefusalAudit audit, TimeProvider time) : IRosterRehostGrantProvider

@@ -247,13 +247,10 @@ internal interface ITenantMembershipAuthorityAdmission
 /// </summary>
 internal sealed class TeamContextTenantIdentityAuthorityPartitionResolver(
     ITeamContextFactory teamContexts,
-    IInstallationIdentityHomeDecisionAuthority homeDecisions,
-    TimeProvider timeProvider) : ITenantIdentityAuthorityPartitionResolver
+    IInstallationIdentityHomeDecisionAuthority homeDecisions) : ITenantIdentityAuthorityPartitionResolver
 {
     private readonly ITeamContextFactory _teamContexts =
         teamContexts ?? throw new ArgumentNullException(nameof(teamContexts));
-    private readonly TimeProvider _timeProvider =
-        timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     private readonly IInstallationIdentityHomeDecisionAuthority _homeDecisions =
         homeDecisions ?? throw new ArgumentNullException(nameof(homeDecisions));
 
@@ -282,8 +279,7 @@ internal sealed class TeamContextTenantIdentityAuthorityPartitionResolver(
             new EncryptedTenantMembershipAuthorityStore(
                 encryptedStore,
                 tenantId,
-                _homeDecisions,
-                _timeProvider);
+                _homeDecisions);
         return new TenantIdentityAuthorityPartition(tenantId, memberships, leases);
     }
 }
@@ -305,19 +301,17 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
 
     private readonly IEncryptedStore _store;
     private readonly IInstallationIdentityHomeDecisionAuthority _homeDecisions;
-    private readonly TimeProvider _timeProvider;
 
+    // T-1057: a store holds no clock. Every write is dated with the instant its caller hands it (occurredAtUtc).
     internal EncryptedTenantMembershipAuthorityStore(
         IEncryptedStore store,
         string tenantId,
-        IInstallationIdentityHomeDecisionAuthority homeDecisions,
-        TimeProvider timeProvider)
+        IInstallationIdentityHomeDecisionAuthority homeDecisions)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
         TenantId = tenantId;
         _homeDecisions = homeDecisions ?? throw new ArgumentNullException(nameof(homeDecisions));
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     public string TenantId { get; }
@@ -348,6 +342,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 authorityEvidenceDigest,
                 mutation,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken);
     }
 
@@ -370,6 +365,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
         return await GetFinalizationReceiptAsync(correlationId, cancellationToken).ConfigureAwait(false);
     }
@@ -393,6 +389,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -449,6 +446,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 membershipId,
                 payloadDigest,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken);
 
     public async Task<TenantSessionSelectionReceipt> FinalizeSessionSelectionAsync(
@@ -470,6 +468,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
         var (_, document) = await LoadAsync(cancellationToken).ConfigureAwait(false);
         return document.SessionSelections!
@@ -498,6 +497,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -520,6 +520,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 sessionCorrelationId,
                 payloadDigest,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken);
 
     public async Task<TenantSessionRevocationReceipt> FinalizeSessionRevocationAsync(
@@ -541,6 +542,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
         var (_, document) = await LoadAsync(cancellationToken).ConfigureAwait(false);
         return document.SessionRevocations!
@@ -569,6 +571,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 commandFingerprint,
                 homeDecision,
                 occurredAtUtc),
+            occurredAtUtc,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -591,6 +594,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
 
     private async Task MutateAsync(
         Func<TenantAuthorityDocument, bool> mutation,
+        DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < CasRetryLimit; attempt++)
@@ -602,7 +606,11 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
             }
 
             document.OwnerVersion++;
-            document.UpdatedAtUtc = _timeProvider.GetUtcNow();
+            if (observed is null)
+            {
+                document.CreatedAtUtc = occurredAtUtc; // the first write creates the document, at the act's instant
+            }
+            document.UpdatedAtUtc = occurredAtUtc;
             SealFinalizationReceipts(document);
             SealSessionSelectionReceipts(document);
             SealSessionRevocationReceipts(document);
@@ -636,7 +644,7 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
         var observed = await _store.GetAsync(DocumentKey, cancellationToken).ConfigureAwait(false);
         if (observed is null)
         {
-            var now = _timeProvider.GetUtcNow();
+            // Not yet written: an empty document. Its dates are set by the write that first persists it.
             return (null, new TenantAuthorityDocument
             {
                 SchemaVersion = SchemaVersion,
@@ -649,8 +657,6 @@ internal sealed class EncryptedTenantMembershipAuthorityStore : ITenantMembershi
                 AuditEnvelopes = [],
                 AuditHeadSequence = 0,
                 AuditHeadHash = InstallationAuditIntegrity.ZeroHash,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now,
             });
         }
 

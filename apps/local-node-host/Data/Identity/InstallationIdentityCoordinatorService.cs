@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Ship.Common;
 using Harborline.Api.Kernel.Lease;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -161,6 +162,7 @@ internal sealed class InstallationIdentityHomeDecisionAuthority(
 /// R3-H coordinator. The installation store owns the decision and receipts; each tenant store owns
 /// its membership and identity-audit document. Tenant selection consumes its live admission seam.
 /// </summary>
+[ClockAuthority("Two-phase coordinator: decides commit or abort, checks lease expiry, and dates its own coordinator and audit rows (also in recovery).")]
 internal sealed class InstallationIdentityCoordinatorService : IInvitationAcceptanceMembershipWriter
 {
     private const string CommandType = "TenantMembershipMutation";
@@ -1329,6 +1331,7 @@ internal interface IInstallationIdentityHomeRecovery
 /// hosted recovery daemon after canonical tenant admission exists; this service itself advertises no
 /// readiness and can recover every durable nonterminal row without desktop active-team state.
 /// </summary>
+[ClockAuthority("Out-of-act recovery sweep: schedules its own retry backoff from its own clock; no request act is in flight.")]
 internal sealed class InstallationIdentityCoordinatorRecoveryService(
     IDbContextFactory<NodeLocalInstallationIdentityDbContext> homeFactory,
     InstallationIdentityCoordinatorService coordinator,

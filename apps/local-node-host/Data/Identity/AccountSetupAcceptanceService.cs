@@ -222,6 +222,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
                         command.Username,
                         command.CredentialHash,
                         command.CredentialCeremonyId),
+                    now,
                     cancellationToken)
                 .ConfigureAwait(false);
             (accountId, mintFailure) = mint.Status switch

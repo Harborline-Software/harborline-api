@@ -218,7 +218,7 @@ public sealed class VecClipAndCryptoTests
         Assert.Contains("inv-bob", before);
 
         // Crypto-shred subject-alice (destroy their per-subject key via the erasure tombstone).
-        await h.Erasure.MarkErasedAsync(TenantA, new SubjectId("subject-alice"));
+        await h.Erasure.MarkErasedAsync(TenantA, new SubjectId("subject-alice"), Now);
 
         // After: subject-alice's embedding is undecryptable (the sub-key is gone) ⇒ it drops out; subject-bob's
         // is untouched. The index is NOT a shred bypass — even though the ciphertext row still physically exists,
@@ -249,7 +249,7 @@ public sealed class VecClipAndCryptoTests
     public async Task G6_Index_For_Erased_Subject_Fails_Closed()
     {
         await using var h = await VecTestHarness.CreateAsync();
-        await h.Erasure.MarkErasedAsync(TenantA, new SubjectId("subject-gone"));
+        await h.Erasure.MarkErasedAsync(TenantA, new SubjectId("subject-gone"), Now);
         var indexer = h.Indexer(allowStub: true, dimension: Dim);
 
         await Assert.ThrowsAsync<FieldEncryptionDeniedAtIndexException>(() =>
