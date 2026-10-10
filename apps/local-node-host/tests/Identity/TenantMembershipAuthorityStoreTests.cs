@@ -10,7 +10,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
-public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output)
+public sealed partial class TenantMembershipAuthorityStoreTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _output = output;
 
