@@ -61,6 +61,12 @@ public sealed class PackAccessContentTests
     private static JsonNode BindingItem(string operation, params string[] offeredRoles) =>
         JsonSerializer.SerializeToNode(new { operation, scope = "/", offeredRoles })!;
 
+    private const string AssetTypeKey = "access.asset.inspection-kit";
+    private const string AssetTypeId = "access.inspection-kit";
+
+    private static JsonNode AssetTypeItem() =>
+        JsonSerializer.SerializeToNode(new { id = AssetTypeId, displayName = "Inspection kit", traits = new[] { "maintainable" } })!;
+
     [Fact(DisplayName = "208 s3: a pack shipping a role definition and a binding that NARROWS the seed's reviewed offer installs, and the binding is the publisher ceiling")]
     public async Task Role_And_Binding_Install_And_The_Binding_Is_The_Publisher_Ceiling()
     {
@@ -239,6 +245,276 @@ public sealed class PackAccessContentTests
         Assert.Empty(await world.Definitions.ListAsync(OtherTenant));
     }
 
+    // M11 defect 2 (REVIEW-001 P-1/P-3). A released upgrade re-declares every item at the new revision, so
+    // the superseded (key, version) tuple never matches the replacement's. Bindings, roles and asset types
+    // project to an identity that does not carry the item version, and the replacement-removal leg must not
+    // retract an identity the replacement re-declares. A genuinely dropped identity is still retracted.
+
+    [Fact(DisplayName = "M11 defect 2: an upgrade re-declaring the binding and the role at a NEW item version keeps both")]
+    public async Task Upgrade_Redeclaring_Access_Items_At_A_New_Item_Version_Keeps_Them()
+    {
+        var world = new World();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.0.0");
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+
+        world.Clear();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.1.0");
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var upgraded = await world.ProjectAsync();
+
+        Assert.Empty(upgraded.Refusals);
+        Assert.Equal(0, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.Equal(0, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.AuthorizationCapabilityBinding));
+        Assert.NotNull(await world.Vocabulary.ResolveAsync(PackRole));
+        var binding = Assert.Single(await world.Definitions.ListAsync(Tenant));
+        Assert.Equal(new[] { RoleReference.Administrator }, binding.EffectiveRoles.Roles.ToArray());
+        Assert.Equal(1, binding.Definition.Revision);
+        // The defect's durable footprint is a 'pack-withdrawn' EMPTY binding revision. None was appended.
+        Assert.Equal(0L, binding.BindingRevision);
+        Assert.Null(binding.Warning);
+
+        // Replay (the next boot) keeps both: the leg must not re-withdraw on every pass.
+        var replay = await world.ProjectAsync();
+        Assert.Empty(replay.Refusals);
+        Assert.Equal(0, replay.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.Equal(0, replay.RetractedByKind.GetValueOrDefault(PackContentKind.AuthorizationCapabilityBinding));
+        Assert.NotNull(await world.Vocabulary.ResolveAsync(PackRole));
+        var replayed = Assert.Single(await world.Definitions.ListAsync(Tenant));
+        Assert.Equal(new[] { RoleReference.Administrator }, replayed.EffectiveRoles.Roles.ToArray());
+        Assert.Equal(0L, replayed.BindingRevision);
+        Assert.Null(replayed.Warning);
+    }
+
+    [Fact(DisplayName = "M11 defect 2: an upgrade that DROPS the binding and the role at a new item version still removes both")]
+    public async Task Upgrade_Dropping_Access_Items_Removes_Them()
+    {
+        var world = new World();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.0.0");
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+
+        world.Clear();
+        world.Add("access.binding.other", PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(Permission.OrgManageSettings, RoleReference.Administrator.ToString()), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var upgraded = await world.ProjectAsync();
+
+        Assert.Empty(upgraded.Refusals);
+        Assert.Equal(1, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.Equal(1, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.AuthorizationCapabilityBinding));
+        Assert.Null(await world.Vocabulary.ResolveAsync(PackRole));
+        var definitions = await world.Definitions.ListAsync(Tenant);
+        Assert.Equal(2, definitions.Count);
+        var withdrawn = Assert.Single(definitions, row => row.Definition.Operation.Value == TeamRolePermissions.RecordsRead);
+        Assert.Equal(RoleBindingSet.Empty, withdrawn.EffectiveRoles);
+        // A genuine withdrawal appends exactly one EMPTY binding revision.
+        Assert.Equal(1L, withdrawn.BindingRevision);
+        Assert.Equal(BindingWarningCode.EmptyBinding, withdrawn.Warning);
+        var added = Assert.Single(definitions, row => row.Definition.Operation.Value == Permission.OrgManageSettings);
+        Assert.Equal(new[] { RoleReference.Administrator }, added.EffectiveRoles.Roles.ToArray());
+        Assert.Equal(0L, added.BindingRevision);
+    }
+
+    [Fact(DisplayName = "M11 defect 2: a role re-declared at a new item version survives the upgrade, and is removed when a later version drops it")]
+    public async Task Role_Redeclared_Then_Dropped_Across_Upgrades()
+    {
+        var world = new World();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+
+        world.Clear();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var kept = await world.ProjectAsync();
+        Assert.Empty(kept.Refusals);
+        Assert.Equal(0, kept.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.NotNull(await world.Vocabulary.ResolveAsync(PackRole));
+
+        world.Clear();
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.2.0");
+        await world.InstallAndActivateAsync("1.2.0");
+        var dropped = await world.ProjectAsync();
+        Assert.Empty(dropped.Refusals);
+        // Both superseded versions (1.0.0 and 1.1.0) carry the role; the first removal retracts it and the
+        // second finds it already gone, so exactly one retraction is counted.
+        Assert.Equal(1, dropped.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.Null(await world.Vocabulary.ResolveAsync(PackRole));
+    }
+
+    [Fact(DisplayName = "M11 defect 2: a binding re-declared under a NEW item key for the same operation is the same definition and is kept")]
+    public async Task Binding_Moved_To_A_New_Key_Is_Kept()
+    {
+        var world = new World();
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+
+        world.Clear();
+        world.Add("access.binding.records-read-v2", PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var moved = await world.ProjectAsync();
+
+        Assert.Empty(moved.Refusals);
+        Assert.Equal(0, moved.RetractedByKind.GetValueOrDefault(PackContentKind.AuthorizationCapabilityBinding));
+        var binding = Assert.Single(await world.Definitions.ListAsync(Tenant));
+        Assert.Equal(new[] { RoleReference.Administrator }, binding.EffectiveRoles.Roles.ToArray());
+        Assert.Equal(1, binding.Definition.Revision);
+        Assert.Equal(0L, binding.BindingRevision);
+        Assert.Null(binding.Warning);
+    }
+
+    [Fact(DisplayName = "M11 defect 2: a role and an asset type moved to NEW item keys at the SAME item version are kept")]
+    public async Task Role_And_Asset_Type_Moved_To_New_Keys_Are_Kept()
+    {
+        var world = new World();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.0.0");
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition, AssetTypeItem(), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+
+        // A content-key rename at an unchanged item version: (newKey, 1.0.0) never matches (oldKey, 1.0.0).
+        world.Clear();
+        world.Add("access.role.grant-reviewer-v2", PackContentKind.RoleDefinition, RoleItem(), "1.0.0");
+        world.Add("access.asset.inspection-kit-v2", PackContentKind.AssetTypeDefinition, AssetTypeItem(), "1.0.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var moved = await world.ProjectAsync();
+
+        Assert.Empty(moved.Refusals);
+        Assert.Equal(0, moved.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
+        Assert.Equal(0, moved.RetractedByKind.GetValueOrDefault(PackContentKind.AssetTypeDefinition));
+        Assert.Equal(1, moved.AssetTypesAlreadyPresent);
+        Assert.Equal(0, moved.AssetTypesRetracted);
+        Assert.NotNull(await world.Vocabulary.ResolveAsync(PackRole));
+        Assert.NotNull(world.Types.GetSeed(AssetTypeId));
+    }
+
+    [Fact(DisplayName = "M11 defect 2: a tenant-narrowed binding re-declared at a NEW item version keeps the narrowing and gains no withdrawal")]
+    public async Task Narrowed_Binding_Redeclared_At_A_New_Item_Version_Keeps_The_Narrowing()
+    {
+        var world = new World();
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+        var narrowing = await world.Installer.NarrowAsync(
+            world.Context, PackKey, BindingKey, JsonNode.Parse("""{"offeredRoles":[]}""")!,
+            TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
+        Assert.True(narrowing.Recorded, narrowing.RefusalCode);
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+        Assert.Equal(RoleBindingSet.Empty, Assert.Single(await world.Definitions.ListAsync(Tenant)).EffectiveRoles);
+
+        world.Clear();
+        world.Add(BindingKey, PackContentKind.AuthorizationCapabilityBinding,
+            BindingItem(TeamRolePermissions.RecordsRead, RoleReference.Administrator.ToString()), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        // The S-10 re-attach carried the overlay onto the 1.1.0 seed inside the install.
+        Assert.Equal(BindingKey, Assert.Single(world.Overrides()).ContentKey);
+
+        for (var pass = 0; pass < 2; pass++)
+        {
+            var upgraded = await world.ProjectAsync();
+            Assert.Empty(upgraded.Refusals);
+            Assert.Equal(0, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.AuthorizationCapabilityBinding));
+            var binding = Assert.Single(await world.Definitions.ListAsync(Tenant));
+            // The narrowing is applied to the ceiling by the admit loop's narrow-only replace, not by a
+            // withdrawal: the offer stays empty and no EMPTY binding revision was ever appended.
+            Assert.Equal(RoleBindingSet.Empty, binding.Definition.OfferedRoles);
+            Assert.Equal(RoleBindingSet.Empty, binding.EffectiveRoles);
+            Assert.Equal(0L, binding.BindingRevision);
+            Assert.Null(binding.Warning);
+        }
+    }
+
+    [Fact(DisplayName = "M11 defect 2 (P-3): a contested NON-OWNER copy of an asset type does not keep the superseded type alive")]
+    public async Task Contested_Non_Owner_Asset_Type_Does_Not_Keep_The_Superseded_Type()
+    {
+        const string otherPackKey = "harborline.access-contested";
+        const string replacementTypeId = "access.inspection-kit-v2";
+        var world = new World();
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition, AssetTypeItem(), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        Assert.Empty((await world.ProjectAsync()).Refusals);
+        Assert.NotNull(world.Types.GetSeed(AssetTypeId));
+
+        // A second pack ships the SAME content key and the same type id; the key is resolved to this pack,
+        // so the other pack's copy is a contested non-owner that never projects. Its item version (2.0.0)
+        // differs from every version of this pack, so no (key, version) tuple can mask the identity rule.
+        world.RecordOwnership(AssetTypeKey, PackKey);
+        world.Clear();
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition, AssetTypeItem(), "2.0.0");
+        await world.InstallAndActivateAsync("1.0.0", otherPackKey);
+        var contested = await world.ProjectAsync();
+        Assert.Empty(contested.Refusals);
+        Assert.Equal(1, contested.AssetTypesOwnedByOtherPack);
+
+        // This pack's upgrade re-declares the owned key with a DIFFERENT type id: nobody projects the old id.
+        world.Clear();
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition,
+            JsonSerializer.SerializeToNode(new { id = replacementTypeId, displayName = "Inspection kit v2", traits = new[] { "maintainable" } })!,
+            "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var upgraded = await world.ProjectAsync();
+
+        Assert.Empty(upgraded.Refusals);
+        Assert.Equal(1, upgraded.AssetTypesSeeded);
+        Assert.Equal(1, upgraded.AssetTypesOwnedByOtherPack);
+        Assert.Equal(1, upgraded.AssetTypesRetracted);
+        Assert.Equal(1, upgraded.RetractedByKind.GetValueOrDefault(PackContentKind.AssetTypeDefinition));
+        Assert.Null(world.Types.GetSeed(AssetTypeId));
+        Assert.NotNull(world.Types.GetSeed(replacementTypeId));
+    }
+
+    [Fact(DisplayName = "M11 defect 2 (P-3): an asset type re-declared at a new item version stays seeded, and is retracted when a later version drops it")]
+    public async Task Asset_Type_Redeclared_Then_Dropped_Across_Upgrades()
+    {
+        var world = new World();
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition, AssetTypeItem(), "1.0.0");
+        await world.InstallAndActivateAsync("1.0.0");
+        var installed = await world.ProjectAsync();
+        Assert.Empty(installed.Refusals);
+        Assert.Equal(1, installed.AssetTypesSeeded);
+        Assert.NotNull(world.Types.GetSeed(AssetTypeId));
+
+        world.Clear();
+        world.Add(AssetTypeKey, PackContentKind.AssetTypeDefinition, AssetTypeItem(), "1.1.0");
+        await world.InstallAndActivateAsync("1.1.0");
+        var kept = await world.ProjectAsync();
+        Assert.Empty(kept.Refusals);
+        Assert.Equal(1, kept.AssetTypesAlreadyPresent);
+        Assert.Equal(0, kept.AssetTypesRetracted);
+        Assert.Equal(0, kept.RetractedByKind.GetValueOrDefault(PackContentKind.AssetTypeDefinition));
+        Assert.NotNull(world.Types.GetSeed(AssetTypeId));
+
+        // Replay (the next boot) keeps it: the leg must not hide it again on every pass.
+        var replay = await world.ProjectAsync();
+        Assert.Empty(replay.Refusals);
+        Assert.Equal(1, replay.AssetTypesAlreadyPresent);
+        Assert.Equal(0, replay.AssetTypesRetracted);
+        Assert.NotNull(world.Types.GetSeed(AssetTypeId));
+
+        world.Clear();
+        world.Add(RoleKey, PackContentKind.RoleDefinition, RoleItem(), "1.2.0");
+        await world.InstallAndActivateAsync("1.2.0");
+        var dropped = await world.ProjectAsync();
+        Assert.Empty(dropped.Refusals);
+        // Both superseded versions carry the asset type; the first retraction hides it and the second
+        // finds it already hidden, so exactly one retraction is counted.
+        Assert.Equal(1, dropped.AssetTypesRetracted);
+        Assert.Equal(1, dropped.RetractedByKind.GetValueOrDefault(PackContentKind.AssetTypeDefinition));
+        Assert.Null(world.Types.GetSeed(AssetTypeId));
+    }
+
     private static AuthorizationCapabilityDefinition Definition(string operationValue, RoleReference role)
     {
         var operation = AuthorizationOperation.Parse(operationValue);
@@ -316,13 +592,24 @@ public sealed class PackAccessContentTests
 
         public PackInstallContext Context { get; }
 
-        public void Add(string key, PackContentKind kind, JsonNode content) =>
-            _contents.Add(new PackContentSource(key, kind, ItemVersion, content));
+        public IEntityTypeRegistry Types => _services.GetRequiredService<IEntityTypeRegistry>();
+
+        public void Add(string key, PackContentKind kind, JsonNode content, string itemVersion = ItemVersion) =>
+            _contents.Add(new PackContentSource(key, kind, itemVersion, content));
+
+        /// <summary>Starts the next version's contents from nothing (an upgrade ships its own item set).</summary>
+        public void Clear() => _contents.Clear();
+
+        public IReadOnlyList<PackTenantOverride> Overrides() => _store.GetOverrides(Tenant, PackKey);
+
+        /// <summary>Records the tenant's owning-pack choice for a contested content key.</summary>
+        public void RecordOwnership(string contentKey, string owningPackKey) =>
+            _store.RecordKeyOwnership(Tenant, contentKey, owningPackKey);
 
         public Task<PackSeedProjectionSummary> ProjectAsync() =>
             ((IPackSeedProjector)Projector).ProjectActivePacksAsync(Tenant);
 
-        public async Task InstallAndActivateAsync(string packVersion)
+        public async Task InstallAndActivateAsync(string packVersion, string packKey = PackKey)
         {
             var exporter = new PackExporter(
                 new PackContentCanonicalizer(),
@@ -333,7 +620,7 @@ public sealed class PackAccessContentTests
                 timeProvider: TimeProvider.System);
             var export = await exporter.ExportAsync(
                 new PackExportRequest(
-                    Key: PackKey,
+                    Key: packKey,
                     Version: packVersion,
                     Name: "Access administration",
                     Description: "Exercises pack role definitions and capability bindings.",
@@ -350,7 +637,7 @@ public sealed class PackAccessContentTests
             var install = await Installer.InstallAsync(export.FileBytes!, Context);
             Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));
             PlatformPackTestPreload.Activate(_store, Tenant);
-            var activation = Installer.Activate(Tenant, PackKey, packVersion, Now, "test-operator");
+            var activation = Installer.Activate(Tenant, packKey, packVersion, Now, "test-operator");
             Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
         }
     }
