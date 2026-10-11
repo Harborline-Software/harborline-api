@@ -1239,6 +1239,27 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .Select(i => Overlaid(i))
                 .Select(i => (i.Key, i.Version))
                 .ToHashSet();
+            // (M11) Three kinds project to an identity that is NOT their (key, version) tuple: a capability
+            // binding's definition id is derived from (publisher, operation), a role is its name, and an
+            // asset type is its registry id. A released upgrade re-declares every item at the new revision,
+            // so for these kinds a superseded tuple can name the very row the admit loop just wrote (or
+            // found already present), and retracting it would narrow the replacement's own binding to
+            // EMPTY, remove its role, or hide its asset type. Leave a superseded item whose
+            // version-independent identity an ACTIVE pack re-declares, exactly as a re-declared tuple is
+            // left; an identity no ACTIVE pack re-declares is still retracted below. An asset type counts
+            // only where its pack projects the key (DecideContested), as in the admit loop. Every other
+            // kind is keyed by its pinned (key, version) tuple and is covered by admittedTuples alone. A
+            // kind added later whose projection is keyed by anything else must join
+            // VersionIndependentIdentity.
+            var admittedIdentities = installed
+                .Where(p => p.Lifecycle == PackLifecycleState.Active && !platformRefused.Contains(p))
+                .SelectMany(p => p.SeedItems
+                    .Select(i => Overlaid(i))
+                    .Where(i => i.Kind != PackContentKind.AssetTypeDefinition
+                                || DecideContested(p, i, collisions) == ContestedDecision.Project)
+                    .Select(i => VersionIndependentIdentity(p, i)))
+                .OfType<string>()
+                .ToHashSet(StringComparer.Ordinal);
             foreach (var pack in installed.Where(p =>
                          p.Lifecycle == PackLifecycleState.Superseded
                          && p.PackKey == authority.PackId
@@ -1246,7 +1267,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 foreach (var item in RetractionOrder(pack.SeedItems.Select(Overlaid)))
                 {
-                    if (admittedTuples.Contains((item.Key, item.Version)))
+                    if (admittedTuples.Contains((item.Key, item.Version))
+                        || (VersionIndependentIdentity(pack, item) is { } identity
+                            && admittedIdentities.Contains(identity)))
                     {
                         continue;
                     }
@@ -3115,6 +3138,48 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 + "authorization admission with code {Code}.",
                 item.Kind, item.Key, pack.PackKey, pack.Version, AccessProjectionRefusedCode);
             return PackSeedProjectionRefusalCodes.AccessDefinitionRefused;
+        }
+    }
+
+    /// <summary>
+    /// The version-independent identity an item projects to — a capability binding's definition id, a
+    /// role's name, an asset type's registry id — or null for an unparseable item and for every kind whose
+    /// projection is keyed by its pinned (key, version) tuple. The parses are the ones the admit loop and
+    /// the retraction use, so an identity here is exactly the row those two address.
+    /// <para>
+    /// A binding's identity is publisher-scoped (its definition id derives from the publisher), but a role's
+    /// is the bare <c>RoleReference</c>, exactly as the role vocabulary keys it: a superseded role is kept
+    /// whenever ANY active pack declares the same name. Another pack cannot install that name under a
+    /// different owner (the vocabulary refuses a differing definition), so what survives a drop in that
+    /// case is the dropping pack's own entry — a stale, powerless name, because the definition admission
+    /// refuses a binding that offers a role its publisher does not own. Making the role arm owner-aware is
+    /// a separate follow-up, deliberately not done here.
+    /// </para>
+    /// </summary>
+    private static string? VersionIndependentIdentity(InstalledPack pack, PackSeedItem item) => item.Kind switch
+    {
+        PackContentKind.AuthorizationCapabilityBinding when PackAuthorizationContentAdmission.TryParseCapabilityBinding(
+            pack.PackKey, TryParseContent(item), out var binding) => $"binding:{binding!.DefinitionId.Value:N}",
+        PackContentKind.RoleDefinition when PackAuthorizationContentAdmission.TryParseRoleDefinition(
+            pack.PackKey, TryParseContent(item), out var role) => $"role:{role!.Role}",
+        PackContentKind.AssetTypeDefinition => AssetTypeIdentity(pack, item),
+        _ => null,
+    };
+
+    /// <summary>The registry id an asset-type item seeds (the id <c>RetractAssetType</c> hides), or
+    /// null when the item does not parse — a malformed item never seeded, so it re-declares nothing.</summary>
+    private static string? AssetTypeIdentity(InstalledPack pack, PackSeedItem item)
+    {
+        try
+        {
+            return PackAssetTypeContent.TryParse(
+                    TryParseContent(item), item.Version, FormVersionByKey(pack), out var id, out _, out _)
+                ? $"asset:{id.Value}"
+                : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
         }
     }
 
