@@ -13,7 +13,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
-public sealed class WebTenantSelectionAuthorityTests
+public sealed partial class WebTenantSelectionAuthorityTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 0, 0, TimeSpan.Zero);
@@ -678,13 +678,26 @@ public sealed class WebTenantSelectionAuthorityTests
         public int ReadCalls { get; private set; }
         public int WriteCalls { get; private set; }
 
+        /// <summary>Rewrites (or hides, by returning null) the membership this tenant reports.</summary>
+        public Func<TenantMembershipSnapshot, TenantMembershipSnapshot?>? MembershipView { get; set; }
+
+        /// <summary>One-shot hook run at the end of the next selection finalize.</summary>
+        public Func<Task>? AfterFinalize { get; set; }
+
+        public long ReceiptDocumentOwnerVersion { get; set; } = 2;
+        public long ReceiptAuditSequence { get; set; } = 1;
+
+        /// <summary>Once a receipt is recorded, every later finalize reports a different audit sequence.</summary>
+        public bool DriftReceiptAfterFirstFinalize { get; set; }
+
         public Task<TenantMembershipSnapshot?> GetMembershipAsync(
             string accountId,
             CancellationToken cancellationToken)
         {
             ReadCalls++;
+            var visible = returnsMembership && accountId == membership.AccountId ? membership : null;
             return Task.FromResult<TenantMembershipSnapshot?>(
-                returnsMembership && accountId == membership.AccountId ? membership : null);
+                visible is not null && MembershipView is not null ? MembershipView(visible) : visible);
         }
 
         public Task<bool> IsAdmissionBlockedAsync(
@@ -730,11 +743,12 @@ public sealed class WebTenantSelectionAuthorityTests
             SessionCountsObservedDuringFinalize.Add(await sessions.UserSessions.CountAsync(cancellationToken));
             FinalizeCalls++;
             if (ReadHomeState is not null) FinalizeHomeStates.Add(await ReadHomeState());
+            var recorded = _receipt is not null;
             var receipt = _receipt ??= new TenantSessionSelectionReceipt(
                 ReceiptTenantId ?? TenantId,
-                DocumentOwnerVersion: 2,
+                DocumentOwnerVersion: ReceiptDocumentOwnerVersion,
                 membership.MembershipId,
-                AuditSequence: 1,
+                AuditSequence: ReceiptAuditSequence,
                 AuditHeadHash: new string('A', 64),
                 IntentDigest: _intentDigest ?? throw new InvalidOperationException("prepare was not called"),
                 HomeDecisionDigest: new string('C', 64));
@@ -743,7 +757,15 @@ public sealed class WebTenantSelectionAuthorityTests
                 ThrowAfterFinalizeOnce = false;
                 throw new InvalidOperationException("injected response loss after tenant finalization");
             }
-            return receipt;
+            var after = AfterFinalize;
+            AfterFinalize = null;
+            if (after is not null)
+            {
+                await after();
+            }
+            return DriftReceiptAfterFirstFinalize && recorded
+                ? receipt with { AuditSequence = receipt.AuditSequence + 1 }
+                : receipt;
         }
 
         public Task AbortSessionSelectionAsync(
@@ -924,6 +946,12 @@ public sealed class WebTenantSelectionAuthorityTests
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
         public Func<Task>? BeforeAcquire { get; set; }
+
+        /// <summary>When set, every acquire is refused (the call is still counted).</summary>
+        public bool DenyAcquire { get; set; }
+
+        /// <summary>The resource id of every lease actually granted, in order.</summary>
+        public List<string> AcquiredResources { get; } = [];
         public Exception? ReleaseFailure { get; set; }
         public CancellationToken LastReleaseToken { get; private set; }
         public int AcquireCalls { get; private set; }
@@ -934,9 +962,11 @@ public sealed class WebTenantSelectionAuthorityTests
             var before = BeforeAcquire;
             BeforeAcquire = null;
             if (before is not null) await before();
+            if (DenyAcquire) return null;
             var lease = new Lease(
                 Guid.NewGuid().ToString("N"), resourceId, "test", Now, Now + duration, []);
             _held[lease.LeaseId] = lease;
+            AcquiredResources.Add(resourceId);
             return lease;
         }
         public Task ReleaseAsync(Lease lease, CancellationToken ct)

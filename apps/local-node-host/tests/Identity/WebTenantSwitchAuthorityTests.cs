@@ -13,7 +13,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
-public sealed class WebTenantSwitchAuthorityTests
+public sealed partial class WebTenantSwitchAuthorityTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 28, 3, 0, 0, TimeSpan.Zero);
@@ -406,7 +406,12 @@ public sealed class WebTenantSwitchAuthorityTests
             RecordingMembershipStore oldStore,
             RecordingMembershipStore targetStore,
             FixedPartitionResolver resolver,
-            WebTenantSwitchAuthority authority)
+            WebTenantSwitchAuthority authority,
+            AlwaysLeaseCoordinator oldLeases,
+            AlwaysLeaseCoordinator targetLeases,
+            List<string> storeLog,
+            List<string> leaseLog,
+            FixedCandidateLocator candidates)
         {
             _directory = directory;
             _resolver = resolver;
@@ -416,6 +421,11 @@ public sealed class WebTenantSwitchAuthorityTests
             OldStore = oldStore;
             TargetStore = targetStore;
             Authority = authority;
+            OldLeases = oldLeases;
+            TargetLeases = targetLeases;
+            StoreLog = storeLog;
+            LeaseLog = leaseLog;
+            Candidates = candidates;
         }
 
         internal IdentityContextFactory IdentityFactory { get; }
@@ -424,13 +434,23 @@ public sealed class WebTenantSwitchAuthorityTests
         internal RecordingMembershipStore OldStore { get; }
         internal RecordingMembershipStore TargetStore { get; }
         internal WebTenantSwitchAuthority Authority { get; }
+        internal AlwaysLeaseCoordinator OldLeases { get; }
+        internal AlwaysLeaseCoordinator TargetLeases { get; }
+
+        /// <summary>Tenant-head finalize calls, in order, across both recording stores.</summary>
+        internal List<string> StoreLog { get; }
+
+        /// <summary>Lease acquire and release calls, in order, across both tenant partitions.</summary>
+        internal List<string> LeaseLog { get; }
+
+        internal FixedCandidateLocator Candidates { get; }
 
         /// <summary>
         /// A fresh host over the same identity and session files. The recording tenant stores stand
         /// in for the tenant files, so they carry over as the durable tenant state.
         /// </summary>
         internal (WebTenantSwitchAuthority Authority, InstallationIdentityCoordinatorRecoveryService Recovery)
-            Restart()
+            Restart(DateTimeOffset? now = null)
         {
             var identityFactory = new IdentityContextFactory(Path.Combine(_directory, "identity.db"));
             var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
@@ -450,7 +470,7 @@ public sealed class WebTenantSwitchAuthorityTests
                 _resolver,
                 new FixedPartyReader(null),
                 Options.Create(new SessionOptions()),
-                new FixedTimeProvider(Now));
+                new FixedTimeProvider(now ?? Now));
             return (authority, new InstallationIdentityCoordinatorRecoveryService(
                 identityFactory,
                 coordinator,
@@ -459,7 +479,8 @@ public sealed class WebTenantSwitchAuthorityTests
 
         internal static async Task<SwitchFixture> CreateAsync(
             bool listTarget = true,
-            string? partyVerifiedTenant = null)
+            string? partyVerifiedTenant = null,
+            SessionOptions? sessionOptions = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"tenant-switch-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -524,17 +545,21 @@ public sealed class WebTenantSwitchAuthorityTests
                 await sessions.SaveChangesAsync();
             }
 
-            var oldStore = new RecordingMembershipStore(oldMembership, sessionFactory);
-            var targetStore = new RecordingMembershipStore(targetMembership, sessionFactory);
+            var storeLog = new List<string>();
+            var leaseLog = new List<string>();
+            var oldStore = new RecordingMembershipStore(oldMembership, sessionFactory, storeLog);
+            var targetStore = new RecordingMembershipStore(targetMembership, sessionFactory, storeLog);
+            var oldLeases = new AlwaysLeaseCoordinator(leaseLog);
+            var targetLeases = new AlwaysLeaseCoordinator(leaseLog);
             var resolver = new FixedPartitionResolver(
                 new TenantIdentityAuthorityPartition(
                     OldTenantId,
                     oldStore,
-                    new AlwaysLeaseCoordinator()),
+                    oldLeases),
                 new TenantIdentityAuthorityPartition(
                     TargetTenantId,
                     targetStore,
-                    new AlwaysLeaseCoordinator()));
+                    targetLeases));
             var coordinator = new InstallationIdentityCoordinatorService(
                 identityFactory,
                 resolver,
@@ -542,15 +567,16 @@ public sealed class WebTenantSwitchAuthorityTests
                 new FixedTimeProvider(Now),
                 TestAuthorization.Gate(true));
             var selectedStore = new WebSelectedSessionStore(sessionFactory);
+            var candidates = new FixedCandidateLocator(listTarget);
             var authority = new WebTenantSwitchAuthority(
                 identityFactory,
                 sessionFactory,
                 selectedStore,
-                new FixedCandidateLocator(listTarget),
+                candidates,
                 coordinator,
                 resolver,
                 new FixedPartyReader(partyVerifiedTenant),
-                Options.Create(new SessionOptions()),
+                Options.Create(sessionOptions ?? new SessionOptions()),
                 new FixedTimeProvider(Now));
             return new SwitchFixture(
                 directory,
@@ -560,7 +586,12 @@ public sealed class WebTenantSwitchAuthorityTests
                 oldStore,
                 targetStore,
                 resolver,
-                authority);
+                authority,
+                oldLeases,
+                targetLeases,
+                storeLog,
+                leaseLog,
+                candidates);
         }
 
         public async ValueTask DisposeAsync()
@@ -586,7 +617,8 @@ public sealed class WebTenantSwitchAuthorityTests
 
     private sealed class RecordingMembershipStore(
         TenantMembershipSnapshot membership,
-        IDbContextFactory<NodeLocalWebSessionDbContext> sessionFactory)
+        IDbContextFactory<NodeLocalWebSessionDbContext> sessionFactory,
+        List<string>? log = null)
         : ITenantMembershipAuthorityStore
     {
         private TenantSessionSelectionReceipt? _selectionReceipt;
@@ -599,18 +631,42 @@ public sealed class WebTenantSwitchAuthorityTests
         public string? ReceiptTenantId { get; set; }
         public List<VisibilityObservation> VisibilityObservedDuringFinalize { get; } = [];
 
+        /// <summary>Rewrites (or hides, by returning null) the membership this tenant reports.</summary>
+        public Func<TenantMembershipSnapshot, TenantMembershipSnapshot?>? MembershipView { get; set; }
+
+        /// <summary>One-shot hook run at the end of the next selection prepare.</summary>
+        public Func<Task>? AfterPrepare { get; set; }
+
+        /// <summary>One-shot hook run at the end of the next selection finalize.</summary>
+        public Func<Task>? AfterFinalize { get; set; }
+
+        public long ReceiptDocumentOwnerVersion { get; set; } = 2;
+        public long ReceiptAuditSequence { get; set; } = 1;
+
+        /// <summary>Once a receipt is recorded, every later finalize reports a different audit sequence.</summary>
+        public bool DriftReceiptAfterFirstFinalize { get; set; }
+
+        public int AbortSelectionCalls { get; private set; }
+        public int AbortRevocationCalls { get; private set; }
+
         public Task<TenantMembershipSnapshot?> GetMembershipAsync(
             string accountId,
-            CancellationToken cancellationToken) =>
-            Task.FromResult<TenantMembershipSnapshot?>(
-                accountId == membership.AccountId ? membership : null);
+            CancellationToken cancellationToken)
+        {
+            if (accountId != membership.AccountId)
+            {
+                return Task.FromResult<TenantMembershipSnapshot?>(null);
+            }
+            return Task.FromResult<TenantMembershipSnapshot?>(
+                MembershipView is null ? membership : MembershipView(membership));
+        }
 
         public Task<bool> IsAdmissionBlockedAsync(
             string accountId,
             CancellationToken cancellationToken) =>
             Task.FromResult(false);
 
-        public Task PrepareSessionSelectionAsync(
+        public async Task PrepareSessionSelectionAsync(
             string correlationId,
             string commandFingerprint,
             string accountId,
@@ -627,7 +683,12 @@ public sealed class WebTenantSwitchAuthorityTests
                 accountId,
                 membershipId,
                 payloadDigest);
-            return Task.CompletedTask;
+            var after = AfterPrepare;
+            AfterPrepare = null;
+            if (after is not null)
+            {
+                await after();
+            }
         }
 
         public async Task<TenantSessionSelectionReceipt> FinalizeSessionSelectionAsync(
@@ -636,20 +697,31 @@ public sealed class WebTenantSwitchAuthorityTests
             DateTimeOffset occurredAtUtc,
             CancellationToken cancellationToken)
         {
+            log?.Add($"finalize-selection:{TenantId}");
             await RecordVisibilityAsync(cancellationToken);
             if (ThrowAfterFinalizeOnce)
             {
                 ThrowAfterFinalizeOnce = false;
                 throw new InvalidOperationException("injected target audit interruption");
             }
-            return _selectionReceipt ??= new TenantSessionSelectionReceipt(
+            var recorded = _selectionReceipt is not null;
+            var receipt = _selectionReceipt ??= new TenantSessionSelectionReceipt(
                 ReceiptTenantId ?? TenantId,
-                DocumentOwnerVersion: 2,
+                DocumentOwnerVersion: ReceiptDocumentOwnerVersion,
                 membership.MembershipId,
-                AuditSequence: 1,
+                AuditSequence: ReceiptAuditSequence,
                 AuditHeadHash: new string('A', 64),
                 IntentDigest: _selectionIntentDigest!,
                 HomeDecisionDigest: new string('B', 64));
+            var after = AfterFinalize;
+            AfterFinalize = null;
+            if (after is not null)
+            {
+                await after();
+            }
+            return DriftReceiptAfterFirstFinalize && recorded
+                ? receipt with { AuditSequence = receipt.AuditSequence + 1 }
+                : receipt;
         }
 
         public Task PrepareSessionRevocationAsync(
@@ -680,13 +752,14 @@ public sealed class WebTenantSwitchAuthorityTests
             DateTimeOffset occurredAtUtc,
             CancellationToken cancellationToken)
         {
+            log?.Add($"finalize-revocation:{TenantId}");
             await RecordVisibilityAsync(cancellationToken);
             return _revocationReceipt ??= new TenantSessionRevocationReceipt(
                 ReceiptTenantId ?? TenantId,
-                DocumentOwnerVersion: 2,
+                DocumentOwnerVersion: ReceiptDocumentOwnerVersion,
                 membership.MembershipId,
                 SessionCorrelationId: "old-session",
-                AuditSequence: 1,
+                AuditSequence: ReceiptAuditSequence,
                 AuditHeadHash: new string('C', 64),
                 IntentDigest: _revocationIntentDigest!,
                 HomeDecisionDigest: new string('D', 64));
@@ -704,15 +777,21 @@ public sealed class WebTenantSwitchAuthorityTests
             string correlationId,
             string commandFingerprint,
             DateTimeOffset occurredAtUtc,
-            CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            AbortSelectionCalls++;
+            return Task.CompletedTask;
+        }
 
         public Task AbortSessionRevocationAsync(
             string correlationId,
             string commandFingerprint,
             DateTimeOffset occurredAtUtc,
-            CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+            CancellationToken cancellationToken)
+        {
+            AbortRevocationCalls++;
+            return Task.CompletedTask;
+        }
 
         public Task PrepareAsync(
             string correlationId,
@@ -775,16 +854,24 @@ public sealed class WebTenantSwitchAuthorityTests
                 : Array.Empty<InstallationTenantCandidate>(),
         ];
 
+        public int ListCalls { get; private set; }
+
         public Task<IReadOnlyList<InstallationTenantCandidate>> ListForAccountAsync(
             PrincipalUserId accountPrincipal,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Candidates);
+            CancellationToken cancellationToken = default)
+        {
+            ListCalls++;
+            return Task.FromResult(Candidates);
+        }
 
         public Task<IReadOnlyList<InstallationTenantCandidate>> ListForAccountAsync(
             PrincipalUserId accountPrincipal,
             string? excludedCorrelationId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Candidates);
+            CancellationToken cancellationToken = default)
+        {
+            ListCalls++;
+            return Task.FromResult(Candidates);
+        }
     }
 
     private sealed class FixedPartyReader(string? verifiedTenant) : ICanonicalPrincipalPartyReader
@@ -817,12 +904,20 @@ public sealed class WebTenantSwitchAuthorityTests
             Task.FromResult(membership.AuthorizationEpoch);
     }
 
-    private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator
+    private sealed class AlwaysLeaseCoordinator(List<string>? log = null) : ILeaseCoordinator
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
 
+        /// <summary>When set, every acquire is refused (the call is still logged).</summary>
+        public bool DenyAcquire { get; set; }
+
         public Task<Lease?> AcquireAsync(string resourceId, TimeSpan duration, CancellationToken ct)
         {
+            log?.Add($"acquire:{resourceId}");
+            if (DenyAcquire)
+            {
+                return Task.FromResult<Lease?>(null);
+            }
             var lease = new Lease(
                 Guid.NewGuid().ToString("N"),
                 resourceId,
@@ -836,6 +931,7 @@ public sealed class WebTenantSwitchAuthorityTests
 
         public Task ReleaseAsync(Lease lease, CancellationToken ct)
         {
+            log?.Add($"release:{lease.ResourceId}");
             _held.TryRemove(lease.LeaseId, out _);
             return Task.CompletedTask;
         }
