@@ -354,7 +354,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal("ack-false", checks[0].GetProperty("id").GetString());
         Assert.False(checks[0].TryGetProperty("allowsSensitiveInputs", out _));
         Assert.Equal("ack-true", checks[1].GetProperty("id").GetString());
-        Assert.True(checks[1].GetProperty("allowsSensitiveInputs").GetBoolean());
+        // Presence first: an omitted acknowledgment must fail this assertion, not throw from GetProperty.
+        Assert.True(checks[1].TryGetProperty("allowsSensitiveInputs", out var ackTrue));
+        Assert.Equal(JsonValueKind.True, ackTrue.ValueKind);
         foreach (var check in checks.EnumerateArray())
         {
             Assert.Equal("lookup", check.GetProperty("connector").GetString());
