@@ -170,6 +170,513 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
     private static object Text(string en) => new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = en } };
 
+    // Oracle: reviewed T-1016 / DES-0014 C3 and T-724 rulings 61/79/80, not mapper output.
+    // All eleven Forms producers concern prospective revisions or inline locations: target omitted.
+    private static JsonElement AssertC3(JsonElement envelope, string stage, string code, string pointer)
+    {
+        Assert.Equal(new[] { "refusals", "stage" },
+            envelope.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(stage, envelope.GetProperty("stage").GetString());
+        var item = Assert.Single(envelope.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(code, item.GetProperty("code").GetString());
+        Assert.Equal(pointer, item.GetProperty("pointer").GetString());
+        Assert.False(item.TryGetProperty("target", out _));
+        Assert.False(item.TryGetProperty("message", out _));
+        Assert.False(item.TryGetProperty("definition", out _));
+        if (item.TryGetProperty("detail", out var detail))
+        {
+            Assert.False(detail.TryGetProperty("message", out _));
+            Assert.False(detail.TryGetProperty("definition", out _));
+            Assert.False(detail.TryGetProperty("unknownKind", out _));
+            Assert.False(detail.TryGetProperty("offendingValue", out _));
+            Assert.False(detail.TryGetProperty("role", out _));
+        }
+        return item;
+    }
+
+    private async Task<(string Head, string History)> SnapshotAsync(string formId) =>
+        (await _client.GetStringAsync($"{DefBase}/{formId}"),
+            await _client.GetStringAsync($"{DefBase}/{formId}/versions"));
+
+    // Literal C3/DTO oracles from reviewed T-1016; IDs refer only to the retained report.
+    // New fixtures exercise production HTTP routes. Predicted mutation kills are not evidence.
+    private async Task<(string Head, string History)> SeedC3RetainedHistoryAsync(string id)
+    {
+        using var published = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, published.StatusCode);
+        var draft = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        draft["draft"] = true;
+        using var savedDraft = await _client.PutAsJsonAsync($"{DefBase}/{id}", draft);
+        Assert.Equal(HttpStatusCode.OK, savedDraft.StatusCode);
+        var snapshot = await SnapshotAsync(id);
+        using var history = JsonDocument.Parse(snapshot.History);
+        Assert.Equal(new[] { "1.0.1", "1.0.0" }, history.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("version").GetString()));
+        Assert.Equal(new[] { "Draft", "Published" }, history.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("status").GetString()));
+        return snapshot;
+    }
+
+    [Theory]
+    [InlineData("form-write", "/overlay/aspects/access/writeRoles")]
+    [InlineData("direct-write", "/overlay/fields/name/writeRoles")]
+    [InlineData("aspect-write", "/overlay/fields/name/aspects/access/writeRoles")]
+    [InlineData("mixed-read", "/overlay/fields/name")]
+    [InlineData("mixed-write", "/overlay/fields/name")]
+    public async Task C3_Write_And_Mixed_Gates_Preserve_Their_Actual_Locations(string lane, string pointer)
+    {
+        const string id = "c3-lane-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var overlay = body["overlay"]!.AsObject();
+        overlay["sections"]![0]!["fields"] = new JsonArray("unit");
+        var access = new JsonObject
+        {
+            ["readRoles"] = new JsonArray(),
+            ["writeRoles"] = new JsonArray(),
+        };
+        var field = overlay["fields"]!["name"]!.AsObject();
+        field["readRoles"] = new JsonArray();
+        field["writeRoles"] = new JsonArray();
+        if (lane == "form-write")
+        {
+            access["readRoles"] = new JsonArray("Admin");
+            access["writeRoles"] = new JsonArray("private/unresolved-role");
+            overlay["aspects"] = new JsonObject { ["access"] = access };
+        }
+        else
+        {
+            field["aspects"] = new JsonObject { ["access"] = access };
+            if (lane == "direct-write") field["writeRoles"] = new JsonArray("private/unresolved-role");
+            else if (lane == "aspect-write") access["writeRoles"] = new JsonArray("private/unresolved-role");
+            else if (lane == "mixed-write")
+            {
+                field["writeRoles"] = new JsonArray("Admin");
+                access["writeRoles"] = new JsonArray("private/unresolved-role");
+            }
+            else
+            {
+                field["readRoles"] = new JsonArray("Admin");
+                access["readRoles"] = new JsonArray("private/unresolved-role");
+            }
+        }
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "publish", "authorization.role_gate.unresolved_role", pointer);
+        Assert.DoesNotContain("private/unresolved-role", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Fact]
+    public async Task C3_Second_Section_Write_Role_Uses_Section_Index_Despite_Field_Name_Collision()
+    {
+        const string id = "c3-second-section";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["n:second"] = JsonSerializer.SerializeToNode(new { label = Text("Other field"), piiSensitivity = "None" });
+        body["fieldsMeta"]!["n:second"] = new JsonObject { ["type"] = "text" };
+        body["overlay"]!["sections"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "second", ["title"] = JsonSerializer.SerializeToNode(Text("Second")),
+            ["fields"] = new JsonArray("n:second"),
+            ["access"] = new JsonObject
+            {
+                ["readRoles"] = new JsonArray("Admin"),
+                ["writeRoles"] = new JsonArray("Administrator"),
+            },
+        });
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, "publish", "authorization.gate_reference.required_roles_invalid",
+            "/overlay/sections/1/access/writeRoles");
+        Assert.Equal("section:second.write", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Administrator", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("section", "/overlay/sections", "sections.access.writeStandings")]
+    [InlineData("form", "/overlay", "aspects.access.writeStandings")]
+    public async Task C3_Standing_Parse_Locations_Remain_Author(string location, string pointer, string detailField)
+    {
+        const string id = "c3-standing-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var access = new JsonObject { ["writeStandings"] = new JsonArray("private rejected standing!") };
+        if (location == "section") body["overlay"]!["sections"]![0]!["access"] = access;
+        else body["overlay"]!["aspects"] = new JsonObject { ["access"] = access };
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, "author", "authorization.gate_reference.required_standings_invalid", pointer);
+        Assert.Equal(detailField, item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("private rejected standing!", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("connector", "form.checks.empty_connector")]
+    [InlineData("id", "form.checks.bad_id")]
+    [InlineData("failCode", "form.checks.empty_fail_code")]
+    public async Task C3_Async_Check_Omitted_Values_Refuse_At_Publish(string omitted, string code)
+    {
+        const string id = "c3-async-oracle";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var check = new JsonObject { ["id"] = "check-1", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate" };
+        check.Remove(omitted);
+        body["overlay"]!["asyncChecks"] = new JsonArray(check);
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "publish", code, "/overlay/asyncChecks");
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Fact]
+    public async Task C3_Async_Acknowledgment_And_Pii_Projection_Have_Literal_Values()
+    {
+        const string id = "c3-projection-oracle";
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["unit"]!["piiSensitivity"] = "Sensitive";
+        body["overlay"]!["asyncChecks"] = new JsonArray(
+            new JsonObject { ["id"] = "ack-false", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate", ["inputs"] = new JsonArray("name"), ["allowsSensitiveInputs"] = false },
+            new JsonObject { ["id"] = "ack-true", ["connector"] = "lookup", ["field"] = "name", ["failCode"] = "duplicate", ["inputs"] = new JsonArray("name"), ["allowsSensitiveInputs"] = true });
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/{id}");
+        var overlay = loaded.GetProperty("overlay");
+        Assert.Equal("None", overlay.GetProperty("fields").GetProperty("name").GetProperty("piiSensitivity").GetString());
+        Assert.Equal("Sensitive", overlay.GetProperty("fields").GetProperty("unit").GetProperty("piiSensitivity").GetString());
+        var checks = overlay.GetProperty("asyncChecks");
+        Assert.Equal(2, checks.GetArrayLength());
+        Assert.Equal("ack-false", checks[0].GetProperty("id").GetString());
+        Assert.False(checks[0].TryGetProperty("allowsSensitiveInputs", out _));
+        Assert.Equal("ack-true", checks[1].GetProperty("id").GetString());
+        // Presence first: an omitted acknowledgment must fail this assertion, not throw from GetProperty.
+        Assert.True(checks[1].TryGetProperty("allowsSensitiveInputs", out var ackTrue));
+        Assert.Equal(JsonValueKind.True, ackTrue.ValueKind);
+        foreach (var check in checks.EnumerateArray())
+        {
+            Assert.Equal("lookup", check.GetProperty("connector").GetString());
+            Assert.Equal("duplicate", check.GetProperty("failCode").GetString());
+            Assert.Equal(new[] { "name" }, check.GetProperty("inputs").EnumerateArray().Select(value => value.GetString()));
+        }
+    }
+
+    [Fact]
+    public async Task C3_Admissible_Empty_Model_Inputs_Are_Omitted_By_Real_Get()
+    {
+        const string id = "c3-native-empty-inputs";
+        using var saved = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var source = await _definitions.GetAsync(new DefinitionCoordinates(tenant, id, "1.0.0"));
+        var version = new SemanticVersion(1, 0, 1);
+        // Seed an admissible native model through the established raw-store fixture seam.
+        await _app.Services.GetRequiredService<IFormDefinitionStore>().RegisterAsync(source with
+        {
+            Version = version, Envelope = source.Envelope with { Version = version },
+            Overlay = source.Overlay with { AsyncChecks = new[] { new AsyncValidationCheck("empty-inputs", "lookup", "name", "duplicate", Inputs: Array.Empty<string>()) } },
+        });
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/{id}");
+        Assert.Equal("1.0.1", loaded.GetProperty("version").GetString());
+        var check = Assert.Single(loaded.GetProperty("overlay").GetProperty("asyncChecks").EnumerateArray());
+        Assert.Equal("empty-inputs", check.GetProperty("id").GetString());
+        Assert.False(check.TryGetProperty("inputs", out _));
+    }
+
+    [Fact]
+    public async Task C3_Omitted_Acknowledgment_Refuses_A_Sensitive_Aspect_Feed()
+    {
+        const string id = "c3-omitted-ack";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(ClassificationSaveBody(ackSensitiveCheck: true))!.AsObject();
+        body["overlay"]!["asyncChecks"]![0]!.AsObject().Remove("allowsSensitiveInputs");
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "publish",
+            "aspect.sensitive_input_unacknowledged", "/overlay/asyncChecks");
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("Direct")]
+    [InlineData("dIrEcT")]
+    public async Task C3_Direct_Pii_Compatibility_Projects_Sensitive(string value)
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = value;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/c3-direct", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/c3-direct");
+        Assert.Equal("Sensitive", loaded.GetProperty("overlay").GetProperty("fields").GetProperty("name").GetProperty("piiSensitivity").GetString());
+    }
+
+    [Theory]
+    [InlineData(false, "2")]
+    [InlineData(true, "2")]
+    [InlineData(false, "-1")]
+    [InlineData(true, "-1")]
+    public async Task C3_Undefined_Numeric_Pii_Refuses_At_Author_Without_Changing_History(bool draft, string value)
+    {
+        const string id = "c3-numeric-pii";
+        var before = await SeedC3RetainedHistoryAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = value;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var item = AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "author",
+            "form_definition.pii_sensitivity_unknown", "/overlay/fields/name/piiSensitivity");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task C3_Catalogue_Support_Refuses_At_Author_With_No_Revision(bool draft)
+    {
+        var body = CatalogueFieldSourceContractTests.Content();
+        body["draft"] = draft;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/c3-catalogue", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        AssertC3(await response.Content.ReadFromJsonAsync<JsonElement>(), "author",
+            "catalogue-field-source.unsupported-capability-or-schema-version", "/catalogueFieldSource");
+        Assert.Equal("[]", await _client.GetStringAsync($"{DefBase}/c3-catalogue/versions"));
+    }
+
+    [Theory]
+    [InlineData(false, "pii", "/overlay/fields/a~0~1b/piiSensitivity")]
+    [InlineData(true, "pii", "/overlay/fields/a~0~1b/piiSensitivity")]
+    [InlineData(false, "type", "/fieldsMeta/a~0~1b/type")]
+    [InlineData(true, "type", "/fieldsMeta/a~0~1b/type")]
+    [InlineData(false, "constraint", "/fieldsMeta/a~0~1b/validations")]
+    [InlineData(true, "constraint", "/fieldsMeta/a~0~1b/validations")]
+    public async Task C3_Author_Metadata_Escapes_Pointers_And_Preserves_History(bool draft, string defect, string pointer)
+    {
+        const string id = "c3-metadata";
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var before = await SnapshotAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        var fields = body["overlay"]!["fields"]!.AsObject();
+        fields["a~/b"] = fields["name"]!.DeepClone();
+        fields.Remove("name");
+        var meta = body["fieldsMeta"]!.AsObject();
+        meta["a~/b"] = meta["name"]!.DeepClone();
+        meta.Remove("name");
+        body["overlay"]!["sections"]![0]!["fields"]![0] = "a~/b";
+        const string rejected = "rejected-private-token";
+        var code = "form_definition.pii_sensitivity_unknown";
+        if (defect == "pii") fields["a~/b"]!["piiSensitivity"] = rejected;
+        else if (defect == "type")
+        {
+            fields["a~/b"]!.AsObject().Remove("piiSensitivity");
+            meta["a~/b"]!["type"] = rejected;
+            code = "form_definition.field_type_unknown";
+        }
+        else
+        {
+            meta["a~/b"]!["validations"] = new JsonArray(new JsonObject { ["code"] = rejected });
+            code = "form.constraint.unknown_code";
+        }
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "author", code, pointer);
+        Assert.DoesNotContain(rejected, wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task C3_BuildDefinition_Gate_Catch_Is_Author_For_Both_Save_Intents(bool draft)
+    {
+        const string id = "c3-standing";
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var before = await SnapshotAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        body["overlay"]!["fields"]!["name"]!["readStandings"] = new JsonArray("private rejected standing!");
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, "author", "authorization.gate_reference.required_standings_invalid", "/overlay/fields");
+        Assert.Equal("fields.readStandings", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("private rejected standing", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Gate reference refused", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData(false, "publish")]
+    [InlineData(true, "author")]
+    public async Task C3_Role_Admission_Drops_The_Rejected_Subject_And_Preserves_History(bool draft, string stage)
+    {
+        const string id = "c3-role";
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var before = await SnapshotAsync(id);
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        body["overlay"]!["sections"]![0]!["access"] = new JsonObject
+        {
+            ["readRoles"] = new JsonArray("private/unresolved-role"),
+            ["writeRoles"] = new JsonArray("Admin"),
+        };
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var item = AssertC3(wire, stage, "authorization.role_gate.unresolved_role", "/overlay/sections/0/access/readRoles");
+        Assert.Equal("section:applicant.read", item.GetProperty("detail").GetProperty("gate").GetString());
+        Assert.DoesNotContain("private/unresolved-role", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Role-gated definition refused", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData(false, "publish")]
+    [InlineData(true, "author")]
+    public async Task C3_Provenance_Points_At_The_Stored_Head_Without_Disclosing_A_Target(bool draft, string stage)
+    {
+        const string id = "c3-provenance";
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var source = await _definitions.GetAsync(new DefinitionCoordinates(tenant, id, "1.0.0"));
+        // Model an existing protected published head through the established raw-store fixture seam.
+        await _app.Services.GetRequiredService<IFormDefinitionStore>().RegisterAsync(source with
+        {
+            Version = new SemanticVersion(1, 0, 1),
+            Envelope = source.Envelope with { Version = new SemanticVersion(1, 0, 1), CascadeLayer = CascadeLayer.Base },
+        });
+        var before = await SnapshotAsync(id);
+        using var storedHead = JsonDocument.Parse(before.Head);
+        Assert.Equal("Base", storedHead.RootElement.GetProperty("cascadeLayer").GetString());
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, stage, "authorization.definition_provenance.layer_mismatch", "/cascadeLayer");
+        Assert.DoesNotContain("Definition provenance refused", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Fact]
+    public async Task C3_Duplicate_Section_Gate_Locations_Use_The_Affected_Aggregate()
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var sections = body["overlay"]!["sections"]!.AsArray();
+        var duplicate = sections[0]!.DeepClone();
+        duplicate["access"] = new JsonObject
+        {
+            ["readRoles"] = new JsonArray("private-invalid-role"),
+            ["writeRoles"] = new JsonArray("Admin"),
+        };
+        sections.Add(duplicate);
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/c3-duplicate-section", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "publish", "authorization.gate_reference.required_roles_invalid", "/overlay/sections");
+        Assert.DoesNotContain("private-invalid-role", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal("[]", await _client.GetStringAsync($"{DefBase}/c3-duplicate-section/versions"));
+    }
+
+    [Theory]
+    [InlineData("direct", "/overlay/fields/name/readRoles")]
+    [InlineData("aspect", "/overlay/fields/name/aspects/access/readRoles")]
+    [InlineData("both", "/overlay/fields/name")]
+    public async Task C3_Field_Gate_Locations_Distinguish_Direct_And_Aspect_Lanes(string lane, string pointer)
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        // Leave name outside the section's inherited role ceiling so classification admission
+        // reaches the actual field role gate instead of refusing a policy-widening attempt first.
+        body["overlay"]!["sections"]![0]!["fields"] = new JsonArray("unit");
+        var field = body["overlay"]!["fields"]!["name"]!.AsObject();
+        if (lane == "direct") field["readRoles"] = new JsonArray("private/unresolved-role");
+        else
+        {
+            // A direct standing is a separate lane and cannot redirect an aspect role pointer.
+            field["readStandings"] = new JsonArray("record-handler");
+            if (lane == "both") field["readRoles"] = new JsonArray("Admin");
+            field["aspects"] = new JsonObject
+            {
+                ["access"] = new JsonObject
+                {
+                    ["readRoles"] = new JsonArray("private/unresolved-role"),
+                    ["writeRoles"] = new JsonArray("Admin"),
+                },
+            };
+        }
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/c3-field-gate", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "publish", "authorization.role_gate.unresolved_role", pointer);
+        Assert.DoesNotContain("private/unresolved-role", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal("[]", await _client.GetStringAsync($"{DefBase}/c3-field-gate/versions"));
+    }
+
+    [Fact]
+    public async Task C3_Actual_Publish_Refuses_A_Label_Admitted_As_Draft_Without_Changing_History()
+    {
+        const string id = "c3-label-boundary";
+        using var draft = await _client.PutAsJsonAsync($"{DefBase}/{id}", PlaceholderLabelBody(draft: true));
+        Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+        var before = await SnapshotAsync(id);
+        using var publish = await _client.PutAsJsonAsync($"{DefBase}/{id}", PlaceholderLabelBody());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, publish.StatusCode);
+        var wire = await publish.Content.ReadFromJsonAsync<JsonElement>();
+        AssertC3(wire, "publish", "form.label.placeholder", "/overlay/fields/name/label");
+        Assert.DoesNotContain("New field", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
+    [Theory]
+    [InlineData("put-malformed", HttpStatusCode.BadRequest, "form_definition.malformed_request_body")]
+    [InlineData("put-overlay", HttpStatusCode.BadRequest, "form_definition.overlay_required")]
+    [InlineData("put-sections", HttpStatusCode.BadRequest, "form_definition.overlay_section_required")]
+    [InlineData("restore-malformed", HttpStatusCode.BadRequest, "form_definition.malformed_request_body")]
+    [InlineData("restore-required", HttpStatusCode.BadRequest, "form_definition.restore_version_required")]
+    [InlineData("restore-version", HttpStatusCode.BadRequest, "form_definition.version_malformed")]
+    [InlineData("restore-missing", HttpStatusCode.NotFound, "form_definition.revision_not_found")]
+    [InlineData("get-version", HttpStatusCode.BadRequest, "form_definition.version_malformed")]
+    [InlineData("get-missing", HttpStatusCode.NotFound, "form_definition.revision_not_found")]
+    public async Task C3_Ordinary_Protocol_Errors_Keep_Their_Wire_And_History(string defect, HttpStatusCode status, string code)
+    {
+        const string id = "c3-ordinary";
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{id}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var before = await SnapshotAsync(id);
+        using var response = defect switch
+        {
+            "put-malformed" => await _client.PutAsync($"{DefBase}/{id}", new StringContent("{", Encoding.UTF8, "application/json")),
+            "put-overlay" => await _client.PutAsJsonAsync($"{DefBase}/{id}", new { }),
+            "put-sections" => await _client.PutAsJsonAsync($"{DefBase}/{id}", new
+            {
+                overlay = new { fields = new { }, sections = Array.Empty<object>() },
+            }),
+            "restore-malformed" => await _client.PostAsync($"{DefBase}/{id}/restore", new StringContent("{", Encoding.UTF8, "application/json")),
+            "restore-required" => await _client.PostAsJsonAsync($"{DefBase}/{id}/restore", new { }),
+            "restore-version" => await _client.PostAsJsonAsync($"{DefBase}/{id}/restore", new { version = "not-a-version" }),
+            "restore-missing" => await _client.PostAsJsonAsync($"{DefBase}/{id}/restore", new { version = "9.9.9" }),
+            "get-version" => await _client.GetAsync($"{DefBase}/{id}/versions/not-a-version"),
+            _ => await _client.GetAsync($"{DefBase}/{id}/versions/9.9.9"),
+        };
+        Assert.Equal(status, response.StatusCode);
+        var wire = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(code, wire.GetProperty("code").GetString());
+        Assert.False(wire.TryGetProperty("stage", out _));
+        Assert.False(wire.TryGetProperty("refusals", out _));
+        Assert.Equal(before, await SnapshotAsync(id));
+    }
+
     private static JsonObject T742GrantFormBody()
     {
         var artifact = Path.Combine(AppContext.BaseDirectory, "Conformance", "Packs", "access-replacement",
@@ -222,9 +729,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(RestrictingDefinitionKindValidator.KindUnknownCode, refusal.GetProperty("code").GetString());
-        Assert.Contains(discriminator == "tier" ? "JsonLogik" : discriminator == "scope" ? "Scheam" : "Validte",
-            refusal.GetProperty("detail").GetProperty("unknownKind").GetString());
+        AssertC3(refusal, "author", "definition.restricting_kind_unknown", $"/overlay/rules/0/{discriminator}");
+        Assert.DoesNotContain(discriminator == "tier" ? "JsonLogik" : discriminator == "scope" ? "Scheam" : "Validte",
+            refusal.GetRawText(), StringComparison.Ordinal);
         Assert.Null(await _definitions.GetCurrentPublishedAsync(
             new DefinitionAddress(new TenantId(TeamA.Value.ToString("D")), $"invalid-{discriminator}")));
     }
@@ -239,8 +746,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form_definition.pii_sensitivity_unknown", refusal.GetProperty("code").GetString());
-        Assert.Equal("Sensitve", refusal.GetProperty("detail").GetProperty("offendingValue").GetString());
+        var item = AssertC3(refusal, "author", "form_definition.pii_sensitivity_unknown", "/overlay/fields/name/piiSensitivity");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Sensitve", refusal.GetRawText(), StringComparison.Ordinal);
         Assert.Null(await _definitions.GetCurrentPublishedAsync(
             new DefinitionAddress(new TenantId(TeamA.Value.ToString("D")), "invalid-pii")));
     }
@@ -292,8 +800,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form_definition.control_hint_on_value_domain", refusal.GetProperty("code").GetString());
-        Assert.Equal("unit", refusal.GetProperty("detail").GetProperty("target").GetString());
+        var item = AssertC3(refusal, "author", "form_definition.control_hint_on_value_domain", "/overlay/fields/unit/controlHint");
+        Assert.Equal("unit", item.GetProperty("detail").GetProperty("target").GetString());
+        Assert.DoesNotContain(hint, refusal.GetRawText(), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{DefBase}/hinted-domain")).StatusCode);
     }
 
@@ -321,8 +830,8 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form_definition.field_type_unknown", refusal.GetProperty("code").GetString());
-        Assert.Equal("unregistered-secret", refusal.GetProperty("detail").GetProperty("offendingValue").GetString());
+        AssertC3(refusal, "author", "form_definition.field_type_unknown", "/fieldsMeta/name/type");
+        Assert.DoesNotContain("unregistered-secret", refusal.GetRawText(), StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "save→load: a PUT-saved definition reloads with overlay + grid layout intact")]
@@ -439,6 +948,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
     private async Task AssertMalformedSectionRolePutIsNonDisclosing422(bool draft, string formId)
     {
+        using var original = await _client.PutAsJsonAsync($"{DefBase}/{formId}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+        var before = await SnapshotAsync(formId);
         var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
         body["draft"] = draft;
         body["overlay"]!["sections"]![0]!["access"] = new JsonObject
@@ -453,10 +965,12 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         using var document = JsonDocument.Parse(responseBody);
         var refusal = document.RootElement;
-        Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
-        Assert.Equal("section:applicant.read", refusal.GetProperty("detail").GetProperty("field").GetString());
+        var item = AssertC3(refusal, draft ? "author" : "publish",
+            "authorization.gate_reference.required_roles_invalid", "/overlay/sections/0/access/readRoles");
+        Assert.Equal("section:applicant.read", item.GetProperty("detail").GetProperty("field").GetString());
         Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
         Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(formId));
     }
 
     private const string ConfigFormId = "config-form.v1";
@@ -756,7 +1270,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         // The client localizes off the STABLE code, not the English prose.
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(FormDefinitionCodes.TreeDepthExceeded, problem.GetProperty("code").GetString());
+        AssertC3(problem, "publish", "form.tree.depth_exceeded", "/overlay/sections");
 
         // And nothing was published — the rejected definition is not loadable.
         var loaded = await _client.GetAsync($"{DefBase}/too-deep.v1");
@@ -885,7 +1399,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(FormDefinitionCodes.PagesUnassignedSection, problem.GetProperty("code").GetString());
+        AssertC3(problem, "publish", "form.pages.unassigned_section", "/overlay/pages");
 
         // And nothing was published — the rejected definition is not loadable.
         var loaded = await _client.GetAsync($"{DefBase}/bad-pages.v1");
@@ -1146,7 +1660,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/bad-constraints.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(expectedCode, problem.GetProperty("code").GetString());
+        AssertC3(problem, "author", expectedCode, "/fieldsMeta/f1/validations");
     }
 
     [Fact(DisplayName = "F-20: conflicting bounds (min > max) are rejected with the bounds-conflict code")]
@@ -1183,7 +1697,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/conflicting-bounds.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form.constraint.bounds_conflict", problem.GetProperty("code").GetString());
+        AssertC3(problem, "author", "form.constraint.bounds_conflict", "/fieldsMeta/f1/validations");
     }
 
     [Fact(DisplayName = "F-20/F4: a page with a MISSING title admits with the page-id fallback — never a 500")]
@@ -1424,7 +1938,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/broken-rule.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(FormDefinitionCodes.RulesUncompilable, problem.GetProperty("code").GetString());
+        AssertC3(problem, "publish", "form.rules.uncompilable", "/overlay/rules");
 
         // Nothing was published — the rejected definition is not loadable.
         var loaded = await _client.GetAsync($"{DefBase}/broken-rule.v1");
@@ -1467,14 +1981,9 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(RestrictingDefinitionKindValidator.KindUnknownCode, refusal.GetProperty("code").GetString());
-        // Ticket 094: the refusal is a code plus named detail fields — never an English sentence the
-        // test has to substring-scan.
-        var detail = refusal.GetProperty("detail");
-        Assert.Equal(definitionId, detail.GetProperty("definition").GetString());
-        Assert.Equal(ruleId, detail.GetProperty("target").GetString());
-        Assert.Equal(unknownKind, detail.GetProperty("unknownKind").GetString());
-        Assert.False(refusal.TryGetProperty("error", out _));
+        var item = AssertC3(refusal, "author", "definition.restricting_kind_unknown", "/overlay/rules/0/action");
+        Assert.Equal(ruleId, item.GetProperty("detail").GetProperty("target").GetString());
+        Assert.DoesNotContain(unknownKind, refusal.GetRawText(), StringComparison.Ordinal);
 
         // The route validates the raw action before its historical unknown→Visibility lowering
         // and before the definition lifecycle store can register a revision.
@@ -1523,7 +2032,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/broken-guard.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(FormDefinitionCodes.RulesGuardUncompilable, problem.GetProperty("code").GetString());
+        AssertC3(problem, "publish", "form.rules.guard_uncompilable", "/overlay/pages");
     }
 
     // (Compilable rules + guards still admitting post-F3 is proven by the existing
@@ -1729,7 +2238,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/bad-action.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var err = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(expectedCode, err.GetProperty("code").GetString());
+        AssertC3(err, "publish", expectedCode, "/overlay");
     }
 
     [Fact(DisplayName = "F-23 fail-closed: an unknown zone breakpoint token is 422 with a stable code")]
@@ -1769,7 +2278,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/bad-breakpoint.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var err = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form.layout.unknown_breakpoint", err.GetProperty("code").GetString());
+        AssertC3(err, "publish", "form.layout.unknown_breakpoint", "/overlay/sections");
     }
 
     // ── SPINE-2 item 6: the classification tagging editor round-trip + admission ─────
@@ -1910,7 +2419,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/bad-kind.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var err = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("aspect.unknown_kind", err.GetProperty("code").GetString());
+        AssertC3(err, "publish", "aspect.unknown_kind", "/overlay");
     }
 
     [Fact(DisplayName = "item 6: an async check feeding a pii-classified field WITHOUT ack is REJECTED at PUT (422)")]
@@ -1919,7 +2428,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/erasure-noack.v1", ClassificationSaveBody(ackSensitiveCheck: false));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var err = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("aspect.sensitive_input_unacknowledged", err.GetProperty("code").GetString());
+        AssertC3(err, "publish", "aspect.sensitive_input_unacknowledged", "/overlay/asyncChecks");
     }
 
     // ── F-22 (item 7): version history + restore-as-new-draft ─────────────────────
@@ -2045,6 +2554,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         // Fixture setup models an already-stored legacy source revision. It writes through the
         // test-only raw-store seam; the observable behavior under test is the public restore route.
         await _app.Services.GetRequiredService<IFormDefinitionStore>().RegisterAsync(malformedSource);
+        var before = await SnapshotAsync(restoreId);
 
         using var response = await _client.PostAsJsonAsync(
             $"{DefBase}/{restoreId}/restore", new { version = "1.0.1" });
@@ -2053,10 +2563,12 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         using var document = JsonDocument.Parse(responseBody);
         var refusal = document.RootElement;
-        Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
-        Assert.Equal("section:applicant.read", refusal.GetProperty("detail").GetProperty("field").GetString());
+        var item = AssertC3(refusal, "author", "authorization.gate_reference.required_roles_invalid",
+            "/overlay/sections/0/access/readRoles");
+        Assert.Equal("section:applicant.read", item.GetProperty("detail").GetProperty("field").GetString());
         Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
         Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
+        Assert.Equal(before, await SnapshotAsync(restoreId));
     }
 
     [Fact(DisplayName = "restore→save: the PUT after a restore SUCCEEDS and mints PAST the restored draft (no 409 — #1686 Finding 1)")]
@@ -2109,6 +2621,10 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
         var save = await _client.PutAsJsonAsync($"{DefBase}/{FormId}", SaveBody());
         Assert.Equal(HttpStatusCode.Forbidden, save.StatusCode);
+        var wire = await save.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("authorization.permission_required", wire.GetProperty("code").GetString());
+        Assert.False(wire.TryGetProperty("stage", out _));
+        Assert.False(wire.TryGetProperty("refusals", out _));
 
         var list = await _client.GetFromJsonAsync<JsonElement>(DefBase);
         Assert.Equal(0, list.GetArrayLength());
@@ -2118,10 +2634,16 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     public async Task Restore_Without_FormsAuthor_Is_Refused()
     {
         await _client.PutAsJsonAsync($"{DefBase}/{FormId}", SaveBody());
+        var before = await SnapshotAsync(FormId);
         _authorization.Allow(Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions.RecordsWrite);
 
         var restore = await _client.PostAsJsonAsync($"{DefBase}/{FormId}/restore", new { version = "1.0.0" });
         Assert.Equal(HttpStatusCode.Forbidden, restore.StatusCode);
+        var wire = await restore.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("authorization.permission_required", wire.GetProperty("code").GetString());
+        Assert.False(wire.TryGetProperty("stage", out _));
+        Assert.False(wire.TryGetProperty("refusals", out _));
+        Assert.Equal(before, await SnapshotAsync(FormId));
     }
 
     // ── Ticket 153 (L1351/L1352): cascadeLayer travels on the wire ────────────────
@@ -2245,8 +2767,8 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form.label.placeholder", body.GetProperty("code").GetString());
-        Assert.Equal("name", body.GetProperty("detail").GetProperty("target").GetString());
+        var item = AssertC3(body, "publish", "form.label.placeholder", "/overlay/fields/name/label");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("target").GetString());
 
         // Nothing persisted: the refused revision left no trace in the history.
         var versions = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/placeholder.v1/versions");
@@ -2273,8 +2795,8 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form.label.placeholder", body.GetProperty("code").GetString());
-        Assert.Equal("name", body.GetProperty("detail").GetProperty("target").GetString());
+        var item = AssertC3(body, "publish", "form.label.placeholder", "/overlay/fields/name/label");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("target").GetString());
     }
 
     [Fact(DisplayName = "ticket 157 review: a legitimate label merely CONTAINING the phrase still publishes")]
@@ -2293,8 +2815,8 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("form.label.missing", body.GetProperty("code").GetString());
-        Assert.Equal("name", body.GetProperty("detail").GetProperty("target").GetString());
+        var item = AssertC3(body, "publish", "form.label.missing", "/overlay/fields/name/label");
+        Assert.Equal("name", item.GetProperty("detail").GetProperty("target").GetString());
 
         // Same drafts-exempt posture as the placeholder gate.
         var draft = await _client.PutAsJsonAsync(
@@ -2454,7 +2976,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{DefBase}/bad-kind-draft.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var err = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("aspect.unknown_kind", err.GetProperty("code").GetString());
+        AssertC3(err, "author", "aspect.unknown_kind", "/overlay");
 
         // Refused fail-closed: nothing persisted, nothing to sync.
         var versions = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/bad-kind-draft.v1/versions");

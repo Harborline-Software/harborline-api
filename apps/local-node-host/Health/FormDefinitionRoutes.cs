@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
+using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
@@ -260,7 +261,7 @@ public static class FormDefinitionRoutes
                 var catalogueAdmission = http.RequestServices.GetService<CatalogueFieldSourceAdmission>()
                     ?? new CatalogueFieldSourceAdmission();
                 if (catalogueAdmission.ValidateSupport(source) is { } refusal)
-                    return Results.UnprocessableEntity(new { code = refusal });
+                    return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author, refusal, "/catalogueFieldSource");
                 request = document.RootElement.Deserialize<SaveFormDefinitionRequest>(JsonOptions);
             }
             catch (CatalogueFieldSourceException ex)
@@ -285,39 +286,32 @@ public static class FormDefinitionRoutes
                 if (string.IsNullOrWhiteSpace(field.ControlHint)
                     || request.FieldsMeta?.GetValueOrDefault(name) is not { Type: "select" or "radio", Options.Count: > 0 })
                     continue;
-                return Results.UnprocessableEntity(new
-                {
-                    code = "form_definition.control_hint_on_value_domain",
-                    detail = new { target = name },
-                });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author,
+                    "form_definition.control_hint_on_value_domain", FormsAuthoringC3Wire.Field(name, "controlHint"),
+                    new { target = name });
             }
 
             // L1145 / ADR 0038: validate the raw discriminator BEFORE schema registration or any
             // definition-store write. BuildDefinition historically lowered an unknown action to
             // Visibility, silently replacing a restriction with a permitting presentation rule.
-            foreach (var rule in request.Overlay.Rules ?? Array.Empty<RuleDto>())
+            var rules = request.Overlay.Rules ?? Array.Empty<RuleDto>();
+            for (var ruleIndex = 0; ruleIndex < rules.Count; ruleIndex++)
             {
-                foreach (var (family, value) in new[]
+                var rule = rules[ruleIndex];
+                foreach (var (family, member, value) in new[]
                 {
-                    (RestrictingDefinitionKindFamily.RuleTier, rule.Tier),
-                    (RestrictingDefinitionKindFamily.RuleScope, rule.Scope),
-                    (RestrictingDefinitionKindFamily.RuleAction, rule.Action),
+                    (RestrictingDefinitionKindFamily.RuleTier, "tier", rule.Tier),
+                    (RestrictingDefinitionKindFamily.RuleScope, "scope", rule.Scope),
+                    (RestrictingDefinitionKindFamily.RuleAction, "action", rule.Action),
                 })
                 {
                     var refusal = restrictingKinds.Validate(
                         family, formId, value, nestedDefinitionId: rule.Id);
                     if (refusal is not null)
                     {
-                        return Results.UnprocessableEntity(new
-                        {
-                            code = refusal.Code,
-                            detail = new
-                            {
-                                target = rule.Id,
-                                definition = refusal.DefinitionId,
-                                unknownKind = refusal.UnknownKind,
-                            },
-                        });
+                        return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author, refusal.Code,
+                            $"/overlay/rules/{ruleIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}/{member}",
+                            new { target = rule.Id });
                     }
                 }
             }
@@ -328,11 +322,11 @@ public static class FormDefinitionRoutes
             }
             catch (FormFieldProtectionAdmissionException ex)
             {
-                return Results.UnprocessableEntity(new
-                {
-                    code = ex.Code,
-                    detail = new { field = ex.Field, offendingValue = ex.OffendingValue },
-                });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author, ex.Code,
+                    ex.Code == "form_definition.field_type_unknown"
+                        ? FormsAuthoringC3Wire.Metadata(ex.Field, "type")
+                        : FormsAuthoringC3Wire.Field(ex.Field, "piiSensitivity"),
+                    new { field = ex.Field });
             }
 
             // Ticket 156 (L1539): a DRAFT save may be partial — a half-finished definition
@@ -367,13 +361,10 @@ public static class FormDefinitionRoutes
             }
             catch (FormDefinitionValidationException ex)
             {
-                // Finding 4 (#1686 deep review): carry the offending node id as a structured
-                // `target` so the client anchors the inline error off it instead of regex-scraping
-                // the English message. Populated for the local synthesizer's constraint rejections
-                // (ValidateConstraints knows the field); null for the governance validators whose
-                // structured-target pass is a separate follow-up — the client keeps its regex
-                // fallback for those.
-                return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author,
+                    ex.Code ?? FormDefinitionCodes.ValidationRefused,
+                    FormsAuthoringC3Wire.ValidationPointer(ex.Code, ex.Target, schemaSynthesis: true),
+                    ex.Target is null ? null : new { target = ex.Target });
             }
             catch (ArgumentException ex)
             {
@@ -406,7 +397,8 @@ public static class FormDefinitionRoutes
             }
             catch (GateReferenceShapeException ex)
             {
-                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author, ex.Code,
+                    FormsAuthoringC3Wire.GatePointer(request.Overlay, ex.Field, ex.Code == GateReferenceShapeCodes.InvalidStanding), new { field = ex.Field });
             }
             catch (ArgumentException ex)
             {
@@ -421,6 +413,9 @@ public static class FormDefinitionRoutes
             //     re-save mints the next patch. A draft (ticket 156) registers WITHOUT the
             //     publish gates: it is invisible to the form engine until a later PUT publishes
             //     it, at which point every gate below runs in full.
+            // Only this boundary publishes an immutable revision. Earlier content/metadata checks
+            // are author admission even when a request intends to publish (T-1016, ruling 79).
+            var persistencePhase = isDraft ? DefinitionAdmissionPhase.Author : DefinitionAdmissionPhase.Publish;
             try
             {
                 if (isDraft)
@@ -453,43 +448,33 @@ public static class FormDefinitionRoutes
             }
             catch (FormDefinitionConflictException)
             {
+                // Immutable revision collision/concurrent creation is a protocol conflict, not a
+                // definition-admission verdict. Keep its existing DES-0006 §10 response.
                 return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = version.ToString() } });
             }
             catch (FormDefinitionValidationException ex)
             {
-                // Surface the stable, locale-independent code (ADR 0055 Rev 7 item-tree
-                // bounds) alongside the English message so the client localizes off the
-                // CODE — the fleet's "validation errors are codes, not English literals"
-                // rule. Null for the pre-Rev-7 message-only invariants.
-                // Finding 4 (#1686 deep review): carry the offending node id as a structured
-                // `target` so the client anchors the inline error off it instead of regex-scraping
-                // the English message. Populated for the local synthesizer's constraint rejections
-                // (ValidateConstraints knows the field); null for the governance validators whose
-                // structured-target pass is a separate follow-up — the client keeps its regex
-                // fallback for those.
-                return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
+                return FormsAuthoringC3Wire.Refuse(persistencePhase,
+                    ex.Code ?? FormDefinitionCodes.ValidationRefused,
+                    FormsAuthoringC3Wire.ValidationPointer(ex.Code, ex.Target),
+                    ex.Target is null ? null : new { target = ex.Target });
             }
             catch (RoleGateAdmissionException ex)
             {
-                return Results.UnprocessableEntity(new
-                {
-                    code = ex.Code,
-                    detail = new
-                    {
-                        definition = ex.Finding.DefinitionId,
-                        gate = ex.Finding.Gate,
-                        role = ex.Finding.Subject,
-                        rule = ex.Finding.Rule,
-                    },
-                });
+                return FormsAuthoringC3Wire.Refuse(persistencePhase, ex.Code,
+                    FormsAuthoringC3Wire.GatePointer(request.Overlay, ex.Finding.Gate, ex.Finding.Rule == RoleGateAdmissionRules.StandingPlatformOnly),
+                    new { gate = ex.Finding.Gate, rule = ex.Finding.Rule });
             }
             catch (GateReferenceShapeException ex)
             {
-                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+                return FormsAuthoringC3Wire.Refuse(persistencePhase, ex.Code,
+                    FormsAuthoringC3Wire.GatePointer(request.Overlay, ex.Field, ex.Code == GateReferenceShapeCodes.InvalidStanding), new { field = ex.Field });
             }
             catch (DefinitionProvenanceException ex)
             {
-                return Results.UnprocessableEntity(new { code = ex.Code });
+                // The refused provenance belongs to the existing published head, whose Forms
+                // read document exposes cascadeLayer at its root, not in the submitted overlay.
+                return FormsAuthoringC3Wire.Refuse(persistencePhase, ex.Code, "/cascadeLayer");
             }
 
             return Results.Ok(new SaveFormDefinitionResponse(formId, version.ToString()));
@@ -642,7 +627,9 @@ public static class FormDefinitionRoutes
             }
             catch (GateReferenceShapeException ex)
             {
-                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Author, ex.Code,
+                    FormsAuthoringC3Wire.GatePointer(OverlayDto.From(source.Overlay), ex.Field, ex.Code == GateReferenceShapeCodes.InvalidStanding),
+                    new { field = ex.Field });
             }
 
             return Results.Ok(new SaveFormDefinitionResponse(formId, newVersion.ToString()));
