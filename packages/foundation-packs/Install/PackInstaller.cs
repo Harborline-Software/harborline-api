@@ -126,14 +126,14 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     public PackInstallPreview Preview(ReadOnlySpan<byte> packBytes, PackInstallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return BuildPlan(packBytes, context).Preview;
+        return RecordsNotEvaluated(BuildPlan(packBytes, context), collectRefusals: false).Preview;
     }
 
     /// <inheritdoc />
     public PackInstallPreview Check(ReadOnlySpan<byte> packBytes, PackInstallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return BuildPlan(packBytes, context, collectRefusals: true).Preview;
+        return RecordsNotEvaluated(BuildPlan(packBytes, context, collectRefusals: true), collectRefusals: true).Preview;
     }
 
     /// <inheritdoc />
@@ -184,12 +184,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                 installer._store.GetOverrides(context.Tenant, claimed.PackKey),
                 installer._store.GetKeyOwnership(context.Tenant)));
 
-        protected override ValueTask<InstallMutation> MutateAsync(InstallBound bound, CancellationToken ct)
+        protected override async ValueTask<InstallMutation> MutateAsync(InstallBound bound, CancellationToken ct)
         {
             var plan = installer.BuildPlan(packBytes.Span, context, decision, claimed, bound: bound);
-            // A hard refusal plans no seed layer, so there is no transaction for validate to seal.
+            plan = await installer.AdmitRecordsAsync(plan, context.Tenant, ct).ConfigureAwait(false);
             var transaction = plan.NewInstalledPack is null
-                ? null
+                ? null // A hard refusal plans no seed layer, so there is no transaction for validate to seal.
                 : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached)
                 {
                     CompareWatermark = true,
@@ -198,7 +198,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                     ExpectedOverrides = bound.Overrides,
                     ExpectedKeyOwnership = bound.KeyOwnership,
                 };
-            return ValueTask.FromResult(new InstallMutation(plan, transaction));
+            return new InstallMutation(plan, transaction);
         }
 
         protected override ValueTask<InstallSealed> ValidateAsync(
@@ -2130,6 +2130,76 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         // break-glass downgrade installs the lower seed but NEVER lowers the watermark (S-8 monotonic).
         var highestVersion = PackVersion.Compare(newVersion, current.Version) > 0 ? newVersion : current.Version;
         return new PackInstallWatermark(packKey, highestVersion, PackSafetyFloors.Max(current.Floors, newFloors));
+    }
+
+    // ── Records install gate (DES-0015 records-ck-41; Goal 3 P2) ─────────────────
+    // Kept below every line-pinned call site in this file (PackNavigationAdmissionCallSiteFenceTests), so adding it moves none.
+
+    /// <summary>
+    /// The Records install gate (DES-0015 records-ck-41) a host composes, run over every install's planned seed layer
+    /// before it commits. Null, the default, keeps the existing behaviour: no Record Type edge is checked at install.
+    /// </summary>
+    public RecordsInstallClosureGate.AdmitInstall? RecordsAdmission { get; init; }
+
+    /// <summary>
+    /// Runs the composed Records install gate over a plan that would otherwise install, reading the seed layer the
+    /// plan built from the verified contents. A Records refusal is a hard admission refusal, never break-glass: like
+    /// every other hard refusal it plans no seed layer, so validate refuses the plan before anything is sealed or
+    /// committed. A plan that is already refused keeps its own refusal and never reaches the gate.
+    /// </summary>
+    private async ValueTask<InstallPlan> AdmitRecordsAsync(InstallPlan plan, TenantId tenant, CancellationToken ct)
+    {
+        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.Refused)
+            return plan;
+        var seeds = plan.NewInstalledPack.SeedItems;
+        var admission = await RecordsInstallClosureGate.AdmitAsync(tenant, seeds, RecordsAdmission, ct).ConfigureAwait(false);
+        if (admission.IsAdmissible)
+            return plan;
+        return plan with
+        {
+            NewInstalledPack = null,
+            Preview = plan.Preview with
+            {
+                Verdict = PackInstallVerdict.Refused,
+                RefusalCodes = [PackInstallCodes.RefusedAdmission],
+                AdmissionRefusals = admission.Refusals,
+                Refusals = admission.Refusals
+                    .Select(refusal => new PackInstallRefusal(
+                        PackInstallCodes.RefusedAdmission, ContentPointer(seeds, refusal.ContentKey) + refusal.Pointer))
+                    .ToList(),
+            },
+        };
+    }
+
+    /// <summary>
+    /// Preview and Check stay synchronous (G-CHECK), so they never run the asynchronous Records gate. When a gate is
+    /// composed and the planned seed layer ships Record Types, they must not promise what Install may refuse: the plan
+    /// is refused with <see cref="PackRecordsInstallCodes.GateNotEvaluated"/> at each Record Type's content pointer,
+    /// appended to the refusals the plan already reports, so a break-glass plan keeps its watermark refusals and codes.
+    /// Check (<paramref name="collectRefusals"/>) appends to every refusal it collected; Preview leaves a plan that is
+    /// already refused unchanged. With no gate composed the plan is returned unchanged.
+    /// </summary>
+    private InstallPlan RecordsNotEvaluated(InstallPlan plan, bool collectRefusals)
+    {
+        if (RecordsAdmission is null || plan.NewInstalledPack is null
+            || (!collectRefusals && plan.Preview.Verdict == PackInstallVerdict.Refused))
+            return plan;
+        var seeds = plan.NewInstalledPack.SeedItems;
+        var notEvaluated = RecordsInstallClosureGate.GatedItems(seeds)
+            .Select(item => new PackInstallRefusal(PackRecordsInstallCodes.GateNotEvaluated, ContentPointer(seeds, item.Key)))
+            .ToList();
+        if (notEvaluated.Count == 0)
+            return plan;
+        var kept = plan.Preview.Refusals;
+        return plan with
+        {
+            Preview = plan.Preview with
+            {
+                Verdict = PackInstallVerdict.Refused,
+                RefusalCodes = [.. kept.Concat(notEvaluated).Select(refusal => refusal.Code).Distinct(StringComparer.Ordinal)],
+                Refusals = [.. kept, .. notEvaluated],
+            },
+        };
     }
 
     /// <summary>The internal plan shared by Preview + Install — the built preview plus everything the
