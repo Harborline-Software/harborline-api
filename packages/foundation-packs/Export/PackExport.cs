@@ -45,6 +45,12 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// <param name="InterfaceVersion">The exact interface version this pack exposes, as the integer in
 /// the ADR 0006 <c>pack-key@integer</c> requirement spelling. Ticket 396 matches it exactly rather
 /// than by range, because a range admits a consumer never tested against the active interface.</param>
+/// <param name="ExposedDefinitions">The signed catalogue facts of exposed definitions a release bound to exact
+/// published revisions (Goal 3 P3; DES-0015 records-ck-40), copied into the signed
+/// <see cref="PackManifest.ExposedDefinitions"/> unchanged and never computed by the exporter. Present only with
+/// <see cref="Exposes"/> and <see cref="InterfaceVersion"/>; each entry names a distinct exposed key, a nonblank
+/// version and a <c>sha256:</c> digest of 64 lowercase hex digits, or export refuses
+/// <see cref="PackExportCodes.ExposedDefinitionMalformed"/> before anything is signed.</param>
 public sealed record PackExportRequest(
     string Key,
     string Version,
@@ -63,7 +69,8 @@ public sealed record PackExportRequest(
     string? Category = null,
     Cid? IconRef = null,
     IReadOnlyList<string>? Exposes = null,
-    int? InterfaceVersion = null);
+    int? InterfaceVersion = null,
+    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null);
 
 /// <summary>
 /// The outcome of an export. On success, both the structured <see cref="File"/> and the encoded

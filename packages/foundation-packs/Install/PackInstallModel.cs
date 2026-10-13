@@ -112,6 +112,11 @@ public sealed record PackTenantOverride(string ContentKey, JsonNode OverlayPatch
 /// this one. Ticket 396; frozen in that slice, and relaxing it later is additive.</param>
 /// <param name="InterfaceVersion">The exact interface version this pack exposes, persisted for the
 /// same reason. Ticket 396 matches exactly rather than by range.</param>
+/// <param name="ExposedDefinitions">The signed manifest's exposed-definition facts (Goal 3 P3; DES-0015
+/// records-ck-40), persisted so the Records install gate reads a later consumer's pinned producer without
+/// re-reading this pack. <c>null</c> ⇒ an unbound or pre-P3 pack, including every row persisted before this member
+/// existed, which deserializes without it. Absence is never defaulted from <see cref="Version"/>, a content address
+/// or a body member, so a pin to such a pack refuses <c>records.reference.closure_missing</c>.</param>
 public sealed record InstalledPack(
     string PackKey,
     string Version,
@@ -128,7 +133,8 @@ public sealed record InstalledPack(
     IReadOnlyList<PackContentReferenceEdge>? ContentReferences = null,
     IReadOnlyList<string>? CapabilityRequirements = null,
     IReadOnlyList<string>? Exposes = null,
-    int? InterfaceVersion = null);
+    int? InterfaceVersion = null,
+    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null);
 
 /// <summary>
 /// The S-8 monotonic watermark persisted per installed pack key — the highest version ever installed and

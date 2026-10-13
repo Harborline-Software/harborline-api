@@ -38,10 +38,14 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// <remarks>
 /// Oracles: install codes and content pointers are literals from the installer's existing admission refusal shape
 /// (<c>pack.install.refused.admission</c>, <c>/contents/{index}/contentBase64</c> plus the gate's body pointer); Records
-/// codes and body pointers are literals from the Platform install gate contract at the API's Platform pin
-/// 2c7bef291c6f5adc6d4a7a68885bb7627f20d68c (RecordTypeDefinitionStore.InstallEdges). Bodies and the pin digest are the
+/// codes and body pointers are literals from the Platform install gate contract at Platform
+/// 2c7bef291c6f5adc6d4a7a68885bb7627f20d68c (RecordTypeDefinitionStore.InstallEdges), unchanged at the API's current
+/// Platform pin c3df8c33b8de2812c8a72f5ec40e2df73c656062. Bodies and the pin digest are the
 /// literals of <see cref="RecordsInstallClosureGateTests"/>. The Released case reuses
 /// <see cref="ReleasedPackAtomicFixture"/> unchanged and composes its own gated engine beside the fixture's.
+/// Goal 3 P3: a producer's signed exposed-definition entries reach the gate through the install engine. The P3 cases use
+/// the P0 Meter literals on the signed path and the Platform Goal 3 P1 asset-class literals (catalogue version 3.1.4,
+/// its store digest, producer revision 7.0.0) on the Released path.
 /// </remarks>
 public sealed class RecordsInstallEnforcementTests : IDisposable
 {
@@ -56,6 +60,8 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
 
     private const string Dispatch =
         """{"class_id":"fleet-ops.assets","envelope":{"contract":{"major":1,"minor":0},"package_id":"fleet-ops","section":"fleet-ops","tenant":"tenant-a"},"fields":[{"display_name":"Route","field_key":"route","reference":{"cardinality":"one","on_delete":"block","parent":false,"target_type_id":"fleet-ops.route"}}],"name":"Dispatch","record_class":"transactional","record_type_id":"fleet-ops.dispatch"}""";
+
+    private const string MeterDigest = "sha256:a0eda87a3a13a042813b0a8f3b09ede94811258877e5629a944766ea6160a919";
 
     private static string WorkOrder(int pinnedInterface) =>
         $$$"""{"class_id":"fleet-ops.assets","envelope":{"contract":{"major":1,"minor":0},"package_id":"fleet-ops","requires":[{"capability":"eam-core@1"}],"section":"fleet-ops","tenant":"tenant-a"},"fields":[{"display_name":"Meter","field_key":"meter","reference":{"cardinality":"one","on_delete":"block","parent":false,"pin":{"definition_id":"eam.meter","digest":"sha256:a0eda87a3a13a042813b0a8f3b09ede94811258877e5629a944766ea6160a919","interface_version":{{{pinnedInterface}}},"package_id":"eam-core","version":"1.0.0"},"target_type_id":"eam.meter"}},{"display_name":"Route","field_key":"route","reference":{"cardinality":"one","on_delete":"block","parent":false,"target_type_id":"fleet-ops.route"}}],"name":"Work Order","record_class":"transactional","record_type_id":"fleet-ops.work-order"}""";
@@ -353,6 +359,111 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         Assert.DoesNotContain(fixture.Audit.Published, entry => entry.Action == PackInstallAuditAction.BreakGlassOverride);
     }
 
+    [Fact(DisplayName = "goal 3 P3 T-ATOM: a pin at the exact producer's signed facts installs, and a pin at its package revision commits nothing")]
+    public async Task A_pin_at_the_exact_producers_signed_facts_installs_and_a_changed_one_commits_nothing()
+    {
+        var installer = Installer();
+        var signed = new PackExposedDefinition("eam.meter", "1.0.0", MeterDigest);
+        // eam-core at package revision 7.0.0 signs the meter's catalogue version 1.0.0 and its store digest.
+        Assert.True((await installer.InstallAsync(await ExportAsync("eam-core", [("eam.meter", Meter)], exposes: ["eam.meter"],
+            interfaceVersion: 1, version: "7.0.0", exposedDefinitions: [signed]), _context)).Installed);
+        // The installed pack persists the entries exactly as signed.
+        Assert.Equal([signed], Assert.Single(_store.ListInstalled(Tenant)).ExposedDefinitions);
+        var before = Snapshot();
+        PackDependencyRef[] pinned = [new("eam-core", "7.0.0")];
+
+        var changed = await installer.InstallAsync(await ExportAsync("fleet-ops",
+            [("fleet-ops.work-order", WorkOrder(1).Replace("\"version\":\"1.0.0\"", "\"version\":\"7.0.0\"", StringComparison.Ordinal)),
+             ("fleet-ops.route", Route)], pinned), _context);
+
+        Assert.False(changed.Installed);
+        Assert.False(changed.BrokeGlass);
+        Assert.Equal(["pack.install.refused.admission"], changed.RefusalCodes);
+        Assert.Equal([("fleet-ops.work-order", "records.reference.closure_changed", "/fields/0/reference/pin")],
+            changed.Preview.AdmissionRefusals.Select(refusal => (refusal.ContentKey, refusal.Code, refusal.Pointer)));
+        AssertNoConsumerEffect(before);
+
+        var genuine = await installer.InstallAsync(await ExportAsync("fleet-ops",
+            [("fleet-ops.work-order", WorkOrder(1)), ("fleet-ops.route", Route)], pinned), _context);
+
+        Assert.True(genuine.Installed, string.Join("; ", genuine.RefusalCodes));
+        Assert.Empty(genuine.Preview.AdmissionRefusals);
+        Assert.Equal([("eam-core", "7.0.0"), ("fleet-ops", "1.0.0")],
+            _store.ListInstalled(Tenant).Select(pack => (pack.PackKey, pack.Version)).OrderBy(pair => pair.PackKey, StringComparer.Ordinal));
+    }
+
+    [Fact(DisplayName = "goal 3 P3 T-ATOM: a Released pin at the producer's signed facts installs, and a changed one commits nothing")]
+    public async Task A_released_pin_at_the_carried_facts_installs_and_a_changed_one_commits_nothing()
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        // eam-core 7.0.0 as a signed install persists it: its asset class bound to catalogue version 3.1.4.
+        var producer = RecordsInstallClosureGateTests.AssetClassProducer() with { Lifecycle = PackLifecycleState.Draft };
+        fixture.Store.Commit(new PackInstallTransaction(fixture.Tenant, producer,
+            new PackInstallWatermark("eam-core", RecordsInstallClosureGateTests.ProducerRevision, new Dictionary<string, int>()), []));
+        fixture.Store.Activate(fixture.Tenant, "eam-core", RecordsInstallClosureGateTests.ProducerRevision);
+        var records = RecordsInstallClosureGateTests.Records();
+        var reports = new List<string>();
+        // The fixture's stores and admission with the Records gate, and no projector, as the signed-path case above
+        // and the projector-less Released route tests compose it. This case is about the gate, which decides at
+        // install. Projection is out of its scope: at this tree the seed projector reads every AssetTypeDefinition
+        // as a legacy asset type, so it refuses a Records-grammar body at activation
+        // (pack.install.activate.projection_refused). That limitation predates P3 and is tracked on its own.
+        var engine = new PackInstaller(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), fixture.Reader,
+            fixture.Store, fixture.Store, fixture.Admission, fixture.Audit, TestAuthorization.AllowGate())
+        {
+            RecordsAdmission = async (tenant, entry, closure, cancellationToken) =>
+            {
+                var report = await records.AdmitInstallAsync(tenant, entry, closure, cancellationToken);
+                lock (reports) reports.Add(string.Join(",", report.Refusals.Select(refusal => refusal.Code)));
+                return report;
+            },
+        };
+        var installer = new RecordingInstaller(engine, fixture.Harness.Store.PacksFactory);
+        var releases = new ReleasedPackInstaller(fixture.Proposals, fixture.Exporter, installer, fixture.Node,
+            new Ed25519Verifier(), HostedPackInstallApiEndpoint.BuildTrustStore(fixture.Node, NullLogger.Instance),
+            PackRevocationList.Empty, fixture.Reader, TestPackGate.AllowAll());
+        Task<string> Offer(string pinnedVersion) => fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0",
+            [ReleasedPackAtomicFixture.OwnNote,
+             ("records/work-order", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition", ReleasedAssetWorkOrder(pinnedVersion))],
+            ("eam-core", RecordsInstallClosureGateTests.ProducerRevision)));
+        var authority = TestAuthorization.Write(fixture.Tenant, ReleasedPackAtomicFixture.Principal, ReleasedPackAtomicFixture.Frozen);
+
+        // The pin names the producer's package revision, never its definition version.
+        var changedDigest = await Offer(RecordsInstallClosureGateTests.ProducerRevision);
+        var live = fixture.LiveState();
+        var durable = await fixture.DurableStateAsync();
+        var outbox = await fixture.OutboxCountAsync();
+        var changed = await releases.InstallAsync(fixture.Tenant, changedDigest, authority);
+
+        Assert.False(changed.Succeeded);
+        Assert.Equal(("pack.install.refused.admission", "releasedPackage"),
+            (Assert.Single(changed.Refusals).Code, Assert.Single(changed.Refusals).Target));
+        Assert.Equal(["records.reference.closure_changed"], reports);
+        Assert.Null(fixture.Store.GetVersion(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey, "1.1.0"));
+        Assert.Equal(live, fixture.LiveState());
+        Assert.Equal(durable, await fixture.DurableStateAsync());
+        Assert.Equal(outbox, await fixture.OutboxCountAsync());
+        Assert.Empty(fixture.Audit.Successes());
+
+        var genuine = await releases.InstallAsync(fixture.Tenant,
+            await Offer(RecordsInstallClosureGateTests.AssetClassVersion), authority);
+
+        Assert.Equal(["records.reference.closure_changed", ""], reports);
+        Assert.True(genuine.Succeeded, string.Join("; ", genuine.Refusals.Select(refusal => $"{refusal.Code}: {refusal.Message}")));
+        Assert.True(genuine.Installed);
+        Assert.Equal((2, 1, 0), (installer.Installs, installer.Activations, installer.Narrowings));
+        Assert.NotNull(fixture.Store.GetVersion(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey, "1.1.0"));
+        // The release transaction committed: its own pack is Active at the release revision with the gated Record Type.
+        var active = fixture.Store.GetActive(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey)!;
+        Assert.Equal(("1.1.0", PackLifecycleState.Active), (active.Version, active.Lifecycle));
+        Assert.Contains(active.SeedItems, item => item.Key == "records/work-order");
+        Assert.NotEqual(durable, await fixture.DurableStateAsync());
+    }
+
+    // A Released Record Type of the release package pinning eam-core's asset class at a given version and its store digest.
+    private static string ReleasedAssetWorkOrder(string version) =>
+        $$$"""{"class_id":"release.assets","envelope":{"contract":{"major":1,"minor":0},"package_id":"tenant.release","requires":[{"capability":"eam-core@1"}],"section":"release","tenant":"tenant-a"},"fields":[{"display_name":"Asset","field_key":"asset","reference":{"cardinality":"one","on_delete":"block","parent":false,"pin":{"definition_id":"eam.asset-class","digest":"{{{RecordsInstallClosureGateTests.AssetClassDigest}}}","interface_version":1,"package_id":"eam-core","version":"{{{version}}}"},"target_type_id":"eam.asset-class"}}],"name":"Work Order","record_class":"transactional","record_type_id":"release.work-order"}""";
+
     private string Snapshot() => string.Join("\n",
         string.Join(",", _store.ListInstalled(Tenant).Select(pack => $"{pack.PackKey}@{pack.Version}:{pack.Lifecycle}")),
         string.Join(",", _store.GetKeyOwnership(Tenant).OrderBy(pair => pair.Key, StringComparer.Ordinal)
@@ -399,7 +510,7 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
 
     private async Task<byte[]> ExportAsync(string key, (string Key, string Body)[] contents,
         PackDependencyRef[]? dependencies = null, IReadOnlyList<string>? exposes = null, int? interfaceVersion = null,
-        string version = "1.0.0")
+        string version = "1.0.0", IReadOnlyList<PackExposedDefinition>? exposedDefinitions = null)
     {
         var exporter = new PackExporter(
             new PackContentCanonicalizer(),
@@ -423,7 +534,8 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
                 Epoch: 1,
                 Dcp: DomainComplianceProfile.General("test-author"),
                 Exposes: exposes,
-                InterfaceVersion: interfaceVersion),
+                InterfaceVersion: interfaceVersion,
+                ExposedDefinitions: exposedDefinitions),
             new Ed25519Signer(_keyPair));
         Assert.True(export.Succeeded, string.Join(
             "; ", export.Validation.Errors.Select(error => $"{error.Code}: {error.Message}")));

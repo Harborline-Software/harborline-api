@@ -11,8 +11,9 @@ namespace Harborline.Api.Foundation.Packs.Install.Compatibility;
 /// <summary>
 /// Connects a verified pack to the Platform Records install gate (DES-0015 records-ck-41,
 /// <see cref="RecordTypeDefinitionStore.AdmitInstallAsync"/>). Every Record Type the pack ships is admitted at the
-/// Install stage against a <see cref="RecordsInstallClosure"/> read only from the pack's verified seed layer, never
-/// from the node's live catalogue, and under the installing host's tenant.
+/// Install stage against a <see cref="RecordsInstallClosure"/> read only from the pack's verified seed layer, its signed
+/// dependencies and the installed packs the caller passes in, never from the node's live catalogue, and under the
+/// installing host's tenant.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,11 +22,17 @@ namespace Harborline.Api.Foundation.Packs.Install.Compatibility;
 /// example <c>records/invoice</c>), which is not the Records identity.
 /// </para>
 /// <para>
-/// The closure's <see cref="RecordsInstallClosure.Exposures"/> are always empty. A <see cref="PinnedExposure"/> needs
-/// the producer's definition version and the <c>sha256:</c> digest of its stored body, and no signed transport
-/// carries either: a release item is pinned at its package revision, and its body is re-canonicalized on the way.
-/// Every cross-package pin therefore refuses <c>records.reference.closure_missing</c> until the producer signs those
-/// facts. Neither may be taken from the pin, the live catalogue or a re-canonicalized body (records-ck-40).
+/// The closure's <see cref="RecordsInstallClosure.Exposures"/> come only from the signed declarations of the exact
+/// producers the pack pins (Goal 3 P3, owner decision P10 Option A; ANALYSIS R15). For each signed dependency
+/// <c>(key, version)</c> the producer is the one installed pack with that key at exactly that version, in any lifecycle
+/// (the declaration is immutable; open question O-5), and never the latest installed version (Q-FLOOR). Each of its
+/// <see cref="InstalledPack.ExposedDefinitions"/> entries whose key it also <see cref="InstalledPack.Exposes"/>, at its
+/// signed <see cref="InstalledPack.InterfaceVersion"/>, yields one <see cref="PinnedExposure"/>: the producer's pack key,
+/// the <c>record_type_id</c> of the producer's own seed item under that key, and the entry's version and digest copied
+/// as signed (records-ck-40). Nothing is computed: a missing producer, entry, exposure, interface version or seed item,
+/// or anything ambiguous (a key pinned twice, a repeated entry, two exposures of one id), yields no exposure, so a pin
+/// to it refuses <c>records.reference.closure_missing</c>. Neither version nor digest is ever taken from the pin, the
+/// live catalogue, a package revision, a content address or a re-canonicalized body.
 /// </para>
 /// <para>
 /// Records travels as <see cref="PackContentKind.AssetTypeDefinition"/>, the same kind as legacy asset types, and no
@@ -36,8 +43,8 @@ namespace Harborline.Api.Foundation.Packs.Install.Compatibility;
 /// legacy asset type has neither member and passes through unchanged.
 /// </para>
 /// <para>
-/// A Class has no transport content kind, so no Class is ever a pack definition and an unpinned Class target refuses
-/// (ledger holds[0], T-724 ruling 51).
+/// A Class has no transport content kind, so no Class is ever a pack definition or an exposure, and a Class target
+/// refuses (ledger holds[0], T-724 ruling 51; the Class hold).
 /// </para>
 /// <para>
 /// Each admitted entry carries the seed item's own version only because <see cref="RecordTypeDefinitionPackageEntry"/>
@@ -66,11 +73,16 @@ public static class RecordsInstallClosureGate
         string tenant, RecordTypeDefinitionPackageEntry entry, RecordsInstallClosure closure,
         CancellationToken cancellationToken);
 
-    /// <summary>Reads the closure a pack's verified seed layer declares. See the type remarks for what it leaves empty.</summary>
+    /// <summary>Reads the closure a pack's verified seed layer and its exact pinned producers declare. See the type remarks.</summary>
     /// <param name="items">The verified seed layer, in pack content order.</param>
-    public static RecordsInstallClosure ReadClosure(IReadOnlyList<PackSeedItem> items)
+    /// <param name="dependencies">The pack's signed dependencies, each an exact pinned producer.</param>
+    /// <param name="installed">The tenant's installed packs, as the caller read them; this adapter reads no store.</param>
+    public static RecordsInstallClosure ReadClosure(IReadOnlyList<PackSeedItem> items,
+        IReadOnlyList<PackDependencyRef> dependencies, IReadOnlyList<InstalledPack> installed)
     {
         ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(dependencies);
+        ArgumentNullException.ThrowIfNull(installed);
         var shipped = items
             .Where(item => item.Kind == PackContentKind.AssetTypeDefinition)
             .Select(RecordTypeId)
@@ -79,7 +91,7 @@ public static class RecordsInstallClosureGate
             .Distinct(StringComparer.Ordinal)
             .Select(id => new InstallDefinitionTarget(DefinitionKind.Records, id))
             .ToArray();
-        return new RecordsInstallClosure(shipped, []);
+        return new RecordsInstallClosure(shipped, SignedExposures(dependencies, installed));
     }
 
     /// <summary>
@@ -103,14 +115,17 @@ public static class RecordsInstallClosureGate
     /// </summary>
     /// <param name="tenant">The installing host's tenant; a body's own envelope tenant is not consulted.</param>
     /// <param name="items">The verified seed layer, in pack content order.</param>
+    /// <param name="dependencies">The pack's signed dependencies, each an exact pinned producer.</param>
+    /// <param name="installed">The tenant's installed packs, as the caller read them; this adapter reads no store.</param>
     /// <param name="admit">The bound Platform gate.</param>
     /// <param name="cancellationToken">Cancels the admission.</param>
     public static async ValueTask<PackAdmissionResult> AdmitAsync(TenantId tenant, IReadOnlyList<PackSeedItem> items,
+        IReadOnlyList<PackDependencyRef> dependencies, IReadOnlyList<InstalledPack> installed,
         AdmitInstall admit, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(admit);
-        var closure = ReadClosure(items);
+        var closure = ReadClosure(items, dependencies, installed);
         var refusals = new List<PackAdmissionRefusal>();
         foreach (var item in items)
         {
@@ -128,6 +143,60 @@ public static class RecordsInstallClosureGate
             }));
         }
         return refusals.Count == 0 ? PackAdmissionResult.Admissible : new PackAdmissionResult(refusals);
+    }
+
+    // Goal 3 P3: the exposures the exact pinned producers signed (see the type remarks). Every check is fail closed: what
+    // is missing or ambiguous contributes nothing, and nothing is computed, defaulted or read from a store.
+    private static PinnedExposure[] SignedExposures(IReadOnlyList<PackDependencyRef> dependencies,
+        IReadOnlyList<InstalledPack> installed)
+    {
+        // Each exposure with the signed entry key it came from, so the two ambiguity rules below stay independent.
+        var exposures = new List<(string Key, PinnedExposure Exposure)>();
+        foreach (var pinned in dependencies.Where(dependency => dependency is not null)
+                     .GroupBy(dependency => dependency.Key, StringComparer.Ordinal))
+        {
+            // One pinned version per producer key; a key pinned twice names no single producer.
+            if (pinned.Take(2).Count() != 1)
+                continue;
+            var pin = pinned.First();
+            // Q-FLOOR: exactly the pinned version, never the latest installed. Any lifecycle (O-5).
+            var producers = installed
+                .Where(pack => pack is not null && StringComparer.Ordinal.Equals(pack.PackKey, pin.Key)
+                    && StringComparer.Ordinal.Equals(pack.Version, pin.Version))
+                .Take(2)
+                .ToArray();
+            if (producers.Length != 1)
+                continue;
+            var producer = producers[0];
+            if (producer.InterfaceVersion is not { } interfaceVersion || producer.Exposes is not { } exposed
+                || producer.ExposedDefinitions is not { } entries)
+                continue;
+            foreach (var signed in entries.Where(entry => entry?.DefinitionKey is not null)
+                         .GroupBy(entry => entry.DefinitionKey, StringComparer.Ordinal))
+            {
+                // A repeated entry key is ambiguous on its own: neither entry is read.
+                if (signed.Take(2).Count() != 1 || !exposed.Contains(signed.Key, StringComparer.Ordinal))
+                    continue;
+                var entry = signed.First();
+                var seeds = producer.SeedItems
+                    .Where(item => StringComparer.Ordinal.Equals(item.Key, entry.DefinitionKey))
+                    .Take(2)
+                    .ToArray();
+                // Under the Class hold only a Record Type (the Records transport kind, with a string id) is exposed.
+                if (seeds.Length != 1 || seeds[0].Kind != PackContentKind.AssetTypeDefinition
+                    || RecordTypeId(seeds[0]) is not { Length: > 0 } recordTypeId)
+                    continue;
+                exposures.Add((entry.DefinitionKey, new PinnedExposure(producer.PackKey, DefinitionKind.Records, recordTypeId,
+                    entry.Version, entry.Digest, interfaceVersion)));
+            }
+        }
+        // Two distinct exposed keys naming one definition of one producer are ambiguous: neither is offered. This rule
+        // counts entry keys, not exposures, so it never stands in for the repeated-entry rule above.
+        return exposures
+            .GroupBy(pair => (pair.Exposure.PackageId, pair.Exposure.DefinitionId))
+            .Where(group => group.Select(pair => pair.Key).Distinct(StringComparer.Ordinal).Take(2).Count() == 1)
+            .Select(group => group.First().Exposure)
+            .ToArray();
     }
 
     // The id an item is gated under, or null when it is not gated. G-DISC (owner decision P10, fail closed): an item of the

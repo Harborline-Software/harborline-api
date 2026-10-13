@@ -201,8 +201,10 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         // Literal oracle, deliberately not derived from the production constants. Platform #275 adds record_class to
         // the record type (12 -> 13) and reference_target_type_id, reference_target_class_id, reference_cardinality,
         // reference_on_delete and reference_parent to the field (15 -> 20); a member change bumps the shape's
-        // revision, so both shapes are at revision 2. The definition package is unchanged at 8.
-        Assert.Equal([8, 13, 20], compiled.Select(entry => entry.GetProperty("members").GetArrayLength()).Order());
+        // revision, so both shapes went to revision 2. Platform #279 then adds creation_role_id to the record type
+        // (13 -> 14), taking it to revision 3; the field stays at 20 and revision 2. The definition package is
+        // unchanged at 8.
+        Assert.Equal([8, 14, 20], compiled.Select(entry => entry.GetProperty("members").GetArrayLength()).Order());
     }
 
     [Fact(DisplayName = "T-909 ck-1: with the platform seed active, the compiled shapes still come first, in the platform's declared order")]

@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -388,6 +390,8 @@ public sealed record ReleasedPackConversionResult(string PackageKey, PackExportR
 /// </summary>
 public static class ReleasedPackConversion
 {
+    private static readonly SearchValues<char> LowerHexDigits = SearchValues.Create("0123456789abcdef");
+
     /// <summary>T-982: the released document carries no <c>closure.dependencies</c> array.</summary>
     public const string ClosureMissingCode = "configuration-release-closure-missing";
 
@@ -413,7 +417,15 @@ public static class ReleasedPackConversion
     /// closure, a malformed entry, or an edit naming a package the closure does not pin is refused.
     /// Root exposure is preserved in its supplied order only for carried own definitions; malformed
     /// assertions and exposed foreign edits are refused. This transport check does not replace the
-    /// producer's baseline ownership admission or the installer's installed-owner check.</remarks>
+    /// producer's baseline ownership admission or the installer's installed-owner check.
+    /// Goal 3 P3: an optional root <c>exposedDefinitions</c> (Platform builder-definitions revision 19) is read into
+    /// the request's <see cref="PackExportRequest.ExposedDefinitions"/> exactly as signed, in document order. It must
+    /// appear alongside <c>exposes</c> and be a nonempty array of objects, each with a string <c>definitionKey</c>
+    /// that is a distinct key of <c>exposes</c> carried as an own definition, a nonblank string <c>version</c> and a
+    /// string <c>digest</c> of <c>sha256:</c> and 64 lowercase hex digits; anything else refuses
+    /// <c>configuration-release-document-malformed</c> at <c>exposedDefinitions</c>. A document without it (an unbound
+    /// or older release) converts with no entries. Version and digest are never derived from the revision, an item
+    /// or a body.</remarks>
     /// <exception cref="ReleasedPackConversionException">The document is not a convertible released package.</exception>
     public static ReleasedPackConversionResult Convert(ReadOnlySpan<byte> document, string authoringPrincipal)
     {
@@ -482,7 +494,7 @@ public static class ReleasedPackConversion
             var digest = root.TryGetProperty("digest", out var digestElement) && digestElement.ValueKind == JsonValueKind.Object
                 ? digestElement.GetProperty("value").GetString() ?? string.Empty
                 : string.Empty;
-            var (exposes, interfaceVersion) = Exposure(root, contents, foreign);
+            var (exposes, interfaceVersion, exposedDefinitions) = Exposure(root, contents, foreign);
             if (contents.Count == 0) return new(packageKey, null, foreign, dependencies);
             return new(packageKey, new PackExportRequest(
                 Key: packageKey,
@@ -496,16 +508,24 @@ public static class ReleasedPackConversion
                 Epoch: PackComposerRoutes.OwnRosterEpoch,
                 Dcp: DomainComplianceProfile.General(authoringPrincipal),
                 Exposes: exposes,
-                InterfaceVersion: interfaceVersion), foreign, dependencies);
+                InterfaceVersion: interfaceVersion,
+                ExposedDefinitions: exposedDefinitions), foreign, dependencies);
         }
     }
 
-    private static (IReadOnlyList<string>? Exposes, int? InterfaceVersion) Exposure(JsonElement root,
-        IReadOnlyList<PackContentSource> contents, IReadOnlyList<ReleasedDefinitionEdit> foreign)
+    private static (IReadOnlyList<string>? Exposes, int? InterfaceVersion, IReadOnlyList<PackExposedDefinition>? ExposedDefinitions)
+        Exposure(JsonElement root, IReadOnlyList<PackContentSource> contents, IReadOnlyList<ReleasedDefinitionEdit> foreign)
     {
         var hasExposes = root.TryGetProperty("exposes", out var exposed);
         var hasVersion = root.TryGetProperty("interfaceVersion", out var version);
-        if (!hasExposes && !hasVersion) return (null, null);
+        var hasEntries = root.TryGetProperty("exposedDefinitions", out var entries);
+        if (!hasExposes && !hasVersion)
+        {
+            if (hasEntries)
+                throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposedDefinitions",
+                    "The Released package states exposed-definition entries without an exposure.");
+            return (null, null, null);
+        }
         if (!hasExposes || exposed.ValueKind != JsonValueKind.Array || exposed.GetArrayLength() == 0)
             throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposes",
                 "The Released package exposure must be a nonempty array of distinct nonblank definition keys.");
@@ -536,8 +556,39 @@ public static class ReleasedPackConversion
         // This checks the transported assertion, not authoritative ownership. The producer must check
         // baseline ownership; InstallAsync independently rejects own-claimed keys another installed
         // package ships before export. Neither key prefixes nor body hints establish ownership here.
-        return (keys, number);
+        return (keys, number, hasEntries ? ExposedDefinitions(entries, keys, contents) : null);
     }
+
+    // Goal 3 P3 (DES-0015 records-ck-40): the signed catalogue facts the producer bound, read exactly as written.
+    private static List<PackExposedDefinition> ExposedDefinitions(JsonElement entries, IReadOnlyList<string> exposes,
+        IReadOnlyList<PackContentSource> contents)
+    {
+        if (entries.ValueKind != JsonValueKind.Array || entries.GetArrayLength() == 0)
+            throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposedDefinitions",
+                "The Released package exposed-definition entries must be a nonempty array.");
+        var read = new List<PackExposedDefinition>();
+        var distinct = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in entries.EnumerateArray())
+        {
+            string? Field(string name) => entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty(name, out var value)
+                && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            var key = Field("definitionKey");
+            var entryVersion = Field("version");
+            var digest = Field("digest");
+            if (string.IsNullOrWhiteSpace(key) || !distinct.Add(key) || !exposes.Contains(key, StringComparer.Ordinal)
+                || !contents.Any(content => string.Equals(content.Key, key, StringComparison.Ordinal))
+                || string.IsNullOrWhiteSpace(entryVersion) || !IsStoreDigest(digest))
+                throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposedDefinitions",
+                    "Each exposed-definition entry must name a distinct exposed own definition, a nonblank version and a sha256: digest of 64 lowercase hex digits.");
+            read.Add(new PackExposedDefinition(key, entryVersion, digest));
+        }
+        return read;
+    }
+
+    // records-ck-40: the algorithm-qualified store digest, spelled exactly as the Platform catalogue spells it.
+    private static bool IsStoreDigest([NotNullWhen(true)] string? digest) =>
+        digest is { Length: 71 } && digest.StartsWith("sha256:", StringComparison.Ordinal)
+        && !digest.AsSpan(7).ContainsAnyExcept(LowerHexDigits);
 
     private static List<PackDependencyRef> Closure(JsonElement root, string packageKey)
     {

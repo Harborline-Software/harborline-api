@@ -73,6 +73,14 @@ namespace Harborline.Api.Foundation.Packs.Model;
 /// the ADR 0006 <c>pack-key@integer</c> requirement spelling. Signed for the same reason, and
 /// matched exactly rather than by range: a range admits a consumer never tested against the
 /// interface actually active. Ticket 396.</param>
+/// <param name="ExposedDefinitions">The signed catalogue facts of exposed definitions a release bound to exact
+/// published revisions (Goal 3 P3, owner decision P10 Option A; DES-0015 records-ck-40, records-ck-41): per
+/// exposed key, the catalogue version and <c>sha256:</c> store digest a consumer's pin carries. Copied from the
+/// producer's signed release, never computed here. <b>ADDITIVE.</b> <c>null</c> ⇒ an unbound or pre-P3 pack;
+/// because the property is omitted-when-null from the signed canonical form, every existing manifest serializes
+/// byte-identically and every existing signature and content address still verifies. A pack that carries the
+/// member is refused by a node that predates it (its decoder drops the member, so the re-canonicalized subject
+/// no longer verifies), which fails closed exactly as <see cref="Exposes"/> did (ticket 396).</param>
 /// <remarks>
 /// <para>
 /// <see cref="Name"/>, <see cref="Description"/>, <see cref="DisplayName"/>, <see cref="Tagline"/>,
@@ -113,7 +121,9 @@ public sealed record PackManifest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<string>? Exposes = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    int? InterfaceVersion = null);
+    int? InterfaceVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null);
 
 /// <summary>
 /// One entry in a manifest's S-10 <see cref="PackManifest.RenamedFrom"/> key-stability map: the
