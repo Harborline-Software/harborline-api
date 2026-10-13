@@ -14,7 +14,7 @@
     "authorization-denial-data": {"status": "pending"},
     "authorization-denial": {"status": "pending"},
     "refusals-admission": {"status": "pending"},
-    "scope-tenancy-identity-tenant": {"status": "pending"},
+    "scope-tenancy-identity-tenant": {"score": 71.24, "break": 71, "measured": "2026-10-13", "run": "38340599064"},
     "scope-tenancy-identity-session": {"status": "pending"},
     "scope-tenancy": {"status": "pending"},
     "data-integrity-data": {"status": "pending"},
