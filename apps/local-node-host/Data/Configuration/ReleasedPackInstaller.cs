@@ -44,6 +44,10 @@ public sealed record ReleasedPackInstallOutcome(bool Installed, string ReleasedD
     /// record that failed after it was discarded). Diagnostic only: it never turns a commit into a refusal.
     /// </summary>
     public string? Diagnostics { get; init; }
+
+    /// <summary>The failure behind <see cref="Diagnostics"/>, for the host log only; never serialized.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public AggregateException? DiagnosticsException { get; init; }
 }
 
 /// <summary>
@@ -277,7 +281,8 @@ public sealed class ReleasedPackInstaller
             // Outside the lease: deferred refusal audit always, success audit and observers only after the commit.
             diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
         }
-        return diagnostics is null ? outcome : outcome with { Diagnostics = diagnostics.Message };
+        return diagnostics is null ? outcome
+            : outcome with { Diagnostics = diagnostics.Message, DiagnosticsException = diagnostics };
     }
 
     private static ReleasedPackRefusal Foreign(string definitionKey, string owner, string why) =>

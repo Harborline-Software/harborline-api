@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -54,6 +56,12 @@ internal static class ConfigurationProposalRoutes
 
     /// <summary>Route: install and activate one offered Released package, by its own artifact digest.</summary>
     public const string InstallReleaseRoute = "/api/local-node/configuration/releases/{digest}/install";
+
+    /// <summary>Install-release diagnostic: the release committed, then a success audit or observer failed.</summary>
+    public const string PostCommitReactionFailed = "post-commit-reaction-failed";
+
+    /// <summary>Install-release diagnostic: the release was refused, then its deferred refusal record failed.</summary>
+    public const string DeferredRefusalRecordFailed = "deferred-refusal-record-failed";
 
     public static void Map(IEndpointRouteBuilder app, ConfigurationProposalStore store,
         IActiveTeamAccessor activeTeam, AuthorizationGate gate, TimeProvider time, ILogger logger,
@@ -233,10 +241,20 @@ internal static class ConfigurationProposalRoutes
                     !outcome.Succeeded ? "refused" : outcome.Installed ? "installed" : "narrowed", tenant.Value,
                     outcome.ReleasedDigest, outcome.PackKey, outcome.Version,
                     [.. outcome.Refusals.Select(item => new ConfigurationRefusalDto(item.Code, item.Target, item.Message))],
-                    outcome.Narrowed ?? []);
+                    outcome.Narrowed ?? [],
+                    // Tickets 092/094: exception text never reaches the wire. The body names which reaction failed by
+                    // a stable code; only the host log carries the failure itself.
+                    outcome.Diagnostics is null ? null
+                        : outcome.Succeeded ? PostCommitReactionFailed : DeferredRefusalRecordFailed);
                 if (logger.IsEnabled(LogLevel.Information))
                     logger.LogInformation("Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Pack}@{Version}",
                         tenant, digest, dto.Status, dto.PackKey, dto.Version);
+                // A failed reaction never changes the status, but it must not be silent: the body carries its code
+                // and the host log carries the failure.
+                if (outcome.Diagnostics is not null && logger.IsEnabled(LogLevel.Warning))
+                    logger.LogWarning(outcome.DiagnosticsException,
+                        "Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Code}: {Diagnostics}",
+                        tenant, digest, dto.Status, dto.Diagnostics, outcome.Diagnostics);
                 return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
     }
@@ -312,8 +330,12 @@ public sealed record CheckDto(string ReceiptId, string CheckedDigest, bool IsCur
 /// <param name="Version">The pack version it installed under; empty when nothing installed.</param>
 /// <param name="Refusals">Why nothing was installed; empty on success.</param>
 /// <param name="Narrowed">Other packages' definitions carried as tenant narrowing overlays.</param>
+/// <param name="Diagnostics">A stable code naming a notification or audit delivery that failed after the outcome was
+/// decided: "post-commit-reaction-failed" on a success, "deferred-refusal-record-failed" on a refusal. It never changes
+/// <paramref name="Status"/> and never carries exception text. Omitted when nothing failed.</param>
 public sealed record InstalledReleaseDto(string Status, string TenantKey, string Digest, string PackKey,
-    string Version, IReadOnlyList<ConfigurationRefusalDto> Refusals, IReadOnlyList<string> Narrowed);
+    string Version, IReadOnlyList<ConfigurationRefusalDto> Refusals, IReadOnlyList<string> Narrowed,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Diagnostics = null);
 
 /// <summary>A Released package offered for activation. The digest is the artifact's own bytes.</summary>
 public sealed record ReleasedPackageDto(string Digest, string PackageKey, string Revision, string ProposalId,
