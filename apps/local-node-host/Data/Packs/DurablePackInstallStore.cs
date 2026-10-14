@@ -264,8 +264,9 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
             using var ctx = CreateContext();
             // S-7 ATOMIC apply: the new seed layer + advanced watermark + re-attached overrides commit
             // all-or-nothing inside ONE explicit transaction. A fault before Commit rolls the whole thing back
-            // (the durable analogue of the in-memory single reference-swap).
-            using var tx = ctx.Database.BeginTransaction();
+            // (the durable analogue of the in-memory single reference-swap). A staged projection unit owns the
+            // transaction instead, and this write commits or rolls back with everything else it carries.
+            using var tx = ctx.Database.CurrentTransaction is null ? ctx.Database.BeginTransaction() : null;
 
             var observedWatermark = ctx.Watermarks.Find(t, pack.PackKey);
             transaction.RequireCurrentWatermark(observedWatermark is null ? null : new PackInstallWatermark(
@@ -337,7 +338,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
             StageAudit(ctx, transaction.Audit);
             ctx.SaveChanges();
-            tx.Commit();
+            tx?.Commit();
         }
     }
 

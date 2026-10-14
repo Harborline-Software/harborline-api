@@ -28,7 +28,7 @@ namespace Harborline.Api.Foundation.Packs.Install;
 /// commit (S-7) → durable audit. Nothing reads a pack's content before <c>Verified</c>, and nothing mutates
 /// a store before every gate has passed.
 /// </summary>
-public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
+public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, IPackProjectionParticipant
 {
     private static readonly IComparer<string> VersionComparer = Comparer<string>.Create(PackVersion.Compare);
 
@@ -141,7 +141,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         ReadOnlyMemory<byte> packBytes, PackInstallContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return RunAsync(new Installation(this, packBytes, context), cancellationToken);
+        return RunAsync(new Installation(this, packBytes, context, null), cancellationToken);
     }
 
     /// <summary>
@@ -150,9 +150,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     /// the plan and its <see cref="PackInstallTransaction"/>. Validate runs the hard refusals (verify, revocation,
     /// scope, projector support, admission) and the S-8 watermark rule, which proceeds only under the explicit
     /// break-glass ceremony. Commit is the atomic seed-layer commit. React is the audit, the break-glass entry
-    /// first, and the outcome.
+    /// first, and the outcome. A joined install commits into the caller's transaction and defers its audit.
     /// </summary>
-    private sealed class Installation(PackInstaller installer, ReadOnlyMemory<byte> packBytes, PackInstallContext context)
+    private sealed class Installation(
+        PackInstaller installer, ReadOnlyMemory<byte> packBytes, PackInstallContext context, PackProjectionTransaction? joined)
         : KernelWrite<InstallBound, InstallMutation, InstallSealed, PackInstallOutcome>
     {
         private ClaimedPackCoordinates claimed = null!;
@@ -166,12 +167,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 installer.AuditPreDecisionRefusal(
                     context.Tenant, claimed.PackKey, claimed.Version, context.Now, principal,
-                    PackInstallCodes.RefusedNoPrincipal);
+                    PackInstallCodes.RefusedNoPrincipal, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(principal, "context.Principal");
             }
 
             decision = installer.AuthorizeOrAudit(context.Tenant,
-                principal, context.Instant, claimed.PackKey, claimed.Version, context.CorrelationId);
+                principal, context.Instant, claimed.PackKey, claimed.Version, context.CorrelationId, joined);
             return ValueTask.CompletedTask;
         }
 
@@ -251,8 +252,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             var plan = validated.Plan;
             var preview = plan.Preview;
             // The same entry instances the commit carried: a store that staged them is delivering them already.
-            foreach (var entry in validated.Transaction.Audit!.Entries)
-                await installer._audit.AppendAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
+            // A joined install is not durable yet, so its entries are delivered only after the caller's commit.
+            var entries = validated.Transaction.Audit!.Entries;
+            if (joined is not null)
+                joined.AfterCommit(async () =>
+                {
+                    foreach (var entry in entries)
+                        await installer._audit.AppendAuthorizedAsync(entry, decision, CancellationToken.None).ConfigureAwait(false);
+                });
+            else
+                foreach (var entry in entries)
+                    await installer._audit.AppendAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
 
             return new PackInstallOutcome(
                 true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview,
@@ -284,7 +294,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         private PackInstallOutcome AuditRefusal(InstallPlan plan)
         {
-            installer.AuditRefused(context, plan.Preview, plan.SignerKeyId, decision);
+            installer.AuditRefused(context, plan.Preview, plan.SignerKeyId, decision, joined);
             return new PackInstallOutcome(false, PackInstallAuditAction.Refused, plan.Preview.PackKey, plan.Preview.Version,
                 plan.Preview.RefusalCodes, plan.Preview, BrokeGlass: false, decision);
         }
@@ -438,7 +448,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     {
         ArgumentNullException.ThrowIfNull(context);
         return RunAsync(new Activation(this, context.Tenant, packKey, version, context.Instant, context.Principal,
-            context.OwnershipResolutions, context.CorrelationId), cancellationToken);
+            context.OwnershipResolutions, context.CorrelationId, null), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -458,7 +468,65 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(overlayPatch);
         ArgumentNullException.ThrowIfNull(decision);
-        return RunAsync(new Narrowing(this, context, packKey, contentKey, overlayPatch, decision), cancellationToken);
+        return RunAsync(new Narrowing(this, context, packKey, contentKey, overlayPatch, decision, null), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PackInstallOutcome> InstallAsync(
+        ReadOnlyMemory<byte> packBytes, PackInstallContext context, PackProjectionTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        Join(transaction);
+        return RunAsync(new Installation(this, packBytes, context, transaction), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PackActivationOutcome> ActivateAsync(
+        PackInstallContext context, string packKey, string version, PackProjectionTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        Join(transaction);
+        return RunAsync(new Activation(this, context.Tenant, packKey, version, context.Instant, context.Principal,
+            context.OwnershipResolutions, context.CorrelationId, transaction), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PackNarrowingOutcome> NarrowAsync(
+        PackInstallContext context, string packKey, string contentKey, JsonNode overlayPatch,
+        AuthorizationDecision decision, PackProjectionTransaction transaction, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(overlayPatch);
+        ArgumentNullException.ThrowIfNull(decision);
+        Join(transaction);
+        return RunAsync(new Narrowing(this, context, packKey, contentKey, overlayPatch, decision, transaction), cancellationToken);
+    }
+
+    /// <summary>Enlists the internal stores without exposing a mutation face on the read-only store facade.</summary>
+    public void StageProjection(PackProjectionTransaction transaction) => Join(transaction);
+
+    /// <summary>
+    /// Stages this installer's stores into the caller's transaction before any stage reads them, so every bind
+    /// sees what the transaction has already staged. A store that cannot stage atomically fails closed here.
+    /// </summary>
+    private void Join(PackProjectionTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        transaction.Enlist(_mutations);
+        transaction.Enlist(_projectionStore);
+    }
+
+    /// <summary>Records an audit now, or, for a joined write, once the caller's transaction has been released.</summary>
+    private static void Record(PackProjectionTransaction? joined, Action record)
+    {
+        if (joined is null) record();
+        else joined.AfterRelease(() =>
+        {
+            record();
+            return Task.CompletedTask;
+        });
     }
 
     // ck-10 S5b (DES-0029): activation, deactivation and narrowing each run their six ADR 0038 stages through
@@ -493,7 +561,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     /// the target version and the current active version. Validate runs the platform-requirement check and the
     /// composition and ownership refusal. Commit is the pointer flip and the projection inside one projection
     /// transaction, re-checking the premises other packs can change while the write lease excludes them.
-    /// React is the audit, the post-commit observers and the outcome.
+    /// React is the audit, the post-commit observers and the outcome. A joined activation stages the same
+    /// pointer flip and projection into the caller's transaction, which alone commits and notifies.
     /// </summary>
     private sealed class Activation(
         PackInstaller installer,
@@ -503,7 +572,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         AdmittedInstant instant,
         string? actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions,
-        Guid? correlationId)
+        Guid? correlationId,
+        PackProjectionTransaction? joined)
         : KernelWrite<ActivationBound, ActivationBound, ActivationBound, PackActivationOutcome>
     {
         private DateTimeOffset now => instant.Value;
@@ -518,13 +588,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (string.IsNullOrWhiteSpace(packKey))
             {
                 installer.AuditPreDecisionRefusal(tenant, packKey, version, now, actingPrincipal,
-                    PackInstallCodes.RefusedBlankPackKey);
+                    PackInstallCodes.RefusedBlankPackKey, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
             }
             if (string.IsNullOrWhiteSpace(version))
             {
                 installer.AuditPreDecisionRefusal(tenant, packKey, version, now, actingPrincipal,
-                    PackInstallCodes.RefusedBlankVersion);
+                    PackInstallCodes.RefusedBlankVersion, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(version);
             }
 
@@ -534,12 +604,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (string.IsNullOrWhiteSpace(actingPrincipal))
             {
                 installer.AuditPreDecisionRefusal(tenant, packKey, version, now, actingPrincipal,
-                    PackInstallCodes.ActivateRefusedNoPrincipal);
+                    PackInstallCodes.ActivateRefusedNoPrincipal, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(actingPrincipal);
             }
 
             principal = actingPrincipal;
-            decision = installer.AuthorizeOrAudit(tenant, principal, instant, packKey, version, correlationId);
+            decision = installer.AuthorizeOrAudit(tenant, principal, instant, packKey, version, correlationId, joined);
             return ValueTask.CompletedTask;
         }
 
@@ -551,7 +621,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (target is null)
             {
                 throw new Refused(installer.AuditActivationRefusal(tenant, packKey, version, now, principal,
-                    PackInstallCodes.ActivateNotInstalled, null, decision));
+                    PackInstallCodes.ActivateNotInstalled, null, decision, joined: joined));
             }
             return ValueTask.FromResult<ActivationBound?>(new ActivationBound(target, expectedActiveVersion));
         }
@@ -570,7 +640,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 throw new Refused(installer.AuditActivationRefusal(tenant, packKey, version, now, principal,
                     PackInstallCodes.ActivateUnmetPlatformRequirement,
                     $"capability '{first.Capability}' declared by '{first.DeclaredBy}' is unmet "
-                        + $"({first.Failure}).", decision));
+                        + $"({first.Failure}).", decision, joined: joined));
             }
 
             var compositionRefusal = installer.FindActivationCompositionRefusal(
@@ -578,7 +648,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (compositionRefusal is not null)
             {
                 throw new Refused(installer.AuditActivationRefusal(tenant, packKey, version, now, principal,
-                    compositionRefusal.Error!, compositionRefusal.Detail, decision, compositionRefusal.Refusal));
+                    compositionRefusal.Error!, compositionRefusal.Detail, decision, compositionRefusal.Refusal, joined));
             }
             return ValueTask.FromResult(mutation);
         }
@@ -592,8 +662,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             PackProjectionTransaction? transaction = null;
             try
             {
-                using (transaction = new PackProjectionTransaction(ct))
+                using (transaction = joined is null ? new PackProjectionTransaction(ct) : null)
                 {
+                    var staging = transaction ?? joined!;
                     var target = installer._store.GetVersion(tenant, packKey, version);
                     if (!string.Equals(installer._store.GetActive(tenant, packKey)?.Version, validated.ExpectedActiveVersion, StringComparison.Ordinal))
                     {
@@ -612,9 +683,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     }
                     else
                     {
-                        transaction.Enlist(installer._mutations);
-                        transaction.Enlist(installer._projectionStore);
-                        transaction.Enlist(installer._projector);
+                        staging.Enlist(installer._mutations);
+                        staging.Enlist(installer._projectionStore);
+                        staging.Enlist(installer._projector);
                         foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
                             installer._mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
                         installer.ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version,
@@ -624,7 +695,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                         {
                             ct.ThrowIfCancellationRequested();
                             if (installer._projector is not null) installer.ProjectionStore().MarkProjectionCompleted(authority.Nonce);
-                            transaction.Commit();
+                            transaction?.Commit();
                             outcome = new(true, packKey, version, null, Projected: installer._projector is not null,
                                 ProjectionResult: result, Decision: decision);
                         }
@@ -649,6 +720,19 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         protected override async ValueTask<PackActivationOutcome> ReactAsync(ActivationBound validated, CancellationToken ct)
         {
+            if (joined is not null)
+            {
+                // Staged, not committed: success is announced only after the caller's commit, and a refusal is
+                // audited only after the caller's lease and durable unit are released.
+                if (outcome.Activated)
+                    joined.AfterCommit(() => installer._audit.AppendAuthorizedAsync(activated, decision, CancellationToken.None).AsTask());
+                else
+                    joined.AfterRelease(() => installer._audit.AppendAuthorizedAsync(new PackInstallAuditEntry(
+                        tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
+                        outcome.Error ?? "pack.install.activated", ActingPrincipal: principal), decision, CancellationToken.None).AsTask());
+                return outcome;
+            }
+
             // Audit and observers run only after the write lease and SQLite transaction have closed.
             // A notification failure cannot turn a committed activation into a reported rollback.
             try
@@ -810,6 +894,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     /// tenant, principal and instant. Bind reads the active version, the narrowed item and, for cascade defaults,
     /// the stored overrides. Mutate derives the override row and the composed cascade. Validate refuses a widening
     /// and runs the cascade admission over exactly that row. Commit saves it. React is the audit and the outcome.
+    /// A joined narrowing binds the overlays already staged in the caller's transaction, so its cascade admission
+    /// is over the whole staged batch, and saves into that transaction.
     /// </summary>
     private sealed class Narrowing(
         PackInstaller installer,
@@ -817,7 +903,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         string packKey,
         string contentKey,
         JsonNode overlayPatch,
-        AuthorizationDecision decision)
+        AuthorizationDecision decision,
+        PackProjectionTransaction? joined)
         : KernelWrite<NarrowingBound, NarrowingMutation, PackTenantOverride, PackNarrowingOutcome>
     {
         private readonly TenantId tenant = context.Tenant;
@@ -830,13 +917,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             if (string.IsNullOrWhiteSpace(packKey))
             {
-                installer.AuditPreDecisionRefusal(tenant, packKey, null, now, principal, PackInstallCodes.RefusedBlankPackKey);
+                installer.AuditPreDecisionRefusal(tenant, packKey, null, now, principal, PackInstallCodes.RefusedBlankPackKey, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
             }
             if (string.IsNullOrWhiteSpace(contentKey))
             {
                 installer.AuditPreDecisionRefusal(
-                    tenant, packKey, null, now, principal, PackInstallCodes.NarrowUnknownContentKey);
+                    tenant, packKey, null, now, principal, PackInstallCodes.NarrowUnknownContentKey, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(contentKey);
             }
 
@@ -845,7 +932,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (string.IsNullOrWhiteSpace(principal))
             {
                 installer.AuditPreDecisionRefusal(
-                    tenant, packKey, null, now, principal, PackInstallCodes.NarrowRefusedNoPrincipal);
+                    tenant, packKey, null, now, principal, PackInstallCodes.NarrowRefusedNoPrincipal, joined);
                 ArgumentException.ThrowIfNullOrWhiteSpace(principal);
             }
 
@@ -868,7 +955,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             if (current is null)
             {
                 throw new Refused(installer.AuditNarrowingRefusal(
-                    tenant, packKey, contentKey, now, principal, PackInstallCodes.NarrowNotActive, null, decision));
+                    tenant, packKey, contentKey, now, principal, PackInstallCodes.NarrowNotActive, null, decision, joined));
             }
             var readset = new PackNarrowingReadset(current, installer._store.GetOverrides(tenant, packKey));
             current = readset.CopyActive();
@@ -879,7 +966,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 throw new Refused(installer.AuditNarrowingRefusal(
                     tenant, packKey, contentKey, now, principal,
-                    PackInstallCodes.NarrowUnknownContentKey, null, decision));
+                    PackInstallCodes.NarrowUnknownContentKey, null, decision, joined));
             }
 
             var overrides = item.Kind == PackContentKind.CascadeDefaults
@@ -913,7 +1000,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 throw new Refused(installer.AuditNarrowingRefusal(
                     tenant, packKey, contentKey, now, principal,
-                    PackTenantNarrowing.WideningRefusedCode, wideningPath, decision));
+                    PackTenantNarrowing.WideningRefusedCode, wideningPath, decision, joined));
             }
 
             if (mutation.Composed is not null)
@@ -922,7 +1009,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 if (!admitted.IsAdmissible)
                 {
                     throw new Refused(installer.AuditNarrowingRefusal(tenant, packKey, contentKey, now, principal,
-                        admitted.Refusals[0].Code, admitted.Refusals[0].Pointer, decision));
+                        admitted.Refusals[0].Code, admitted.Refusals[0].Pointer, decision, joined));
                 }
             }
             return ValueTask.FromResult(mutation.Row with { ExpectedReadset = bound.Readset });
@@ -945,13 +1032,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 throw new Refused(installer.AuditNarrowingRefusal(
                     tenant, packKey, contentKey, now, principal,
-                    PackInstallCodes.RefusedInstalledStateChanged, null, decision));
+                    PackInstallCodes.RefusedInstalledStateChanged, null, decision, joined));
             }
         }
 
         protected override async ValueTask<PackNarrowingOutcome> ReactAsync(PackTenantOverride validated, CancellationToken ct)
         {
-            await installer._audit.AppendAuthorizedAsync(narrowed, decision, ct).ConfigureAwait(false);
+            // A joined narrowing is staged, not committed: its audit is delivered only after the caller's commit.
+            if (joined is not null)
+                joined.AfterCommit(() => installer._audit.AppendAuthorizedAsync(narrowed, decision, CancellationToken.None).AsTask());
+            else
+                await installer._audit.AppendAuthorizedAsync(narrowed, decision, ct).ConfigureAwait(false);
             return new PackNarrowingOutcome(true, packKey, contentKey, Decision: decision);
         }
     }
@@ -962,12 +1053,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
     private PackNarrowingOutcome AuditNarrowingRefusal(
         TenantId tenant, string packKey, string contentKey, DateTimeOffset now, string? principal,
-        string code, string? wideningPath, AuthorizationDecision decision)
+        string code, string? wideningPath, AuthorizationDecision decision, PackProjectionTransaction? joined = null)
     {
-        _audit.AppendAuthorized(new PackInstallAuditEntry(
+        Record(joined, () => _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Refused, packKey, string.Empty, now, null, null,
             $"{code}:{contentKey}",
-            ActingPrincipal: principal), decision);
+            ActingPrincipal: principal), decision));
         return new PackNarrowingOutcome(false, packKey, contentKey, code, wideningPath, decision);
     }
 
@@ -1154,7 +1245,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         AdmittedInstant at,
         string packKey,
         string version,
-        Guid? correlationId = null)
+        Guid? correlationId = null,
+        PackProjectionTransaction? joined = null)
     {
         if (correlationId == Guid.Empty) throw new ArgumentException("Correlation ID must be non-empty.", nameof(correlationId));
         var scope = ScopeExpression.Parse($"/records/{packKey}");
@@ -1172,7 +1264,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         catch (AuthorizationDeniedException)
         {
             AuditPreDecisionRefusal(
-                tenant, packKey, version, at.Value, principal, PackInstallCodes.RefusedAuthorizationDenied);
+                tenant, packKey, version, at.Value, principal, PackInstallCodes.RefusedAuthorizationDenied, joined);
             throw;
         }
         return decision;
@@ -1687,11 +1779,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         PackInstallContext context,
         PackInstallPreview preview,
         Harborline.Api.Foundation.Crypto.PrincipalId? signerKeyId,
-        AuthorizationDecision decision)
-        => _audit.AppendAuthorized(new PackInstallAuditEntry(
+        AuthorizationDecision decision,
+        PackProjectionTransaction? joined = null)
+        => Record(joined, () => _audit.AppendAuthorized(new PackInstallAuditEntry(
             context.Tenant, PackInstallAuditAction.Refused, preview.PackKey, preview.Version,
             context.Now, signerKeyId, preview.Epoch, Detail: string.Join(",", preview.RefusalCodes),
-            ActingPrincipal: context.Principal), decision);
+            ActingPrincipal: context.Principal), decision));
 
     private void AuditPreDecisionRefusal(
         TenantId tenant,
@@ -1699,8 +1792,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         string? version,
         DateTimeOffset now,
         string? actingPrincipal,
-        string detail)
-        => _audit.Append(new PackInstallAuditEntry(
+        string detail,
+        PackProjectionTransaction? joined = null)
+        => Record(joined, () => _audit.Append(new PackInstallAuditEntry(
             tenant,
             PackInstallAuditAction.Refused,
             packKey ?? string.Empty,
@@ -1710,7 +1804,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             null,
             Detail: detail,
             ActingPrincipal: actingPrincipal,
-            PreDecision: true));
+            PreDecision: true)));
 
     private PackActivationOutcome AuditActivationRefusal(
         TenantId tenant,
@@ -1721,11 +1815,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         string error,
         string? detail,
         AuthorizationDecision decision,
-        PackInstallRefusal? refusal = null)
+        PackInstallRefusal? refusal = null,
+        PackProjectionTransaction? joined = null)
     {
-        _audit.AppendAuthorized(new PackInstallAuditEntry(
+        Record(joined, () => _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
-            Detail: detail is null ? error : $"{error}: {detail}", ActingPrincipal: actingPrincipal), decision);
+            Detail: detail is null ? error : $"{error}: {detail}", ActingPrincipal: actingPrincipal), decision));
         return new PackActivationOutcome(false, packKey, version, error, detail, Decision: decision, Refusal: refusal);
     }
 
