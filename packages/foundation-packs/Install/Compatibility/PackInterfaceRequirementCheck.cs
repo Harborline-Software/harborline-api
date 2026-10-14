@@ -52,9 +52,13 @@ public static class PackInterfaceRequirementCheck
         JsonNode? parsed;
         try { parsed = item.ParseContent(); }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { yield break; }
-        if (parsed?["definitionEnvelope"]?["requires"] is JsonArray requirements)
+        // A shape the producer path below ignores (non-object body or envelope, non-string capability) states nothing
+        // here either; it never throws out of activation.
+        if (parsed is JsonObject content && content["definitionEnvelope"] is JsonObject definition
+            && definition["requires"] is JsonArray requirements)
             foreach (var requirement in requirements.OfType<JsonObject>())
-                if (TryParse(requirement["capability"]?.GetValue<string>(), out var packKey, out var interfaceVersion))
+                if (requirement["capability"] is JsonValue capability && capability.TryGetValue<string>(out var spelled)
+                    && TryParse(spelled, out var packKey, out var interfaceVersion))
                     yield return new PackInterfaceRequirement(packKey, interfaceVersion);
         // T-615: the platform producer states the same pack-key@N spelling on its own envelope. This live
         // Active-interface check reads it where it was signed, never copied into a definitionEnvelope; pinned
