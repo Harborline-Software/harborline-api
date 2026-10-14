@@ -254,14 +254,17 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
         var denying = Target(TestPackGate.Denying());
 
         // Deliberate order: authority is decided before the evidence intent is read, so a refused caller never
-        // reaches bind and never gets the intent-acknowledged settlement. Characterized (T-519 review): the refused
-        // path keeps the platform's compare-and-swap refusal shape, which checks the baseline before authority, and
-        // the first activation moved the pointer off this request's baseline, so the code is baseline-stale and the
-        // decision carries no authority (the decider stops before consulting it), not configuration-authority-refused.
+        // reaches bind and never gets the intent-acknowledged settlement. The refused path keeps the platform's
+        // compare-and-swap refusal shape, and under Platform T-1046 (#252) that decider resolves authority before
+        // any check against the current generation's state (tenant, baseline). The first activation moved the
+        // pointer off this request's baseline, yet the refused caller still gets configuration-authority-refused,
+        // not configuration-baseline-stale, so it cannot learn the baseline's state through the refusal; the
+        // decision carries the refused authority it was decided on.
         var outcome = await ActivateAsync(denying, request);
 
-        Assert.Equal("configuration-baseline-stale", outcome.Decision.Refusal?.Code);
-        Assert.Null(outcome.Decision.Authority);
+        Assert.Equal("configuration-authority-refused", outcome.Decision.Refusal?.Code);
+        Assert.NotNull(outcome.Decision.Authority);
+        Assert.False(outcome.Decision.Authority.Allowed);
         Assert.Equal([WritePipelineStage.Authorize], _observer.Stages);
         Assert.Equal(candidate, denying.ReadEffective(Tenant).Digest);
         var before = Assert.Single(outboxBefore);

@@ -14,6 +14,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.LocalNodeHost.Health;
 
+using PackProjectionTransaction = Harborline.Api.Foundation.Definitions.PackProjectionTransaction;
+
 namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 
 /// <summary>A stable refusal from the installation of a Released package, and the input it is about.</summary>
@@ -34,6 +36,12 @@ public sealed record ReleasedPackInstallOutcome(bool Installed, string ReleasedD
 {
     /// <summary>True when nothing was refused: own definitions installed, foreign ones narrowed.</summary>
     public bool Succeeded => Refusals.Count == 0;
+
+    /// <summary>
+    /// A notification or audit delivery that failed after the release had already committed (or a deferred refusal
+    /// record that failed after it was discarded). Diagnostic only: it never turns a commit into a refusal.
+    /// </summary>
+    public string? Diagnostics { get; init; }
 }
 
 /// <summary>
@@ -112,6 +120,16 @@ public sealed class ReleasedPackInstaller
     /// and nothing looser: the RFC 7396 patch from the owner's Active seed item to the edited body, under
     /// the same content kind, must pass <see cref="PackTenantNarrowing.IsNarrowing"/>. There is no caller
     /// ownership choice on this path any more; the T-667 R1 takeover through that choice is retired.
+    /// <para>
+    /// The release is one write. Every refusal above is decided against one bound snapshot of the installed packs
+    /// and each narrowed owner's Active definition and overlays; the export is signed before the write lease. Then
+    /// one <see cref="PackProjectionTransaction"/> re-checks that snapshot under the lease, and the own install,
+    /// its activation and projection, and every overlay are staged into it through the installer's joined writes,
+    /// each still authorized and admitted by its own kernel stages, a later overlay over the ones staged before it.
+    /// It commits once, only when nothing refused, faulted or was cancelled; otherwise nothing it staged persists.
+    /// Success audit and observers run only after that commit and the lease release, and their failure is a
+    /// diagnostic; refusal audit runs after the release whatever the outcome.
+    /// </para>
     /// </remarks>
     public async ValueTask<ReleasedPackInstallOutcome> InstallAsync(TenantId tenant, string releasedDigest,
         AuthorizationWriteContext authority, CancellationToken cancellationToken = default)
@@ -146,6 +164,10 @@ public sealed class ReleasedPackInstaller
         var releaseKey = converted.PackageKey;
         var version = request?.Version ?? string.Empty;
 
+        // The bound premises: every decision below is read after this snapshot, and the release commits only
+        // if it is still the tenant's installed state under the release's write lease.
+        var installedPacks = _packs.ListInstalled(tenant);
+
         // T-982 (ck-2 S7): every pinned package must be Active at its pin or newer before anything is
         // exported, installed or narrowed, whether or not the release has content of its own to install.
         var unmet = converted.Dependencies.Where(pin => _packs.GetActive(tenant, pin.Key) is not { } active
@@ -159,7 +181,6 @@ public sealed class ReleasedPackInstaller
 
         // Every K8 refusal is found before anything is exported, installed or narrowed.
         var refusals = new List<ReleasedPackRefusal>();
-        var installedPacks = _packs.ListInstalled(tenant);
         foreach (var own in request?.Contents ?? [])
         {
             // The edit's packageKey is the author's statement; the installed packs say who ships the key.
@@ -171,15 +192,20 @@ public sealed class ReleasedPackInstaller
         }
 
         var narrowings = new List<(ReleasedDefinitionEdit Edit, JsonNode Patch, AuthorizationDecision Decision)>();
+        var readsets = new Dictionary<string, PackNarrowingReadset>(StringComparer.Ordinal);
         foreach (var edit in converted.ForeignEdits)
         {
-            var seed = _packs.GetActive(tenant, edit.PackageKey)?.SeedItems
+            var owner = _packs.GetActive(tenant, edit.PackageKey);
+            var seed = owner?.SeedItems
                 .FirstOrDefault(item => string.Equals(item.Key, edit.DefinitionKey, StringComparison.Ordinal));
             if (seed is null)
             {
                 refusals.Add(Foreign(edit.DefinitionKey, edit.PackageKey, "that package has no Active definition under this key to narrow"));
                 continue;
             }
+            // The owner's Active definition and overlays as this release admits them; an overlay committed by
+            // anyone else before the release commits is theirs to keep, never overwritten by this one.
+            var bound = new PackNarrowingReadset(owner!, _packs.GetOverrides(tenant, edit.PackageKey));
             if (seed.Kind != edit.Kind)
             {
                 refusals.Add(Foreign(edit.DefinitionKey, edit.PackageKey, $"the edit states {edit.Kind} over a {seed.Kind} definition, so it is not a narrowing"));
@@ -204,6 +230,7 @@ public sealed class ReleasedPackInstaller
                 continue;
             }
             narrowings.Add((edit, patch, decision));
+            readsets.TryAdd(edit.PackageKey, bound);
         }
         if (refusals.Count > 0)
             return new(false, offer.Released.Digest, releaseKey, version, refusals);
@@ -211,51 +238,116 @@ public sealed class ReleasedPackInstaller
         var context = new PackInstallContext(tenant, _trustStore, _revocation, authority.Instant,
             PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value,
             CorrelationId: authority.CorrelationId);
-        // ponytail: install-then-narrow is two writes, not one transaction. The pre-check above runs the
-        // same narrowing rule Narrow runs, so only a CascadeDefaults admission or a concurrent change can
-        // refuse after the own pack installed; add a compensating deactivate if that ever shows up.
-        var outcome = request is null
-            ? new ReleasedPackInstallOutcome(false, offer.Released.Digest, string.Empty, string.Empty, [])
-            : await InstallOwnAsync(offer.Released.Digest, request, context, cancellationToken).ConfigureAwait(false);
-        if (!outcome.Succeeded) return outcome;
-
-        var narrowed = new List<string>();
-        foreach (var (edit, patch, decision) in narrowings)
+        // Signing is slow and touches no installed state, so the own pack is exported before the write lease.
+        byte[]? packBytes = null;
+        if (request is not null)
         {
-            var result = await _installer.NarrowAsync(
-                context, edit.PackageKey, edit.DefinitionKey, patch, decision, CancellationToken.None).ConfigureAwait(false);
-            if (!result.Recorded)
-                return outcome with
-                {
-                    Refusals = [Foreign(edit.DefinitionKey, edit.PackageKey, $"its narrowing overlay was refused ({result.RefusalCode})")],
-                    Narrowed = narrowed,
-                };
-            narrowed.Add(edit.DefinitionKey);
+            var exported = await _exporter.ExportAsync(request, _signer.Signer, cancellationToken).ConfigureAwait(false);
+            if (!exported.Succeeded || exported.FileBytes is null)
+                return new(false, offer.Released.Digest, request.Key, request.Version,
+                    [.. exported.Validation.Errors.Select(error =>
+                        new ReleasedPackRefusal(error.Code, error.Target ?? "releasedPackage", error.Message))]);
+            packBytes = exported.FileBytes;
         }
-        return outcome with { Narrowed = narrowed };
+
+        // One transaction for the whole release, opened on this flow so every joined write below owns its lease.
+        ReleasedPackInstallOutcome outcome;
+        AggregateException? diagnostics;
+        var transaction = new PackProjectionTransaction(cancellationToken);
+        try
+        {
+            using (transaction)
+            {
+                // The host supplies a read-only store facade; the installer owns the mutation participants.
+                transaction.Enlist(_installer);
+                outcome = Drifted(tenant, offer.Released.Digest, releaseKey, version, installedPacks, readsets)
+                    ?? await StageAsync(offer.Released.Digest, request, packBytes, narrowings, context, transaction,
+                        cancellationToken).ConfigureAwait(false);
+                if (outcome.Succeeded)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    transaction.Commit();
+                }
+            }
+        }
+        finally
+        {
+            // Outside the lease: deferred refusal audit always, success audit and observers only after the commit.
+            diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
+        }
+        return diagnostics is null ? outcome : outcome with { Diagnostics = diagnostics.Message };
     }
 
     private static ReleasedPackRefusal Foreign(string definitionKey, string owner, string why) =>
         new(ForeignDefinitionCode, definitionKey,
             $"The released definition '{definitionKey}' belongs to package '{owner}', and a released package never takes over another package's definition: {why}.");
 
-    private async ValueTask<ReleasedPackInstallOutcome> InstallOwnAsync(string releasedDigest,
-        PackExportRequest request, PackInstallContext context, CancellationToken cancellationToken)
+    /// <summary>
+    /// Re-reads the bound premises under the release's write lease, before anything is staged: each narrowed
+    /// owner's Active definition and overlays, then the tenant's installed packs. Null when none changed.
+    /// </summary>
+    private ReleasedPackInstallOutcome? Drifted(TenantId tenant, string releasedDigest, string releaseKey, string version,
+        IReadOnlyList<InstalledPack> installed, IReadOnlyDictionary<string, PackNarrowingReadset> readsets)
     {
-        var exported = await _exporter.ExportAsync(request, _signer.Signer, cancellationToken).ConfigureAwait(false);
-        if (!exported.Succeeded || exported.FileBytes is null)
-            return new(false, releasedDigest, request.Key, request.Version,
-                [.. exported.Validation.Errors.Select(error =>
-                    new ReleasedPackRefusal(error.Code, error.Target ?? "releasedPackage", error.Message))]);
+        foreach (var (owner, readset) in readsets)
+        {
+            try { readset.RequireCurrent(_packs.GetActive(tenant, owner), _packs.GetOverrides(tenant, owner)); }
+            catch (PackInstallStateChangedException) { return Changed(owner); }
+        }
+        return Snapshot(_packs.ListInstalled(tenant)).SequenceEqual(Snapshot(installed), StringComparer.Ordinal)
+            ? null
+            : Changed("releasedPackage");
 
-        var installed = await _installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
+        ReleasedPackInstallOutcome Changed(string target) => new(false, releasedDigest, releaseKey, version,
+            [new(PackInstallCodes.RefusedInstalledStateChanged, target,
+                "The installed packages this release was admitted against changed before it could commit.")]);
+
+        static string[] Snapshot(IEnumerable<InstalledPack> packs) => packs
+            .OrderBy(pack => pack.PackKey, StringComparer.Ordinal).ThenBy(pack => pack.Version, StringComparer.Ordinal)
+            .Select(pack => JsonSerializer.Serialize(pack)).ToArray();
+    }
+
+    /// <summary>Stages the own install and activation, then every overlay, into the release transaction.</summary>
+    private async ValueTask<ReleasedPackInstallOutcome> StageAsync(string releasedDigest, PackExportRequest? request,
+        byte[]? packBytes, IReadOnlyList<(ReleasedDefinitionEdit Edit, JsonNode Patch, AuthorizationDecision Decision)> narrowings,
+        PackInstallContext context, PackProjectionTransaction transaction, CancellationToken cancellationToken)
+    {
+        var outcome = request is null
+            ? new ReleasedPackInstallOutcome(false, releasedDigest, string.Empty, string.Empty, [])
+            : await InstallOwnAsync(releasedDigest, request, packBytes!, context, transaction, cancellationToken)
+                .ConfigureAwait(false);
+        if (!outcome.Succeeded) return outcome;
+
+        var narrowed = new List<string>();
+        foreach (var (edit, patch, decision) in narrowings)
+        {
+            var result = await _installer.NarrowAsync(context, edit.PackageKey, edit.DefinitionKey, patch, decision,
+                transaction, cancellationToken).ConfigureAwait(false);
+            // The transaction will not commit, so nothing staged before this refusal is installed or narrowed.
+            if (!result.Recorded)
+                return outcome with
+                {
+                    Installed = false,
+                    Refusals = [Foreign(edit.DefinitionKey, edit.PackageKey, $"its narrowing overlay was refused ({result.RefusalCode})")],
+                    Narrowed = [],
+                };
+            narrowed.Add(edit.DefinitionKey);
+        }
+        return outcome with { Narrowed = narrowed };
+    }
+
+    private async ValueTask<ReleasedPackInstallOutcome> InstallOwnAsync(string releasedDigest,
+        PackExportRequest request, byte[] packBytes, PackInstallContext context, PackProjectionTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var installed = await _installer.InstallAsync(packBytes, context, transaction, cancellationToken).ConfigureAwait(false);
         if (!installed.Installed)
             return new(false, releasedDigest, request.Key, request.Version,
                 [.. installed.RefusalCodes.Select(code =>
                     new ReleasedPackRefusal(code, "releasedPackage", "The Released package was refused by the install engine."))]);
 
-        var activated = await _installer.ActivateAsync(context, installed.PackKey, installed.Version, cancellationToken)
-            .ConfigureAwait(false);
+        var activated = await _installer.ActivateAsync(context, installed.PackKey, installed.Version, transaction,
+            cancellationToken).ConfigureAwait(false);
         return activated.Activated
             ? new(true, releasedDigest, installed.PackKey, installed.Version, [])
             : new(false, releasedDigest, installed.PackKey, installed.Version,
@@ -318,11 +410,14 @@ public static class ReleasedPackConversion
     /// own edits become content; an edit naming another package is returned in
     /// <see cref="ReleasedPackConversionResult.ForeignEdits"/> and never becomes the release's content.
     /// T-982 (ck-2 S7): <c>closure.dependencies</c> is read into the request's dependencies. A missing
-    /// closure, a malformed entry, or an edit naming a package the closure does not pin is refused.</remarks>
+    /// closure, a malformed entry, or an edit naming a package the closure does not pin is refused.
+    /// Root exposure is preserved in its supplied order only for carried own definitions; malformed
+    /// assertions and exposed foreign edits are refused. This transport check does not replace the
+    /// producer's baseline ownership admission or the installer's installed-owner check.</remarks>
     /// <exception cref="ReleasedPackConversionException">The document is not a convertible released package.</exception>
     public static ReleasedPackConversionResult Convert(ReadOnlySpan<byte> document, string authoringPrincipal)
     {
-        JsonDocument parsed;
+        JsonDocument parsed = null!;
         try { parsed = JsonDocument.Parse(document.ToArray()); }
         catch (JsonException) { throw new ReleasedPackConversionException("configuration-release-document-malformed", "document", "The Released package is not a JSON document."); }
         using (parsed)
@@ -343,7 +438,8 @@ public static class ReleasedPackConversion
                         item.TryGetProperty("id", out var unresolved) ? unresolved.GetString() ?? "items" : "items",
                         "A released item carries no present content.");
                 var payload = content.GetProperty("payload");
-                if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("definitionKey", out var keyElement))
+                JsonElement keyElement = default;
+                if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("definitionKey", out keyElement))
                     continue; // The package record: provenance, not installable content.
                 var definitionKey = keyElement.GetString();
                 if (string.IsNullOrWhiteSpace(definitionKey))
@@ -386,6 +482,7 @@ public static class ReleasedPackConversion
             var digest = root.TryGetProperty("digest", out var digestElement) && digestElement.ValueKind == JsonValueKind.Object
                 ? digestElement.GetProperty("value").GetString() ?? string.Empty
                 : string.Empty;
+            var (exposes, interfaceVersion) = Exposure(root, contents, foreign);
             if (contents.Count == 0) return new(packageKey, null, foreign, dependencies);
             return new(packageKey, new PackExportRequest(
                 Key: packageKey,
@@ -397,14 +494,56 @@ public static class ReleasedPackConversion
                 Dependencies: dependencies,
                 CapabilityRequirements: [],
                 Epoch: PackComposerRoutes.OwnRosterEpoch,
-                Dcp: DomainComplianceProfile.General(authoringPrincipal)), foreign, dependencies);
+                Dcp: DomainComplianceProfile.General(authoringPrincipal),
+                Exposes: exposes,
+                InterfaceVersion: interfaceVersion), foreign, dependencies);
         }
+    }
+
+    private static (IReadOnlyList<string>? Exposes, int? InterfaceVersion) Exposure(JsonElement root,
+        IReadOnlyList<PackContentSource> contents, IReadOnlyList<ReleasedDefinitionEdit> foreign)
+    {
+        var hasExposes = root.TryGetProperty("exposes", out var exposed);
+        var hasVersion = root.TryGetProperty("interfaceVersion", out var version);
+        if (!hasExposes && !hasVersion) return (null, null);
+        if (!hasExposes || exposed.ValueKind != JsonValueKind.Array || exposed.GetArrayLength() == 0)
+            throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposes",
+                "The Released package exposure must be a nonempty array of distinct nonblank definition keys.");
+        int number = 0;
+        if (!hasVersion || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out number) || number <= 0)
+            throw new ReleasedPackConversionException("configuration-release-document-malformed", "interfaceVersion",
+                "The Released package exposure must state a positive int32 interface version.");
+
+        var keys = new List<string>();
+        var distinct = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in exposed.EnumerateArray())
+        {
+            var key = entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+            if (string.IsNullOrWhiteSpace(key) || !distinct.Add(key))
+                throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposes",
+                    "The Released package exposure must contain distinct nonblank definition keys.");
+            keys.Add(key);
+        }
+        foreach (var key in keys)
+        {
+            if (foreign.Any(edit => string.Equals(edit.DefinitionKey, key, StringComparison.Ordinal)))
+                throw new ReleasedPackConversionException(ReleasedPackInstaller.ForeignDefinitionCode, key,
+                    $"The Released package cannot expose the foreign definition '{key}'.");
+            if (!contents.Any(content => string.Equals(content.Key, key, StringComparison.Ordinal)))
+                throw new ReleasedPackConversionException("configuration-release-document-malformed", "exposes",
+                    $"The Released package exposes '{key}' without carrying its own definition under that key.");
+        }
+        // This checks the transported assertion, not authoritative ownership. The producer must check
+        // baseline ownership; InstallAsync independently rejects own-claimed keys another installed
+        // package ships before export. Neither key prefixes nor body hints establish ownership here.
+        return (keys, number);
     }
 
     private static List<PackDependencyRef> Closure(JsonElement root, string packageKey)
     {
+        JsonElement entries = default;
         if (!root.TryGetProperty("closure", out var closure) || closure.ValueKind != JsonValueKind.Object
-            || !closure.TryGetProperty("dependencies", out var entries) || entries.ValueKind != JsonValueKind.Array)
+            || !closure.TryGetProperty("dependencies", out entries) || entries.ValueKind != JsonValueKind.Array)
             throw new ReleasedPackConversionException(ClosureMissingCode, "closure",
                 "The Released package carries no pinned dependency closure.");
         var pins = new List<PackDependencyRef>();

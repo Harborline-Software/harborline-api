@@ -1,5 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Packs.Install;
 
@@ -28,7 +29,7 @@ public interface IPackInstaller
     /// <summary>
     /// Installs a VERIFIED pack: verify-gate → revocation → scope → projector support → S-8 watermark →
     /// ADR 0143 admission → S-10 re-attach → ATOMIC seed-layer commit → durable audit. The seed layer is created in
-    /// <see cref="PackLifecycleState.Draft"/>; call <see cref="ActivateAsync"/> to make it live. A watermark
+    /// <see cref="PackLifecycleState.Draft"/>; call <see cref="ActivateAsync(PackInstallContext, string, string, CancellationToken)"/> to make it live. A watermark
     /// refusal (downgrade / floor-weakening) proceeds ONLY with a break-glass ceremony on the context.
     /// </summary>
     Task<PackInstallOutcome> InstallAsync(
@@ -63,4 +64,31 @@ public interface IPackInstaller
     Task<PackNarrowingOutcome> NarrowAsync(
         PackInstallContext context, string packKey, string contentKey, System.Text.Json.Nodes.JsonNode overlayPatch,
         AuthorizationDecision decision, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <see cref="InstallAsync(ReadOnlyMemory{byte}, PackInstallContext, CancellationToken)"/> staged into
+    /// <paramref name="transaction"/>, which the caller opened on this flow and alone commits. Every stage still
+    /// authorizes, binds and validates as the standalone write does; success is published only after that commit,
+    /// and refusal audit only after the transaction is released. A refused or faulted joined write may leave rows
+    /// staged in <paramref name="transaction"/>, so its caller must not commit it. An installer that cannot join refuses.
+    /// </summary>
+    Task<PackInstallOutcome> InstallAsync(
+        ReadOnlyMemory<byte> packBytes, PackInstallContext context, PackProjectionTransaction transaction,
+        CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException($"Pack installer '{GetType().FullName}' cannot join a projection transaction.");
+
+    /// <summary><see cref="ActivateAsync(PackInstallContext, string, string, CancellationToken)"/> staged into
+    /// <paramref name="transaction"/> under the same contract as the joined install.</summary>
+    Task<PackActivationOutcome> ActivateAsync(
+        PackInstallContext context, string packKey, string version, PackProjectionTransaction transaction,
+        CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException($"Pack installer '{GetType().FullName}' cannot join a projection transaction.");
+
+    /// <summary><see cref="NarrowAsync(PackInstallContext, string, string, System.Text.Json.Nodes.JsonNode, AuthorizationDecision, CancellationToken)"/>
+    /// staged into <paramref name="transaction"/> under the same contract as the joined install. A later narrowing of
+    /// the same pack binds and admits its composition over the overlays already staged there.</summary>
+    Task<PackNarrowingOutcome> NarrowAsync(
+        PackInstallContext context, string packKey, string contentKey, System.Text.Json.Nodes.JsonNode overlayPatch,
+        AuthorizationDecision decision, PackProjectionTransaction transaction, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException($"Pack installer '{GetType().FullName}' cannot join a projection transaction.");
 }

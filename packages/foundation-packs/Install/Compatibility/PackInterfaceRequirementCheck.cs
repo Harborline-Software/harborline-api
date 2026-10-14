@@ -52,10 +52,20 @@ public static class PackInterfaceRequirementCheck
         JsonNode? parsed;
         try { parsed = item.ParseContent(); }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { yield break; }
-        if (parsed?["definitionEnvelope"]?["requires"] is not JsonArray requirements) yield break;
-        foreach (var requirement in requirements.OfType<JsonObject>())
-            if (TryParse(requirement["capability"]?.GetValue<string>(), out var packKey, out var interfaceVersion))
-                yield return new PackInterfaceRequirement(packKey, interfaceVersion);
+        if (parsed?["definitionEnvelope"]?["requires"] is JsonArray requirements)
+            foreach (var requirement in requirements.OfType<JsonObject>())
+                if (TryParse(requirement["capability"]?.GetValue<string>(), out var packKey, out var interfaceVersion))
+                    yield return new PackInterfaceRequirement(packKey, interfaceVersion);
+        // T-615: the platform producer states the same pack-key@N spelling on its own envelope. This live
+        // Active-interface check reads it where it was signed, never copied into a definitionEnvelope; pinned
+        // closure admission (records-ck-41) is a separate gate. A shape the producer ignores (non-object
+        // envelope, non-string capability, a version that is not plain ASCII digits) states nothing here.
+        if (parsed is JsonObject root && root["envelope"] is JsonObject envelope && envelope["requires"] is JsonArray released)
+            foreach (var requirement in released.OfType<JsonObject>())
+                if (requirement["capability"] is JsonValue capability && capability.TryGetValue<string>(out var spelled)
+                    && !spelled.AsSpan(spelled.LastIndexOf('@', StringComparison.Ordinal) + 1).ContainsAnyExceptInRange('0', '9')
+                    && TryParse(spelled, out var packKey, out var interfaceVersion))
+                    yield return new PackInterfaceRequirement(packKey, interfaceVersion);
     }
 
     private sealed record PackInterfaceRequirement(string PackKey, int InterfaceVersion);

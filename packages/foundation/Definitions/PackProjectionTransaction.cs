@@ -92,6 +92,7 @@ public sealed class PackProjectionTransaction : IDisposable
     private readonly List<Action> rollback = [];
     private readonly List<Action> cleanup = [];
     private readonly List<Func<Task>> reactions = [];
+    private readonly List<Func<Task>> released = [];
     private IPackProjectionDurableUnit? durable;
     private bool committed;
     private bool disposed;
@@ -135,26 +136,36 @@ public sealed class PackProjectionTransaction : IDisposable
     /// <summary>Defers observers until the committed projection is visible and the write lease is released.</summary>
     public void AfterCommit(Func<Task> reaction) => reactions.Add(reaction);
 
-    /// <summary>Runs observers outside the lease, returning diagnostics without reversing a durable success.</summary>
+    /// <summary>
+    /// Defers an outcome-independent record (a refusal audit) until the lease and durable unit are released,
+    /// whether or not the projection committed. It is never staged with, or evidence for, the projection.
+    /// </summary>
+    public void AfterRelease(Func<Task> record) => released.Add(record);
+
+    /// <summary>Runs deferred records, then observers of a commit, outside the lease; never reverses a durable success.</summary>
     public async Task<AggregateException?> ReactAsync()
     {
         if (!disposed) throw new InvalidOperationException("Release the projection lease before notifying observers.");
-        if (!committed || reacted) return null;
+        if (reacted) return null;
         reacted = true;
         var failures = new List<Exception>();
         if (postCommitCleanupFailure is not null) failures.Add(postCommitCleanupFailure);
-        foreach (var reaction in reactions)
-        {
-            // The async boundary captures synchronous delegate throws as well as asynchronous faults.
-            // SuppressThrowing only controls the await: every fault/cancellation is collected below.
-            var pending = InvokeReactionAsync(reaction);
-            await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            if (pending.Exception is { } failure) failures.AddRange(failure.InnerExceptions);
-            else if (pending.IsCanceled) failures.Add(new TaskCanceledException(pending));
-        }
-        return failures.Count > 0
+        foreach (var record in released) await CollectAsync(record, failures).ConfigureAwait(false);
+        if (committed)
+            foreach (var reaction in reactions) await CollectAsync(reaction, failures).ConfigureAwait(false);
+        return failures.Count == 0 ? null : committed
             ? new AggregateException("Projection committed; post-commit notification or cleanup failed.", failures)
-            : null;
+            : new AggregateException("Projection discarded; a deferred refusal record failed.", failures);
+    }
+
+    private static async Task CollectAsync(Func<Task> reaction, List<Exception> failures)
+    {
+        // The async boundary captures synchronous delegate throws as well as asynchronous faults.
+        // SuppressThrowing only controls the await: every fault/cancellation is collected below.
+        var pending = InvokeReactionAsync(reaction);
+        await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (pending.Exception is { } failure) failures.AddRange(failure.InnerExceptions);
+        else if (pending.IsCanceled) failures.Add(new TaskCanceledException(pending));
     }
 
     private static async Task InvokeReactionAsync(Func<Task> reaction) => await reaction().ConfigureAwait(false);

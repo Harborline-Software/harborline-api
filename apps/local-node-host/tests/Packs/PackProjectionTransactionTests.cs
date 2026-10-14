@@ -26,15 +26,21 @@ public sealed class PackProjectionTransactionTests
     public async Task Committed_observer_failures_do_not_throw_or_skip_later_observers()
     {
         var observed = 0;
+        // The asynchronous observer can only fault after the test opens this gate, which happens after
+        // ReactAsync has returned; its failure is collected only if ReactAsync awaits it, never by a race.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var transaction = new PackProjectionTransaction();
         transaction.AfterCommit(() => throw new IOException("synchronous observer failure"));
-        transaction.AfterCommit(async () => { await Task.Yield(); throw new InvalidOperationException("asynchronous observer failure"); });
+        transaction.AfterCommit(async () => { await gate.Task; throw new InvalidOperationException("asynchronous observer failure"); });
         transaction.AfterCommit(() => Task.FromCanceled(new CancellationToken(canceled: true)));
         transaction.AfterCommit(() => { observed++; return Task.CompletedTask; });
         transaction.Commit();
         transaction.Dispose();
 
-        var diagnostics = await transaction.ReactAsync();
+        var reacting = transaction.ReactAsync();
+        Assert.False(reacting.IsCompleted); // Still waiting on the pending observer.
+        gate.SetResult();
+        var diagnostics = await reacting;
         Assert.Collection(diagnostics!.InnerExceptions,
             failure => Assert.Equal("synchronous observer failure", Assert.IsType<IOException>(failure).Message),
             failure => Assert.Equal("asynchronous observer failure", Assert.IsType<InvalidOperationException>(failure).Message),

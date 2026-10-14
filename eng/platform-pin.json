@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "9abd9e016a45fc8756ef259763f8079d56352e4e",
-  "recordedAt": "2026-09-30 (R6: platform main commit 9abd9e01, the merge of platform PR 232 (T-521 slice 2, the content store Harborline.Foundation.ContentStore). It consumes platform PRs 222 (kernel JoinAsync transaction join), 233 (T-615 slot-binding narrowing), 227 (effect receipts; PR 235 is outside this pin), 230 (T-527 notification channels, which adds Harborline.Foundation.NotificationDelivery) and 231 (T-984 ck-7 mutation evidence). Two producers were added: Harborline.Foundation.ContentStore and Harborline.Foundation.NotificationDelivery; every other producer identity/assembly pair is unchanged.)",
+  "commit": "2c7bef291c6f5adc6d4a7a68885bb7627f20d68c",
+  "recordedAt": "2026-10-09 (M11 Sprint 1 Records End-to-End: landed Platform PR274 Records producer/exposure contract, qualified producer merge2c7bef29. Consumer source preparation only; complete exact-pin feed, clean restore/build, package-byte provenance and integration validation remain required.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
-    "Move this commit only when a consuming change needs a platform change."
+    "Move this commit only when a consuming change needs a platform change.",
+    "Consume landed Records definition documents/codecs/catalogue identities and canonical owned-definition exposure before interface-version aggregation through the existing36-package inventory.",
+    "Live producer integration must preserve owned exposure, foreign body metadata and dependency pins; authenticated producer baseline ownership and installed-owner admission remain distinct. No host Records writes or Class behavior enabled."
   ],
   "producers": {
     "Harborline.Blocks.ActivityTimeline": "Harborline.Blocks.ActivityTimeline.dll",
