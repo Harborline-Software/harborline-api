@@ -199,6 +199,25 @@ public sealed class PackCapabilityCompatibilityTests
         Assert.Equal(PackPillar.Forms, admittedDestination.Pillar);
     }
 
+    /// <summary>
+    /// Invariant pinned for the PR 397 follow-up to PackInterfaceRequirementCheck: the install path still fails closed on
+    /// a definition-envelope capability that is not a JSON string. PackPlatformRequirementCheck reads it with
+    /// GetValue&lt;string&gt;(), which throws before any refusal is planned, so preview and install both throw and nothing
+    /// is installed. A pack carrying it cannot be installed through this path, so skipping the same entry in the
+    /// activation-time interface check drops no requirement that install would have enforced.
+    /// </summary>
+    [Fact]
+    public async Task Install_path_still_fails_closed_on_a_non_string_envelope_capability()
+    {
+        using var fixture = await CreateFixtureAsync(
+            JsonNode.Parse("""{"definitionEnvelope":{"requires":[{"capability":7}]}}""")!);
+
+        Assert.Throws<InvalidOperationException>(() => fixture.Installer.Preview(fixture.PackBytes, fixture.Context));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Installer.InstallAsync(fixture.PackBytes, fixture.Context));
+        Assert.Empty(fixture.Store.ListInstalled(Tenant));
+    }
+
     private static JsonObject EnvelopeRequirement(string capability, string? minimumPlatformVersion = null)
         => new()
         {
