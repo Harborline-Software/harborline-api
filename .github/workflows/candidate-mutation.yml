@@ -34,10 +34,17 @@ jobs:
           ref: ${{ inputs.candidate_sha }}
           path: candidate
           persist-credentials: false
+      - name: Read the controller's platform pin
+        id: platform_pin
+        shell: bash
+        run: |
+          commit=$(jq -r '.commit' controller/eng/platform-pin.json)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'eng/platform-pin.json commit is not a 40-hex sha' >&2; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           repository: Harborline-Software/harborline-platform
-          ref: 9abd9e016a45fc8756ef259763f8079d56352e4e
+          ref: ${{ steps.platform_pin.outputs.commit }}
           path: harborline-platform
           persist-credentials: false
       - uses: actions/setup-node@v7
