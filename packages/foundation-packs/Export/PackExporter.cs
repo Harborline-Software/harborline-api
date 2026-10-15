@@ -1,3 +1,4 @@
+using System.Buffers;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Model;
@@ -15,6 +16,8 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// </summary>
 public sealed class PackExporter : IPackExporter
 {
+    private static readonly SearchValues<char> LowerHexDigits = SearchValues.Create("0123456789abcdef");
+
     private readonly PackContentCanonicalizer _canonicalizer;
     private readonly PackDcpCanonicalizer _dcpCanonicalizer;
     private readonly PackValidator _validator;
@@ -117,14 +120,19 @@ public sealed class PackExporter : IPackExporter
             Category: PackCardDisplayText.NormalizeNameOrTitleAtExport(request.Category),
             IconRef: request.IconRef,
             Exposes: request.Exposes,
-            InterfaceVersion: request.InterfaceVersion);
+            InterfaceVersion: request.InterfaceVersion,
+            ExposedDefinitions: request.ExposedDefinitions);
+
+        // (3b) Goal 3 P3: the exposed-definition entries are signed facts copied from the producer's release, never
+        //      computed here, so the exporter only refuses a malformed set before anything is signed.
+        var exposureErrors = ExposedDefinitionErrors(request);
 
         // (4) Validate FIRST — fail-closed. Never sign an invalid pack. Combine the completeness/PII
         //     findings with the DCP gate findings so the caller sees the full picture in ONE result.
         var validation = _validator.Validate(manifest, items);
-        if (!validation.IsValid || dcpErrors.Count > 0 || referenceErrors.Count > 0)
+        if (!validation.IsValid || dcpErrors.Count > 0 || referenceErrors.Count > 0 || exposureErrors.Count > 0)
         {
-            var combined = validation.Errors.Concat(referenceErrors).Concat(dcpErrors).ToList();
+            var combined = validation.Errors.Concat(referenceErrors).Concat(exposureErrors).Concat(dcpErrors).ToList();
             var failed = PackValidationResult.Invalid(combined);
             return new PackExportOutcome(Succeeded: false, File: null, FileBytes: null, Validation: failed);
         }
@@ -159,4 +167,39 @@ public sealed class PackExporter : IPackExporter
 
         return new PackExportOutcome(Succeeded: true, File: file, FileBytes: bytes, Validation: validation);
     }
+
+    /// <summary>
+    /// Goal 3 P3 (DES-0015 records-ck-40): refuses exposed-definition entries that are present without an exposure,
+    /// empty, null, outside <see cref="PackExportRequest.Exposes"/>, repeated, versionless, or whose digest is not
+    /// <c>sha256:</c> and 64 lowercase hex digits. No entry is defaulted, reordered or recomputed. Absent entries are
+    /// not an error: the manifest then serializes exactly as before.
+    /// </summary>
+    private static List<PackValidationError> ExposedDefinitionErrors(PackExportRequest request)
+    {
+        var errors = new List<PackValidationError>();
+        if (request.ExposedDefinitions is not { } entries)
+            return errors;
+        if (request.Exposes is not { Count: > 0 } exposes || request.InterfaceVersion is null || entries.Count == 0)
+        {
+            errors.Add(new PackValidationError(PackExportCodes.ExposedDefinitionMalformed, "exposedDefinitions",
+                "Exposed-definition entries need a nonempty exposure and an interface version, and are absent rather than empty."));
+            return errors;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            if (entry is null || entry.DefinitionKey is not { } key || !exposes.Contains(key, StringComparer.Ordinal)
+                || !seen.Add(key) || string.IsNullOrWhiteSpace(entry.Version) || !IsStoreDigest(entry.Digest))
+                errors.Add(new PackValidationError(PackExportCodes.ExposedDefinitionMalformed, $"exposedDefinitions/{index}",
+                    "An exposed-definition entry must name a distinct exposed key, a nonblank version and a sha256: digest of 64 lowercase hex digits."));
+        }
+        return errors;
+    }
+
+    // records-ck-40: the algorithm-qualified store digest, spelled exactly as the Platform catalogue spells it.
+    private static bool IsStoreDigest(string? digest) =>
+        digest is { Length: 71 } && digest.StartsWith("sha256:", StringComparison.Ordinal)
+        && !digest.AsSpan(7).ContainsAnyExcept(LowerHexDigits);
 }

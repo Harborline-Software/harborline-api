@@ -187,7 +187,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         protected override async ValueTask<InstallMutation> MutateAsync(InstallBound bound, CancellationToken ct)
         {
             var plan = installer.BuildPlan(packBytes.Span, context, decision, claimed, bound: bound);
-            plan = await installer.AdmitRecordsAsync(plan, context.Tenant, ct).ConfigureAwait(false);
+            plan = await installer.AdmitRecordsAsync(plan, context.Tenant, bound.Installed, ct).ConfigureAwait(false);
             var transaction = plan.NewInstalledPack is null
                 ? null // A hard refusal plans no seed layer, so there is no transaction for validate to seal.
                 : new PackInstallTransaction(context.Tenant, plan.NewInstalledPack, plan.NewWatermark!, plan.Reattach!.Reattached)
@@ -2115,7 +2115,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             manifest.ContentReferences,
             manifest.CapabilityRequirements,
             manifest.Exposes,
-            manifest.InterfaceVersion);
+            manifest.InterfaceVersion,
+            manifest.ExposedDefinitions);
     }
 
     private static PackInstallWatermark AdvanceWatermark(
@@ -2147,12 +2148,19 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     /// every other hard refusal it plans no seed layer, so validate refuses the plan before anything is sealed or
     /// committed. A plan that is already refused keeps its own refusal and never reaches the gate.
     /// </summary>
-    private async ValueTask<InstallPlan> AdmitRecordsAsync(InstallPlan plan, TenantId tenant, CancellationToken ct)
+    /// <remarks>
+    /// Goal 3 P3: the closure's exposures come from the plan's signed dependencies and <paramref name="installed"/>,
+    /// the tenant's installed packs exactly as bind read them. The transaction's <c>ExpectedInstalledState</c>
+    /// re-checks that same snapshot at commit, so the gate judges exactly the producers the install commits beside.
+    /// </remarks>
+    private async ValueTask<InstallPlan> AdmitRecordsAsync(InstallPlan plan, TenantId tenant,
+        IReadOnlyList<InstalledPack> installed, CancellationToken ct)
     {
         if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.Refused)
             return plan;
         var seeds = plan.NewInstalledPack.SeedItems;
-        var admission = await RecordsInstallClosureGate.AdmitAsync(tenant, seeds, RecordsAdmission, ct).ConfigureAwait(false);
+        var admission = await RecordsInstallClosureGate.AdmitAsync(tenant, seeds, plan.NewInstalledPack.Dependencies,
+            installed, RecordsAdmission, ct).ConfigureAwait(false);
         if (admission.IsAdmissible)
             return plan;
         return plan with
