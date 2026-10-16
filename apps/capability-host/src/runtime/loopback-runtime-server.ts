@@ -21,6 +21,8 @@ import {
 import type { ProbeKind } from '../membrane/observe.js'
 import type { RuntimeHost } from './runtime-host.js'
 
+class MalformedJsonError extends Error {}
+
 /** A started loopback runtime server: its base URL + a stop() that closes it. */
 export interface RunningLoopbackRuntime {
   /** e.g. `http://127.0.0.1:53999` — feed to `LoopbackHttpTransport`. */
@@ -38,7 +40,11 @@ export interface RunningLoopbackRuntime {
 export function startLoopbackRuntime(host: RuntimeHost): Promise<RunningLoopbackRuntime> {
   const server = createServer((req, res) => {
     handle(host, req, res).catch((err: unknown) => {
-      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+      if (err instanceof MalformedJsonError) {
+        sendJson(res, 400, { error: 'malformed_json' })
+      } else {
+        sendJson(res, 500, { error: 'membrane_internal_error' })
+      }
     })
   })
 
@@ -103,7 +109,7 @@ function readJson<T>(req: IncomingMessage): Promise<T> {
         const raw = Buffer.concat(chunks).toString('utf8')
         resolve(raw.length > 0 ? (JSON.parse(raw) as T) : ({} as T))
       } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)))
+        reject(e instanceof SyntaxError ? new MalformedJsonError() : e)
       }
     })
     req.on('error', reject)

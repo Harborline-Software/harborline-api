@@ -73,6 +73,7 @@ import type {
 import type { RuntimeManifest } from '../membrane/announce.js'
 import type { ProbeKind } from '../membrane/observe.js'
 import { createSandbox, type Sandbox, type SandboxSpec } from '../sandbox/index.js'
+import { boundedTimeoutMs } from '../sandbox/sandbox.js'
 import {
   type KgGeneratePaths,
   type KgGenerateFloor,
@@ -385,7 +386,7 @@ export class KgGenerateRuntime implements RuntimeHost {
       // this closes the stored-injection exfiltration chain (the firewall's
       // "no exfiltration / reviewed before it leaves" at the OS level).
       allowedEgress: [],
-      timeoutMs: typeof timeout === 'number' && timeout > 0 ? timeout : DEFAULT_TIMEOUT_MS,
+      timeoutMs: boundedTimeoutMs(timeout, DEFAULT_TIMEOUT_MS),
       env: this.buildEnv(workDir, scratch),
     }
   }

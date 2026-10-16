@@ -95,16 +95,54 @@ describe('startLoopbackRuntime', () => {
   })
 
   it('returns documented error responses for unknown routes and invalid JSON', async () => {
-    const server = await startLoopbackRuntime(host())
+    const runtime = host()
+    const server = await startLoopbackRuntime(runtime)
     servers.push(server)
 
     await expect(request(server.baseUrl, 'GET', '/missing')).resolves.toEqual({
       status: 404,
       body: { error: 'no membrane route GET /missing' },
     })
-    await expect(request(server.baseUrl, 'POST', LOOPBACK_ROUTES.health, '{')).resolves.toMatchObject({
-      status: 500,
-      body: { error: expect.any(String) },
+    for (const path of [LOOPBACK_ROUTES.health, LOOPBACK_ROUTES.invoke, LOOPBACK_ROUTES.cancel]) {
+      await expect(request(server.baseUrl, 'POST', path, '{')).resolves.toEqual({
+        status: 400,
+        body: { error: 'malformed_json' },
+      })
+    }
+    expect(runtime.health).not.toHaveBeenCalled()
+    expect(runtime.invoke).not.toHaveBeenCalled()
+    expect(runtime.cancel).not.toHaveBeenCalled()
+  })
+
+  it('returns a fixed internal error for synchronous and asynchronous host failures', async () => {
+    const runtime = host()
+    const server = await startLoopbackRuntime(runtime)
+    servers.push(server)
+
+    for (const failure of [new Error('/secret/path detail'), new SyntaxError('/secret/path detail'), '/secret/path detail']) {
+      vi.mocked(runtime.invoke).mockImplementationOnce(() => { throw failure })
+      await expect(request(server.baseUrl, 'POST', LOOPBACK_ROUTES.invoke, '{}')).resolves.toEqual({
+        status: 500,
+        body: { error: 'membrane_internal_error' },
+      })
+
+      vi.mocked(runtime.invoke).mockRejectedValueOnce(failure)
+      await expect(request(server.baseUrl, 'POST', LOOPBACK_ROUTES.invoke, '{}')).resolves.toEqual({
+        status: 500,
+        body: { error: 'membrane_internal_error' },
+      })
+    }
+  })
+
+  it('continues treating an empty request body as an empty object', async () => {
+    const runtime = host()
+    const server = await startLoopbackRuntime(runtime)
+    servers.push(server)
+
+    await expect(request(server.baseUrl, 'POST', LOOPBACK_ROUTES.invoke)).resolves.toEqual({
+      status: 200,
+      body: { status: 'succeeded' },
     })
+    expect(runtime.invoke).toHaveBeenCalledWith({})
   })
 })

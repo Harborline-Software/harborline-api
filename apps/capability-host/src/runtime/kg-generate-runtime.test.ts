@@ -95,6 +95,7 @@ function stubSandbox(opts: {
   recorded: SandboxSpec[]
   fail?: boolean
   unsupported?: boolean
+  timedOut?: boolean
   captureJob?: (job: Record<string, unknown>) => void
 }): Sandbox {
   return {
@@ -102,6 +103,9 @@ function stubSandbox(opts: {
     implemented: true,
     async run(spec: SandboxSpec): Promise<SandboxResult> {
       opts.recorded.push(spec)
+      if (opts.timedOut === true) {
+        return { exitCode: null, signal: 'SIGKILL', stdout: '', stderr: '', ok: false }
+      }
       if (opts.unsupported === true) {
         throw Object.assign(new Error('SEC-7: not implemented'), { code: 'sandbox.platform_unsupported' })
       }
@@ -453,5 +457,25 @@ describe('KG generate floor — S4 Apache-2.0 + the vendored worker script', () 
     expect(script).not.toBeNull()
     expect(script).toMatch(/kg_generate\.py$/)
     expect(existsSync(script as string)).toBe(true)
+  })
+})
+
+describe('KgGenerateRuntime bounded timeout and cleanup', () => {
+  it.each([[2 ** 31, 1_800_000], [NaN, 180_000]])('bounds timeout %s to %s', async (timeout, expected) => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new KgGenerateRuntime({ sandbox: stubSandbox({ recorded }), paths: fakePaths(), forceReal: true })
+    await runtime.invoke(generateRequest({ prompt: 'q', grounding: [], timeout }))
+    expect(recorded[0]?.timeoutMs).toBe(expected)
+  })
+
+  it('settles and removes its directory after a simulated sandbox timeout', async () => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new KgGenerateRuntime({ sandbox: stubSandbox({ recorded, timedOut: true }), paths: fakePaths(), forceReal: true })
+    const result = await runtime.invoke(generateRequest({ prompt: 'q', grounding: [], timeout: 1000 }))
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('provider.kg_worker_failed')
+    const spec = recorded[0]
+    if (spec === undefined) throw new Error('expected a sandbox invocation')
+    expect(existsSync(spec.workDir)).toBe(false)
   })
 })

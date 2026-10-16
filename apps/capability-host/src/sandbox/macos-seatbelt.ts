@@ -46,6 +46,7 @@ import {
   type Sandbox,
   type SandboxResult,
   type SandboxSpec,
+  MAX_SANDBOX_TIMEOUT_MS,
   SandboxSpecError,
 } from './sandbox.js'
 
@@ -306,9 +307,8 @@ export class MacosSeatbeltSandbox implements Sandbox {
     // Write the profile to a temp file (sandbox-exec -f reads it).
     const dir = mkdtempSync(join(tmpdir(), 'capability-seatbelt-'))
     const profilePath = join(dir, 'profile.sb')
-    writeFileSync(profilePath, profile, 'utf8')
-
     try {
+      writeFileSync(profilePath, profile, 'utf8')
       return await this.execConfined(profilePath, spec)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -366,6 +366,12 @@ export class MacosSeatbeltSandbox implements Sandbox {
 
 /** Guard a spec before confinement (defensive — a bad spec must not widen access). */
 function assertSpec(spec: SandboxSpec, credentialDenyPaths: readonly string[]): void {
+  if (
+    spec.timeoutMs !== undefined &&
+    (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0 || spec.timeoutMs > MAX_SANDBOX_TIMEOUT_MS)
+  ) {
+    throw new SandboxSpecError('timeoutMs must be finite and within (0, 1800000]')
+  }
   if (!spec.command.startsWith('/')) {
     throw new SandboxSpecError(`command must be an absolute path, got '${spec.command}'`)
   }

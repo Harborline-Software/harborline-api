@@ -25,6 +25,15 @@
  * the whole local-first model — so the test fails the build if confinement leaks.
  */
 
+// The 30-minute maximum is a project choice, not an industry standard.
+export const MAX_SANDBOX_TIMEOUT_MS = 30 * 60_000
+
+export function boundedTimeoutMs(requested: unknown, fallback: number): number {
+  return typeof requested === 'number' && Number.isFinite(requested) && requested > 0
+    ? Math.min(requested, MAX_SANDBOX_TIMEOUT_MS)
+    : fallback
+}
+
 /**
  * What a runtime asks the sandbox to confine: a single subprocess `exec`.
  * The membrane builds this from the runtime's needs; the platform impl maps it
