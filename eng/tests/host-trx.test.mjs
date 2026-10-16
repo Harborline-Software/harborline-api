@@ -70,6 +70,21 @@ test('TRX reader preserves real logger counters, entities, duplicate names and o
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
 
+test('CodeQL #3 (T-933): stripping an XML comment keeps a token boundary, so it cannot manufacture a UnitTestResult', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-comment-'))
+  try {
+    const file = path.join(dir, 'comment.trx')
+    // Deleting the empty comment outright would leave "<<UnitTestResult", which the result regex matches.
+    writeFileSync(file, readFileSync(fixture, 'utf8')
+      .replace('  </Results>', '    <<!---->UnitTestResult testName="TRX fixture: manufactured" outcome="Passed" />\n  </Results>'))
+    const original = host.readHostTrx(fixture), commented = host.readHostTrx(file)
+    assert.deepEqual(original.problems, [])
+    assert.equal(original.results.length, 4)
+    assert.deepEqual(commented, original)
+    assert.ok(!commented.results.some(r => r.testName === 'TRX fixture: manufactured'))
+  } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
 test('CodeRabbit 4113873155: testId disambiguates two theory cases sharing a DisplayName, so one can disappear without the other masking it', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-testid-'))
   try {

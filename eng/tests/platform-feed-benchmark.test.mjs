@@ -190,7 +190,7 @@ test('actual disposable cache transport proves write/read, enforces exact matche
   const calls = []
   const client = benchmarkCache(env, async (url, options) => {
     calls.push({url: String(url), options})
-    if (String(url).includes('blob.core.windows.net')) return {ok: true, body: (async function* () {yield Buffer.from('literal bytes')})()}
+    if (new URL(String(url)).hostname.endsWith('.blob.core.windows.net')) return {ok: true, body: (async function* () {yield Buffer.from('literal bytes')})()}
     const method = String(url).split('/').at(-1)
     return {status: 200, ok: true, json: async () => method === 'CreateCacheEntry'
       ? {ok: true, signed_upload_url: 'https://fixture.blob.core.windows.net/upload'}
@@ -229,6 +229,19 @@ test('actual workflow restricts benchmark writers to manual dispatch and runs th
   assert.match(job, /cache-mode: write/)
   assert.doesNotMatch(job, /github\.event\.pull_request|secrets\.|GH_TOKEN|GITHUB_TOKEN|@v[0-9]/)
   assert.match(job, /persist-credentials: false/)
+  // CodeQL #56 (T-933): the write-scope job checks out fixed Platform main and requires the recorded
+  // pin to be an ancestor of it (T-679, as in mutation.yml) before the benchmark action builds Platform code.
+  const checkout = job.indexOf('      - name: Check out Platform main without executing it')
+  const select = job.indexOf('        run: node .github/workloads/select-platform-pin.mjs')
+  const measure = job.indexOf('        uses: ./.github/actions/platform-feed-benchmark')
+  assert.ok(checkout >= 0 && checkout < select && select < measure)
+  const platform = job.slice(checkout, select)
+  assert.match(platform, /uses: actions\/checkout@[0-9a-f]{40}\n/)
+  assert.match(platform, /repository: Harborline-Software\/harborline-platform\n/)
+  assert.match(platform, /ref: main\n/)
+  assert.match(platform, /fetch-depth: 0\n/)
+  assert.match(platform, /persist-credentials: false\n/)
+  assert.doesNotMatch(job, /steps\.pin\.outputs\.commit/)
   const action = readFileSync(new URL('../../.github/actions/platform-feed-benchmark/action.yml', import.meta.url), 'utf8')
   assert.match(action, /using: node24/)
   assert.match(action, /main: \.\.\/\.\.\/\.\.\/eng\/platform-feed-benchmark\.mjs/)

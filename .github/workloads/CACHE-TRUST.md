@@ -59,6 +59,11 @@ mutable refs fail closed. Thus future full-run pins cannot silently select an
 unreviewed Platform branch even if a consumer pin review misses that distinction.
 The build still uses the recorded immutable version, not the newest main tree.
 
+`platform-feed-qualification.yml` `benchmark-linux` (dispatch-only, `cache-mode: write`)
+uses the same guard: Platform `main` checkout, then `select-platform-pin.mjs`
+ancestor-of-main selection before the benchmark action builds Platform code
+(alert 56, T-933).
+
 Hosted PR feedback retains proposed immutable producer pins: it is a PR-trigger
 job in that PR's cache scope, and original fork/draft guards still apply. There
 is no exception for schedule or dispatch. Checkout credentials are never
