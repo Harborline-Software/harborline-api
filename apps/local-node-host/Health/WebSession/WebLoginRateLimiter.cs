@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 
 using Harborline.Api.Foundation.Session;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -35,8 +36,10 @@ public readonly record struct WebLoginAttemptDecision(bool IsAllowed, TimeSpan? 
 /// route returns the SAME 401 body for a locked-out attempt as for a wrong password. Engage and
 /// release are audited server-side as <c>Auth.LoginLockout</c> / <c>Auth.LoginLockoutReleased</c>
 /// (structured logging with the canonical label, exactly like the authority's other audit lines —
-/// the node is not the Bridge audit sink). The password is never seen here, and the username is
-/// logged best-effort exactly as <c>Auth.LoginFailed</c> already logs it.
+/// the node is not the Bridge audit sink). The password is never seen here, and the attempted
+/// username is never logged: like <c>Auth.LoginFailed</c>, the lines carry the outcome, the source
+/// address and the request correlation id (CodeQL #46/#47). The limiter keys on a username, not on
+/// a resolved account, so there is no internal account id to log in its place.
 /// </para>
 /// </remarks>
 public sealed class WebLoginRateLimiter
@@ -58,9 +61,9 @@ public sealed class WebLoginRateLimiter
 
     // @deviation-from-spec: ADR 0099 S11 specifies a SHA-256-prefix bucket key. This local-node
     // implementation deliberately uses a bounded credential-resolution identity so one account
-    // maps to one auditable in-process lockout entry; the key never leaves this process except in
-    // existing best-effort structured logging. BuildKey owns the canonical username transform so
-    // every route shares one lockout bucket for one account.
+    // maps to one auditable in-process lockout entry; the key never leaves this process (its
+    // username half is not logged). BuildKey owns the canonical username transform so every route
+    // shares one lockout bucket for one account.
     private readonly record struct LoginKey(string Username, string Source);
 
     private sealed class Entry
@@ -194,7 +197,7 @@ public sealed class WebLoginRateLimiter
             }
             if (released)
             {
-                LogLockoutReleased(resolutionIdentity, source);
+                LogLockoutReleased(source);
             }
             return decision;
         }
@@ -308,7 +311,7 @@ public sealed class WebLoginRateLimiter
             }
             if (engaged)
             {
-                LogLockoutEngaged(resolutionIdentity, source, duration, lockoutCount);
+                LogLockoutEngaged(source, duration, lockoutCount);
             }
         }
         catch (Exception ex)
@@ -555,13 +558,13 @@ public sealed class WebLoginRateLimiter
         }
     }
 
-    private void LogLockoutReleased(string? username, string? source)
+    private void LogLockoutReleased(string? source)
     {
         try
         {
             _logger.LogWarning(
-                "{AuditEventType}: web-client login lockout released; attempted-user={User}, source={Source}.",
-                AuditEventTypes.LoginLockoutReleased, Describe(username), Describe(source));
+                "{AuditEventType}: web-client login lockout released; source={Source}, correlation={CorrelationId}.",
+                AuditEventTypes.LoginLockoutReleased, Describe(source), CorrelationId());
         }
         catch
         {
@@ -569,15 +572,15 @@ public sealed class WebLoginRateLimiter
         }
     }
 
-    private void LogLockoutEngaged(string? username, string? source, TimeSpan duration, int lockoutCount)
+    private void LogLockoutEngaged(string? source, TimeSpan duration, int lockoutCount)
     {
         try
         {
             _logger.LogWarning(
                 "{AuditEventType}: web-client login lockout engaged for {Duration} " +
-                "(consecutive lockout #{LockoutCount}); attempted-user={User}, source={Source}.",
+                "(consecutive lockout #{LockoutCount}); source={Source}, correlation={CorrelationId}.",
                 AuditEventTypes.LoginLockout, duration, lockoutCount,
-                Describe(username), Describe(source));
+                Describe(source), CorrelationId());
         }
         catch
         {
@@ -627,5 +630,10 @@ public sealed class WebLoginRateLimiter
                 System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
     }
 
-    private static string Describe(string? value) => string.IsNullOrEmpty(value) ? "(none)" : value;
+    // The source is the connection's remote address, not caller text, but it is bounded the same way
+    // as any other log argument.
+    private static string Describe(string? value) => string.IsNullOrEmpty(value) ? "(none)" : LogText.Of(value)!;
+
+    // The request's ambient activity id, the correlation id the host's audit rows already carry.
+    private static string CorrelationId() => System.Diagnostics.Activity.Current?.Id ?? "(none)";
 }

@@ -32,6 +32,7 @@ using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 
 using Xunit;
 
@@ -54,6 +55,7 @@ public sealed class PackComposeRouteTests : IAsyncLifetime
     private KeyPair _key = null!;
     private IFormDefinitionStore _forms = null!;
     private ISchemaRegistry _schemas = null!;
+    private readonly LogCapture _logs = new();
 
     public async Task InitializeAsync()
     {
@@ -96,7 +98,7 @@ public sealed class PackComposeRouteTests : IAsyncLifetime
             schemas: _schemas, clock: TimeProvider.System);
         var authz = TestPackGate.AllowAll();
 
-        PackComposeRoutes.Map(_app, ceremony, exporter, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance);
+        PackComposeRoutes.Map(_app, ceremony, exporter, signer, activeTeam, authz, TimeProvider.System, _logs.CreateLogger("PackComposeRoutes"));
         // The verify route (B-1a) so the produced pack can be round-trip-verified in-test.
         PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance);
 
@@ -183,6 +185,40 @@ public sealed class PackComposeRouteTests : IAsyncLifetime
         // The draft was consumed.
         var reread = await _client.GetAsync($"{PackComposeRoutes.ComposeRoute}/{composeId}");
         Assert.Equal(HttpStatusCode.NotFound, reread.StatusCode);
+    }
+
+    [Fact(DisplayName = "#25/#26: a client-chosen CR/LF compose id is logged escaped by affirm and export")]
+    public async Task A_crlf_compose_id_is_logged_escaped_by_affirm_and_export()
+    {
+        const string forgedId = "c\r\nforged";
+        var composeResp = await _client.PostAsJsonAsync(PackComposeRoutes.ComposeRoute, new
+        {
+            composeId = forgedId,
+            key = GeneralPackFixture.PackKey,
+            version = GeneralPackFixture.PackVersion,
+            name = "General",
+            description = "Harborline General starter pack.",
+            scopeTier = "Horizontal",
+            typeIds = GeneralPackFixture.TypeIds(),
+        });
+        Assert.Equal(HttpStatusCode.OK, composeResp.StatusCode);
+        using var composeDoc = JsonDocument.Parse(await composeResp.Content.ReadAsStringAsync());
+        var snapshotHash = composeDoc.RootElement.GetProperty("snapshotHash").GetString()!;
+        var route = $"{PackComposeRoutes.ComposeRoute}/{Uri.EscapeDataString(forgedId)}";
+
+        var affirmResp = await _client.PostAsJsonAsync($"{route}/affirm", new { snapshotHash });
+        Assert.Equal(HttpStatusCode.OK, affirmResp.StatusCode);
+        var exportResp = await _client.PostAsync($"{route}/export", null);
+        Assert.Equal(HttpStatusCode.OK, exportResp.StatusCode);
+
+        var affirmed = Assert.Single(_logs.Records, r => r.Message.StartsWith("Pack PII-review AFFIRMED", StringComparison.Ordinal));
+        var exported = Assert.Single(_logs.Records, r => r.Message.StartsWith("Pack EXPORTED via ceremony", StringComparison.Ordinal));
+        foreach (var line in new[] { affirmed, exported })
+        {
+            Assert.Contains("compose c\\u000d\\u000aforged,", line.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+        }
     }
 
     [Fact(DisplayName = "export before affirmation is 422 (human PII review required)")]

@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Compose;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -108,7 +109,7 @@ public static class PackComposeRoutes
                 case ComposeStatus.Ok:
                     logger.LogInformation(
                         "Pack COMPOSED (tenant {Tenant}, pack {Key} v{Version}, {Leaves} leaves, snapshot {Hash}).",
-                        tenant, outcome.Draft!.Key, outcome.Draft.Version, outcome.Draft.Leaves.Count,
+                        tenant, LogText.Of(outcome.Draft!.Key), LogText.Of(outcome.Draft.Version), outcome.Draft.Leaves.Count,
                         Truncate(outcome.Draft.SnapshotHash));
                     return Results.Ok(ToComposeResponse(outcome.Draft));
                 case ComposeStatus.ValidationFailed:
@@ -160,7 +161,7 @@ public static class PackComposeRoutes
                 case ComposeStatus.Ok:
                     logger.LogInformation(
                         "Pack PII-review AFFIRMED (tenant {Tenant}, compose {Id}, snapshot {Hash}).",
-                        tenant, id, Truncate(outcome.Draft!.SnapshotHash));
+                        tenant, LogText.Of(id), Truncate(outcome.Draft!.SnapshotHash));
                     return Results.Ok(new AffirmResponseDto(id, true, outcome.Draft.SnapshotHash));
                 case ComposeStatus.NotFound:
                     return Results.NotFound(new { error = "no draft composition with that id." });
@@ -198,7 +199,7 @@ public static class PackComposeRoutes
                 case ComposeStatus.Ok:
                     logger.LogInformation(
                         "Pack EXPORTED via ceremony (tenant {Tenant}, compose {Id}, {Bytes} bytes).",
-                        tenant, id, outcome.FileBytes!.Length);
+                        tenant, LogText.Of(id), outcome.FileBytes!.Length);
                     return Results.File(outcome.FileBytes!, "application/octet-stream", outcome.FileName);
                 case ComposeStatus.NotFound:
                     return Results.NotFound(new { error = "no draft composition with that id." });

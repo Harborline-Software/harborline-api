@@ -29,6 +29,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 using Harborline.Api.Foundation.Authorization;
 
 using Xunit;
@@ -53,6 +54,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     private KeyPair _key = null!;
     private InMemoryPackInstallStore _store = null!;
     private SelectedSessionRequestPrincipal? _selected;
+    private readonly LogCapture _logs = new();
 
     public async Task InitializeAsync()
     {
@@ -106,9 +108,10 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
             }
             await next(http);
         });
-        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance);
+        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System,
+            _logs.CreateLogger("PackComposerRoutes"));
         PackInstallRoutes.Map(_app, installer, _store, trustStore, PackRevocationList.Empty, activeTeam,
-            authz, TimeProvider.System, NullLogger.Instance, authorizingPrincipal: _key.PrincipalId.ToBase64Url(),
+            authz, TimeProvider.System, _logs.CreateLogger("PackInstallRoutes"), authorizingPrincipal: _key.PrincipalId.ToBase64Url(),
             projector: projector);
 
         await _app.StartAsync();
@@ -384,6 +387,47 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Equal("/contents/1/contentBase64", refusal.GetProperty("pointer").GetString());
         Assert.Equal(before, CatalogueHash());
     }
+    // ── CodeQL #31–#45 (user decision 2026-10-15 item 2): the pack coordinates stay in the route log, escaped ──
+
+    [Fact(DisplayName = "#34–#45: activate and deactivate log a CR/LF pack key and version escaped on one line")]
+    public async Task Activate_and_deactivate_log_crlf_coordinates_escaped()
+    {
+        // The first install is what maps activate/deactivate onto the node.
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(FormPackBody()))).StatusCode);
+
+        using var activate = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+            new { packKey = "acme.pack\r\nforged", version = "1.0.0\nv" });
+        using var deactivate = await _client.PostAsJsonAsync(PackInstallRoutes.DeactivateRoute,
+            new { packKey = "acme.pack\r\nforged", version = "1.0.0\nv" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, deactivate.StatusCode);
+        var lines = _logs.Records
+            .Where(r => r.Message.StartsWith("Pack ACTIVATE (", StringComparison.Ordinal)
+                || r.Message.StartsWith("Pack DEACTIVATE (", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.All(lines, line =>
+        {
+            Assert.Contains("pack acme.pack\\u000d\\u000aforged v1.0.0\\u000av)", line.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact(DisplayName = "#31–#33: composer export logs a CR/LF pack key escaped on one line")]
+    public async Task Composer_export_logs_a_crlf_pack_key_escaped()
+    {
+        using var export = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, FormPackBody(key: "acme.pack\r\nforged"));
+
+        // Refused or exported, the export logs the key exactly once; the assertion is on that line, not the status.
+        var line = Assert.Single(_logs.Records, r => r.Message.StartsWith("Pack EXPORTED (", StringComparison.Ordinal)
+            || r.Message.StartsWith("Pack export REFUSED (", StringComparison.Ordinal));
+        Assert.Contains("pack acme.pack\\u000d\\u000aforged", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)

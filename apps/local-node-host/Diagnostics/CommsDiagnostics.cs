@@ -24,6 +24,8 @@ namespace Harborline.Api.LocalNodeHost.Diagnostics;
 /// inputs: lengths, teamIds, party ids (already public), boolean decisions, and scope names. It NEVER accepts or
 /// formats a key, token id, token, seed, signature, or any private material. The surface deliberately has no token-id
 /// parameter, so a future caller cannot accidentally reintroduce the pre-GA diagnostic correlation handle.
+/// Every caller-supplied string passes through <see cref="LogText.Of"/>: a rejected joiner's party id comes from
+/// an unauthenticated peer, and a CR/LF in it would otherwise forge a console line (CodeQL <c>cs/log-forging</c>).
 /// </para>
 /// <para>
 /// <b>Behaviour-neutral.</b> When the flag is ON the methods log; when OFF they are no-ops. Either way they have NO
@@ -75,14 +77,14 @@ public sealed class CommsDiagnostics
             _logger!.LogInformation(
                 "{Prefix} admit ACCEPTED side=admitter joiningParty={Party} — the joiner is "
                 + "admitted into the roster + wired into transport-trust.",
-                Prefix, joiningPartyId ?? "<none>");
+                Prefix, LogText.Of(joiningPartyId) ?? "<none>");
         }
         else
         {
             _logger!.LogWarning(
                 "{Prefix} admit REJECTED side=admitter reason={Reason} joiningParty={Party} — "
                 + "the REAL fail-closed reason (the HTTP route flattens this to an opaque status).",
-                Prefix, reason ?? "<unspecified>", joiningPartyId ?? "<none>");
+                Prefix, LogText.Of(reason) ?? "<unspecified>", LogText.Of(joiningPartyId) ?? "<none>");
         }
     }
 
@@ -101,7 +103,7 @@ public sealed class CommsDiagnostics
             _logger!.LogInformation(
                 "{Prefix} join SUCCEEDED side=joiner teamId={TeamId} — adopted A's team + switched "
                 + "active team (gossip daemon rebinds to the A-team HELLO key; the trusted handshake now passes).",
-                Prefix, teamId ?? "<none>");
+                Prefix, LogText.Of(teamId) ?? "<none>");
         }
         else
         {
@@ -109,7 +111,7 @@ public sealed class CommsDiagnostics
                 "{Prefix} join REJECTED side=joiner reason={Reason} teamId={TeamId} — node "
                 + "UNCHANGED (no team-switch, no daemon-rebind). The REAL reason the route flattens to a coarse "
                 + "status.",
-                Prefix, reason ?? "<unspecified>", teamId ?? "<none>");
+                Prefix, LogText.Of(reason) ?? "<unspecified>", LogText.Of(teamId) ?? "<none>");
         }
     }
 
@@ -124,7 +126,7 @@ public sealed class CommsDiagnostics
         _logger!.LogWarning(
             "{Prefix} route {Route} mapping reason={Reason} → an opaque HTTP status (the no-leak posture is "
             + "preserved on the wire; this diagnostic surfaces the real reason in the console only).",
-            Prefix, route, reason ?? "<unspecified>");
+            Prefix, LogText.Of(route), LogText.Of(reason) ?? "<unspecified>");
     }
 
     // ── Peer-trust decision diagnostics ───────────────────────────────────────────────────────────────────────
@@ -171,7 +173,7 @@ public sealed class CommsDiagnostics
         if (!IsEnabled) return;
         _logger!.LogInformation(
             "{Prefix} team-adoption step={Step} teamId={TeamId}{Detail}",
-            Prefix, step, teamId ?? "<none>", detail is null ? string.Empty : $" — {detail}");
+            Prefix, step, LogText.Of(teamId) ?? "<none>", detail is null ? string.Empty : $" — {LogText.Of(detail)}");
     }
 
     /// <summary>
@@ -189,7 +191,7 @@ public sealed class CommsDiagnostics
         _logger!.LogDebug(
             "{Prefix} key-scoping kind={Kind} teamScope={Scope} keyLen={Len}B — the team-scope this key was "
             + "HKDF-derived under (a wrong scope is the genesis-vs-adopted mismatch behind PEER_UNTRUSTED).",
-            Prefix, keyKind, teamScope ?? "<none>", keyLength);
+            Prefix, LogText.Of(keyKind), LogText.Of(teamScope) ?? "<none>", keyLength);
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.Migration.Erpnext.Extraction;
 using Harborline.Api.Foundation.Import.Extraction;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -85,7 +86,7 @@ public static class ErpnextImportPreviewRoutes
 
             loggerFactory
                 .CreateLogger("Harborline.Api.LocalNodeHost.ErpnextImportPreview")
-                .LogInformation("Previewing ERPNext dump at {DumpFilePath}.", fullPath);
+                .LogInformation("Previewing ERPNext dump at {DumpFilePath}.", LogText.Of(fullPath));
 
             try
             {

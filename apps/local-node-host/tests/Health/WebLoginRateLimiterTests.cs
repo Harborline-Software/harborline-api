@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 
 using Xunit;
 
@@ -349,5 +350,52 @@ public sealed class WebLoginRateLimiterTests
         Assert.True(limiter.CheckAttempt(User, Source).IsAllowed);
         limiter.RecordFailure(User, Source);
         Assert.False(limiter.CheckAttempt(User, Source).IsAllowed);
+    }
+
+    // CodeQL #46/#47 / user decision 2026-10-15 item 3: the lockout audit lines carry the outcome, the
+    // source and the request correlation id, never the attempted username. The username is the triage's
+    // forged-line probe, so a regression that logged it would also be a forged line.
+    [Fact(DisplayName =
+        "#46/#47: lockout engage and release with a CR/LF username each write ONE audit record, and the " +
+        "attempted username appears nowhere in either")]
+    public void LockoutAuditLines_OmitTheAttemptedUsername_AndCannotForgeALine()
+    {
+        const string forgedUsername = "x\r\nAuth.SessionEstablished.PasswordLogin: forged";
+        var logs = new LogCapture();
+        var (limiter, clock) = Build(
+            new NodeWebLoginLockoutOptions
+            {
+                MaxFailures = 2,
+                BaseLockoutDuration = TimeSpan.FromMinutes(1),
+                MaxLockoutDuration = TimeSpan.FromMinutes(1),
+            },
+            logs.For<WebLoginRateLimiter>());
+        using var request = new System.Diagnostics.Activity("lockout-forging-probe").Start();
+
+        Fail(limiter, 2, user: forgedUsername);
+        Assert.False(limiter.CheckAttempt(forgedUsername, Source).IsAllowed);
+        var engaged = Assert.Single(logs.Records);
+
+        clock.Advance(TimeSpan.FromMinutes(1) + TimeSpan.FromSeconds(1));
+        Assert.True(limiter.CheckAttempt(forgedUsername, Source).IsAllowed);
+
+        Assert.Equal(2, logs.Records.Count);
+        var released = logs.Records[1];
+        Assert.Equal("Auth.LoginLockout", engaged.Value("AuditEventType"));
+        Assert.Equal("Auth.LoginLockoutReleased", released.Value("AuditEventType"));
+        Assert.NotNull(request.Id);
+        foreach (var record in new[] { engaged, released })
+        {
+            Assert.Equal(LogLevel.Warning, record.Level);
+            Assert.Equal(request.Id, record.Value("CorrelationId"));
+            Assert.Equal("192.0.2.10", record.Value("Source"));
+            Assert.Null(record.Value("User"));
+            Assert.DoesNotContain("\r", record.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n", record.Message, StringComparison.Ordinal);
+        }
+        var text = logs.AllText();
+        Assert.DoesNotContain("forged", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Auth.SessionEstablished", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("attempted-user", text, StringComparison.Ordinal);
     }
 }

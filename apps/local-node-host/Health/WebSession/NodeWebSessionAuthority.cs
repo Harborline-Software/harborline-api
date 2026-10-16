@@ -179,20 +179,20 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         if (string.IsNullOrWhiteSpace(username) || password is null ||
             username.Length > MaxUsernameLength || password.Length > MaxPasswordLength)
         {
-            LogLoginFailed(username, "malformed or oversized credentials");
+            LogLoginFailed("malformed or oversized credentials");
             return new(null, WebLoginFailureReason.MalformedInput);
         }
         var admission = await _v1AuthorityGate.CheckV1MutationAdmissionAsync(ct)
             .ConfigureAwait(false);
         if (!admission.IsAllowed)
         {
-            LogLoginFailed(username, admission.RefusalCode ?? "legacy v1 mutation refused");
+            LogLoginFailed(admission.RefusalCode ?? "legacy v1 mutation refused");
             return new(null, WebLoginFailureReason.AuthorityRefused);
         }
 
         if (!_options.Enabled || !HasCredential)
         {
-            LogLoginFailed(username, _options.Enabled ? "no founder credential provisioned" : "web-client disabled");
+            LogLoginFailed(_options.Enabled ? "no founder credential provisioned" : "web-client disabled");
             return new(null, WebLoginFailureReason.ProvisioningRefused);
         }
 
@@ -204,7 +204,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
 
         if (!usernameMatches || !passwordOk)
         {
-            LogLoginFailed(username, "credential mismatch");
+            LogLoginFailed("credential mismatch");
             return new(null, WebLoginFailureReason.CredentialMismatch);
         }
 
@@ -212,7 +212,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         // tenant principal), the one key every plane uses. A node with no roster edge has no such actor.
         if (_nodeOperator?.Principal is not { } operatorPrincipal)
         {
-            LogLoginFailed(username, "no desktop actor: this node's key holds no roster edge");
+            LogLoginFailed("no desktop actor: this node's key holds no roster edge");
             return new(null, WebLoginFailureReason.AuthorityRefused);
         }
 
@@ -341,14 +341,17 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
     }
 
     /// <summary>
-    /// Emit the login-failed audit (the S11 rate-limit/lockout signal). Logs the OUTCOME + reason +
-    /// (best-effort) the attempted username — NEVER the password.
+    /// Emit the login-failed audit (the S11 rate-limit/lockout signal). Logs the OUTCOME + the fixed
+    /// reason + the request correlation id — NEVER the password, and not the attempted username either:
+    /// it is unauthenticated caller text (a CR/LF in it forged a line, CodeQL #28), and a password typed
+    /// into the username field would land in the log. No account was resolved on any failure path, so
+    /// there is no internal account id to log in its place.
     /// </summary>
-    private void LogLoginFailed(string? username, string reason)
+    private void LogLoginFailed(string reason)
     {
         _logger.LogWarning(
-            "{AuditEventType}: web-client login rejected ({Reason}); attempted-user={User}.",
-            AuditLoginFailed, reason, string.IsNullOrEmpty(username) ? "(none)" : username);
+            "{AuditEventType}: web-client login rejected ({Reason}); correlation={CorrelationId}.",
+            AuditLoginFailed, reason, System.Diagnostics.Activity.Current?.Id ?? "(none)");
     }
 
     /// <inheritdoc />
