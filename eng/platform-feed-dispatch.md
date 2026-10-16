@@ -17,6 +17,8 @@ ref. Confirm the remote branch head immediately before dispatch and the resultin
 run's `head_sha` against the reviewed candidate before accepting its evidence.
 An unexpected head invalidates the measurement; review and rerun the correct
 candidate. Do not treat this registration as authentication of branch code.
+The benchmark job refuses a Platform pin that is not an ancestor of Platform
+`main` before any Platform code runs (T-679, `.github/workloads/CACHE-TRUST.md`).
 
 The benchmark candidate retains its complete cold/warm/forced-miss harness,
 immutable image, identical fresh validation work, and disposable cache keys.

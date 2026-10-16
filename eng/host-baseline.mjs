@@ -60,7 +60,8 @@ export function disambiguateRosterIds(results) {
 // Decode once: a literal "&lt;" in a display name is serialized as "&amp;lt;".
 export function readHostTrx(file) {
   try {
-    const xml = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    // Preserve a token boundary: removing comments must not manufacture XML tags.
+    const xml = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, ' ')
     const decode = value => value.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, entity) => {
       if (entity.startsWith('#')) return String.fromCodePoint(entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : +entity.slice(1))
       return {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'"}[entity]
