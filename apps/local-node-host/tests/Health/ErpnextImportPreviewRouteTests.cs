@@ -217,6 +217,24 @@ public sealed class ErpnextImportPreviewRouteTests : IAsyncLifetime
         Assert.DoesNotContain(_dumpPath, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
+    // CodeQL #24: the logged dump path is bounded and escaped. U+2028 (a line separator some viewers break
+    // on) stands in for CR/LF, which no Windows file name can carry.
+    [Fact]
+    public async Task Preview_logs_a_line_separator_in_the_dump_path_escaped_on_one_line()
+    {
+        var separatorPath = Path.Combine(_directory, "erp\u2028next.sql");
+        await File.WriteAllTextAsync(separatorPath, FixtureDump);
+
+        var response = await _client.PostAsJsonAsync(Route, new { dumpFilePath = separatorPath });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var line = Assert.Single(
+            _logs.Entries,
+            entry => entry.Message.StartsWith("Previewing ERPNext dump at ", StringComparison.Ordinal));
+        Assert.Contains(Path.Combine(_directory, "erp\\u2028next.sql"), line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u2028", line.Message, StringComparison.Ordinal);
+    }
+
     private static void AssertEntry(JsonElement entry, string docType, string classification, int sourceRowCount)
     {
         Assert.Equal(docType, entry.GetProperty("docType").GetString());

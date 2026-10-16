@@ -117,6 +117,47 @@ public sealed class CommsDiagnosticsTests
         Assert.Contains("teamScope=team-7", line.Message, StringComparison.Ordinal); // a public scope id
     }
 
+    // ── (3) Caller text cannot forge a line (CodeQL cs/log-forging #16–#19) ───────────────────────────────────
+
+    [Fact]
+    public void AdmitRejected_PeerSuppliedPartyId_IsEscaped_OnOneLine()
+    {
+        var logger = new CapturingLogger();
+        var diag = new CommsDiagnostics(logger, enabled: true);
+
+        // The reject path's party id is whatever an unauthenticated joiner sent (#17).
+        diag.AdmitOutcome(accepted: false, reason: "enroll_signature_invalid", joiningPartyId: "p\r\nforged");
+
+        var line = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, line.Level);
+        Assert.Contains("joiningParty=p\\u000d\\u000aforged", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AdmitAccepted_JoinOutcome_AndTeamAdoptionStep_EscapeTheirCallerText()
+    {
+        var logger = new CapturingLogger();
+        var diag = new CommsDiagnostics(logger, enabled: true);
+
+        diag.AdmitOutcome(accepted: true, reason: null, joiningPartyId: "p\nforged");
+        diag.JoinOutcome(succeeded: false, reason: "anchor_mismatch", teamId: "team\u2028forged");
+        diag.TeamAdoptionStep("active-team-switch", "team-1", "detail\r\nforged");
+
+        Assert.Equal(3, logger.Entries.Count);
+        var all = logger.Entries.Select(e => e.Message).ToList();
+        Assert.Contains(all, m => m.Contains("joiningParty=p\\u000aforged", StringComparison.Ordinal));
+        Assert.Contains(all, m => m.Contains("teamId=team\\u2028forged", StringComparison.Ordinal));
+        Assert.Contains(all, m => m.Contains("— detail\\u000d\\u000aforged", StringComparison.Ordinal));
+        Assert.All(all, m =>
+        {
+            Assert.DoesNotContain("\r", m, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n", m, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u2028", m, StringComparison.Ordinal);
+        });
+    }
+
     // ── Test capturing logger ─────────────────────────────────────────────────────────────────────────────────
 
     private sealed record LogEntry(LogLevel Level, string Message);

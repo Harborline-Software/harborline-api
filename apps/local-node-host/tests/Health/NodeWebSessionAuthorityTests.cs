@@ -19,6 +19,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 
 using Xunit;
 
@@ -775,7 +776,8 @@ public sealed class NodeWebSessionAuthorityTests
     /// <summary>Builds the real authority over a caller-owned store so a test can inspect the record.</summary>
     private static NodeWebSessionAuthority AuthorityOver(
         ISessionStore store,
-        IInstallationIdentityV1AuthorityGate gate)
+        IInstallationIdentityV1AuthorityGate gate,
+        ILogger<NodeWebSessionAuthority>? logger = null)
     {
         var team = new TeamContext(
             new TeamId(Guid.Parse("11111111-1111-1111-1111-111111111111")),
@@ -794,8 +796,42 @@ public sealed class NodeWebSessionAuthorityTests
             new SingleTeamAccessor(team),
             gate,
             TimeProvider.System,
-            NullLogger<NodeWebSessionAuthority>.Instance,
+            logger ?? NullLogger<NodeWebSessionAuthority>.Instance,
             TestDesktopOperator.Identity());
+    }
+
+    // CodeQL #28 / user decision 2026-10-15 item 3: a failed login logs its outcome and the request
+    // correlation id, never the attempted username. The username below is the triage's forged-line probe.
+    [Theory(DisplayName =
+        "#28: a failed login with a CR/LF username writes ONE Auth.LoginFailed record carrying the outcome " +
+        "and correlation id, and the attempted username appears nowhere in it")]
+    [InlineData("not the password", "credential mismatch")]
+    [InlineData(null, "malformed or oversized credentials")]
+    public async Task FailedLogin_OmitsTheAttemptedUsername_AndCannotForgeALine(string? password, string reason)
+    {
+        const string forgedUsername = "x\nAuth.SessionEstablished.PasswordLogin: forged";
+        var logs = new LogCapture();
+        var authority = AuthorityOver(
+            new InMemorySessionStore(),
+            new ConfigurableV1AuthorityGate(),
+            logs.For<NodeWebSessionAuthority>());
+        using var request = new System.Diagnostics.Activity("login-forging-probe").Start();
+
+        var result = await authority.LoginAsync(forgedUsername, password, CancellationToken.None);
+
+        Assert.Null(result.Login);
+        var record = Assert.Single(logs.Records);
+        Assert.Equal(LogLevel.Warning, record.Level);
+        Assert.Equal("Auth.LoginFailed", record.Value("AuditEventType"));
+        Assert.Equal(reason, record.Value("Reason"));
+        Assert.NotNull(request.Id);
+        Assert.Equal(request.Id, record.Value("CorrelationId"));
+        Assert.Null(record.Value("User"));
+        var text = logs.AllText();
+        Assert.DoesNotContain("forged", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Auth.SessionEstablished", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", record.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("attempted-user", text, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName =

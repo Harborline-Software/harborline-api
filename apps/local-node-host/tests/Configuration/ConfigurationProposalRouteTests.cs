@@ -27,6 +27,7 @@ using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using Xunit;
@@ -54,6 +55,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
 
     private readonly ConcurrentQueue<string> _exampleRequests = new();
     private readonly ConfigurationExampleDiagnostics _exampleStages = new();
+    private readonly LogCapture _logs = new();
     private bool _failAfterBinding;
     private readonly string _exampleShellCacheRoot = Path.Combine(Path.GetTempPath(),
         "harborline-configuration-example-" + Guid.NewGuid().ToString("N"));
@@ -117,7 +119,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             }
             catch { _exampleStages.Observe("bound-handler-failed"); throw; }
         });
-        ConfigurationProposalRoutes.Map(observedRoutes, _proposals, activeTeam, gate, clock, NullLogger.Instance);
+        ConfigurationProposalRoutes.Map(observedRoutes, _proposals, activeTeam, gate, clock, _logs.CreateLogger("ConfigurationProposalRoutes"));
         ConfigurationActivationRoutes.Map(observedRoutes, _activation, activeTeam, gate, clock, NullLogger.Instance);
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
@@ -399,6 +401,22 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         Assert.Equal("configuration-proposal-body-invalid",
             (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Empty((await ReadAsync("proposal-1")).GetProperty("edits").EnumerateArray());
+    }
+
+    // CodeQL #21: the proposal id is chosen by the client at POST /proposals, so the Save version log line
+    // carries it bounded and escaped.
+    [Fact]
+    public async Task A_crlf_proposal_id_is_logged_escaped_on_one_line()
+    {
+        const string forgedId = "cfg\r\nforged";
+        await StartAsync(forgedId);
+        await AutosaveAsync(Uri.EscapeDataString(forgedId), "records/invoice", RecordsEdit, RecordsKind);
+        await SaveVersionAsync(Uri.EscapeDataString(forgedId), Rationale);
+
+        var line = Assert.Single(_logs.Records, r => r.Message.StartsWith("Configuration SAVE VERSION", StringComparison.Ordinal));
+        Assert.Contains("proposal cfg\\u000d\\u000aforged)", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
     }
 
     private static string Route(string proposalId, string? suffix) =>

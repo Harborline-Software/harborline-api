@@ -13,6 +13,7 @@ using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Feed;
@@ -116,7 +117,7 @@ public static class ChannelFeedRoutes
             logger.LogInformation(
                 "Channel CHECK (tenant {Tenant}, channel {Channel}) → {Status}, {Packs} staged pack(s), "
                 + "{Failures} failure(s).",
-                tenant, id, result.Status, result.StagedPacks.Count, result.Failures.Count);
+                tenant, LogText.Of(id), result.Status, result.StagedPacks.Count, result.Failures.Count);
 
             var summary = result.Summary is null
                 ? null

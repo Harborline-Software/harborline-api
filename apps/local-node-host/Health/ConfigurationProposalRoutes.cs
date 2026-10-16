@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 using Harborline.Blocks.BuilderDefinitions;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -155,7 +156,7 @@ internal static class ConfigurationProposalRoutes
                 var proposed = store.Read(tenant, proposalId)!;
                 if (logger.IsEnabled(LogLevel.Information))
                     logger.LogInformation("Configuration SAVE VERSION (tenant {Tenant}, proposal {Proposal}) → {Ordinal} {Digest}",
-                        tenant, proposalId, version.Ordinal, version.Digest);
+                        tenant, LogText.Of(proposalId), version.Ordinal, version.Digest);
                 return Results.Ok(Dto(store, tenant, proposed, version));
             }
             catch (ArgumentException exception)
@@ -209,7 +210,7 @@ internal static class ConfigurationProposalRoutes
             var dto = Dto(store, tenant, proposed, version, result, stored);
             if (logger.IsEnabled(LogLevel.Information))
                 logger.LogInformation("Configuration RELEASE (tenant {Tenant}, proposal {Proposal}) → {Status} {Digest}",
-                    tenant, proposalId, dto.Status, dto.ReleasedPackage?.Digest);
+                    tenant, LogText.Of(proposalId), dto.Status, dto.ReleasedPackage?.Digest);
             return stored is null ? Results.UnprocessableEntity(dto) : Results.Ok(dto);
         });
 
@@ -248,13 +249,13 @@ internal static class ConfigurationProposalRoutes
                         : outcome.Succeeded ? PostCommitReactionFailed : DeferredRefusalRecordFailed);
                 if (logger.IsEnabled(LogLevel.Information))
                     logger.LogInformation("Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Pack}@{Version}",
-                        tenant, digest, dto.Status, dto.PackKey, dto.Version);
+                        tenant, LogText.Of(digest), dto.Status, LogText.Of(dto.PackKey), LogText.Of(dto.Version));
                 // A failed reaction never changes the status, but it must not be silent: the body carries its code
                 // and the host log carries the failure.
                 if (outcome.Diagnostics is not null && logger.IsEnabled(LogLevel.Warning))
                     logger.LogWarning(outcome.DiagnosticsException,
                         "Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Code}: {Diagnostics}",
-                        tenant, digest, dto.Status, dto.Diagnostics, outcome.Diagnostics);
+                        tenant, LogText.Of(digest), dto.Status, dto.Diagnostics, outcome.Diagnostics);
                 return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
     }

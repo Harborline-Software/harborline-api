@@ -29,6 +29,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Feed;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Diagnostics;
 using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using Xunit;
@@ -248,6 +249,30 @@ public sealed class ChannelFeedRouteTests
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
+    // ── CodeQL #20: the route's channel id is caller text, logged bounded and escaped ──────────────────
+    [Fact(DisplayName = "#20: a CR/LF channel id is logged escaped on one line (UnknownChannel is logged too)")]
+    public async Task Check_logs_a_crlf_channel_id_escaped()
+    {
+        var registry = new BinaryPinnedChannelRegistry(
+            new[]
+            {
+                new NodeChannel(GoldenDogfoodFeed.ChannelId, "Dogfood (USB)", GoldenDogfoodFeed.Directory,
+                    ChannelKind.Sideload, FeedKeyId.Format(GoldenDogfoodFeed.PinnedRoot().KeyId), true),
+            },
+            new[] { new ChannelRootPin(GoldenDogfoodFeed.ChannelId, GoldenDogfoodFeed.PinnedRoot(), 1, "dogfood-dev") });
+        var logs = new LogCapture();
+        await using var harness = await RouteHarness.CreateAsync(registry, NewFactory(), logger: logs.CreateLogger("ChannelFeedRoutes"));
+
+        var resp = await harness.Client.PostAsync(
+            $"/api/local-node/channels/{Uri.EscapeDataString("nope\r\nforged")}/check", EmptyBody());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
+        var line = Assert.Single(logs.Records);
+        Assert.Contains("channel nope\\u000d\\u000aforged)", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", line.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", line.Message, StringComparison.Ordinal);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────────
 
     private static System.Net.Http.HttpContent EmptyBody()
@@ -301,7 +326,8 @@ public sealed class ChannelFeedRouteTests
             System.Net.Http.IHttpClientFactory factory,
             Harborline.Api.Foundation.Authorization.AuthorizationGate? authz = null,
             FeedPinnedRoot? previewRoot = null,
-            IPackInstallStore? store = null)
+            IPackInstallStore? store = null,
+            ILogger? logger = null)
         {
             var db = await PacksTestStore.CreateAsync();
             var builder = WebApplication.CreateBuilder();
@@ -342,7 +368,7 @@ public sealed class ChannelFeedRouteTests
                 app.MapSelectedSessionProductGroup(),
                 client, registry, installer, sharedStore, previewTrust, PackRevocationList.Empty,
                 activeTeam, authz ?? Harborline.Api.LocalNodeHost.Tests.Packs.TestPackGate.AllowAll(), new FixedTimeProvider(Now),
-                NullLogger.Instance);
+                logger ?? NullLogger.Instance);
 
             await app.StartAsync();
             var address = app.Services.GetRequiredService<IServer>()

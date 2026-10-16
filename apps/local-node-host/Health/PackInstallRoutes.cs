@@ -15,6 +15,7 @@ using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -132,7 +133,7 @@ internal static class PackInstallRoutes
             var preview = installer.Preview(bytes, context);
             logger.LogInformation(
                 "Pack PREVIEW (tenant {Tenant}, pack {Key} v{Version}) → {Verdict}.",
-                tenant, preview.PackKey, preview.Version, preview.Verdict);
+                tenant, LogText.Of(preview.PackKey), LogText.Of(preview.Version), preview.Verdict);
             return Results.Ok(ToPreviewDto(preview));
         }).WithMetadata(postInstallRoutes);
 
@@ -158,7 +159,7 @@ internal static class PackInstallRoutes
             {
                 logger.LogInformation(
                     "Pack CHECK (tenant {Tenant}, pack {Key} v{Version}) → {Verdict} [{Codes}].",
-                    tenant, check.PackKey, check.Version, check.Verdict, string.Join(",", check.RefusalCodes));
+                    tenant, LogText.Of(check.PackKey), LogText.Of(check.Version), check.Verdict, string.Join(",", check.RefusalCodes));
             }
             return Results.Ok(ToPreviewDto(check));
         });
@@ -212,7 +213,7 @@ internal static class PackInstallRoutes
             logger.LogInformation(
                 "Pack INSTALL (tenant {Tenant}, pack {Key} v{Version}) → installed={Installed} action={Action} "
                 + "breakGlass={BrokeGlass} [{Codes}].",
-                tenant, outcome.PackKey, outcome.Version, outcome.Installed, outcome.Action, outcome.BrokeGlass,
+                tenant, LogText.Of(outcome.PackKey), LogText.Of(outcome.Version), outcome.Installed, outcome.Action, outcome.BrokeGlass,
                 string.Join(",", outcome.RefusalCodes));
 
             var dto = new InstallResponseDto(
@@ -267,9 +268,13 @@ internal static class PackInstallRoutes
             // inside the same transaction that flips the pointer, so a committed activation has no
             // post-commit projection to report and nothing to warn about.
             var outcome = await installer.ActivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
+            // The coordinates are caller text (pack keys have no character grammar yet), so every log line
+            // below carries them bounded and escaped; the signed audit keeps them verbatim.
+            var logKey = LogText.Of(request.PackKey);
+            var logVersion = LogText.Of(request.Version);
             logger.LogInformation(
                 "Pack ACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → activated={Activated} [{Error}].",
-                tenant, request.PackKey, request.Version, outcome.Activated, outcome.Error);
+                tenant, logKey, logVersion, outcome.Activated, outcome.Error);
 
             if (!outcome.Activated)
             {
@@ -315,7 +320,7 @@ internal static class PackInstallRoutes
                         + "{FormsPresent} already present, {FormsInvalid} invalid, {FormsDeferred} deferred, "
                         + "{WorkflowsPublished} workflow(s) published, {WorkflowsPresent} already present, "
                         + "{WorkflowsInvalid} refused, {WorkflowsDeferred} deferred.",
-                        tenant, request.PackKey, request.Version,
+                        tenant, logKey, logVersion,
                         projection.AssetTypesSeeded, projection.AssetTypesAlreadyPresent,
                         projection.FormDefinitionsPublished, projection.FormDefinitionsAlreadyPresent,
                         projection.FormDefinitionsSkippedInvalid, projection.FormDefinitionsDeferred,
@@ -328,7 +333,7 @@ internal static class PackInstallRoutes
                 logger.LogError(
                     "Pack ACTIVATE projection FAILED (tenant {Tenant}, pack {Key} v{Version}) — durable "
                     + "admission evidence remains pending for startup reconciliation. {Detail}",
-                    tenant, request.PackKey, request.Version, outcome.Detail);
+                    tenant, logKey, logVersion, LogText.Of(outcome.Detail));
             }
 
             await Task.CompletedTask.ConfigureAwait(false);
@@ -361,9 +366,11 @@ internal static class PackInstallRoutes
                 tenant, trustStore, revocation, authority.Instant, RevocationMaxAge,
                 Principal: authority.Principal.Value);
             var outcome = await installer.DeactivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
+            var logKey = LogText.Of(request.PackKey);
+            var logVersion = LogText.Of(request.Version);
             logger.LogInformation(
                 "Pack DEACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → deactivated={Deactivated} [{Error}].",
-                tenant, request.PackKey, request.Version, outcome.Deactivated, outcome.Error);
+                tenant, logKey, logVersion, outcome.Deactivated, outcome.Error);
 
             if (!outcome.Deactivated)
             {
@@ -395,7 +402,7 @@ internal static class PackInstallRoutes
                     logger.LogInformation(
                         "Pack DEACTIVATE retraction (tenant {Tenant}, pack {Key} v{Version}) → "
                         + "{Assets} asset type(s), {Forms} form(s), and {Workflows} workflow(s) retracted.",
-                        tenant, request.PackKey, request.Version,
+                        tenant, logKey, logVersion,
                         projection.AssetTypesRetracted,
                         projection.FormDefinitionsRetracted,
                         projection.WorkflowDefinitionsRetracted);
@@ -407,7 +414,7 @@ internal static class PackInstallRoutes
                     outcome.ProjectionResult as Exception,
                     "Pack DEACTIVATE retraction FAILED (tenant {Tenant}, pack {Key} v{Version}) — "
                     + "durable admission evidence remains pending for startup reconciliation.",
-                    tenant, request.PackKey, request.Version);
+                    tenant, logKey, logVersion);
             }
 
             await Task.CompletedTask.ConfigureAwait(false);

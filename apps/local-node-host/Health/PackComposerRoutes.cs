@@ -15,6 +15,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -167,7 +168,7 @@ public static class PackComposerRoutes
             {
                 logger.LogInformation(
                     "Pack export REFUSED (tenant {Tenant}, pack {Key}) — {ErrorCount} validation error(s).",
-                    tenant, request.Key, outcome.Validation.Errors.Count);
+                    tenant, LogText.Of(request.Key), outcome.Validation.Errors.Count);
                 return Results.UnprocessableEntity(new
                 {
                     error = "pack failed validation",
@@ -177,7 +178,7 @@ public static class PackComposerRoutes
 
             logger.LogInformation(
                 "Pack EXPORTED (tenant {Tenant}, pack {Key} v{Version}, {Bytes} bytes).",
-                tenant, request.Key, request.Version, outcome.FileBytes.Length);
+                tenant, LogText.Of(request.Key), LogText.Of(request.Version), outcome.FileBytes.Length);
             return Results.File(outcome.FileBytes, "application/octet-stream", $"{request.Key}-{request.Version}.pack");
         });
 

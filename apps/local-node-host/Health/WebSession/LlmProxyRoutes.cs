@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.LocalNodeHost.Diagnostics;
+
 namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 
 /// <summary>
@@ -76,7 +78,9 @@ public static class LlmProxyRoutes
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "LLM proxy: upstream unreachable ({Target}).", target);
+                // Log the caller's path bounded and escaped, never the assembled target: the decoded {**rest}
+                // can carry CR/LF (CodeQL cs/log-forging), and the query string may carry request data.
+                logger.LogWarning(ex, "LLM proxy: upstream unreachable ({Upstream}/{Path}).", upstream, LogText.Of(rest));
                 ctx.Response.StatusCode = StatusCodes.Status502BadGateway;
                 await ctx.Response.WriteAsJsonAsync(new { error = "llm_upstream_unreachable" }, ctx.RequestAborted)
                     .ConfigureAwait(false);
