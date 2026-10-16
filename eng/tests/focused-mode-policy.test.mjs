@@ -41,6 +41,8 @@ for (const [file, kind] of [
   ['packages/contracts/pnpm-workspace.yaml', 'toolchain'],
   ['packages/contracts/package.json', 'toolchain'],
   ['eng/platform-pin.json', 'toolchain'], ['eng/coverage.runsettings', 'coverage'],
+  ['apps/capability-host/src/index.ts', 'capability-typescript'],
+  ['apps/capability-host/src/runtime/nested/host.test.ts', 'capability-typescript'],
 ]) test(`${kind} changes require independently executed OFF and ON`, () => {
   const plan = classifyFocusedModes([{status: 'M', path: file}])
   assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
@@ -327,4 +329,35 @@ for (const file of [
     assert.throws(() => validateFocusedModeEvidence(plan, context,
       evidence(plan).filter(row => row.mode !== missing)), /missing-mode/)
   }
+})
+
+test('a capability-host TypeScript change mixed with documentation keeps the full OFF/ON selector', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'apps/capability-host/src/membrane/gate.ts'}, {status: 'M', path: 'docs/guide.md'}])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.changes.map(row => row.kind).sort(), ['capability-typescript', 'documentation'])
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).id, 'compiled-write-fences-v1')
+  assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
+  for (const missing of ['coverage-off', 'coverage-on']) {
+    assert.throws(() => validateFocusedModeEvidence(plan, context,
+      evidence(plan).filter(row => row.mode !== missing)), /missing-mode/)
+  }
+})
+test('the capability-host TypeScript class cannot shadow the earlier coverage rule', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'apps/capability-host/src/coverage.ts'}])
+  assert.equal(plan.changes[0].kind, 'coverage')
+  assert.equal(plan.selection, 'focused')
+})
+
+for (const file of [
+  'apps/capability-host/package.json', 'apps/capability-host/vitest.config.ts',
+  'apps/capability-host/tsconfig.json', 'apps/capability-host/README.md',
+  'apps/capability-host/src/catalog/data.json', 'apps/capability-host/src/component.tsx',
+  'apps/capability-host/scripts/tool.ts', 'packages/contracts/src/x.ts', 'apps/other/src/x.ts',
+]) test(`TypeScript-adjacent input outside the capability-host source selector stays unsupported: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, 'unknown')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(plan.selection, 'unsupported')
+  assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
 })
