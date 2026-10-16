@@ -30,7 +30,9 @@ export const MAX_SANDBOX_TIMEOUT_MS = 30 * 60_000
 
 export function boundedTimeoutMs(requested: unknown, fallback: number): number {
   return typeof requested === 'number' && Number.isFinite(requested) && requested > 0
-    ? Math.min(requested, MAX_SANDBOX_TIMEOUT_MS)
+    ? requested <= MAX_SANDBOX_TIMEOUT_MS
+      ? requested
+      : MAX_SANDBOX_TIMEOUT_MS
     : fallback
 }
 

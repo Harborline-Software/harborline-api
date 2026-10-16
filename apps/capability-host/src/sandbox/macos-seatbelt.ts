@@ -340,8 +340,11 @@ export class MacosSeatbeltSandbox implements Sandbox {
       let stderr = ''
       let timer: NodeJS.Timeout | undefined
 
-      if (spec.timeoutMs !== undefined) {
-        timer = setTimeout(() => child.kill('SIGKILL'), spec.timeoutMs)
+      const timeoutMs = spec.timeoutMs
+      if (timeoutMs !== undefined) {
+        // assertSpec already rejects > MAX; this same-function guard is the bound CodeQL recognises.
+        const boundedMs = timeoutMs <= MAX_SANDBOX_TIMEOUT_MS ? timeoutMs : MAX_SANDBOX_TIMEOUT_MS
+        timer = setTimeout(() => child.kill('SIGKILL'), boundedMs)
       }
 
       child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')))
@@ -370,7 +373,7 @@ function assertSpec(spec: SandboxSpec, credentialDenyPaths: readonly string[]): 
     spec.timeoutMs !== undefined &&
     (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0 || spec.timeoutMs > MAX_SANDBOX_TIMEOUT_MS)
   ) {
-    throw new SandboxSpecError('timeoutMs must be finite and within (0, 1800000]')
+    throw new SandboxSpecError(`timeoutMs must be finite and within (0, ${MAX_SANDBOX_TIMEOUT_MS}]`)
   }
   if (!spec.command.startsWith('/')) {
     throw new SandboxSpecError(`command must be an absolute path, got '${spec.command}'`)
