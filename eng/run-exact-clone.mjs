@@ -67,30 +67,28 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // Baselines the clone must reproduce. Pinned by NAME in the ticket artifacts, so a different
 // failure set is a gate failure even when the counts happen to match.
 //
-// TAMPER-EVIDENCE. The baselines are this gate's authority, which makes "edit the baseline until
-// the gate passes" the same loophole as gating on an exit code, only better disguised. So each
-// baseline is cited by its COMMITTED git blob hash, and the working copy must match that blob: a
-// path citation floats with the working tree and proves nothing. An uncommitted baseline edit
-// stops the gate rather than silently redefining what passing means. Changing a baseline is a
-// deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
+// Baseline policy and its provenance belong to the captured commit, even if the source moves.
+// The initial clean-tree check still refuses uncommitted changes at capture time.
 const BASELINES = {
   host: baselineArgument(process.argv.slice(2)),
   capability: capabilityBaselineFor(),
 }
 const baselineProvenance = {}
+const baselineInputs = {}
 for (const [name, relative] of Object.entries(BASELINES)) {
-  const committedBlob = execFileSync('git', ['-C', apiRoot, 'rev-parse', `HEAD:${relative}`], {encoding: 'utf8'}).trim()
-  const workingBlob = execFileSync('git', ['-C', apiRoot, 'hash-object', relative], {encoding: 'utf8'}).trim()
+  const committedBlob = execFileSync('git', ['-C', apiRoot, 'rev-parse', `${head}:${relative}`], {encoding: 'utf8'}).trim()
+  baselineInputs[name] = execFileSync('git', ['-C', apiRoot, 'show', `${head}:${relative}`], {encoding: 'utf8'})
+  // Retain the receipt field name; it hashes the loaded bytes, now read from the pinned object.
+  const workingBlob = execFileSync('git', ['-C', apiRoot, 'hash-object', '--stdin'], {encoding: 'utf8', input: baselineInputs[name]}).trim()
   baselineProvenance[name] = {path: relative, committedBlob, workingBlob, matchesCommitted: committedBlob === workingBlob}
   if (committedBlob !== workingBlob) {
     throw new Error(
       `${relative} differs from its committed blob (${committedBlob.slice(0, 12)} vs ${workingBlob.slice(0, 12)}). `
-      + 'The baseline is this gate\'s authority, so an uncommitted edit to it would silently redefine passing. '
-      + 'Commit the change deliberately and report it under the unexpected-delta rule, then re-run.')
+      + 'The loaded baseline bytes must match the captured commit.')
   }
 }
-const hostBaseline = JSON.parse(readFileSync(path.join(apiRoot, BASELINES.host), 'utf8'))
-const capabilityBaseline = JSON.parse(readFileSync(path.join(apiRoot, BASELINES.capability), 'utf8'))
+const hostBaseline = JSON.parse(baselineInputs.host)
+const capabilityBaseline = JSON.parse(baselineInputs.capability)
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
 const clone = path.join(scratch, 'clone')
@@ -117,7 +115,7 @@ const redactEvidence = text => {
 // by design because each carries permitted, name-pinned failures; gating on the exit code would
 // make this gate unpassable while the baselines are honest. For those steps the baseline
 // comparison below is the authority, and the exit code is recorded for the record only.
-const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory} = {}) => {
+const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory, captureStdout = false} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
   const result = observedSpawnSync(id, resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}, {file: progressFile, diagnosticDirectory})
@@ -144,6 +142,7 @@ const run = (id, command, args, cwd, {expectNonZero = false, diagnosticDirectory
   // many lines a runner happened to print after its summary: host-baseline-match passed one run
   // and failed the next on identical trees. The tail exists for human reading only.
   step.fullOutput = output
+  if (captureStdout) step.stdout = redactEvidence(result.stdout ?? '')
   if (id === 'dotnet-host-tests') step.rawOutput = rawOutput
   steps.push(step)
   return step
@@ -162,9 +161,9 @@ try {
   const checkoutStep = run('git-checkout-captured-head', 'git', ['-C', clone, 'checkout', '--quiet', '--detach', head], apiRoot)
   checkoutStep.expectedHead = head
   if (!checkoutStep.passed) throw new Error('Exact-clone captured HEAD checkout failed; see stage evidence')
-  const headStep = run('git-verify-captured-head', 'git', ['-C', clone, 'rev-parse', 'HEAD'], apiRoot)
+  const headStep = run('git-verify-captured-head', 'git', ['-C', clone, 'rev-parse', 'HEAD'], apiRoot, {captureStdout: true})
   headStep.expectedHead = head
-  headStep.actualHead = headStep.fullOutput.trim()
+  headStep.actualHead = headStep.stdout.trim()
   headStep.passed = headStep.passed && headStep.actualHead === head
   headStep.verdictFrom = 'captured HEAD equality'
   headStep.tail += `\nexpected HEAD: ${head}\nactual HEAD: ${headStep.actualHead}`
@@ -425,7 +424,7 @@ try {
         continue
       }
       const target = path.join(apiRoot, relative)
-      const current = JSON.parse(readFileSync(target, 'utf8'))
+      const current = relative === BASELINES.host ? hostBaseline : capabilityBaseline
       // CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must not be a
       // laundering route for ruling 119a -- overwriting a populated roster with a candidate that
       // silently drops a known identity would erase the very disappearance the gate exists to
