@@ -394,7 +394,7 @@ public static class FormDefinitionRoutes
             try
             {
                 definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now,
-                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes);
+                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes, stampCurrentContract: true);
             }
             catch (GateReferenceShapeException ex)
             {
@@ -730,8 +730,16 @@ public static class FormDefinitionRoutes
         DateTimeOffset now,
         CatalogueFieldSource? catalogueFieldSource = null,
         IReadOnlyDictionary<string, FieldMetaDto>? fieldsMeta = null,
-        IFormFieldTypeCatalogue? fieldTypes = null)
+        IFormFieldTypeCatalogue? fieldTypes = null,
+        bool stampCurrentContract = false)
     {
+        Harborline.Foundation.Definitions.DefinitionContractVersion? contract = null;
+        if (stampCurrentContract)
+        {
+            var contractWindow = PlatformPackageSeed.ContractWindow;
+            contract = new Harborline.Foundation.Definitions.DefinitionContractVersion(
+                contractWindow.Major, contractWindow.Minor);
+        }
         var sensitivities = ResolvePiiSensitivities(
             overlay, fieldsMeta, fieldTypes ?? FormFieldTypeCatalogue.Shared);
         var fields = overlay.Fields.ToDictionary(
@@ -785,7 +793,7 @@ public static class FormDefinitionRoutes
                     CascadeLayer: CascadeLayer.Tenant,
                     Provenance: null,
                     Requires: Array.Empty<DefinitionRequirement>(),
-                    Contract: null),
+                    Contract: contract),
                 Tier: Enum.TryParse<RuleTier>(r.Tier, ignoreCase: true, out var tier) ? tier : RuleTier.JsonSchema,
                 Scope: Enum.TryParse<RuleScope>(r.Scope, ignoreCase: true, out var scope) ? scope : RuleScope.Field,
                 ScopeTarget: r.ScopeTarget,
@@ -807,11 +815,15 @@ public static class FormDefinitionRoutes
             : null;
 
         return new FormDefinition(
-            Id: id,
-            Version: version,
+            Envelope: new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
+                Identity: id,
+                Version: version,
+                Tenant: tenant,
+                CascadeLayer: CascadeLayer.Tenant,
+                Provenance: new FormDefinitionProvenance(owner, Lineage: null),
+                Requires: Array.Empty<DefinitionRequirement>(),
+                Contract: contract),
             Status: FormDefinitionStatus.Draft,
-            Tenant: tenant,
-            Owner: owner,
             SchemaRef: schemaRef,
             Overlay: new HarborlineOverlay(
                 Fields: fields,
@@ -823,7 +835,6 @@ public static class FormDefinitionRoutes
                 Wizard: overlay.Wizard?.ToModel(),
                 AsyncChecks: asyncChecks,
                 Aspects: overlay.Aspects?.ToModel()),
-            Lineage: null,
             CreatedAt: now,
             UpdatedAt: now)
         {

@@ -297,6 +297,131 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Single(revisions);
     }
 
+    [Fact(DisplayName = "a legacy pack form with null contracts activates and replays without changing its pinned tuple")]
+    public async Task Legacy_null_contract_form_activates_and_replays_at_its_pinned_tuple()
+    {
+        const string formId = "general.legacy-contract";
+        const string formVersion = "2.3.4";
+        var body = JsonSerializer.SerializeToNode(FormPackBody(formId, formVersion, invalidRule: false))!.AsObject();
+        body["contents"]![0]!["content"]!["overlay"]!["rules"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["id"] = "legacy-check",
+                ["tier"] = "JsonLogic",
+                ["scope"] = "Schema",
+                ["scopeTarget"] = "",
+                ["expression"] = "{\"==\":[1,1]}",
+                ["action"] = "Validate",
+            },
+        };
+        var packBytes = await ExportAsync(body);
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var installed = Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey == PackKey);
+        var item = Assert.Single(installed.SeedItems);
+        Assert.True(PackFormDefinitionContent.TryParse(item.ParseContent(), out var request, out var parseError), parseError);
+        var id = new FormDefinitionId(formId);
+        var schema = await _schemas.RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request, id));
+        var instant = DateTimeOffset.Parse("2026-01-02T03:04:05Z");
+        var legacy = new FormDefinition(
+            Envelope: new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
+                Identity: id,
+                Version: SemanticVersion.Parse(formVersion),
+                Tenant: tenant,
+                CascadeLayer: CascadeLayer.Pack,
+                Provenance: new FormDefinitionProvenance(IdentityRef.System, Lineage: null),
+                Requires: [],
+                Contract: null),
+            Status: FormDefinitionStatus.Draft,
+            SchemaRef: schema.Id,
+            Overlay: new HarborlineOverlay(
+                Fields: new Dictionary<string, FieldOverlay>
+                {
+                    ["name"] = new FieldOverlay(
+                        Label: new InternationalizedText("en", new Dictionary<string, string> { ["en"] = "Name" }),
+                        ControlHint: "text",
+                        PiiSensitivity: PiiSensitivity.None),
+                },
+                Sections:
+                [
+                    new FormSection(
+                        Id: "main",
+                        Title: new InternationalizedText("en", new Dictionary<string, string> { ["en"] = "Main" }),
+                        Fields: ["name"],
+                        Access: new SectionAccess([], [])),
+                ],
+                Rules:
+                [
+                    new RuleDefinition(
+                        Envelope: new DefinitionEnvelope<string, string, TenantId, string?>(
+                            Identity: "legacy-check",
+                            Version: formVersion,
+                            Tenant: tenant,
+                            CascadeLayer: CascadeLayer.Tenant,
+                            Provenance: null,
+                            Requires: [],
+                            Contract: null),
+                        Tier: RuleTier.JsonLogic,
+                        Scope: RuleScope.Schema,
+                        ScopeTarget: "",
+                        Expression: "{\"==\":[1,1]}",
+                        Action: RuleActionKind.Validate),
+                ],
+                Title: new InternationalizedText("en", new Dictionary<string, string> { ["en"] = "Asset intake" }),
+                Description: new InternationalizedText("en", new Dictionary<string, string> { ["en"] = "Collect asset details." })),
+            CreatedAt: instant,
+            UpdatedAt: instant)
+        {
+            PackSource = new PackProjectionSource(PackKey, installed.Version),
+        };
+        await _forms.RegisterAsync(legacy);
+        var coordinates = new DefinitionCoordinates(tenant, formId, formVersion);
+        await _forms.PublishAsync(coordinates);
+        var before = await _forms.GetAsync(coordinates);
+        Assert.Equal(FormDefinitionStatus.Published, before.Status);
+        Assert.Null(before.Envelope.Contract);
+        Assert.Null(Assert.Single(before.Overlay.Rules).Envelope.Contract);
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var activated = await _client.PostAsJsonAsync(
+                PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
+            Assert.Equal(HttpStatusCode.OK, activated.StatusCode);
+            using var response = JsonDocument.Parse(await activated.Content.ReadAsStringAsync());
+            Assert.Empty(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
+
+            var retained = await _forms.GetAsync(coordinates);
+            Assert.Equal(formId, retained.Id.Value);
+            Assert.Equal(formVersion, retained.Version.ToString());
+            Assert.Equal(FormDefinitionStatus.Published, retained.Status);
+            Assert.Equal(CascadeLayer.Pack, retained.Envelope.CascadeLayer);
+            Assert.Equal(IdentityRef.System, retained.Owner);
+            Assert.Null(retained.Envelope.Contract);
+            var rule = Assert.Single(retained.Overlay.Rules);
+            Assert.Null(rule.Envelope.Contract);
+            Assert.Equal("legacy-check", rule.Id);
+            Assert.Equal(CascadeLayer.Tenant, rule.Envelope.CascadeLayer);
+            Assert.Equal(formVersion, rule.Envelope.Version);
+            Assert.Equal(RuleTier.JsonLogic, rule.Tier);
+            Assert.Equal(RuleScope.Schema, rule.Scope);
+            Assert.Equal("", rule.ScopeTarget);
+            Assert.Equal("{\"==\":[1,1]}", rule.Expression);
+            Assert.Equal(RuleActionKind.Validate, rule.Action);
+        }
+
+        var revisions = new List<FormDefinition>();
+        await foreach (var definition in _forms.ListByTenantAsync(tenant))
+        {
+            if (definition.Id.Value == formId)
+            {
+                revisions.Add(definition);
+            }
+        }
+        Assert.Single(revisions);
+    }
+
     [Fact(DisplayName = "ticket 176: a pack-projected catalogue definition retains its authored title and pack ownership")]
     public async Task Pack_Projected_Catalogue_Definition_Has_Authored_Title_And_Pack_Provenance()
     {
