@@ -57,6 +57,10 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     private ReadTrackingEdges _edges = null!;
     private ReadTrackingConditions _conditions = null!;
     private ReadTrackingSubmissions _submissions = null!;
+    private readonly List<AuthorizationGateRequest> _authorizationRequests = [];
+    private readonly List<ScopeExpression> _grantScopes = [];
+    private AuthorizationGate _gate = null!;
+    private bool _pinSelectedTenant;
 
     public async Task InitializeAsync()
     {
@@ -80,8 +84,14 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         // The ONE difference from AssetRegistryRouteTests: a REAL gate deciding from what the principal
         // holds, so the same fixture answers both verdicts for one act. Registered last, so it is the
         // AuthorizationGate the request container resolves.
-        builder.Services.AddSingleton(TestRouteGate.Following(operation =>
-            _holdsRecordsRead || operation != TeamRolePermissions.RecordsRead));
+        var grants = new TestRouteGate.ScopedGrantSource(request =>
+        {
+            _authorizationRequests.Add(request);
+            return (_holdsRecordsRead || request.Act.Operation.Value != TeamRolePermissions.RecordsRead)
+                && (!_pinSelectedTenant || request.Tenant.Value == "aaaa0000-0000-0000-0000-0000003580a1");
+        }, _grantScopes);
+        _gate = new AuthorizationGate(grants, new EmptyRecordStandingResolver(), grants);
+        builder.Services.AddSingleton(_gate);
         // The shipped refusal-audit composition — the same registration Program.cs makes.
         builder.Services.AddAuthorizationRefusalAudit();
         builder.Services.AddAuthorizedActAudit();
@@ -393,6 +403,7 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             _edges.Reads.ToArray());
         Assert.Empty(_conditions.Reads);
         Assert.Empty(_submissions.Reads);
+        AssertSelectedRecordAuthorization();
     }
 
     [Fact]
@@ -413,6 +424,7 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(["GetHistoryAsync|aaaa0000-0000-0000-0000-0000003580a1"], _conditions.Reads.ToArray());
         Assert.Empty(_edges.Reads);
         Assert.Empty(_submissions.Reads);
+        AssertSelectedRecordAuthorization();
     }
 
     [Fact]
@@ -433,6 +445,48 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(["ListForEntityAsync|aaaa0000-0000-0000-0000-0000003580a1"], _submissions.Reads.ToArray());
         Assert.Empty(_edges.Reads);
         Assert.Empty(_conditions.Reads);
+        AssertSelectedRecordAuthorization();
+    }
+
+    [Theory]
+    [InlineData("aaaa0000-0000-0000-0000-0000003580a1", "re_00000000000000000000000001",
+        "/records/re_00000000000000000000000001", AuthorizationVerdict.Allowed)]
+    [InlineData("aaaa0000-0000-0000-0000-0000003580a1", "re_00000000000000000000000003",
+        "/records/re_00000000000000000000000003", AuthorizationVerdict.Denied)]
+    [InlineData("bbbb0000-0000-0000-0000-0000003580b1", "re_00000000000000000000000001",
+        "/records/re_00000000000000000000000001", AuthorizationVerdict.Denied)]
+    public async Task Selected_fixture_grant_is_fixed_to_the_literal_tenant_and_record(
+        string tenant, string recordId, string scopeText, AuthorizationVerdict expected)
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+        var scope = ScopeExpression.Parse(scopeText);
+        var request = new AuthorizationGateRequest(
+            new PermissionAtom(AuthorizationOperation.Parse("records:read"), scope),
+            new ActorId("selected-holder"), new TenantId(tenant),
+            new AuthorizationTarget("record", recordId, scope),
+            AdmittedInstant.FromRecordedAct(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+
+        var decision = await _gate.DecideAsync(request);
+
+        Assert.Equal(expected, decision.Verdict);
+        var observed = Assert.Single(_authorizationRequests);
+        Assert.Equal(tenant, observed.Tenant.Value);
+        Assert.Equal(recordId, observed.Target.RecordId);
+        Assert.Empty(_repository.ReadTenants);
+        Assert.Empty(_edges.Reads);
+        Assert.Empty(_conditions.Reads);
+        Assert.Empty(_submissions.Reads);
+    }
+
+    private void AssertSelectedRecordAuthorization()
+    {
+        var request = Assert.Single(_authorizationRequests);
+        Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", request.Tenant.Value);
+        Assert.Equal("selected-holder", request.Principal.Value);
+        Assert.Equal("records:read", request.Act.Operation.Value);
+        Assert.Equal("record", request.Target.RecordKind);
+        Assert.Equal("re_00000000000000000000000001", request.Target.RecordId);
+        Assert.Equal("/records/re_00000000000000000000000001", request.Target.Scope.Value);
     }
 
     private async Task SeedSelectedTenantSubResourcesAsync()
@@ -487,6 +541,9 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         _edges.Reads.Clear();
         _conditions.Reads.Clear();
         _submissions.Reads.Clear();
+        _authorizationRequests.Clear();
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000001"));
+        _pinSelectedTenant = true;
     }
 
     private async Task AssertRefusedAsync(HttpResponseMessage response, string entityId)

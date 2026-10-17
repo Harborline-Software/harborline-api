@@ -17,8 +17,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// <see cref="RequestAuthorization.RefusalAsync"/> decision before reading
 /// <see cref="IRegistryEntityRepository"/>, the edges store, condition store or submission store: the entity
 /// list, detail, tree, condition and submission reads. Symbol discovery inventories every store call;
-/// source inspection additionally requires an awaited records:read refusal and its early return before
-/// each read. An unrelated capability never satisfies that requirement.
+/// source inspection additionally requires an awaited records:read refusal for the addressed record and
+/// its early return before each read. An unrelated capability or record never satisfies that requirement.
 /// </summary>
 public sealed class AssetRegistryAuthorizedReadFenceTests
 {
@@ -49,7 +49,7 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         Assert.Equal(13, reads.Length);
         Assert.Equal(reads.Length, sourceReads.Length);
         Assert.All(sourceReads, read => Assert.True(read.HasRecordsReadDecision,
-            $"{read.StoreMethod} at line {read.Line}: no awaited records:read refusal/return before the store read."));
+            $"{read.StoreMethod} at line {read.Line}: no awaited records:read refusal/return for the addressed target before the store read."));
 
         // Every handler that reads any of the four stores decides first, including a companion-only reader
         // that never calls the entity repository. Source inspection above verifies the capability itself.
@@ -150,6 +150,32 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         Assert.False(Assert.Single(InspectSourceReads(ignoredRefusal)).HasRecordsReadDecision);
     }
 
+    [Theory]
+    [InlineData("RouteRecord.Of(otherId)")]
+    [InlineData("RouteRecord.Of(\"other-record\")")]
+    [InlineData("RouteRecord.TheInstall")]
+    [InlineData("RouteRecord.Of(id, \"another-kind\")")]
+    public void By_id_guard_controls_refuse_any_target_other_than_the_addressed_id(string target)
+    {
+        const string read = "conditions.GetHistoryAsync(tenant, id, null, ct)";
+        Assert.True(Assert.Single(InspectSourceReads(Probe(read, "\"records:read\""))).HasRecordsReadDecision);
+        var wrong = Probe(read, "\"records:read\"", target)
+            .Replace("var denied =", "var decoy = RouteRecord.Of(id); var denied =", StringComparison.Ordinal);
+        Assert.False(Assert.Single(InspectSourceReads(wrong)).HasRecordsReadDecision);
+    }
+
+    [Fact]
+    public void The_list_guard_requires_the_install_target_while_by_id_guards_require_the_parameter()
+    {
+        const string read = "entities.ListByTenantAsync(tenant, false, ct)";
+        var listing = Probe(read, "\"records:read\"", "RouteRecord.TheInstall")
+            .Replace("string id, ", "", StringComparison.Ordinal);
+        Assert.True(Assert.Single(InspectSourceReads(listing)).HasRecordsReadDecision);
+        var recordTarget = Probe(read, "\"records:read\"", "RouteRecord.Of(id)")
+            .Replace("string id, ", "", StringComparison.Ordinal);
+        Assert.False(Assert.Single(InspectSourceReads(recordTarget)).HasRecordsReadDecision);
+    }
+
     private static bool IsStoreRead(MethodBase target) =>
         (target.DeclaringType == typeof(IRegistryEntityRepository)
             || target.DeclaringType == typeof(ITypedRelationshipStore)
@@ -178,7 +204,7 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
     private static bool HasPriorReadDecision(InvocationExpressionSyntax read)
     {
         if (read.Ancestors().OfType<AnonymousFunctionExpressionSyntax>().FirstOrDefault()
-            is not LambdaExpressionSyntax { Body: BlockSyntax body }) return false;
+            is not ParenthesizedLambdaExpressionSyntax { Body: BlockSyntax body } handler) return false;
         foreach (var declaration in body.Statements.OfType<LocalDeclarationStatementSyntax>())
         foreach (var variable in declaration.Declaration.Variables)
         {
@@ -192,11 +218,26 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
                 { Expression: MemberAccessExpressionSyntax
                     { Expression: IdentifierNameSyntax { Identifier.ValueText: "RequestAuthorization" },
                       Name.Identifier.ValueText: "RefusalAsync" } } guard
-                || guard.ArgumentList.Arguments.Count < 3) continue;
+                || guard.ArgumentList.Arguments.Count < 4) continue;
             var capability = guard.ArgumentList.Arguments[2].Expression;
             var isRead = capability is LiteralExpressionSyntax { Token.Value: "records:read" }
                 || capability.ToString() is "TeamRolePermissions.RecordsRead" or "ReadEntityRequest.AuthorizationCapability";
             if (!isRead) continue;
+            var target = guard.ArgumentList.Arguments[3].Expression;
+            var byId = handler.ParameterList.Parameters.Any(parameter => parameter.Identifier.ValueText == "id");
+            if (byId)
+            {
+                if (target is not InvocationExpressionSyntax
+                    { Expression: MemberAccessExpressionSyntax
+                        { Expression: IdentifierNameSyntax { Identifier.ValueText: "RouteRecord" },
+                          Name.Identifier.ValueText: "Of" } } recordTarget
+                    || recordTarget.ArgumentList.Arguments.Count != 1
+                    || recordTarget.ArgumentList.Arguments[0].Expression is not IdentifierNameSyntax
+                        { Identifier.ValueText: "id" }) continue;
+            }
+            else if (target is not MemberAccessExpressionSyntax
+                { Expression: IdentifierNameSyntax { Identifier.ValueText: "RouteRecord" },
+                  Name.Identifier.ValueText: "TheInstall" }) continue;
             var name = variable.Identifier.ValueText;
             if (body.Statements.OfType<IfStatementSyntax>().Any(refusal =>
                 refusal.SpanStart > declaration.Span.End && refusal.Span.End < read.SpanStart
@@ -207,17 +248,17 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         return false;
     }
 
-    private static string Probe(string read, string? capability)
+    private static string Probe(string read, string? capability, string target = "RouteRecord.Of(id)")
     {
         var decision = capability is null ? "" :
-            $"var denied = await RequestAuthorization.RefusalAsync(http, tenant, {capability}, record, ct); "
+            $"var denied = await RequestAuthorization.RefusalAsync(http, tenant, {capability}, {target}, ct); "
             + "if (denied is not null) return denied;";
         return $$"""
             class Probe
             {
                 void Map()
                 {
-                    app.MapGet("/probe", async (HttpContext http, CancellationToken ct) =>
+                    app.MapGet("/probe", async (string id, HttpContext http, CancellationToken ct) =>
                     {
                         {{decision}}
                         await {{read}};
