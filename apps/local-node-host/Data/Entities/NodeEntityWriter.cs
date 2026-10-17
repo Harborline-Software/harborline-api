@@ -234,6 +234,29 @@ public sealed class NodeEntityWriter(
         CancellationToken ct = default)
         => RunAsync(new RecordCreate(this, entities, body, recordId, authority, prepare), ct);
 
+    internal ValueTask<EntityWritten> CreateWithDecisionAsync(
+        JsonDocument body, string recordId, AuthorizationWriteContext authority, AuthorizationDecision decision,
+        Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return RunAsync(new RecordCreate(this, entities, body, recordId, authority, prepare, decision), ct);
+    }
+
+    private static AuthorizationDecision RequireRecordCreateDecision(
+        AuthorizationDecision decision, AuthorizationWriteContext authority, string recordId)
+    {
+        decision.RequireAllowed();
+        var request = decision.Request;
+        var expected = authority.Request(RecordsWrite, "record", recordId);
+        if (request.Principal != expected.Principal || request.Tenant != expected.Tenant
+            || request.Instant != expected.Instant || request.At != expected.At
+            || request.CorrelationId != expected.CorrelationId
+            || request.Act != expected.Act || request.Target != expected.Target)
+            throw new ArgumentException("The record-create decision does not match the write authority and id.", nameof(decision));
+        return decision;
+    }
+
     public ValueTask<VersionId> UpdateAsync(
         EntityId id,
         JsonDocument body,
@@ -350,16 +373,19 @@ public sealed class NodeEntityWriter(
         JsonDocument body,
         string recordId,
         AuthorizationWriteContext authority,
-        Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare)
+        Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare,
+        AuthorizationDecision? retainedDecision = null)
         : KernelWrite<PreparedRecord, PreparedRecord, (ValidatedRecordBody Body, CreateOptions Options), EntityWritten>
     {
         private AuthorizationDecision decision = null!;
         private EntityId created;
 
-        // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
+        // holds RW-1 · closes RW-H4: the decision is admitted first; validation runs only after RequireAllowed,
         // so an unauthorized caller learns nothing about the schema.
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
-            decision = await writer.DecideAsync(authority, recordId, ct).ConfigureAwait(false);
+            decision = retainedDecision is null
+                ? await writer.DecideAsync(authority, recordId, ct).ConfigureAwait(false)
+                : RequireRecordCreateDecision(retainedDecision, authority, recordId);
 
         protected override async ValueTask<PreparedRecord?> BindAsync(CancellationToken ct)
         {
@@ -388,8 +414,12 @@ public sealed class NodeEntityWriter(
                 authority, ct).ConfigureAwait(false), mutation.Options);
 
         // The volatile generic store has no durable transaction to enlist. T-616 owns that future boundary.
-        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
+        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct)
+        {
             created = await entities.CreateAsync(validated.Body, validated.Options, ct).ConfigureAwait(false);
+            if (retainedDecision is not null && created != InMemoryEntityStore.DeriveEntityId(validated.Body.Schema, validated.Options))
+                throw new InvalidOperationException("The created entity does not match the admitted record id.");
+        }
 
         protected override async ValueTask<EntityWritten> ReactAsync(
             (ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>

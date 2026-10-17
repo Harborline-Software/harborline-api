@@ -391,16 +391,18 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
+            var prospectiveId = RegistryEntityId.NewId();
             // T-690: one authority, one clock read, for whichever branch this create takes.
             var authority = RequestAuthorization.Authority(http, tenant, clock);
+            AuthorizationDecision? accepted = null;
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.Of(prospectiveId.Value), ct,
+                    decision => accepted = decision)
+                .ConfigureAwait(false);
+            if (denied is not null)
+                return denied;
             if (body.Id is not null)
             {
-                var denied = await RequestAuthorization.RefusalAsync(
-                        http, authority,
-                        TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                    .ConfigureAwait(false);
-                if (denied is not null)
-                    return denied;
                 return Results.BadRequest(new { error = "client_id_forbidden" });
             }
 
@@ -425,7 +427,8 @@ public static class AssetRegistryRoutes
                 var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
                 try
                 {
-                    var written = await boundRecords.CreateAsync(
+                    var written = await boundRecords.CreateWithDecisionAsync(
+                        prospectiveId,
                         typeId,
                         propertyForm,
                         body.DisplayName.Trim(),
@@ -433,6 +436,7 @@ public static class AssetRegistryRoutes
                         values,
                         actor,
                         authority,
+                        accepted!,
                         ct).ConfigureAwait(false);
                     return Results.Created(
                         $"{RouteBase}/entities/{written.Entity.Id.Value}",
@@ -470,14 +474,9 @@ public static class AssetRegistryRoutes
                 }
             }
 
-            var unboundDenied = await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false);
-            if (unboundDenied is not null)
-                return unboundDenied;
             var entity = new RegistryEntity
             {
-                Id = RegistryEntityId.NewId(),
+                Id = prospectiveId,
                 TenantId = tenant,
                 Type = typeId,
                 DisplayName = body.DisplayName.Trim(),

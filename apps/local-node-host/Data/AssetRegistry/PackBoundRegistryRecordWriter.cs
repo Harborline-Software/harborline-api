@@ -51,7 +51,7 @@ public sealed class PackBoundRegistryRecordWriter(
 
     /// <summary>Creates one explicitly typed, form-bound registry record. The actor is its Party
     /// attribution; the authority carries the distinct grant principal for the single write decision.</summary>
-    public async ValueTask<PackBoundRegistryRecordWritten> CreateAsync(
+    public ValueTask<PackBoundRegistryRecordWritten> CreateAsync(
         EntityTypeId type,
         FormBindingRef propertyForm,
         string displayName,
@@ -60,44 +60,65 @@ public sealed class PackBoundRegistryRecordWriter(
         ActorId actor,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
+        => CreateCoreAsync(type, propertyForm, displayName, scanKey, values, actor, authority, null, null, ct);
+
+    internal ValueTask<PackBoundRegistryRecordWritten> CreateWithDecisionAsync(
+        RegistryEntityId id, EntityTypeId type, FormBindingRef propertyForm, string displayName, string? scanKey,
+        JsonDocument values, ActorId actor, AuthorizationWriteContext authority,
+        AuthorizationDecision decision, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        decision.RequireAllowed();
+        if (decision.Request.Target.RecordKind != "record" || decision.Request.Target.RecordId != id.Value)
+            throw new ArgumentException("The record decision does not match the prospective registry id.", nameof(decision));
+        return CreateCoreAsync(type, propertyForm, displayName, scanKey, values, actor, authority, decision, id, ct);
+    }
+
+    private async ValueTask<PackBoundRegistryRecordWritten> CreateCoreAsync(
+        EntityTypeId type, FormBindingRef propertyForm, string displayName, string? scanKey,
+        JsonDocument values, ActorId actor, AuthorizationWriteContext authority,
+        AuthorizationDecision? decision, RegistryEntityId? prospectiveId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(propertyForm);
         ArgumentNullException.ThrowIfNull(values);
 
-        var id = RegistryEntityId.NewId();
+        var id = prospectiveId ?? RegistryEntityId.NewId();
         var submittedAt = authority.At;
-        var written = await records.CreateWithReceiptAsync(
-            values, id.Value, authority, async preparationToken =>
-            {
-                var definition = await forms.GetAsync(
-                    new DefinitionCoordinates(
-                        authority.Tenant,
-                        propertyForm.Definition.Value,
-                        propertyForm.PinnedVersion.ToString()),
-                    preparationToken).ConfigureAwait(false);
-                if (definition.Status != FormDefinitionStatus.Published)
-                    throw new BoundPropertyFormUnavailableException("The bound property form is not published.");
-
-                var header = SubmissionBindingHeader.Create(definition, ["en"], submittedAt);
-                var binding = new EntityBinding(
-                    definition.SchemaRef,
-                    header.DefinitionId,
-                    header.DefinitionVersion,
-                    header.EngineVersion,
-                    header.LocaleChain,
-                    header.SubmittedAt);
-                var options = new CreateOptions(
-                    RecordScheme,
-                    RecordAuthority,
-                    id.Value,
-                    actor,
+        async ValueTask<(SchemaId Schema, CreateOptions Options)> PrepareAsync(CancellationToken preparationToken)
+        {
+            var definition = await forms.GetAsync(
+                new DefinitionCoordinates(
                     authority.Tenant,
-                    ValidFrom: submittedAt,
-                    ExplicitLocalPart: id.Value,
-                    Binding: binding);
+                    propertyForm.Definition.Value,
+                    propertyForm.PinnedVersion.ToString()),
+                preparationToken).ConfigureAwait(false);
+            if (definition.Status != FormDefinitionStatus.Published)
+                throw new BoundPropertyFormUnavailableException("The bound property form is not published.");
 
-                return (definition.SchemaRef, options);
-            }, ct).ConfigureAwait(false);
+            var header = SubmissionBindingHeader.Create(definition, ["en"], submittedAt);
+            var binding = new EntityBinding(
+                definition.SchemaRef,
+                header.DefinitionId,
+                header.DefinitionVersion,
+                header.EngineVersion,
+                header.LocaleChain,
+                header.SubmittedAt);
+            var options = new CreateOptions(
+                RecordScheme,
+                RecordAuthority,
+                id.Value,
+                actor,
+                authority.Tenant,
+                ValidFrom: submittedAt,
+                ExplicitLocalPart: id.Value,
+                Binding: binding);
+
+            return (definition.SchemaRef, options);
+        }
+        var written = decision is null
+            ? await records.CreateWithReceiptAsync(values, id.Value, authority, PrepareAsync, ct).ConfigureAwait(false)
+            : await records.CreateWithDecisionAsync(values, id.Value, authority, decision, PrepareAsync, ct)
+                .ConfigureAwait(false);
 
         var entity = new RegistryEntity
         {
