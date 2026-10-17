@@ -95,6 +95,7 @@ public sealed class SpatialFrameSelectedTenantTests : IAsyncLifetime
         using var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var frame = suffix.Length == 0 ? Assert.Single(body.GetProperty("frames").EnumerateArray()) : body;
         Assert.Equal("hull-001", frame.GetProperty("anchor").GetString());
@@ -104,7 +105,7 @@ public sealed class SpatialFrameSelectedTenantTests : IAsyncLifetime
         var read = Assert.Single(_frames.Reads);
         Assert.Equal("tenant-b", read.Tenant);
         Assert.Equal(suffix.Length == 0 ? "list" : "find", read.Method);
-        Assert.Equal("principal:selected-holder", read.Context.ActorRef);
+        Assert.Equal("principal:party-b", read.Context.ActorRef);
         Assert.True(read.Context.UnsealsGoverned);
         var decision = Assert.Single(_requests);
         Assert.Equal("tenant-b", decision.Tenant.Value);
@@ -128,6 +129,7 @@ public sealed class SpatialFrameSelectedTenantTests : IAsyncLifetime
         using var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Empty(_frames.Reads);
         Assert.Empty(_requests);
     }
@@ -179,7 +181,7 @@ public sealed class SpatialFrameSelectedTenantTests : IAsyncLifetime
 
     private sealed class RequestUser(IHttpContextAccessor accessor) : ICurrentUser
     {
-        public string UserId => accessor.HttpContext?.Features.Get<SelectedSessionRequestPrincipal>()?.PrincipalUserId.Value
+        public string UserId => accessor.HttpContext?.Features.Get<SelectedSessionRequestPrincipal>()?.CanonicalParty.Value
             ?? "desktop-operator-under-test";
         public IReadOnlyList<string> Roles => [];
     }

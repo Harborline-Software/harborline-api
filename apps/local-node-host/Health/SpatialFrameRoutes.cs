@@ -27,7 +27,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <remarks>
 /// <para>
 /// <b>Read-only and tenant-scoped, never node-level existence</b> (0168 D2-A5). Every read resolves
-/// the active-team tenant via <c>NodeTenant.Resolve(activeTeam)</c>; the store's tenant guard means
+/// the selected session's tenant, else the active team's; the store's tenant guard means
 /// another tenant's frames are simply absent (an opaque 404 / empty list — no cross-tenant
 /// existence signal). Minting stays a substrate act (<c>ISpatialFrameDescriptorStore.MintAsync</c>);
 /// no write is mapped here.
@@ -74,6 +74,7 @@ public static class SpatialFrameRoutes
         app.MapGet($"{RouteBase}/{{anchor}}/{{frameCode}}",
             async (string anchor, string frameCode, HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
                 http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
@@ -104,6 +105,7 @@ public static class SpatialFrameRoutes
         app.MapGet($"{RouteBase}/{{anchor}}/{{frameCode}}/{{frameEpoch}}",
             async (string anchor, string frameCode, string frameEpoch, HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
                 http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
@@ -178,7 +180,7 @@ public static class SpatialFrameRoutes
             : null);
 
     // ── Response DTOs (camelCase wire) ────────────────────────────────────────────────
-    /// <summary>Every epoch of one frame series under the active tenant (ascending epoch).</summary>
+    /// <summary>Every epoch of one frame series under the selected session's tenant, else the active team's (ascending epoch).</summary>
     public sealed record FrameSeriesResponse(string Anchor, string FrameCode, FrameWire[] Frames);
 
     /// <summary>One frame descriptor's defining fields. The mint attestation is deliberately
