@@ -43,6 +43,7 @@ import type {
 import type { RuntimeManifest } from '../membrane/announce.js'
 import type { ProbeKind } from '../membrane/observe.js'
 import { createSandbox, type Sandbox, type SandboxSpec } from '../sandbox/index.js'
+import { boundedTimeoutMs } from '../sandbox/sandbox.js'
 import { CAPABILITY_CONTRACT_VERSION } from './reference-image-runtime.js'
 import type { RuntimeHost } from './runtime-host.js'
 
@@ -217,13 +218,14 @@ export class SayTtsRuntime implements RuntimeHost {
       denyPaths: this.denyPaths,
       // (c) NO egress — a local TTS floor needs zero network.
       allowedEgress: [],
-      timeoutMs: typeof core.timeout === 'number' ? core.timeout : 30_000,
+      timeoutMs: boundedTimeoutMs(core.timeout, 30_000),
     }
     this.ranSpecs.push(spec)
 
     try {
       const result = await this.sandbox.run(spec)
       if (!result.ok) {
+        rmSync(workDir, { recursive: true, force: true })
         return failure(jobId, {
           faultDomain: 'provider',
           retryable: true,
@@ -236,6 +238,7 @@ export class SayTtsRuntime implements RuntimeHost {
       // the REAL subprocess ran to completion INSIDE the sandbox (not a stub).
       const size = statSync(outFile).size
       if (size <= 0) {
+        rmSync(workDir, { recursive: true, force: true })
         return failure(jobId, {
           faultDomain: 'provider',
           retryable: true,

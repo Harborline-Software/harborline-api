@@ -74,6 +74,7 @@ import type {
 import type { RuntimeManifest } from '../membrane/announce.js'
 import type { ProbeKind } from '../membrane/observe.js'
 import { createSandbox, type Sandbox, type SandboxSpec } from '../sandbox/index.js'
+import { boundedTimeoutMs } from '../sandbox/sandbox.js'
 import {
   BGE_M3_DIMENSION,
   BGE_M3_FLOOR,
@@ -457,8 +458,7 @@ export class KgEmbedRuntime implements RuntimeHost {
       // (c) NO egress — a local CPU model has zero network need. ASSERTED, not
       // assumed — this closes the poisoned-invoice exfiltration chain (G-4(c)).
       allowedEgress: [],
-      timeoutMs:
-        typeof timeout === 'number' && timeout > 0 ? timeout : DEFAULT_TIMEOUT_MS,
+      timeoutMs: boundedTimeoutMs(timeout, DEFAULT_TIMEOUT_MS),
       // A scrubbed env: scratch → the write-only work dir, HF/transformers OFFLINE
       // (the models are local — zero network, matches no-egress), HOME kept real
       // for cache resolution (the credential carve-out still denies any secret

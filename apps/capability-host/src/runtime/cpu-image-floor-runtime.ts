@@ -69,6 +69,7 @@ import type {
 import type { RuntimeManifest } from '../membrane/announce.js'
 import type { ProbeKind } from '../membrane/observe.js'
 import { createSandbox, type Sandbox, type SandboxSpec } from '../sandbox/index.js'
+import { boundedTimeoutMs } from '../sandbox/sandbox.js'
 import {
   CAPABILITY_CONTRACT_VERSION,
   IMAGE_SCHEMA_VERSION,
@@ -543,7 +544,7 @@ export class CpuImageFloorRuntime implements RuntimeHost {
       allowedEgress: [],
       // CPU render takes MINUTES — honor the membrane-owned CORE deadline (the UI
       // sends a generous one); default to 10 min if the CORE under-specifies.
-      timeoutMs: typeof core.timeout === 'number' && core.timeout > 0 ? core.timeout : 600_000,
+      timeoutMs: boundedTimeoutMs(core.timeout, 600_000),
       // A scrubbed env: scratch → the write-only work dir, HF offline, HOME kept
       // real (venv/model resolution). The credential carve-out still denies any
       // secret under HOME.

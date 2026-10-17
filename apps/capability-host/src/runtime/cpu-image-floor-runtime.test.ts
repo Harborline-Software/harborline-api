@@ -14,7 +14,7 @@
  * (`cpu-image-round-trip.test.ts`) that runs only when armed + the model present.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -115,12 +115,15 @@ function at<T>(items: readonly T[], index: number): T {
 }
 
 /** A stub sandbox that records the spec and writes a fake PNG to the work dir. */
-function stubSandbox(opts: { recorded: SandboxSpec[]; bytes?: Buffer; fail?: boolean }): Sandbox {
+function stubSandbox(opts: { recorded: SandboxSpec[]; bytes?: Buffer; fail?: boolean; timedOut?: boolean }): Sandbox {
   return {
     platform: process.platform,
     implemented: true,
     async run(spec: SandboxSpec): Promise<SandboxResult> {
       opts.recorded.push(spec)
+      if (opts.timedOut === true) {
+        return { exitCode: null, signal: 'SIGKILL', stdout: '', stderr: '', ok: false }
+      }
       if (opts.fail === true) {
         return { exitCode: 1, signal: null, stdout: '', stderr: 'boom', ok: false }
       }
@@ -135,6 +138,22 @@ function stubSandbox(opts: { recorded: SandboxSpec[]; bytes?: Buffer; fail?: boo
 }
 
 describe('CpuImageFloorRuntime — argv mapping + artifact decode (mocked subprocess)', () => {
+  it.each([[2 ** 31, 1_800_000], [NaN, 600_000]])('bounds timeout %s to %s', async (timeout, expected) => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new CpuImageFloorRuntime({ engine: FAKE_ENGINE, sandbox: stubSandbox({ recorded }) })
+    await runtime.invoke(imageRequest(imageCore({ timeout })))
+    expect(at(recorded, 0).timeoutMs).toBe(expected)
+  })
+
+  it('settles and removes its directory after a simulated sandbox timeout', async () => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new CpuImageFloorRuntime({ engine: FAKE_ENGINE, sandbox: stubSandbox({ recorded, timedOut: true }) })
+    const result = await runtime.invoke(imageRequest(imageCore()))
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('provider.image_engine_failed')
+    expect(existsSync(at(recorded, 0).workDir)).toBe(false)
+  })
+
   it('maps ImageCore → final argv elements (no shell interpolation) + a base64 data-URI artifact', async () => {
     const recorded: SandboxSpec[] = []
     const runtime = new CpuImageFloorRuntime({

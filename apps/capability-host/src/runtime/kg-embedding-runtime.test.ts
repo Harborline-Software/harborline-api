@@ -116,12 +116,16 @@ function stubSandbox(opts: {
   recorded: SandboxSpec[]
   fail?: boolean
   unsupported?: boolean
+  timedOut?: boolean
 }): Sandbox {
   return {
     platform: process.platform,
     implemented: true,
     async run(spec: SandboxSpec): Promise<SandboxResult> {
       opts.recorded.push(spec)
+      if (opts.timedOut === true) {
+        return { exitCode: null, signal: 'SIGKILL', stdout: '', stderr: '', ok: false }
+      }
       if (opts.unsupported === true) {
         throw Object.assign(new Error('SEC-7: not implemented'), {
           code: 'sandbox.platform_unsupported',
@@ -551,5 +555,25 @@ describe('KG model floors — S4 MIT + the vendored worker script', () => {
     const scored = stubScores('red apple', ['red apple', 'green pear', 'red'], 2)
     expect(scored).toHaveLength(2)
     expect(scored[0]!.score).toBeGreaterThanOrEqual(scored[1]!.score)
+  })
+})
+
+describe('KgEmbedRuntime bounded timeout and cleanup', () => {
+  it.each([[2 ** 31, 1_800_000], [NaN, 120_000]])('bounds timeout %s to %s', async (timeout, expected) => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new KgEmbedRuntime({ sandbox: stubSandbox({ recorded }), paths: fakePaths(), forceReal: true })
+    await runtime.invoke(embeddingsRequest({ texts: ['x'], dimension: 8, timeout }))
+    expect(recorded[0]?.timeoutMs).toBe(expected)
+  })
+
+  it('settles and removes its directory after a simulated sandbox timeout', async () => {
+    const recorded: SandboxSpec[] = []
+    const runtime = new KgEmbedRuntime({ sandbox: stubSandbox({ recorded, timedOut: true }), paths: fakePaths(), forceReal: true })
+    const result = await runtime.invoke(embeddingsRequest({ texts: ['x'], dimension: 8, timeout: 1000 }))
+    expect(result.status).toBe('failed')
+    expect(result.error?.code).toBe('provider.kg_worker_failed')
+    const spec = recorded[0]
+    if (spec === undefined) throw new Error('expected a sandbox invocation')
+    expect(existsSync(spec.workDir)).toBe(false)
   })
 })

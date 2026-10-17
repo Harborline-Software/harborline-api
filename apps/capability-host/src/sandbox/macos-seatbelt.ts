@@ -46,6 +46,7 @@ import {
   type Sandbox,
   type SandboxResult,
   type SandboxSpec,
+  MAX_SANDBOX_TIMEOUT_MS,
   SandboxSpecError,
 } from './sandbox.js'
 
@@ -306,9 +307,8 @@ export class MacosSeatbeltSandbox implements Sandbox {
     // Write the profile to a temp file (sandbox-exec -f reads it).
     const dir = mkdtempSync(join(tmpdir(), 'capability-seatbelt-'))
     const profilePath = join(dir, 'profile.sb')
-    writeFileSync(profilePath, profile, 'utf8')
-
     try {
+      writeFileSync(profilePath, profile, 'utf8')
       return await this.execConfined(profilePath, spec)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -340,8 +340,11 @@ export class MacosSeatbeltSandbox implements Sandbox {
       let stderr = ''
       let timer: NodeJS.Timeout | undefined
 
-      if (spec.timeoutMs !== undefined) {
-        timer = setTimeout(() => child.kill('SIGKILL'), spec.timeoutMs)
+      const timeoutMs = spec.timeoutMs
+      if (timeoutMs !== undefined) {
+        // assertSpec already rejects > MAX; this same-function guard is the bound CodeQL recognises.
+        const boundedMs = timeoutMs <= MAX_SANDBOX_TIMEOUT_MS ? timeoutMs : MAX_SANDBOX_TIMEOUT_MS
+        timer = setTimeout(() => child.kill('SIGKILL'), boundedMs)
       }
 
       child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')))
@@ -366,6 +369,12 @@ export class MacosSeatbeltSandbox implements Sandbox {
 
 /** Guard a spec before confinement (defensive — a bad spec must not widen access). */
 function assertSpec(spec: SandboxSpec, credentialDenyPaths: readonly string[]): void {
+  if (
+    spec.timeoutMs !== undefined &&
+    (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0 || spec.timeoutMs > MAX_SANDBOX_TIMEOUT_MS)
+  ) {
+    throw new SandboxSpecError(`timeoutMs must be finite and within (0, ${MAX_SANDBOX_TIMEOUT_MS}]`)
+  }
   if (!spec.command.startsWith('/')) {
     throw new SandboxSpecError(`command must be an absolute path, got '${spec.command}'`)
   }
