@@ -238,7 +238,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal("{\"==\":[1,1]}", rule.Expression);
         Assert.Equal(RuleActionKind.Validate, rule.Action);
 
-        // Inspect the retained canonical model's existing JSON carrier, not the legacy route DTO.
+        // Inspect the retained canonical model's existing JSON metadata, not the legacy route DTO.
         var json = JsonSerializer.SerializeToElement(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var formContract = json.GetProperty("envelope").GetProperty("contract");
         Assert.Equal(new[] { "major", "minor" },
