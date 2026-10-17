@@ -133,7 +133,7 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.Tenant, authority.Tenant, model.Envelope.CascadeLayer);
         var decided = await DecideAsync(model.Key, authority, ct).ConfigureAwait(false);
-        var candidate = StampLayer(model, provenance.Layer);
+        var candidate = StampLayer(model, provenance.Layer, stampCurrentContract: true);
         return await RegisterCoreAsync(candidate, authored,
             new WorkflowDefinitionRegistrationOptions(authority.At, WorkflowDefinitionStatus.Published),
             Admission(decided), Target(model), provenance.Owner, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);

@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -250,6 +251,32 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
             tenant, "invoice-approval.v1", "1.0.0"));
         AssertDeclaredContract(original.Envelope.Contract, 1, 0);
         AssertAuthoredSnapshot(original.Authored, "1.0.0");
+    }
+
+    [Fact]
+    public async Task Direct_Tenant_Publish_Retains_The_Current_App_Contract()
+    {
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000000ff001");
+        AuthorizationWriteContext authority = TestAuthorization.Write(tenant);
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody("direct-contract.v1"))!.AsObject();
+        body["tenant"] = "aaaa0000-0000-0000-0000-0000000ff001";
+        body["version"] = "1.0.0";
+        body["status"] = "Published";
+        using var authored = JsonDocument.Parse(body.ToJsonString());
+        Assert.False(authored.RootElement.TryGetProperty("contract", out _));
+
+        var lifecycle = _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>();
+        await lifecycle.RegisterAndPublishAsync(authored.RootElement, authority);
+
+        var definitions = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
+        var retained = await definitions.GetAsync(new DefinitionCoordinates(
+            tenant, "direct-contract.v1", "1.0.0"));
+        AssertDeclaredContract(retained.Envelope.Contract, 1, 0);
+        Assert.Equal("direct-contract.v1", retained.Key);
+        Assert.Equal("1.0.0", retained.Version);
+        Assert.Equal("aaaa0000-0000-0000-0000-0000000ff001", retained.Tenant);
+        Assert.Equal(WorkflowDefinitionStatus.Published, retained.Status);
+        Assert.False(retained.Authored.TryGetProperty("contract", out _));
     }
 
     [Fact]
