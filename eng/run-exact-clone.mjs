@@ -159,6 +159,16 @@ try {
   }
   const cloneStep = run('git-clone', 'git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], apiRoot)
   if (!cloneStep.passed) throw new Error('Exact-clone git clone failed; see stage evidence')
+  const checkoutStep = run('git-checkout-captured-head', 'git', ['-C', clone, 'checkout', '--quiet', '--detach', head], apiRoot)
+  checkoutStep.expectedHead = head
+  if (!checkoutStep.passed) throw new Error('Exact-clone captured HEAD checkout failed; see stage evidence')
+  const headStep = run('git-verify-captured-head', 'git', ['-C', clone, 'rev-parse', 'HEAD'], apiRoot)
+  headStep.expectedHead = head
+  headStep.actualHead = headStep.fullOutput.trim()
+  headStep.passed = headStep.passed && headStep.actualHead === head
+  headStep.verdictFrom = 'captured HEAD equality'
+  headStep.tail += `\nexpected HEAD: ${head}\nactual HEAD: ${headStep.actualHead}`
+  if (!headStep.passed) throw new Error('Exact-clone HEAD differs from captured HEAD; see stage evidence')
   // Resolve once before restore/build. Keep approval as parent-owned state even
   // when a failed query leaves an inherited override available to the build.
   packageRootResolution = observeNuGetRoot({cwd: clone})
