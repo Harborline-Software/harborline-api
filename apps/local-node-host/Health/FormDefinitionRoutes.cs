@@ -394,7 +394,7 @@ public static class FormDefinitionRoutes
             try
             {
                 definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now,
-                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes);
+                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes, stampCurrentContract: true);
             }
             catch (GateReferenceShapeException ex)
             {
@@ -730,11 +730,16 @@ public static class FormDefinitionRoutes
         DateTimeOffset now,
         CatalogueFieldSource? catalogueFieldSource = null,
         IReadOnlyDictionary<string, FieldMetaDto>? fieldsMeta = null,
-        IFormFieldTypeCatalogue? fieldTypes = null)
+        IFormFieldTypeCatalogue? fieldTypes = null,
+        bool stampCurrentContract = false)
     {
-        var contractWindow = PlatformPackageSeed.ContractWindow;
-        var contract = new Harborline.Foundation.Definitions.DefinitionContractVersion(
-            contractWindow.Major, contractWindow.Minor);
+        Harborline.Foundation.Definitions.DefinitionContractVersion? contract = null;
+        if (stampCurrentContract)
+        {
+            var contractWindow = PlatformPackageSeed.ContractWindow;
+            contract = new Harborline.Foundation.Definitions.DefinitionContractVersion(
+                contractWindow.Major, contractWindow.Minor);
+        }
         var sensitivities = ResolvePiiSensitivities(
             overlay, fieldsMeta, fieldTypes ?? FormFieldTypeCatalogue.Shared);
         var fields = overlay.Fields.ToDictionary(
