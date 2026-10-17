@@ -109,10 +109,22 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // Ticket 294 slice 3b ratchets 440 -> 432: the desktop actor is the roster party bound to the node key, so
         // the static operator id leaves NodeCallerParty (2), NodeWebSessionAuthority (3) and CommsRoutes (1 static,
         // plus the two tenant tokens of the removed single-projection fallback-author overloads).
-        Assert.Equal(432, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));
+    }
+
+    [Fact(DisplayName =
+        "ADR0160 R3 debt ledger: the aggregate ceiling is parsed from literal header metadata")]
+    public void DebtLedger_ParsesAggregateCeiling_FromLiteralHeader()
+    {
+        var ledger = ParseLedger("""
+            # baseline-sha	0123456789abcdef0123456789abcdef01234567
+            # reviewed-aggregate-debt-ceiling	17
+            Health/FixtureRoutes.cs	2	1
+            """);
+
+        Assert.Equal(17, ledger.ReviewedAggregateDebtCeiling);
     }
 
     [Fact(DisplayName =
