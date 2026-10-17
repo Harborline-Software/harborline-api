@@ -533,7 +533,7 @@ public static class AssetRegistryRoutes
                     children.Add(ToEntityWire(child));
             }
 
-            var receipt = await RecordSubresourceReadAsync(http, accepted, id, "tree", ct).ConfigureAwait(false);
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "tree", ct).ConfigureAwait(false);
             return Results.Ok(new TreeResponse(
                 Container: container.Value,
                 AsOf: at.Value.ToString("O", CultureInfo.InvariantCulture),
@@ -575,7 +575,7 @@ public static class AssetRegistryRoutes
             // is the full history (unchanged).
             var at = asOf is { Length: > 0 } ? ParseInstant(asOf, new Instant(actAuthority.At)) : (Instant?)null;
             var history = await conditions.GetHistoryAsync(tenant, entityId, at, ct).ConfigureAwait(false);
-            var receipt = await RecordSubresourceReadAsync(http, accepted, id, "condition", ct).ConfigureAwait(false);
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "condition", ct).ConfigureAwait(false);
             return Results.Ok(new ConditionHistoryResponse(entityId.Value, history.Select(ToConditionWire).ToArray(),
                 AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });
@@ -612,7 +612,7 @@ public static class AssetRegistryRoutes
                 return Results.NotFound();
 
             var rows = await submissions.ListForEntityAsync(tenant, entityId, ct).ConfigureAwait(false);
-            var receipt = await RecordSubresourceReadAsync(http, accepted, id, "submissions", ct).ConfigureAwait(false);
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "submissions", ct).ConfigureAwait(false);
             return Results.Ok(new SubmissionListResponse(entityId.Value, rows.Select(ToSubmissionWire).ToArray(),
                 AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });

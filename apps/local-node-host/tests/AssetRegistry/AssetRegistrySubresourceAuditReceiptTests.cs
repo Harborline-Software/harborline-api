@@ -137,6 +137,33 @@ public sealed class AssetRegistrySubresourceAuditReceiptTests
         Assert.Single(fixture.Requests);
     }
 
+    [Theory]
+    [InlineData("tree", 404)]
+    [InlineData("condition", 404)]
+    [InlineData("submissions", 404)]
+    [InlineData("tree", 401)]
+    [InlineData("condition", 401)]
+    [InlineData("submissions", 401)]
+    public async Task Missing_record_or_unresolved_selected_cookie_returns_no_read_receipt(string subResource, int status)
+    {
+        await using var fixture = await Fixture.StartAsync();
+        var recordId = status == 404 ? "missing-1079" : "record-1079";
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            "/api/local-node/asset-registry/entities/" + recordId + "/" + subResource);
+        if (status == 401) request.Headers.Add("Cookie", "__Host-hl-selected=unresolved");
+
+        using var response = await fixture.Client.SendAsync(request);
+
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
+        var rows = await fixture.RowsAsync();
+        Assert.DoesNotContain(rows, row => row.EventType.Value == "RecordRead");
+        Assert.Empty(rows);
+        if (status == 404) Assert.Single(fixture.Requests);
+        else Assert.Empty(fixture.Requests);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private static readonly TeamId Team = new(Guid.Parse("10790000-0000-0000-0000-000000000001"));
