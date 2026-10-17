@@ -16,7 +16,8 @@ import {execFileSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
-import {planFlakeRetries} from './flake-registry.mjs'
+import {planFlakeRetries, REGISTERED_FLAKE_COUNT} from './flake-registry.mjs'
+import {reviewedDebtBudgetHeadroom, flakeRegistryHeadroom, formatBaselineHeadroom} from './baseline-headroom.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
@@ -615,6 +616,16 @@ if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
     files: [...producedQuality.sarif, ...producedQuality.rawSarif]})
 }
+// T-637: additive reporting after the existing steps, timings and verdict are complete.
+// This is the reviewed ledger BUDGET, not a second runtime source scanner or gate.
+let reviewedDebtLedger
+try {
+  reviewedDebtLedger = readFileSync(path.join(apiRoot, 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'), 'utf8')
+} catch { /* Unavailable reporting must not change the existing gate's result or exit. */ }
+persisted.baselineHeadroom = {
+  reviewedDebtBudget: reviewedDebtBudgetHeadroom(reviewedDebtLedger),
+  flakeRegistrations: flakeRegistryHeadroom(hostBaseline.knownFlaky ?? [], REGISTERED_FLAKE_COUNT),
+}
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
 // then throws ENOENT on its final line, discarding the verdict it just spent that long computing.
@@ -636,4 +647,5 @@ if (report.status === 'FAIL') {
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
+for (const summary of Object.values(persisted.baselineHeadroom)) process.stdout.write(`${formatBaselineHeadroom(summary)}\n`)
 process.exit(report.status === 'PASS' && !knownTestsWriteRefused ? 0 : 1)
