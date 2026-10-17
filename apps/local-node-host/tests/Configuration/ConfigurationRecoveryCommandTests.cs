@@ -14,9 +14,11 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Kernel.Core;
@@ -29,6 +31,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 /// T-909 slice 6 (T-587): the offline recover-configuration verb's adapters over the real SQLCipher packs store,
 /// with crash residue produced by the real activation target rather than hand-written rows.
 /// </summary>
+[Collection("Harborline process environment")]
 public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
 {
     private const string CmPack = "harborline.configuration-management";
@@ -163,6 +166,62 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
         AssertNothingRecovered();
         // The crash left nothing half-done, so the same recovery runs to completion afterwards.
         Assert.True((await RecoverAsync("Node crashed")).Committed);
+    }
+
+    [Fact]
+    public async Task Run_migrates_the_pending_search_trail_before_committing_recovery()
+    {
+        var (_, effective) = await CrashResidueAsync();
+        var storePath = Path.Combine(_dataDirectory, "local-node.db");
+        File.Copy(_db.DatabasePath, storePath);
+        var storeKey = Enumerable.Range(58, 32).Select(value => (byte)value).ToArray();
+        var services = new ServiceCollection();
+        services.AddSqlCipherLocalNodeDbContextWithStoreDek(storeDek: storeKey, databasePath: storePath, pooling: false);
+        await using var provider = services.BuildServiceProvider();
+        var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
+        await using (var search = await searchFactory.CreateDbContextAsync())
+            Assert.Contains("20260929170220_KernelAuditTrail", await search.Database.GetPendingMigrationsAsync());
+
+        await _runLock.DisposeAsync();
+        var priorSeed = Environment.GetEnvironmentVariable("LocalNode__RootSeedHex");
+        var priorStoreKey = Environment.GetEnvironmentVariable("LocalNode__StoreDekHex");
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", new string('7', 64));
+            Environment.SetEnvironmentVariable("LocalNode__StoreDekHex", Convert.ToHexString(storeKey));
+
+            var exit = await ConfigurationRecoveryCommand.RunAsync(
+                ["recover-configuration", "--data-dir", _dataDirectory, "--tenant", "tenant-recovery",
+                    "--reason", "Node crashed before publishing intent-2"], stdout, stderr, new FixedTime(Recovered));
+
+            Assert.True(exit == 0, stderr.ToString());
+            Assert.Empty(stderr.ToString());
+            await using (var packs = await provider.GetRequiredService<IDbContextFactory<NodeLocalPacksDbContext>>()
+                .CreateDbContextAsync())
+            {
+                var recovery = Assert.Single(await packs.Recoveries.AsNoTracking().ToListAsync());
+                Assert.Equal(effective, recovery.EffectiveDigest);
+                Assert.Equal("Node crashed before publishing intent-2", recovery.Reason);
+                Assert.Equal(Recovered, (await packs.EvidenceOutbox.AsNoTracking()
+                    .SingleAsync(row => row.IntentId == "intent-2")).PublishedAt);
+            }
+            await using (var search = await searchFactory.CreateDbContextAsync())
+                Assert.Contains("20260929170220_KernelAuditTrail", await search.Database.GetAppliedMigrationsAsync());
+            var entries = new List<Harborline.Api.Kernel.Audit.AuditRecord>();
+            await foreach (var record in new NodeAuditTrailStore(searchFactory)
+                .QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(new TenantId("tenant-recovery"))))
+                entries.Add(record);
+            var entry = Assert.Single(entries);
+            Assert.Equal("test:operator", entry.AuthoritySnapshot!.Principal);
+            Assert.Equal(new Guid("c5d8b194-774d-d64a-ec7d-d6d444b56ee6"), entry.AuditId);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", priorSeed);
+            Environment.SetEnvironmentVariable("LocalNode__StoreDekHex", priorStoreKey);
+        }
     }
 
     [Fact]
