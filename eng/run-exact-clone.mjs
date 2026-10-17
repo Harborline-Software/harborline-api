@@ -184,7 +184,8 @@ try {
   run('validation-reuse-contracts', process.execPath, ['--test',
     'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
     'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
-    'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
+    'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs',
+    'eng/tests/exact-clone-frozen-install.test.mjs'], clone)
   const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   const feedHandoff = handoffRestored(feedStep, process.env)
   if (feedHandoff) {
@@ -302,7 +303,7 @@ try {
       sourceRoot: 'packages/contracts',
     })
   }
-  run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
+  run('capability-install', 'pnpm', ['install', '--frozen-lockfile'], path.join(clone, 'apps/capability-host'))
 
   const hostResultsDirectory = collectCoverage
     ? path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'host')
