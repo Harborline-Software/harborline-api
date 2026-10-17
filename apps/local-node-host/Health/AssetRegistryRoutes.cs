@@ -39,15 +39,16 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Tenant scoping.</b> Reads resolve the active-team tenant via <c>NodeTenant.Resolve(activeTeam)</c>
-/// (not a fixed sentinel). Entity creation uses the selected request's tenant when present, otherwise
-/// the active team. The registry stores fail closed on the system tenant and never return another
-/// tenant's rows, so a cross-tenant id is an opaque 404.
+/// <b>Tenant scoping.</b> The entity detail, tree, condition and submission reads, and entity creation,
+/// use the selected request's tenant when present, otherwise the active-team tenant via
+/// <c>NodeTenant.Resolve(activeTeam)</c> (not a fixed sentinel). The registry stores fail closed on the
+/// system tenant and never return another tenant's rows, so a cross-tenant id is an opaque 404.
 /// </para>
 /// <para>
 /// <b>As-of clock (A5c).</b> Tree + condition reads take an explicit <c>?asOf=</c> ISO-8601 instant;
-/// absent, they use the node clock's now. Nothing here reads an ambient <c>DateTime.Now</c> — the
-/// clock is the injected <see cref="TimeProvider"/>, and every mutation records at that instant.
+/// absent, the tree uses the instant its guard admitted and the condition read returns the full history.
+/// Nothing here reads an ambient <c>DateTime.Now</c> — the clock is the injected <see cref="TimeProvider"/>,
+/// read once per act, and every mutation records at that instant.
 /// </para>
 /// <para>
 /// <b>Live capture.</b> Condition assessments are NOT written here directly — they are the "one act,
@@ -98,7 +99,7 @@ public static class AssetRegistryRoutes
         MapEntities(app, types, entities, edges, activeTeam, clock, boundRecords);
         MapTree(app, entities, edges, activeTeam, clock);
         MapCondition(app, entities, conditions, activeTeam, clock);
-        MapSubmissions(app, entities, submissions, activeTeam);
+        MapSubmissions(app, entities, submissions, activeTeam, clock);
         MapEdges(app, edges, activeTeam, clock);
     }
 
@@ -490,15 +491,30 @@ public static class AssetRegistryRoutes
         IEndpointRouteBuilder app, IRegistryEntityRepository entities, ITypedRelationshipStore edges,
         IActiveTeamAccessor activeTeam, TimeProvider clock)
     {
-        app.MapGet($"{RouteBase}/entities/{{id}}/tree", async (string id, string? asOf, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/entities/{{id}}/tree", async (string id, string? asOf, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
+            // Same act as the point read: the container read is decided for the record it addresses, before
+            // the repository is touched. Children are projected under the container's decision.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                .ConfigureAwait(false);
+            if (denied is not null)
+                return denied;
             var container = new RegistryEntityId(id);
             var self = await entities.GetByIdAsync(tenant, container, ct).ConfigureAwait(false);
             if (self is null)
                 return Results.NotFound();
 
-            var at = ParseInstant(asOf, clock);
+            // T-690: one authority, one clock read; an absent or unparseable asOf is the guard's instant.
+            var at = ParseInstant(asOf, new Instant(actAuthority.At));
             var childIds = await edges.GetContentsAsAtAsync(tenant, container, at, ct).ConfigureAwait(false);
             var path = await edges.GetContainmentPathAsAtAsync(tenant, container, at, ct).ConfigureAwait(false);
 
@@ -523,15 +539,30 @@ public static class AssetRegistryRoutes
         IEndpointRouteBuilder app, IRegistryEntityRepository entities, IConditionAssessmentStore conditions,
         IActiveTeamAccessor activeTeam, TimeProvider clock)
     {
-        app.MapGet($"{RouteBase}/entities/{{id}}/condition", async (string id, string? asOf, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/entities/{{id}}/condition", async (string id, string? asOf, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
+            // Same act as the point read, decided for the addressed record before the repository is touched.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                .ConfigureAwait(false);
+            if (denied is not null)
+                return denied;
             var entityId = new RegistryEntityId(id);
             var self = await entities.GetByIdAsync(tenant, entityId, ct).ConfigureAwait(false);
             if (self is null)
                 return Results.NotFound();
 
-            var at = asOf is { Length: > 0 } ? ParseInstant(asOf, clock) : (Instant?)null;
+            // T-690: one authority, one clock read; an unparseable asOf is the guard's instant, an absent one
+            // is the full history (unchanged).
+            var at = asOf is { Length: > 0 } ? ParseInstant(asOf, new Instant(actAuthority.At)) : (Instant?)null;
             var history = await conditions.GetHistoryAsync(tenant, entityId, at, ct).ConfigureAwait(false);
             return Results.Ok(new ConditionHistoryResponse(entityId.Value, history.Select(ToConditionWire).ToArray()));
         });
@@ -540,11 +571,24 @@ public static class AssetRegistryRoutes
     // ── GET /entities/{id}/submissions — forms submitted into this record (#144) ─────
     private static void MapSubmissions(
         IEndpointRouteBuilder app, IRegistryEntityRepository entities, IFormSubmissionRecordStore submissions,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam, TimeProvider clock)
     {
-        app.MapGet($"{RouteBase}/entities/{{id}}/submissions", async (string id, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/entities/{{id}}/submissions", async (string id, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
+            // Same act as the point read, decided for the addressed record before the repository is touched.
+            var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                .ConfigureAwait(false);
+            if (denied is not null)
+                return denied;
             var entityId = new RegistryEntityId(id);
             // Same isolation posture as the condition route: an id absent under this tenant is an opaque 404
             // (never leaks another tenant's entity), and the store is itself tenant-scoped.
@@ -606,11 +650,12 @@ public static class AssetRegistryRoutes
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────
-    private static Instant ParseInstant(string? asOf, TimeProvider clock)
+    // Never reads the clock: the fallback is the instant the act's guard already admitted (T-690).
+    private static Instant ParseInstant(string? asOf, Instant fallback)
         => asOf is { Length: > 0 } && DateTimeOffset.TryParse(
             asOf, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
             ? new Instant(parsed)
-            : new Instant(clock.GetUtcNow());
+            : fallback;
 
     private static bool TryParseKind(string? raw, out RelationshipKind kind)
     {

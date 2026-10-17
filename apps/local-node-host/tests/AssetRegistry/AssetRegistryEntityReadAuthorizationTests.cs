@@ -51,6 +51,8 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     private MutableActiveTeamAccessor _activeTeam = null!;
     private TenantId _tenant;
     private SelectedSessionRequestPrincipal? _selected;
+    /// <summary>When set, the request runs inside a bound LAN-device principal scope (no selected session).</summary>
+    private bool _lanDevice;
     private ReadTrackingRepository _repository = null!;
 
     public async Task InitializeAsync()
@@ -95,6 +97,10 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
             if (_selected is not null) http.Features.Set(_selected);
+            using var device = _lanDevice
+                ? Harborline.Api.LocalNodeHost.Data.Audit.NodeCallerAttributionScope.EnterDevice(
+                    "lan-device", _tenant.Value, "lan-device-principal")
+                : null;
             await next(http);
         });
         _repository = new ReadTrackingRepository(_app.Services.GetRequiredService<IRegistryEntityRepository>());
@@ -289,6 +295,70 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         using var response = await _client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Empty(_repository.ReadTenants);
+    }
+
+    [Theory]
+    [InlineData("tree")]
+    [InlineData("condition")]
+    [InlineData("submissions")]
+    public async Task Entity_sub_resource_reads_are_authorized_and_tenant_bound_like_the_point_read(string resource)
+    {
+        var entityId = await CreateUnitAsync("Sub-resource record");
+        const string missingId = "re_0000000000000000000000000";
+
+        // Allowed: the desktop caller holding records:read reads the addressed record.
+        using (var allowed = await _client.GetAsync($"{AssetBase}/entities/{entityId}/{resource}"))
+        {
+            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+            Assert.True(allowed.Headers.CacheControl?.NoStore);
+            Assert.Contains(entityId, (await allowed.Content.ReadFromJsonAsync<JsonElement>()).GetRawText(), StringComparison.Ordinal);
+        }
+
+        // Denied: the decision precedes the repository read, for a present record and a missing one alike.
+        _holdsRecordsRead = false;
+        _repository.ReadTenants.Clear();
+        using (var denied = await _client.GetAsync($"{AssetBase}/entities/{entityId}/{resource}"))
+        {
+            await AssertRefusedAsync(denied, entityId);
+            Assert.True(denied.Headers.CacheControl?.NoStore);
+        }
+        using (var deniedMissing = await _client.GetAsync($"{AssetBase}/entities/{missingId}/{resource}"))
+            Assert.Equal(HttpStatusCode.Forbidden, deniedMissing.StatusCode);
+        Assert.Empty(_repository.ReadTenants);
+        _holdsRecordsRead = true;
+
+        // Selected tenant B while the node's active team is A: only B is read, so A's record is a 404.
+        _selected = new SelectedSessionRequestPrincipal("selected-account", new TenantId(TeamB.Value.ToString()),
+            new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        _repository.ReadTenants.Clear();
+        using (var otherTenant = await _client.GetAsync($"{AssetBase}/entities/{entityId}/{resource}"))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, otherTenant.StatusCode);
+            Assert.True(otherTenant.Headers.CacheControl?.NoStore);
+        }
+        Assert.Equal(_selected.TenantId, Assert.Single(_repository.ReadTenants));
+        Assert.DoesNotContain(_tenant, _repository.ReadTenants);
+        _selected = null;
+
+        // A selected cookie whose principal did not resolve never falls back to the active team.
+        _repository.ReadTenants.Clear();
+        using (var request = new HttpRequestMessage(HttpMethod.Get, $"{AssetBase}/entities/{entityId}/{resource}"))
+        {
+            request.Headers.Add("Cookie", "__Host-hl-selected=unresolved");
+            using var unresolved = await _client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Unauthorized, unresolved.StatusCode);
+        }
+        Assert.Empty(_repository.ReadTenants);
+
+        // A bound LAN-device principal without a selected session gets the point read's same 401.
+        _lanDevice = true;
+        using (var device = await _client.GetAsync($"{AssetBase}/entities/{entityId}/{resource}"))
+            Assert.Equal(HttpStatusCode.Unauthorized, device.StatusCode);
+        using (var pointRead = await _client.GetAsync($"{AssetBase}/entities/{entityId}"))
+            Assert.Equal(HttpStatusCode.Unauthorized, pointRead.StatusCode);
+        Assert.Empty(_repository.ReadTenants);
+        _lanDevice = false;
     }
 
     private async Task AssertRefusedAsync(HttpResponseMessage response, string entityId)
