@@ -7,9 +7,10 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// Ticket 358 slice 1 — the gated asset-registry entity READS, discovered by symbol. The inventory is the
 /// set of route handlers in <see cref="AssetRegistryRoutes"/> that resolve a
 /// <see cref="RequestAuthorization.RefusalAsync"/> decision before reading
-/// <see cref="IRegistryEntityRepository"/>: the entity list and the entity detail. Removing either
-/// decision drops that handler out of the discovered set, and reading the repository before deciding puts
-/// the read ahead of the guard — both turn this fence red.
+/// <see cref="IRegistryEntityRepository"/>: the entity list, the entity detail, and the detail's tree,
+/// condition and submission reads. Removing any decision drops that handler out of the discovered set, a
+/// handler that reads the repository without a decision is reported as ungated, and reading the repository
+/// before deciding puts the read ahead of the guard — each turns this fence red.
 /// </summary>
 public sealed class AssetRegistryAuthorizedReadFenceTests
 {
@@ -34,7 +35,26 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         Assert.NotEmpty(reads);
         Assert.All(guards, guard => Assert.Equal("apps/local-node-host/Health/AssetRegistryRoutes.cs", guard.Path));
 
-        // The gated handlers: exactly the two entity read routes, named by what each one reads.
+        // Every handler that reads the repository decides first: a new reader with no decision (a by-id read
+        // above all, since that is how a record is addressed) is named here rather than silently ungated.
+        var ungated = reads
+            .Where(read => !guards.Any(guard => guard.Symbol == read.Symbol))
+            .Select(read => $"{read.Symbol} -> {TargetName(read.Target)} at line {read.Line}")
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(ungated.Length == 0,
+            "Registry entity reads with no records:read decision in the same handler:"
+            + Environment.NewLine + string.Join(Environment.NewLine, ungated));
+        var byIdReaders = reads
+            .Where(read => TargetName(read.Target) == nameof(IRegistryEntityRepository.GetByIdAsync))
+            .Select(read => read.Symbol)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(4, byIdReaders.Length);
+        Assert.All(byIdReaders, symbol => Assert.Contains(guards, guard => guard.Symbol == symbol));
+
+        // The gated handlers: exactly the five entity read routes, named by what each one reads — the
+        // detail, tree, condition and submission reads address one record by id; the list reads the tenant.
         var gated = reads
             .Where(read => guards.Any(guard => guard.Symbol == read.Symbol))
             .GroupBy(read => read.Symbol, StringComparer.Ordinal)
@@ -43,14 +63,14 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
                 .Order(StringComparer.Ordinal).ToArray())
             .OrderBy(names => string.Join(",", names), StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal(2, gated.Length);
-        Assert.Equal([nameof(IRegistryEntityRepository.GetByIdAsync)], gated[0]);
+        Assert.Equal(5, gated.Length);
+        Assert.All(gated[..4], names => Assert.Equal([nameof(IRegistryEntityRepository.GetByIdAsync)], names));
         Assert.Equal(
             [
                 nameof(IRegistryEntityRepository.ListByTenantAsync),
                 nameof(IRegistryEntityRepository.ListByTypeAsync),
             ],
-            gated[1]);
+            gated[4]);
 
         // In every gated handler the decision is resolved BEFORE the repository is touched.
         foreach (var read in reads.Where(read => guards.Any(guard => guard.Symbol == read.Symbol)))
