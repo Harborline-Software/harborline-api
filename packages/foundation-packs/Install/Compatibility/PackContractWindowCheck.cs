@@ -66,11 +66,11 @@ public static class PackContractWindowCheck
             using var document = JsonDocument.Parse(content);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
-            var carrier = root;
+            var contractSource = root;
             // Match PackTemplateContent's existing flat wire; do not add a nested-template fallback.
-            if (kind != PackContentKind.TemplateDefinition && !root.TryGetProperty("envelope", out carrier)) return null;
-            return carrier.ValueKind == JsonValueKind.Object
-                && carrier.TryGetProperty("contract", out var contract)
+            if (kind != PackContentKind.TemplateDefinition && !root.TryGetProperty("envelope", out contractSource)) return null;
+            return contractSource.ValueKind == JsonValueKind.Object
+                && contractSource.TryGetProperty("contract", out var contract)
                 && contract.ValueKind == JsonValueKind.Object
                 && contract.TryGetProperty("major", out var major)
                 && major.ValueKind == JsonValueKind.Number
