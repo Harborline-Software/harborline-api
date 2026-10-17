@@ -8,6 +8,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Foundation.Definitions;
 
 namespace Harborline.Api.Blocks.Workflow.Durable;
 
@@ -174,6 +175,14 @@ public sealed class EntityStoreWorkflowDefinitionStore
             ["packSource"] = packSource is null ? null : JsonSerializer.SerializeToNode(packSource),
             ["updatedAt"] = updatedAt,
         };
+        if (definitionEnvelope.Contract is { } contract)
+        {
+            envelope["contract"] = new JsonObject
+            {
+                ["major"] = contract.Major,
+                ["minor"] = contract.Minor,
+            };
+        }
         return JsonDocument.Parse(envelope.ToJsonString());
     }
 
@@ -199,6 +208,12 @@ public sealed class EntityStoreWorkflowDefinitionStore
             : Array.Empty<DefinitionRequirement>();
         // Clone so the returned element outlives the entity's backing JsonDocument.
         var authored = root.GetProperty("authored").Clone();
+        var contract = root.TryGetProperty("contract", out var contractElement)
+            && contractElement.ValueKind is not JsonValueKind.Null
+            ? new DefinitionContractVersion(
+                contractElement.GetProperty("major").GetInt32(),
+                contractElement.GetProperty("minor").GetInt32())
+            : null;
         var definitionEnvelope = new DefinitionEnvelope<
             WorkflowDefinitionKey,
             WorkflowDefinitionVersion,
@@ -210,7 +225,7 @@ public sealed class EntityStoreWorkflowDefinitionStore
                 cascadeLayer,
                 WorkflowDefinitionProvenance.Unspecified,
                 requires,
-                Contract: null);
+                Contract: contract);
         var packSource = root.TryGetProperty("packSource", out var packSourceElement)
             && packSourceElement.ValueKind is not JsonValueKind.Null
             ? packSourceElement.Deserialize<PackProjectionSource>()

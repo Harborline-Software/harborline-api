@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -13,9 +14,13 @@ using Microsoft.Extensions.Logging;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Foundation.Definitions;
 
 using Xunit;
 
@@ -199,6 +204,171 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
 
         var second = await _client.PutAsJsonAsync($"{Base}/{Key}", AdmissibleBody());
         Assert.Equal("1.0.1", (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("version").GetString());
+    }
+
+    [Fact]
+    public async Task Save_And_Resave_Retain_The_Current_App_Contract_In_Canonical_Metadata()
+    {
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000000ff001");
+        var definitions = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
+        var entities = _app.Services.GetRequiredService<IEntityStore>();
+
+        foreach (var version in new[] { "1.0.0", "1.0.1" })
+        {
+            using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", AdmissibleBody());
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var saved = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("invoice-approval.v1", saved.GetProperty("key").GetString());
+            Assert.Equal(version, saved.GetProperty("version").GetString());
+
+            var retained = await definitions.GetAsync(new DefinitionCoordinates(
+                tenant, "invoice-approval.v1", version));
+            // T572's initial app contract is 1.0; expected values do not read the production seed.
+            AssertDeclaredContract(retained.Envelope.Contract, 1, 0);
+            Assert.Equal("invoice-approval.v1", retained.Key);
+            Assert.Equal(version, retained.Version);
+            Assert.Equal("aaaa0000-0000-0000-0000-0000000ff001", retained.Tenant);
+            Assert.Equal(WorkflowDefinitionStatus.Published, retained.Status);
+            Assert.Equal(CascadeLayer.Tenant, retained.Envelope.CascadeLayer);
+            Assert.Empty(retained.Envelope.Requires);
+            Assert.Equal(WorkflowDefinitionProvenance.Unspecified, retained.Envelope.Provenance);
+            Assert.Null(retained.PackSource);
+            AssertAuthoredSnapshot(retained.Authored, version);
+
+            var rows = new List<Entity>();
+            var query = new EntityQuery(
+                Schema: EntityStoreWorkflowDefinitionStore.DefinitionSchema,
+                Tenant: TenantSelection.Of(tenant),
+                BodyContains: JsonSerializer.Serialize(new { key = "invoice-approval.v1", version }));
+            await foreach (var entity in entities.QueryAsync(query))
+                rows.Add(entity);
+            var stored = Assert.Single(rows).Body.RootElement;
+            AssertCanonicalContract(stored, 1, 0);
+            AssertAuthoredSnapshot(stored.GetProperty("authored"), version);
+        }
+
+        var original = await definitions.GetAsync(new DefinitionCoordinates(
+            tenant, "invoice-approval.v1", "1.0.0"));
+        AssertDeclaredContract(original.Envelope.Contract, 1, 0);
+        AssertAuthoredSnapshot(original.Authored, "1.0.0");
+    }
+
+    [Fact]
+    public async Task Direct_Tenant_Publish_Retains_The_Current_App_Contract()
+    {
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000000ff001");
+        AuthorizationWriteContext authority = TestAuthorization.Write(tenant);
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody("direct-contract.v1"))!.AsObject();
+        body["tenant"] = "aaaa0000-0000-0000-0000-0000000ff001";
+        body["version"] = "1.0.0";
+        body["status"] = "Published";
+        using var authored = JsonDocument.Parse(body.ToJsonString());
+        Assert.False(authored.RootElement.TryGetProperty("contract", out _));
+
+        var lifecycle = _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>();
+        await lifecycle.RegisterAndPublishAsync(authored.RootElement, authority);
+
+        var definitions = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
+        var retained = await definitions.GetAsync(new DefinitionCoordinates(
+            tenant, "direct-contract.v1", "1.0.0"));
+        AssertDeclaredContract(retained.Envelope.Contract, 1, 0);
+        Assert.Equal("direct-contract.v1", retained.Key);
+        Assert.Equal("1.0.0", retained.Version);
+        Assert.Equal("aaaa0000-0000-0000-0000-0000000ff001", retained.Tenant);
+        Assert.Equal(WorkflowDefinitionStatus.Published, retained.Status);
+        Assert.False(retained.Authored.TryGetProperty("contract", out _));
+    }
+
+    [Fact]
+    public void Canonical_Metadata_Preserves_An_Explicit_NonCurrent_Contract()
+    {
+        using var stored = JsonDocument.Parse("""
+            {
+              "kind":"workflow-definition", "tenant":"contract-fixture", "key":"declared.v1",
+              "version":"2.3.4", "status":"Published", "cascadeLayer":"Tenant", "requires":[],
+              "contract":{"major":7,"minor":3}, "authored":{"marker":"preserved"},
+              "updatedAt":"2026-10-17T12:34:56+00:00"
+            }
+            """);
+        var retained = EntityStoreWorkflowDefinitionStore.ToRecord(stored);
+        AssertDeclaredContract(retained.Envelope.Contract, 7, 3);
+
+        using var serialized = EntityStoreWorkflowDefinitionStore.SerializeEnvelope(
+            retained.Envelope, retained.Status, retained.Authored, retained.PackSource, retained.UpdatedAt);
+        AssertCanonicalContract(serialized.RootElement, 7, 3);
+        Assert.Equal("contract-fixture", serialized.RootElement.GetProperty("tenant").GetString());
+        Assert.Equal("declared.v1", serialized.RootElement.GetProperty("key").GetString());
+        Assert.Equal("2.3.4", serialized.RootElement.GetProperty("version").GetString());
+        Assert.Equal("Published", serialized.RootElement.GetProperty("status").GetString());
+        Assert.Equal("Tenant", serialized.RootElement.GetProperty("cascadeLayer").GetString());
+        Assert.Empty(serialized.RootElement.GetProperty("requires").EnumerateArray());
+        Assert.Equal("preserved", serialized.RootElement.GetProperty("authored").GetProperty("marker").GetString());
+        Assert.Equal(new DateTimeOffset(2026, 10, 17, 12, 34, 56, TimeSpan.Zero),
+            serialized.RootElement.GetProperty("updatedAt").GetDateTimeOffset());
+
+        var reread = EntityStoreWorkflowDefinitionStore.ToRecord(serialized);
+        AssertDeclaredContract(reread.Envelope.Contract, 7, 3);
+        Assert.Equal("preserved", reread.Authored.GetProperty("marker").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Legacy_Absent_Or_Null_Contract_Remains_Undeclared(bool explicitNull)
+    {
+        var body = JsonNode.Parse("""
+            {
+              "kind":"workflow-definition", "tenant":"legacy-fixture", "key":"legacy.v1",
+              "version":"1.2.3", "status":"Published", "authored":{"marker":"legacy-kept"}
+            }
+            """)!.AsObject();
+        if (explicitNull)
+            body["contract"] = null;
+        using var stored = JsonDocument.Parse(body.ToJsonString());
+        var retained = EntityStoreWorkflowDefinitionStore.ToRecord(stored);
+        Assert.Null(retained.Envelope.Contract);
+        Assert.Equal("legacy-kept", retained.Authored.GetProperty("marker").GetString());
+
+        using var serialized = EntityStoreWorkflowDefinitionStore.SerializeEnvelope(
+            retained.Envelope, retained.Status, retained.Authored, retained.PackSource, retained.UpdatedAt);
+        Assert.False(serialized.RootElement.TryGetProperty("contract", out _));
+        Assert.Equal("legacy-fixture", serialized.RootElement.GetProperty("tenant").GetString());
+        Assert.Equal("legacy.v1", serialized.RootElement.GetProperty("key").GetString());
+        Assert.Equal("1.2.3", serialized.RootElement.GetProperty("version").GetString());
+        Assert.Equal("legacy-kept", serialized.RootElement.GetProperty("authored").GetProperty("marker").GetString());
+        Assert.Null(EntityStoreWorkflowDefinitionStore.ToRecord(serialized).Envelope.Contract);
+    }
+
+    private static void AssertDeclaredContract(DefinitionContractVersion? contract, int major, int minor)
+    {
+        var declared = Assert.IsType<DefinitionContractVersion>(contract);
+        Assert.Equal(major, declared.Major);
+        Assert.Equal(minor, declared.Minor);
+    }
+
+    private static void AssertCanonicalContract(JsonElement stored, int major, int minor)
+    {
+        var declared = stored.GetProperty("contract");
+        Assert.Equal(JsonValueKind.Object, declared.ValueKind);
+        Assert.Equal(2, declared.EnumerateObject().Count());
+        Assert.Equal(major, declared.GetProperty("major").GetInt32());
+        Assert.Equal(minor, declared.GetProperty("minor").GetInt32());
+    }
+
+    private static void AssertAuthoredSnapshot(JsonElement authored, string version)
+    {
+        Assert.False(authored.TryGetProperty("contract", out _));
+        Assert.False(authored.TryGetProperty("envelope", out _));
+        Assert.Equal("invoice-approval.v1", authored.GetProperty("key").GetString());
+        Assert.Equal(version, authored.GetProperty("version").GetString());
+        Assert.Equal("Published", authored.GetProperty("status").GetString());
+        Assert.Equal("aaaa0000-0000-0000-0000-0000000ff001", authored.GetProperty("tenant").GetString());
+        Assert.Equal("Invoice approval", authored.GetProperty("title").GetProperty("values").GetProperty("en").GetString());
+        Assert.Equal("Draft", authored.GetProperty("initialState").GetString());
+        Assert.Equal("Draft", authored.GetProperty("states")[0].GetProperty("label").GetProperty("values").GetProperty("en").GetString());
+        Assert.Equal("a-post-je", authored.GetProperty("actions")[0].GetProperty("id").GetString());
+        Assert.Equal("CP", authored.GetProperty("actions")[0].GetProperty("classification").GetString());
+        Assert.Equal("t-approve", authored.GetProperty("actions")[0].GetProperty("on").GetProperty("transition").GetString());
     }
 
     [Fact(DisplayName = "tenant: a definition saved under team A is invisible to team B (server-side tenant)")]
