@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -28,6 +29,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.Definitions;
 
 using Xunit;
 
@@ -192,6 +194,94 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
         Assert.DoesNotContain(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
     }
+
+    [Theory(DisplayName = "T-1033: install refuses a valid flat template's declared out-of-window contract")]
+    [InlineData(2, 0)]
+    [InlineData(1, 1)]
+    public async Task Install_refuses_a_flat_template_declaring_an_out_of_window_contract(int major, int minor)
+    {
+        var content = TemplateContent(new JsonObject { ["major"] = major, ["minor"] = minor });
+        Assert.True(PackTemplateContent.TryParse(content, out var template, out var error), error);
+        Assert.Equal("acme.invoice", template.Key);
+        Assert.Equal("1.0.0", template.Version);
+        Assert.Equal(new DefinitionContractVersion(major, minor), template.Envelope.Contract);
+
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(TemplatePackBody(content)));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        Assert.Equal([OutOfWindow], body.GetProperty("refusalCodes").EnumerateArray().Select(code => code.GetString()));
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(OutOfWindow, refusal.GetProperty("code").GetString());
+        Assert.Equal("/envelope/contract", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.invoice@1.0.0", refusal.GetProperty("target").GetString());
+        var contract = body.GetProperty("contract");
+        Assert.Equal(1, contract.GetProperty("app_major").GetInt32());
+        Assert.Equal(0, contract.GetProperty("app_minor").GetInt32());
+        Assert.Equal(new[] { 1, 1 }, contract.GetProperty("window").EnumerateArray().Select(edge => edge.GetInt32()));
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Fact(DisplayName = "T-1033: install admits a valid flat template declaring literal contract 1.0")]
+    public async Task Install_admits_a_flat_template_declaring_contract_one_zero()
+    {
+        var content = TemplateContent(new JsonObject { ["major"] = 1, ["minor"] = 0 });
+        Assert.True(PackTemplateContent.TryParse(content, out var template, out var error), error);
+        Assert.Equal(new DefinitionContractVersion(1, 0), template.Envelope.Contract);
+
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(TemplatePackBody(content)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+    }
+
+    [Fact(DisplayName = "T-1033: interim, a valid flat template without a declaration still installs until T-1026")]
+    public async Task Interim_install_admits_a_flat_template_with_no_declared_contract()
+    {
+        var content = TemplateContent(contract: null);
+        Assert.True(PackTemplateContent.TryParse(content, out var template, out var error), error);
+        Assert.Null(template.Envelope.Contract);
+
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(TemplatePackBody(content)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+    }
+
+    private static JsonObject TemplateContent(JsonObject? contract)
+    {
+        // The actual flat pack wire, not a serialized internal TemplateDefinition envelope.
+        var content = JsonNode.Parse("""
+            {
+              "key": "acme.invoice",
+              "version": "1.0.0",
+              "documentType": "invoice",
+              "recordType": { "type": "invoice", "version": "1" },
+              "locale": { "kind": "fixed", "tag": "en-US" },
+              "structure": [ { "kind": "header", "lines": [ { "runs": [ { "literal": "Invoice" } ] } ] } ]
+            }
+            """)!.AsObject();
+        if (contract is not null) content["contract"] = contract;
+        return content;
+    }
+
+    private static object TemplatePackBody(JsonObject content) => new
+    {
+        key = "acme.contract",
+        version = "1.0.0",
+        name = "Acme Contract",
+        description = "contract window pack",
+        scopeTier = "Vertical",
+        contents = new[]
+        {
+            new { key = "acme.invoice", kind = "TemplateDefinition", version = "1.0.0", content },
+        },
+    };
 
     private static void AssertReportsTheSeedWindow(JsonElement body)
     {
