@@ -54,6 +54,9 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     /// <summary>When set, the request runs inside a bound LAN-device principal scope (no selected session).</summary>
     private bool _lanDevice;
     private ReadTrackingRepository _repository = null!;
+    private ReadTrackingEdges _edges = null!;
+    private ReadTrackingConditions _conditions = null!;
+    private ReadTrackingSubmissions _submissions = null!;
 
     public async Task InitializeAsync()
     {
@@ -104,13 +107,16 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             await next(http);
         });
         _repository = new ReadTrackingRepository(_app.Services.GetRequiredService<IRegistryEntityRepository>());
+        _edges = new ReadTrackingEdges(_app.Services.GetRequiredService<ITypedRelationshipStore>());
+        _conditions = new ReadTrackingConditions(_app.Services.GetRequiredService<IConditionAssessmentStore>());
+        _submissions = new ReadTrackingSubmissions(_app.Services.GetRequiredService<IFormSubmissionRecordStore>());
         AssetRegistryRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             _app.Services.GetRequiredService<IEntityTypeRegistry>(),
             _repository,
-            _app.Services.GetRequiredService<ITypedRelationshipStore>(),
-            _app.Services.GetRequiredService<IConditionAssessmentStore>(),
-            _app.Services.GetRequiredService<IFormSubmissionRecordStore>(),
+            _edges,
+            _conditions,
+            _submissions,
             _activeTeam,
             TimeProvider.System);
 
@@ -361,6 +367,126 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         _lanDevice = false;
     }
 
+    [Fact]
+    public async Task Selected_tree_reads_its_children_and_edges_when_another_team_is_active()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+
+        using var response = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/tree");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("re_00000000000000000000000001", body.GetProperty("container").GetString());
+        var child = Assert.Single(body.GetProperty("children").EnumerateArray());
+        Assert.Equal("re_00000000000000000000000002", child.GetProperty("id").GetString());
+        Assert.Equal("Selected A child", child.GetProperty("displayName").GetString());
+        Assert.Equal(["re_00000000000000000000000001"],
+            body.GetProperty("path").EnumerateArray().Select(item => item.GetString()).ToArray());
+        Assert.DoesNotContain("Ambient B", body.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(
+            ["aaaa0000-0000-0000-0000-0000003580a1", "aaaa0000-0000-0000-0000-0000003580a1"],
+            _repository.ReadTenants.Select(tenant => tenant.Value).ToArray());
+        Assert.Equal(
+            ["GetContentsAsAtAsync|aaaa0000-0000-0000-0000-0000003580a1",
+             "GetContainmentPathAsAtAsync|aaaa0000-0000-0000-0000-0000003580a1"],
+            _edges.Reads.ToArray());
+        Assert.Empty(_conditions.Reads);
+        Assert.Empty(_submissions.Reads);
+    }
+
+    [Fact]
+    public async Task Selected_condition_reads_its_history_when_another_team_is_active()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+
+        using var response = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/condition");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("re_00000000000000000000000001", body.GetProperty("entity").GetString());
+        var assessment = Assert.Single(body.GetProperty("history").EnumerateArray());
+        Assert.Equal("selected-a-assessment", assessment.GetProperty("id").GetString());
+        Assert.Equal(4, assessment.GetProperty("grade").GetInt32());
+        Assert.Equal("Selected A condition", assessment.GetProperty("observations").GetString());
+        Assert.DoesNotContain("Ambient B", body.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", Assert.Single(_repository.ReadTenants).Value);
+        Assert.Equal(["GetHistoryAsync|aaaa0000-0000-0000-0000-0000003580a1"], _conditions.Reads.ToArray());
+        Assert.Empty(_edges.Reads);
+        Assert.Empty(_submissions.Reads);
+    }
+
+    [Fact]
+    public async Task Selected_submissions_read_its_links_when_another_team_is_active()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+
+        using var response = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/submissions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("re_00000000000000000000000001", body.GetProperty("entity").GetString());
+        var submission = Assert.Single(body.GetProperty("submissions").EnumerateArray());
+        Assert.Equal("selected-a-instance", submission.GetProperty("instanceId").GetString());
+        Assert.Equal("selected-a-form", submission.GetProperty("formId").GetString());
+        Assert.Equal("Selected A submitter", submission.GetProperty("assessorRef").GetString());
+        Assert.DoesNotContain("Ambient B", body.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", Assert.Single(_repository.ReadTenants).Value);
+        Assert.Equal(["ListForEntityAsync|aaaa0000-0000-0000-0000-0000003580a1"], _submissions.Reads.ToArray());
+        Assert.Empty(_edges.Reads);
+        Assert.Empty(_conditions.Reads);
+    }
+
+    private async Task SeedSelectedTenantSubResourcesAsync()
+    {
+        // F1 oracle: two independent literal tenant datasets share the addressed parent id. A wrong
+        // ambient-tenant store call can therefore return convincing B data, rather than just a miss.
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var parent = new RegistryEntityId("re_00000000000000000000000001");
+        foreach (var (tenant, child, label, prefix, grade) in new[]
+        {
+            (new TenantId("aaaa0000-0000-0000-0000-0000003580a1"),
+                new RegistryEntityId("re_00000000000000000000000002"), "Selected A", "selected-a", 4),
+            (new TenantId("bbbb0000-0000-0000-0000-0000003580b1"),
+                new RegistryEntityId("re_00000000000000000000000003"), "Ambient B", "ambient-b", 1),
+        })
+        {
+            await _repository.UpsertAsync(new RegistryEntity
+            {
+                Id = parent, TenantId = tenant, Type = new EntityTypeId(UnitType),
+                DisplayName = label + " parent", CreatedAt = at,
+            }, at);
+            await _repository.UpsertAsync(new RegistryEntity
+            {
+                Id = child, TenantId = tenant, Type = new EntityTypeId(UnitType),
+                DisplayName = label + " child", CreatedAt = at,
+            }, at);
+            await _edges.AddAsync(new TypedRelationship
+            {
+                Id = new TypedRelationshipId(prefix + "-edge"), TenantId = tenant,
+                Kind = RelationshipKind.Contains, From = parent, To = child, EffectiveFrom = at,
+            });
+            await _conditions.RecordAsync(new ConditionAssessment
+            {
+                Id = new ConditionAssessmentId(prefix + "-assessment"), TenantId = tenant,
+                Entity = parent, Rating = new ConditionRating(grade), ObservedAt = at,
+                Observations = label + " condition",
+            });
+            await _submissions.RecordAsync(new FormSubmissionRecord
+            {
+                Id = new FormSubmissionRecordId(prefix + "-submission"), TenantId = tenant,
+                Entity = parent, InstanceId = prefix + "-instance", FormId = prefix + "-form",
+                SubmittedAt = at, AssessorRef = label + " submitter",
+            });
+        }
+
+        _activeTeam.Active = TeamContextFor(TeamB, "Ambient B");
+        _selected = new SelectedSessionRequestPrincipal("selected-account",
+            new TenantId("aaaa0000-0000-0000-0000-0000003580a1"),
+            new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        _repository.ReadTenants.Clear();
+        _edges.Reads.Clear();
+        _conditions.Reads.Clear();
+        _submissions.Reads.Clear();
+    }
+
     private async Task AssertRefusedAsync(HttpResponseMessage response, string entityId)
     {
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -412,6 +538,80 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             => inner.UpsertAsync(entity, at, actorRef, cancellationToken);
         public Task RetireAsync(TenantId tenant, RegistryEntityId id, Instant at, string? actorRef = null, CancellationToken cancellationToken = default)
             => inner.RetireAsync(tenant, id, at, actorRef, cancellationToken);
+    }
+
+    private sealed class ReadTrackingEdges(ITypedRelationshipStore inner) : ITypedRelationshipStore
+    {
+        public List<string> Reads { get; } = [];
+        public int MaxContainmentDepth => inner.MaxContainmentDepth;
+        public Task<TypedRelationship> AddAsync(TypedRelationship edge, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.AddAsync(edge, actorRef, cancellationToken);
+        public Task CloseAsync(TenantId tenant, TypedRelationshipId id, Instant effectiveTo, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.CloseAsync(tenant, id, effectiveTo, actorRef, cancellationToken);
+        public Task<TypedRelationship?> GetByIdAsync(TenantId tenant, TypedRelationshipId id, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetByIdAsync|" + tenant.Value);
+            return inner.GetByIdAsync(tenant, id, cancellationToken);
+        }
+        public Task<IReadOnlyList<TypedRelationship>> GetEdgesAsAtAsync(TenantId tenant, RegistryEntityId entity, RelationshipKind? kind, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetEdgesAsAtAsync|" + tenant.Value);
+            return inner.GetEdgesAsAtAsync(tenant, entity, kind, asOf, cancellationToken);
+        }
+        public Task<RegistryEntityId?> GetContainerAsAtAsync(TenantId tenant, RegistryEntityId child, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetContainerAsAtAsync|" + tenant.Value);
+            return inner.GetContainerAsAtAsync(tenant, child, asOf, cancellationToken);
+        }
+        public Task<IReadOnlyList<RegistryEntityId>> GetContentsAsAtAsync(TenantId tenant, RegistryEntityId container, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetContentsAsAtAsync|" + tenant.Value);
+            return inner.GetContentsAsAtAsync(tenant, container, asOf, cancellationToken);
+        }
+        public Task<IReadOnlyList<RegistryEntityId>> GetContainmentPathAsAtAsync(TenantId tenant, RegistryEntityId entity, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetContainmentPathAsAtAsync|" + tenant.Value);
+            return inner.GetContainmentPathAsAtAsync(tenant, entity, asOf, cancellationToken);
+        }
+        public Task<RegistryEntityId?> GetLocationAsAtAsync(TenantId tenant, RegistryEntityId entity, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetLocationAsAtAsync|" + tenant.Value);
+            return inner.GetLocationAsAtAsync(tenant, entity, asOf, cancellationToken);
+        }
+    }
+
+    private sealed class ReadTrackingConditions(IConditionAssessmentStore inner) : IConditionAssessmentStore
+    {
+        public List<string> Reads { get; } = [];
+        public Task RecordAsync(ConditionAssessment assessment, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.RecordAsync(assessment, actorRef, cancellationToken);
+        public Task<ConditionAssessment?> GetByIdAsync(TenantId tenant, ConditionAssessmentId id, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetByIdAsync|" + tenant.Value);
+            return inner.GetByIdAsync(tenant, id, cancellationToken);
+        }
+        public Task<IReadOnlyList<ConditionAssessment>> GetHistoryAsync(TenantId tenant, RegistryEntityId entity, Instant? asOf = null, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetHistoryAsync|" + tenant.Value);
+            return inner.GetHistoryAsync(tenant, entity, asOf, cancellationToken);
+        }
+        public Task<ConditionAssessment?> GetLatestAsAtAsync(TenantId tenant, RegistryEntityId entity, Instant asOf, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("GetLatestAsAtAsync|" + tenant.Value);
+            return inner.GetLatestAsAtAsync(tenant, entity, asOf, cancellationToken);
+        }
+    }
+
+    private sealed class ReadTrackingSubmissions(IFormSubmissionRecordStore inner) : IFormSubmissionRecordStore
+    {
+        public List<string> Reads { get; } = [];
+        public Task RecordAsync(FormSubmissionRecord record, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.RecordAsync(record, actorRef, cancellationToken);
+        public Task<IReadOnlyList<FormSubmissionRecord>> ListForEntityAsync(TenantId tenant, RegistryEntityId entity, CancellationToken cancellationToken = default)
+        {
+            Reads.Add("ListForEntityAsync|" + tenant.Value);
+            return inner.ListForEntityAsync(tenant, entity, cancellationToken);
+        }
     }
 
     /// <summary>A mutable active-team accessor so a test can switch the active team mid-flight.</summary>
