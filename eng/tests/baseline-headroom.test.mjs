@@ -74,6 +74,12 @@ test('flake headroom preserves both positive space and an overfull zero ceiling'
   assert.deepEqual(rows, [{test: 'Literal.Test.Identity'}])
 })
 
+test('an absent flake registry is unavailable rather than an observed empty registry', () => {
+  const summary = flakeRegistryHeadroom(undefined, 0)
+  assert.deepEqual(summary, {label: 'flake registrations', status: 'unavailable', reason: 'flake registry unavailable'})
+  assert.equal(formatBaselineHeadroom(summary), 'flake registrations: unavailable (flake registry unavailable)')
+})
+
 test('unavailable flake rows and invalid ceilings do not report fabricated headroom', () => {
   assert.deepEqual(flakeRegistryHeadroom(null, 0), {label: 'flake registrations', status: 'unavailable', reason: 'flake registry unavailable'})
   for (const ceiling of [-1, 0.5, NaN, Infinity, '0', undefined, 9007199254740992]) {

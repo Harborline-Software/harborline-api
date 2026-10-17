@@ -620,11 +620,13 @@ if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
 // This is the reviewed ledger BUDGET, not a second runtime source scanner or gate.
 let reviewedDebtLedger
 try {
-  reviewedDebtLedger = readFileSync(path.join(apiRoot, 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'), 'utf8')
+  // Scratch has been removed; read the immutable commit that this gate tested.
+  reviewedDebtLedger = execFileSync('git', ['-C', apiRoot, 'show', `${head}:apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv`],
+    {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
 } catch { /* Unavailable reporting must not change the existing gate's result or exit. */ }
 persisted.baselineHeadroom = {
   reviewedDebtBudget: reviewedDebtBudgetHeadroom(reviewedDebtLedger),
-  flakeRegistrations: flakeRegistryHeadroom(hostBaseline.knownFlaky ?? [], REGISTERED_FLAKE_COUNT),
+  flakeRegistrations: flakeRegistryHeadroom(hostBaseline.knownFlaky, REGISTERED_FLAKE_COUNT),
 }
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
@@ -640,6 +642,7 @@ if (target) {
   writeFileSync(target, `${JSON.stringify(persisted, null, 2)}\n`)
 }
 process.stdout.write(`${JSON.stringify({status: report.status, apiCommit: head.slice(0, 7), steps: steps.map(s => `${s.id}:${s.passed === false ? 'FAIL' : 'ok'}`)}, null, 2)}\n`)
+for (const summary of Object.values(persisted.baselineHeadroom)) process.stdout.write(`${formatBaselineHeadroom(summary)}\n`)
 if (report.status === 'FAIL') {
   for (const step of persisted.steps.filter(step => step.passed === false)) {
     process.stdout.write(`${step.id}:\n`)
@@ -647,5 +650,4 @@ if (report.status === 'FAIL') {
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
-for (const summary of Object.values(persisted.baselineHeadroom)) process.stdout.write(`${formatBaselineHeadroom(summary)}\n`)
 process.exit(report.status === 'PASS' && !knownTestsWriteRefused ? 0 : 1)
