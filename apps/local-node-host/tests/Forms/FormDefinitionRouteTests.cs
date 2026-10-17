@@ -170,6 +170,89 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
     private static object Text(string en) => new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = en } };
 
+    [Theory]
+    [InlineData(true, FormDefinitionStatus.Draft)]
+    [InlineData(false, FormDefinitionStatus.Published)]
+    public async Task Save_And_ReSave_Stamp_Current_App_Contract_On_Form_And_Embedded_Rules(
+        bool draft, FormDefinitionStatus expectedStatus)
+    {
+        const string id = "t1026-contract-stamp";
+        // No caller contract: T1026 step1 / T572 ruling85 makes this the author's surface stamp.
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
+        body["overlay"]!["rules"] = new JsonArray(new JsonObject
+        {
+            ["id"] = "t1026-rule",
+            ["tier"] = "JsonLogic",
+            ["scope"] = "Schema",
+            ["scopeTarget"] = "",
+            ["expression"] = "{\"==\":[1,1]}",
+            ["action"] = "Validate",
+        });
+        var tenant = NodeTenant.Resolve(_activeTeam);
+
+        foreach (var expectedVersion in new[] { "1.0.0", "1.0.1" })
+        {
+            using var response = await _client.PutAsJsonAsync($"{DefBase}/{id}", body);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var saved = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(expectedVersion, saved.GetProperty("version").GetString());
+
+            var retained = await _definitions.GetAsync(new DefinitionCoordinates(tenant, id, expectedVersion));
+            AssertStampedAuthoringDefinition(retained, id, expectedVersion, expectedStatus, tenant);
+        }
+
+        // A re-save must also leave the earlier retained revision's declaration intact.
+        var original = await _definitions.GetAsync(new DefinitionCoordinates(tenant, id, "1.0.0"));
+        AssertStampedAuthoringDefinition(original, id, "1.0.0", expectedStatus, tenant);
+    }
+
+    private static void AssertStampedAuthoringDefinition(
+        FormDefinition definition, string id, string version, FormDefinitionStatus status, TenantId tenant)
+    {
+        Assert.Equal(id, definition.Id.Value);
+        Assert.Equal(version, definition.Version.ToString());
+        Assert.Equal(status, definition.Status);
+        Assert.Equal(tenant, definition.Tenant);
+        Assert.Equal(CascadeLayer.Tenant, definition.Envelope.CascadeLayer);
+        Assert.Empty(definition.Envelope.Requires);
+        Assert.Null(definition.Lineage);
+        // Independent T572 first-app contract literals, never read from the production seed/window.
+        Assert.NotNull(definition.Envelope.Contract);
+        Assert.Equal(1, definition.Envelope.Contract.Major);
+        Assert.Equal(0, definition.Envelope.Contract.Minor);
+
+        var rule = Assert.Single(definition.Overlay.Rules);
+        Assert.Equal("t1026-rule", rule.Id);
+        Assert.Equal(version, rule.Envelope.Version);
+        Assert.Equal(tenant, rule.Envelope.Tenant);
+        Assert.Equal(CascadeLayer.Tenant, rule.Envelope.CascadeLayer);
+        Assert.Null(rule.Envelope.Provenance);
+        Assert.Empty(rule.Envelope.Requires);
+        Assert.NotNull(rule.Envelope.Contract);
+        Assert.Equal(1, rule.Envelope.Contract.Major);
+        Assert.Equal(0, rule.Envelope.Contract.Minor);
+        Assert.Equal(RuleTier.JsonLogic, rule.Tier);
+        Assert.Equal(RuleScope.Schema, rule.Scope);
+        Assert.Equal("", rule.ScopeTarget);
+        Assert.Equal("{\"==\":[1,1]}", rule.Expression);
+        Assert.Equal(RuleActionKind.Validate, rule.Action);
+
+        // Inspect the retained canonical model's existing JSON metadata, not the legacy route DTO.
+        var json = JsonSerializer.SerializeToElement(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var formContract = json.GetProperty("envelope").GetProperty("contract");
+        Assert.Equal(new[] { "major", "minor" },
+            formContract.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(1, formContract.GetProperty("major").GetInt32());
+        Assert.Equal(0, formContract.GetProperty("minor").GetInt32());
+        var serializedRule = Assert.Single(json.GetProperty("overlay").GetProperty("rules").EnumerateArray());
+        var ruleContract = serializedRule.GetProperty("envelope").GetProperty("contract");
+        Assert.Equal(new[] { "major", "minor" },
+            ruleContract.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(1, ruleContract.GetProperty("major").GetInt32());
+        Assert.Equal(0, ruleContract.GetProperty("minor").GetInt32());
+    }
+
     // Oracle: reviewed T-1016 / DES-0014 C3 and T-724 rulings 61/79/80, not mapper output.
     // All eleven Forms producers concern prospective revisions or inline locations: target omitted.
     private static JsonElement AssertC3(JsonElement envelope, string stage, string code, string pointer)
