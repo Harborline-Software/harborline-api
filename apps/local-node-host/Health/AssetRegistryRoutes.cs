@@ -507,9 +507,11 @@ public static class AssetRegistryRoutes
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // Same act as the point read: the container read is decided for the record it addresses, before
             // the repository is touched. Children are projected under the container's decision.
+            AuthorizationDecision? accepted = null;
             var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false);
             if (denied is not null)
                 return denied;
@@ -531,11 +533,13 @@ public static class AssetRegistryRoutes
                     children.Add(ToEntityWire(child));
             }
 
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "tree", ct).ConfigureAwait(false);
             return Results.Ok(new TreeResponse(
                 Container: container.Value,
                 AsOf: at.Value.ToString("O", CultureInfo.InvariantCulture),
                 Path: path.Select(p => p.Value).ToArray(),
-                Children: children.ToArray()));
+                Children: children.ToArray(),
+                AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });
     }
 
@@ -554,9 +558,11 @@ public static class AssetRegistryRoutes
             if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // Same act as the point read, decided for the addressed record before the repository is touched.
+            AuthorizationDecision? accepted = null;
             var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false);
             if (denied is not null)
                 return denied;
@@ -569,7 +575,9 @@ public static class AssetRegistryRoutes
             // is the full history (unchanged).
             var at = asOf is { Length: > 0 } ? ParseInstant(asOf, new Instant(actAuthority.At)) : (Instant?)null;
             var history = await conditions.GetHistoryAsync(tenant, entityId, at, ct).ConfigureAwait(false);
-            return Results.Ok(new ConditionHistoryResponse(entityId.Value, history.Select(ToConditionWire).ToArray()));
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "condition", ct).ConfigureAwait(false);
+            return Results.Ok(new ConditionHistoryResponse(entityId.Value, history.Select(ToConditionWire).ToArray(),
+                AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });
     }
 
@@ -588,9 +596,11 @@ public static class AssetRegistryRoutes
             if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // Same act as the point read, decided for the addressed record before the repository is touched.
+            AuthorizationDecision? accepted = null;
             var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
-                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                    http, actAuthority, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false);
             if (denied is not null)
                 return denied;
@@ -602,8 +612,27 @@ public static class AssetRegistryRoutes
                 return Results.NotFound();
 
             var rows = await submissions.ListForEntityAsync(tenant, entityId, ct).ConfigureAwait(false);
-            return Results.Ok(new SubmissionListResponse(entityId.Value, rows.Select(ToSubmissionWire).ToArray()));
+            var receipt = await RecordSubresourceReadAsync(http, accepted, self.Id.Value, "submissions", ct).ConfigureAwait(false);
+            return Results.Ok(new SubmissionListResponse(entityId.Value, rows.Select(ToSubmissionWire).ToArray(),
+                AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });
+    }
+
+    private static async ValueTask<Guid?> RecordSubresourceReadAsync(
+        HttpContext http, AuthorizationDecision? accepted, string recordId, string subResource, CancellationToken ct)
+    {
+        if (accepted is null || http.RequestServices.GetService<AuthorizedActAudit>() is not { } audit)
+            return null;
+        var receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted,
+            new Dictionary<string, object?> { ["recordId"] = recordId, ["subResource"] = subResource }, ct)
+            .ConfigureAwait(false);
+        if (receipt is { } auditId)
+        {
+            http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
+            if (accepted.Request.CorrelationId is { } correlation)
+                http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+        }
+        return receipt;
     }
 
     // ── POST /edges — add a containment / located-at edge (effective now) ────────────
@@ -1050,17 +1079,23 @@ public static class AssetRegistryRoutes
     public sealed record PropertyFormWire(string Definition, string Version);
 
     /// <summary>The containment tree view for a container at an instant.</summary>
-    public sealed record TreeResponse(string Container, string AsOf, string[] Path, EntityWire[] Children);
+    public sealed record TreeResponse(string Container, string AsOf, string[] Path, EntityWire[] Children,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null);
 
     /// <summary>An entity's condition history.</summary>
-    public sealed record ConditionHistoryResponse(string Entity, ConditionWire[] History);
+    public sealed record ConditionHistoryResponse(string Entity, ConditionWire[] History,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null);
     /// <summary>One condition assessment, with provenance back to the submission field.</summary>
     public sealed record ConditionWire(
         string Id, string Entity, int Grade, int ScaleMax, string? Label, double Normalized,
         string ObservedAt, string? AssessorRef, string? SourceForm, string? SourceField, string? Observations);
 
     /// <summary>The forms submitted into a record (#144 runtime form-fill).</summary>
-    public sealed record SubmissionListResponse(string Entity, SubmissionWire[] Submissions);
+    public sealed record SubmissionListResponse(string Entity, SubmissionWire[] Submissions,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null);
     /// <summary>One form submitted into a record — the linkage that reopens the bound read-only view.</summary>
     public sealed record SubmissionWire(string InstanceId, string FormId, string SubmittedAt, string? AssessorRef);
 
