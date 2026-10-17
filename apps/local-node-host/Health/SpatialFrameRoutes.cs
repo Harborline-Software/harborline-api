@@ -27,7 +27,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <remarks>
 /// <para>
 /// <b>Read-only and tenant-scoped, never node-level existence</b> (0168 D2-A5). Every read resolves
-/// the selected session's tenant, else the active team's; the store's tenant guard means
+/// the selected session's tenant, else the active team's via <c>NodeTenant.Resolve(activeTeam)</c>; the store's tenant guard means
 /// another tenant's frames are simply absent (an opaque 404 / empty list — no cross-tenant
 /// existence signal). Minting stays a substrate act (<c>ISpatialFrameDescriptorStore.MintAsync</c>);
 /// no write is mapped here.
