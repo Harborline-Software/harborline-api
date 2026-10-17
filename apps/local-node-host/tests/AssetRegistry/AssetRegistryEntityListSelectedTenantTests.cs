@@ -143,7 +143,6 @@ public sealed class AssetRegistryEntityListSelectedTenantTests : IAsyncLifetime
     [InlineData(true)]
     public async Task A2_unresolved_selected_cookie_returns_401_without_a_decision_or_repository_read(bool byType)
     {
-        // Authored before the route edit. Pre-change expected-red reasoning is static, not a test run.
         using var request = new HttpRequestMessage(HttpMethod.Get, Route(byType));
         request.Headers.Add("Cookie", "__Host-hl-selected=unresolved");
         using var response = await _client.SendAsync(request);
