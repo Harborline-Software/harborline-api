@@ -8,6 +8,8 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Kernel.Runtime;
+using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.Definitions;
 
 namespace Harborline.Api.Blocks.Workflow.Durable;
 
@@ -143,7 +145,8 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
         var model = WorkflowDefinitionWireMapper.ToModel(authored);
         var provenance = DefinitionAuthorityClassifier.Classify(
             Kind(authority), new TenantId(model.Tenant), model.Envelope.CascadeLayer);
-        var candidate = StampLayer(model, provenance.Layer);
+        var candidate = StampLayer(model, provenance.Layer,
+            stampCurrentContract: authority.AuthorityKind == DefinitionAuthorityKind.Tenant);
         return RegisterCoreAsync(candidate, authored,
             new WorkflowDefinitionRegistrationOptions(authority.Decision.Request.At, WorkflowDefinitionStatus.Published),
             Admission(authority), Target(model), provenance.Owner, authority.AuthorityKind, null, ct);
@@ -444,9 +447,20 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
         gates.AddRange(standings.Select(standing => DeclarativeGateReference.ForStanding(gate, standing)));
     }
 
-    private static WorkflowDefinition StampLayer(WorkflowDefinition model, CascadeLayer layer) => new()
+    private static DefinitionContractVersion CurrentAppContract()
     {
-        Envelope = model.Envelope with { CascadeLayer = layer },
+        var window = PlatformPackageSeed.ContractWindow;
+        return new DefinitionContractVersion(window.Major, window.Minor);
+    }
+
+    private static WorkflowDefinition StampLayer(
+        WorkflowDefinition model, CascadeLayer layer, bool stampCurrentContract = false) => new()
+    {
+        Envelope = model.Envelope with
+        {
+            CascadeLayer = layer,
+            Contract = stampCurrentContract ? CurrentAppContract() : model.Envelope.Contract,
+        },
         Status = model.Status,
         SubjectFormRef = model.SubjectFormRef,
         Mutability = model.Mutability,
