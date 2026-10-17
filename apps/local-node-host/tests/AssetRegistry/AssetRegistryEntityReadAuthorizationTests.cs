@@ -379,8 +379,10 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         var child = Assert.Single(body.GetProperty("children").EnumerateArray());
         Assert.Equal("re_00000000000000000000000002", child.GetProperty("id").GetString());
         Assert.Equal("Selected A child", child.GetProperty("displayName").GetString());
-        Assert.Equal(["re_00000000000000000000000001"],
-            body.GetProperty("path").EnumerateArray().Select(item => item.GetString()).ToArray());
+        IEnumerable<string> expectedPath = new[] { "re_00000000000000000000000001" };
+        var actualPath = body.GetProperty("path").EnumerateArray()
+            .Select(item => Assert.IsType<string>(item.GetString()));
+        Assert.Equal<string>(expectedPath, actualPath);
         Assert.DoesNotContain("Ambient B", body.GetRawText(), StringComparison.Ordinal);
         Assert.Equal(
             ["aaaa0000-0000-0000-0000-0000003580a1", "aaaa0000-0000-0000-0000-0000003580a1"],

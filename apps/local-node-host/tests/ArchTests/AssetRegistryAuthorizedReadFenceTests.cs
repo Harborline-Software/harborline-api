@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Blocks.Assets.Registry.Services;
-using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Audit;
 
