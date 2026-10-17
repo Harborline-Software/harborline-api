@@ -11,7 +11,10 @@ using Harborline.Api.Blocks.Assets.Registry.Services.Spatial;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -24,7 +27,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <remarks>
 /// <para>
 /// <b>Read-only and tenant-scoped, never node-level existence</b> (0168 D2-A5). Every read resolves
-/// the active-team tenant via <c>NodeTenant.Resolve(activeTeam)</c>; the store's tenant guard means
+/// the selected session's tenant, else the active team's via <c>NodeTenant.Resolve(activeTeam)</c>; the store's tenant guard means
 /// another tenant's frames are simply absent (an opaque 404 / empty list — no cross-tenant
 /// existence signal). Minting stays a substrate act (<c>ISpatialFrameDescriptorStore.MintAsync</c>);
 /// no write is mapped here.
@@ -71,7 +74,13 @@ public static class SpatialFrameRoutes
         app.MapGet($"{RouteBase}/{{anchor}}/{{frameCode}}",
             async (string anchor, string frameCode, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct);
             if (denied is not null)
@@ -96,7 +105,13 @@ public static class SpatialFrameRoutes
         app.MapGet($"{RouteBase}/{{anchor}}/{{frameCode}}/{{frameEpoch}}",
             async (string anchor, string frameCode, string frameEpoch, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct);
             if (denied is not null)
@@ -165,7 +180,7 @@ public static class SpatialFrameRoutes
             : null);
 
     // ── Response DTOs (camelCase wire) ────────────────────────────────────────────────
-    /// <summary>Every epoch of one frame series under the active tenant (ascending epoch).</summary>
+    /// <summary>Every epoch of one frame series under the selected session's tenant, else the active team's (ascending epoch).</summary>
     public sealed record FrameSeriesResponse(string Anchor, string FrameCode, FrameWire[] Frames);
 
     /// <summary>One frame descriptor's defining fields. The mint attestation is deliberately
