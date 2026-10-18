@@ -32,6 +32,8 @@ for (const [file, kind] of [
   ['apps/local-node-host/Validation/Check.cs', 'validation'],
   ['packages/foundation/Reflection/Inspector.cs', 'reflection'],
   ['packages/foundation/Normal.cs', 'binary'], ['lib/component.dll', 'binary'],
+  ['_shared/packs/platform/platform-pack.export.json', 'binary'],
+  ['_shared/conformance/packs/platform/platform-pack-1.6.0.export.json', 'binary'],
   ['Directory.Build.targets', 'build-artifact'], ['eng/run-exact-clone.mjs', 'build-artifact'],
   ['.github/workflows/verify.yml', 'build-artifact'], ['artifacts/build.json', 'build-artifact'],
   ['global.json', 'toolchain'], ['NuGet.config', 'toolchain'],
@@ -49,6 +51,14 @@ for (const [file, kind] of [
   assert.equal(plan.changes[0].kind, kind)
   assert.equal(plan.selection, 'focused')
   assert.equal(requireRunnableSelection(plan).project, 'apps/local-node-host/tests/tests.csproj')
+})
+
+test('only pack recipe exports under _shared packs count as binary inputs', () => {
+  for (const file of ['_shared/packs/platform/notes.json', '_shared/conformance/packs/x.export.json.bak', '_shared/other/x.export.json']) {
+    const plan = classifyFocusedModes([{status: 'M', path: file}])
+    assert.equal(plan.changes[0].kind, 'unknown')
+    assert.equal(plan.selection, 'unsupported')
+  }
 })
 
 test('an explicit documentation-only delta omits only the additional early check', () => {
