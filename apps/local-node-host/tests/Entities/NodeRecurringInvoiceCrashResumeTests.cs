@@ -190,13 +190,13 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         Assert.Equal(4, results.Count);
         foreach (var item in bad)
         {
-            var refused = Assert.Single(results.Where(result => result.ScheduleId == item.Id));
+            var refused = Assert.Single(results, result => result.ScheduleId == item.Id);
             Assert.Equal(ScheduleGenerationOutcome.Failed, refused.Outcome);
             Assert.Empty(refused.Invoices);
             Assert.Equal(item.Detail, refused.Error);
             await AssertStoredRefusalUnchangedAsync(item.Id, item.Rule, item.Lookahead);
         }
-        var healthy = Assert.Single(results.Where(result => result.ScheduleId == healthyId));
+        var healthy = Assert.Single(results, result => result.ScheduleId == healthyId);
         Assert.Equal(ScheduleGenerationOutcome.Generated, healthy.Outcome);
         var generated = Assert.Single(healthy.Invoices);
         Assert.Equal(new DateOnly(2026, 1, 1), generated.OccurrenceDate);
@@ -222,13 +222,13 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         Assert.Equal(4, repeated.Count);
         foreach (var item in bad)
         {
-            var refused = Assert.Single(repeated.Where(result => result.ScheduleId == item.Id));
+            var refused = Assert.Single(repeated, result => result.ScheduleId == item.Id);
             Assert.Equal(ScheduleGenerationOutcome.Failed, refused.Outcome);
             Assert.Empty(refused.Invoices);
             Assert.Equal(item.Detail, refused.Error);
             await AssertStoredRefusalUnchangedAsync(item.Id, item.Rule, item.Lookahead);
         }
-        var repeatHealthy = Assert.Single(repeated.Where(result => result.ScheduleId == healthyId));
+        var repeatHealthy = Assert.Single(repeated, result => result.ScheduleId == healthyId);
         Assert.Equal(ScheduleGenerationOutcome.Generated, repeatHealthy.Outcome);
         Assert.Equal(ScheduleGenerationOutcome.AlreadyGenerated, Assert.Single(repeatHealthy.Invoices).Outcome);
         Assert.Equal(1, await CountJournalEntriesAsync());
@@ -304,6 +304,65 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         var original = await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync();
         Assert.Empty(original.GeneratedInvoices);
         Assert.Null(original.LastGeneratedAtUtc);
+    }
+
+    [Fact]
+    public async Task Unrecognized_expansion_failure_propagates_before_create_or_generation_writes()
+    {
+        var failure = new InvalidOperationException("unrecognized-expansion-fault");
+        var expansion = new UnrecognizedExpansion(failure);
+        var service = ServiceWithScheduleFactory(_factory, expansion);
+
+        var create = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateValidCandidateAsync(service));
+        Assert.Same(failure, create);
+        Assert.Equal(1, expansion.Calls);
+        await AssertUnknownExpansionLeftSeedUnchangedAsync();
+
+        var generate = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.GenerateDueInvoicesAsync(ScheduleId, OccurrenceDate, Authority));
+        Assert.Same(failure, generate);
+        Assert.Equal(2, expansion.Calls);
+        await AssertUnknownExpansionLeftSeedUnchangedAsync();
+    }
+
+    private async Task AssertUnknownExpansionLeftSeedUnchangedAsync()
+    {
+        await using var context = await _factory.CreateDbContextAsync();
+        Assert.Equal(1, await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        Assert.Equal(0, await context.Set<Invoice>().IgnoreQueryFilters().CountAsync());
+        Assert.Equal(0, await CountJournalEntriesAsync());
+        var stored = await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal("00000000-0000-0000-0000-0000000000a1", stored.Id.Value);
+        Assert.Equal(LocalTenantId, stored.TenantId);
+        Assert.Equal("CH-1", stored.ChartId.Value);
+        Assert.Equal("customer-1", stored.CustomerId.Value);
+        Assert.Equal("1100", stored.ArAccountId.Value);
+        Assert.Equal("FREQ=DAILY;INTERVAL=1", stored.RecurrenceRule);
+        Assert.Equal(new DateOnly(2026, 3, 1), stored.StartsOn);
+        Assert.Equal((DateOnly?)new DateOnly(2026, 3, 1), stored.EndsOn);
+        Assert.Equal("UTC", stored.Timezone);
+        Assert.Equal(0, stored.LookaheadHorizonDays);
+        Assert.Equal(0, stored.GenerateLeadDays);
+        Assert.Equal(RecurringScheduleStatus.Active, stored.Status);
+        Assert.Empty(stored.GeneratedInvoices);
+        Assert.Null(stored.LastGeneratedAtUtc);
+        var line = Assert.Single(stored.LineTemplates);
+        Assert.Equal("Monthly service", line.Description);
+        Assert.Equal(1m, line.Quantity);
+        Assert.Equal(250m, line.UnitPrice);
+        Assert.Equal("4000", line.IncomeAccountId.Value);
+    }
+
+    private sealed class UnrecognizedExpansion(InvalidOperationException failure) : IRruleExpansionService
+    {
+        public int Calls { get; private set; }
+
+        public IReadOnlyList<DateOnly> ExpandOccurrences(string rrule, DateOnly start, DateOnly? end,
+            int lookaheadDays, int leadDays, DateOnly today, string timezone)
+        {
+            Calls++;
+            throw failure;
+        }
     }
 
     private static RecurringInvoiceSchedule StoredRefusalSchedule(RecurringInvoiceScheduleId id, string rule, int lookahead)
