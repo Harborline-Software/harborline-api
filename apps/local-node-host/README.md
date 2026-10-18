@@ -38,6 +38,24 @@ Stop with `Ctrl+C`. The worker traps cancellation, tears the node host down
 through `Running → Stopping → Stopped`, then unloads plugins in reverse
 topological order.
 
+## Layout pack admission
+
+The shipping host leaves the Layout capability support map empty until an explicit
+support and version contract is approved. A package or platform version alone does
+not declare Layout support. A Layout definition requiring an unavailable capability
+refuses its whole pack with `layout.pack.capability_unsupported`, including mixed
+Layout and navigation packs, new imports, upgrades and same-version reimports.
+Preview and Check report `Refused` with HTTP 200. Install reports HTTP 422 with
+`installed: false`. Refusal preserves installed versions, tenant overrides,
+watermarks, active configuration pointers and projections.
+
+This admission policy does not retroactively quarantine already-installed Layout
+declarations. The default-host preservation tests cover historical Draft Layout;
+they do not prove preservation of a previously Active Layout configuration.
+Malformed-body handling still needs the qualified decoder revision and its exact
+API pin before the missing-`binding_kind` regression can qualify. API429 remains
+held until the Mac lane completes the required validation.
+
 ## Pairing GA gates
 
 Before the first customer seed is created:
