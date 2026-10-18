@@ -278,6 +278,7 @@ public sealed class NodeRecurringScheduleSource : IWorkflowScheduleSource
                 return null;
             }
             var rrule = rruleEl.GetString()!;
+            if (string.IsNullOrWhiteSpace(rrule)) return null;
             var startsOn = root.TryGetProperty("startsOn", out var s) && s.ValueKind == JsonValueKind.String
                 ? DateOnly.ParseExact(s.GetString()!, "yyyy-MM-dd")
                 : DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime);

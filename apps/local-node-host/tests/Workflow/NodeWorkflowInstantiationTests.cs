@@ -273,6 +273,124 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         Assert.Empty(log.Entries);
     }
 
+    [Fact]
+    public async Task Typed_schedule_keeps_exhausted_original_COUNT_when_its_durable_cursor_is_years_later()
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        await SeedScheduleAsync(factory, "SCHED-TYPED-COUNT", "FREQ=DAILY;COUNT=3", new DateOnly(2023, 1, 1), 250m);
+        Assert.Equal(1, await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId,
+            new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+        const string id = "recurring-generation:SCHED-TYPED-COUNT";
+        await store.AdvanceAsync(new WorkflowStepKey(id, 0, "generate@2023-01-01"), null, "{}", "Advanced", "{}",
+            "generate@2026-01-05", WorkflowStatus.Running, new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero));
+
+        // The real setup advance has already written its event and idempotency receipt. The
+        // exhausted 2023 COUNT must add nothing beyond this baseline, even after reopening.
+        var before = (await store.LoadAsync(id))!;
+        Assert.Contains("\"startsOn\":\"2023-01-01\"", before.StateJson, StringComparison.Ordinal);
+        Assert.Equal("generate@2026-01-05", before.CurrentStep);
+        Assert.Equal(0, await CountJournalEntriesAsync(factory));
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            Assert.Equal(1, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == id));
+            Assert.Equal(1, await context.Set<WorkflowEventRecord>().CountAsync(row => row.InstanceId == id));
+        }
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), log);
+        // Resetting DTSTART to the cursor would incorrectly produce Jan5/6/7 instead of zero.
+        Assert.Empty(await source.GetDueTriggersAsync(at));
+        Assert.Empty(log.Entries);
+        await NewRecurringDaemon(factory, store, source, at).TickAsync();
+        Assert.Equal(0, await CountJournalEntriesAsync(factory));
+
+        var reopenedFactory = NewFactory();
+        var reopenedStore = NewStore(reopenedFactory);
+        var reopenedSource = new NodeRecurringScheduleSource(reopenedFactory, new InMemoryRruleExpansionService(), log);
+        Assert.Empty(await reopenedSource.GetDueTriggersAsync(at));
+        await NewRecurringDaemon(reopenedFactory, reopenedStore, reopenedSource, at).TickAsync();
+        Assert.Empty(log.Entries);
+        Assert.Equal(0, await CountJournalEntriesAsync(reopenedFactory));
+        var after = (await reopenedStore.LoadAsync(id))!;
+        Assert.Equal(WorkflowStatus.Running, after.Status);
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
+        Assert.Equal(before.Iteration, after.Iteration);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal(before.DefinitionVersion, after.DefinitionVersion);
+        Assert.Equal(before.CreatedAt, after.CreatedAt);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        await using var fresh = await reopenedFactory.CreateDbContextAsync();
+        Assert.Equal(1, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == id));
+        Assert.Equal(1, await fresh.Set<WorkflowEventRecord>().CountAsync(row => row.InstanceId == id));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n")]
+    public async Task Persisted_blank_typed_rule_is_skipped_while_healthy_monthly_dispatch_survives_reopen(string rule)
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        const string id = "recurring-generation:SCHED-BLANK";
+        // This is malformed legacy persisted state, not a new admitted blank schedule. The
+        // source must skip it before invoking the strict producer, without widening its catches.
+        await store.CreateInstanceAsync(new WorkflowInstanceRecord
+        {
+            Id = id, TenantId = "local", DefinitionKey = RecurringGenerationSteps.DefinitionKey,
+            DefinitionVersion = "v1", CurrentStep = "generate@2026-01-01", Status = WorkflowStatus.Running,
+            StateJson = JsonSerializer.Serialize(new
+            {
+                scheduleId = "SCHED-BLANK", rrule = rule, startsOn = "2026-01-01", timezone = "UTC",
+                amount = 250m, debitAccount = "1100", creditAccount = "4000",
+            }),
+        }, at);
+        await SeedScheduleAsync(factory, "SCHED-BLANK-HEALTHY", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 1, 1), 250m);
+        Assert.Equal(1, await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId, at));
+        var before = (await store.LoadAsync(id))!;
+        Assert.Equal(0, await CountJournalEntriesAsync(factory));
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == id));
+            Assert.Equal(0, await context.Set<WorkflowEventRecord>().CountAsync(row => row.InstanceId == id));
+        }
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), log);
+        var healthy = Assert.Single(await source.GetDueTriggersAsync(at));
+        Assert.Equal("recurring-generation:SCHED-BLANK-HEALTHY", healthy.InstanceId);
+        Assert.Equal("generate@2026-01-01", healthy.Step);
+        Assert.Empty(log.Entries);
+        await NewRecurringDaemon(factory, store, source, at).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(factory));
+
+        var reopenedFactory = NewFactory();
+        var reopenedStore = NewStore(reopenedFactory);
+        var reopenedSource = new NodeRecurringScheduleSource(reopenedFactory, new InMemoryRruleExpansionService(), log);
+        var repeated = Assert.Single(await reopenedSource.GetDueTriggersAsync(at));
+        Assert.Equal("recurring-generation:SCHED-BLANK-HEALTHY", repeated.InstanceId);
+        Assert.Equal("generate@2026-01-01", repeated.Step);
+        await NewRecurringDaemon(reopenedFactory, reopenedStore, reopenedSource, at).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(reopenedFactory));
+        Assert.Empty(log.Entries);
+        var after = (await reopenedStore.LoadAsync(id))!;
+        Assert.Equal(WorkflowStatus.Running, after.Status);
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
+        Assert.Equal(before.Iteration, after.Iteration);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal(before.DefinitionVersion, after.DefinitionVersion);
+        Assert.Equal(before.CreatedAt, after.CreatedAt);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        await using var fresh = await reopenedFactory.CreateDbContextAsync();
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == id));
+        Assert.Equal(0, await fresh.Set<WorkflowEventRecord>().CountAsync(row => row.InstanceId == id));
+        Assert.Equal(1, await fresh.Set<WorkflowStepIdempotencyRecord>()
+            .CountAsync(row => row.InstanceId == "recurring-generation:SCHED-BLANK-HEALTHY"));
+        Assert.Equal(1, await fresh.Set<WorkflowEventRecord>()
+            .CountAsync(row => row.InstanceId == "recurring-generation:SCHED-BLANK-HEALTHY"));
+    }
+
     private static WorkflowScheduleDaemon NewRecurringDaemon(
         IDbContextFactory<LocalNodeDbContext> factory, IWorkflowStore store,
         IWorkflowScheduleSource source, DateTimeOffset at)
