@@ -39,7 +39,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 using NodeOperatorCommand = global::Harborline.Api.NodeOperatorCli.OperatorCli;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Tests.OperatorCli;
 
