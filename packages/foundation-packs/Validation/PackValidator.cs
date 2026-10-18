@@ -77,6 +77,11 @@ public sealed class PackValidator
                 errors.Add(new(PackValidationCodes.ContentKeyMissing, null, "a content ref has a blank key."));
                 continue;
             }
+            if (!IsQualifiedContentKey(reference.Key))
+            {
+                errors.Add(new(PackValidationCodes.ContentKeyUnqualified, reference.Key,
+                    $"content key '{reference.Key}' must have a namespace and nonempty dot or slash segments."));
+            }
             referencedKeys.Add(reference.Key);
             if (!seenRefKeys.Add(reference.Key))
             {
@@ -145,6 +150,10 @@ public sealed class PackValidator
 
         return errors.Count == 0 ? PackValidationResult.Valid : PackValidationResult.Invalid(errors);
     }
+
+    private static bool IsQualifiedContentKey(string key)
+        => key.IndexOfAny(['.', '/']) >= 0
+           && key.Split(['.', '/']).All(segment => !string.IsNullOrWhiteSpace(segment));
 
     /// <summary>Whether a pack coordinate uses the manifest's exact pinned version grammar.</summary>
     public static bool IsPinned(string? version)

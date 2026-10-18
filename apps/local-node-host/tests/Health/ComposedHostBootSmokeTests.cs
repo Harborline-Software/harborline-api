@@ -171,7 +171,7 @@ public sealed partial class ComposedHostBootSmokeTests
                 {
                     new
                     {
-                        key = "chrome",
+                        key = "fixtures.chrome",
                         kind = "NavWorkspaceConfig",
                         version = "1.0.0",
                         content = new
@@ -331,7 +331,7 @@ public sealed partial class ComposedHostBootSmokeTests
 
     private static PackComposedItem RoleBearingNavigation(string packageKey) => new(
         packageKey,
-        "chrome",
+        "fixtures.chrome",
         PackContentKind.NavWorkspaceConfig,
         "1.0.0",
         """

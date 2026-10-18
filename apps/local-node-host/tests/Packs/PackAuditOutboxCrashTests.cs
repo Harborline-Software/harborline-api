@@ -412,7 +412,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         await AssertOwedAndUndeliveredAsync("Narrowed");
         await using var restarted = _harness.Reopen();
         var stored = Assert.Single(new DurablePackInstallStore(restarted.Store.PacksFactory).GetOverrides(Tenant, PackKey));
-        Assert.Equal(("t1048-form", "{\"title\":null}"), (stored.ContentKey, stored.OverlayPatch.ToJsonString()));
+        Assert.Equal(("fixtures.t1048-form", "{\"title\":null}"), (stored.ContentKey, stored.OverlayPatch.ToJsonString()));
         await AssertDeliveredOnceAsync(restarted, "Narrowed");
     }
 
@@ -440,7 +440,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
     }
 
     private Task<PackNarrowingOutcome> NarrowAsync() => _installer.NarrowAsync(
-        Context(), PackKey, "t1048-form", JsonNode.Parse("""{"title":null}""")!,
+        Context(), PackKey, "fixtures.t1048-form", JsonNode.Parse("""{"title":null}""")!,
         TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
 
     private (DurablePackInstallStore Store, PackInstaller Installer) Compose(DurableAuditHarness harness, IPackProjectionDispatcher? projector)
@@ -525,7 +525,7 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         var export = await exporter.ExportAsync(new PackExportRequest(
             PackKey, "1.0.0", "T-1048 audit outbox", "Audit outbox fixture",
             PackScopeTier.Horizontal,
-            [new PackContentSource("t1048-form", PackContentKind.FormDefinition, "1.0.0", new JsonObject { ["title"] = "t1048" })],
+            [new PackContentSource("fixtures.t1048-form", PackContentKind.FormDefinition, "1.0.0", new JsonObject { ["title"] = "t1048" })],
             Array.Empty<PackDependencyRef>(),
             Array.Empty<string>(),
             1,

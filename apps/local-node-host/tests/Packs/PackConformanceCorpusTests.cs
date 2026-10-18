@@ -1,5 +1,6 @@
 using Harborline.Api.Foundation.Authorization;
 using System.Text.Json;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -172,6 +173,31 @@ public sealed class PackConformanceCorpusTests
         throw new InvalidOperationException("Harborline.Api.slnx was not found above the test output directory.");
     }
 
+    [Theory]
+    [InlineData("1.3.0", "ef1308048dfc3553a912594ca3e9133222905581b64a315d709a743a3f24e1c4")]
+    [InlineData("1.6.0", "7717911ff08ed71c8b51d2f2a59a633d147eef5934ffde0c6a5e8de22c456919")]
+    public async Task Exact_legacy_platform_recipes_remain_real_verified_signed_inputs(string version, string digest)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Conformance", "Packs", "platform",
+            $"platform-pack-{version}.export.json");
+        var recipe = await File.ReadAllBytesAsync(path);
+        Assert.Equal(digest, Convert.ToHexStringLower(SHA256.HashData(recipe)));
+        using var key = KeyPair.Generate();
+        var codec = new PackFileCodec();
+        var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()),
+            new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
+        var bytes = await ExportAsync(exporter, path, key);
+        var verification = new PackVerifier(new Ed25519Verifier(), codec).Verify(bytes,
+            new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, key.PrincipalId, 1, TrustRootStatus.Current)]));
+        Assert.Equal("Verified", verification.Verdict.ToString());
+        var manifest = Assert.IsType<PackManifest>(verification.Manifest);
+        Assert.Equal("harborline.platform", manifest.Key);
+        Assert.Equal(version, manifest.Version);
+        Assert.Contains(manifest.Contents, item => item.Key == "FormDefinition" && item.Kind == PackContentKind.RecordType);
+        Assert.Equal(recipe, await File.ReadAllBytesAsync(path));
+    }
+
     private static IReadOnlyList<CorpusCase> EnumerateCases(string directory, bool requiresExpectedReason)
     {
         Assert.True(Directory.Exists(directory), $"Pack conformance directory is missing: '{directory}'.");
@@ -242,6 +268,9 @@ public sealed class PackConformanceCorpusTests
 
     private static async Task<byte[]> ExportAsync(PackExporter exporter, string path, KeyPair keyPair)
     {
+        if (Path.GetFileName(path) is "platform-pack-1.3.0.export.json" or "platform-pack-1.6.0.export.json")
+            return await LegacyPackFixtureSigner.SignPlatformSnapshotAsync(
+                await File.ReadAllBytesAsync(path), new Ed25519Signer(keyPair));
         var request = ReadRequest(path);
         var outcome = await exporter.ExportAsync(request, new Ed25519Signer(keyPair));
         Assert.True(outcome.Succeeded,

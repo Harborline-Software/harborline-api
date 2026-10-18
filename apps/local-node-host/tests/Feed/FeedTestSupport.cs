@@ -89,7 +89,7 @@ internal static class FeedTestBuilder
             Name: "Node Test Welcome",
             Description: "A tiny nav config for the node update-feed client tests.",
             ScopeTier: PackScopeTier.Horizontal,
-            Contents: [new PackContentSource("welcome-nav", PackContentKind.NavWorkspaceConfig, "0.1.0", content)],
+            Contents: [new PackContentSource("fixtures.welcome-nav", PackContentKind.NavWorkspaceConfig, "0.1.0", content)],
             Dependencies: Array.Empty<PackDependencyRef>(),
             CapabilityRequirements: Array.Empty<string>(),
             Epoch: PublisherEpoch,

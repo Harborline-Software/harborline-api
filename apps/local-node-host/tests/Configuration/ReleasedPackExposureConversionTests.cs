@@ -163,14 +163,14 @@ public sealed class ReleasedPackExposureConversionTests
         {
           "packageKey": "tenant.release", "revision": "2.0.0",
           "closure": { "dependencies": [] },
-          "exposes": ["alpha", "zeta"], "interfaceVersion": 3,
+          "exposes": ["release.alpha", "release.zeta"], "interfaceVersion": 3,
           "items": [
             { "content": { "classification": "present", "payload": {
-              "definitionKey": "alpha", "packageKey": "tenant.release",
+              "definitionKey": "release.alpha", "packageKey": "tenant.release",
               "contentKind": "FormDefinition", "body": { "title": "Alpha" }
             } } },
             { "content": { "classification": "present", "payload": {
-              "definitionKey": "zeta", "packageKey": "tenant.release",
+              "definitionKey": "release.zeta", "packageKey": "tenant.release",
               "contentKind": "AssetTypeDefinition", "body": { "title": "Zeta" }
             } } }
           ]
@@ -225,19 +225,19 @@ public sealed class ReleasedPackExposureConversionTests
     {
         var converted = ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(OwnedExposure), "fixture-principal");
         var request = Assert.IsType<PackExportRequest>(converted.Request);
-        Assert.Equal(new[] { "alpha", "zeta" }, request.Exposes);
+        Assert.Equal(new[] { "release.alpha", "release.zeta" }, request.Exposes);
         Assert.Equal(3, request.InterfaceVersion);
         Assert.Empty(converted.ForeignEdits);
         Assert.Empty(request.Dependencies);
         Assert.Collection(request.Contents,
             alpha =>
             {
-                Assert.Equal(("alpha", PackContentKind.FormDefinition, "2.0.0"), (alpha.Key, alpha.Kind, alpha.Version));
+                Assert.Equal(("release.alpha", PackContentKind.FormDefinition, "2.0.0"), (alpha.Key, alpha.Kind, alpha.Version));
                 Assert.Equal("Alpha", alpha.Content["title"]!.GetValue<string>());
             },
             zeta =>
             {
-                Assert.Equal(("zeta", PackContentKind.AssetTypeDefinition, "2.0.0"), (zeta.Key, zeta.Kind, zeta.Version));
+                Assert.Equal(("release.zeta", PackContentKind.AssetTypeDefinition, "2.0.0"), (zeta.Key, zeta.Kind, zeta.Version));
                 Assert.Equal("Zeta", zeta.Content["title"]!.GetValue<string>());
             });
     }
@@ -245,9 +245,9 @@ public sealed class ReleasedPackExposureConversionTests
     [Fact]
     public void Provided_order_is_preserved_without_renaming_keys()
     {
-        var document = OwnedExposure.Replace("[\"alpha\", \"zeta\"]", "[\"zeta\", \"alpha\"]", StringComparison.Ordinal);
+        var document = OwnedExposure.Replace("[\"release.alpha\", \"release.zeta\"]", "[\"release.zeta\", \"release.alpha\"]", StringComparison.Ordinal);
         var request = ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(document), "fixture-principal").Request!;
-        Assert.Equal(new[] { "zeta", "alpha" }, request.Exposes);
+        Assert.Equal(new[] { "release.zeta", "release.alpha" }, request.Exposes);
         Assert.Equal(3, request.InterfaceVersion);
     }
 
@@ -260,7 +260,7 @@ public sealed class ReleasedPackExposureConversionTests
         document["interfaceVersion"] = version;
         var request = ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(document.ToJsonString()), "fixture-principal").Request!;
         Assert.Equal(version, request.InterfaceVersion);
-        Assert.Equal(new[] { "alpha", "zeta" }, request.Exposes);
+        Assert.Equal(new[] { "release.alpha", "release.zeta" }, request.Exposes);
     }
 
     [Fact]
@@ -275,33 +275,33 @@ public sealed class ReleasedPackExposureConversionTests
     }
 
     [Theory]
-    [InlineData("\"exposes\":[\"alpha\"]", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"]", "interfaceVersion")]
     [InlineData("\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":null,\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":{},\"interfaceVersion\":3", "exposes")]
-    [InlineData("\"exposes\":\"alpha\",\"interfaceVersion\":3", "exposes")]
+    [InlineData("\"exposes\":\"release.alpha\",\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[null],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[1],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[\"\"],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[\" \"],\"interfaceVersion\":3", "exposes")]
-    [InlineData("\"exposes\":[\"alpha\",\"alpha\"],\"interfaceVersion\":3", "exposes")]
+    [InlineData("\"exposes\":[\"release.alpha\",\"release.alpha\"],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":[\"missing\"],\"interfaceVersion\":3", "exposes")]
-    [InlineData("\"exposes\":[\"ALPHA\"],\"interfaceVersion\":3", "exposes")]
-    [InlineData("\"exposes\":[\" alpha \"],\"interfaceVersion\":3", "exposes")]
+    [InlineData("\"exposes\":[\"RELEASE.ALPHA\"],\"interfaceVersion\":3", "exposes")]
+    [InlineData("\"exposes\":[\" release.alpha \"],\"interfaceVersion\":3", "exposes")]
     [InlineData("\"exposes\":null,\"interfaceVersion\":null", "exposes")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":null", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":\"3\"", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":true", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":{}", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":[]", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":1.5", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":0", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":-1", "interfaceVersion")]
-    [InlineData("\"exposes\":[\"alpha\"],\"interfaceVersion\":2147483648", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":null", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":\"3\"", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":true", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":{}", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":[]", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":1.5", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":0", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":-1", "interfaceVersion")]
+    [InlineData("\"exposes\":[\"release.alpha\"],\"interfaceVersion\":2147483648", "interfaceVersion")]
     public void Malformed_exposure_refuses_before_export(string assertion, string target)
     {
-        var document = OwnedExposure.Replace("\"exposes\": [\"alpha\", \"zeta\"], \"interfaceVersion\": 3", assertion, StringComparison.Ordinal);
+        var document = OwnedExposure.Replace("\"exposes\": [\"release.alpha\", \"release.zeta\"], \"interfaceVersion\": 3", assertion, StringComparison.Ordinal);
         var refused = Assert.Throws<ReleasedPackConversionException>(() =>
             ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(document), "fixture-principal"));
         Assert.Equal("configuration-release-document-malformed", refused.Code);
@@ -332,7 +332,7 @@ public sealed class ReleasedPackExposureConversionTests
         Assert.NotNull(verified.Manifest);
         if (exposes)
         {
-            Assert.Equal(new[] { "alpha", "zeta" }, verified.Manifest.Exposes);
+            Assert.Equal(new[] { "release.alpha", "release.zeta" }, verified.Manifest.Exposes);
             Assert.Equal(3, verified.Manifest.InterfaceVersion);
         }
         else

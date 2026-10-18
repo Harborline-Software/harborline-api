@@ -49,7 +49,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = new ReportDefinition
         {
-            Key = "compliance-controls",
+            Key = "fixtures.compliance-controls",
             Version = "2.3.4",
             Tenant = tenantValue,
             SchemaVersion = 1,
@@ -106,7 +106,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = new ReportDefinition
         {
-            Key = "regional-operations",
+            Key = "fixtures.regional-operations",
             Version = "3.2.1",
             Tenant = tenantValue,
             SchemaVersion = 1,
@@ -139,7 +139,7 @@ public sealed class ReportDefinitionPackProjectionTests
 
         var summary = await projector.ProjectActivePacksAsync(tenant);
         var readBack = await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "regional-operations", "3.2.1", CancellationToken.None);
+            tenant.Value, "fixtures.regional-operations", "3.2.1", CancellationToken.None);
 
         Assert.Empty(summary.Refusals);
         Assert.NotNull(readBack);
@@ -154,7 +154,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "payload-report-key",
+            "fixtures.payload-report-key",
             "1.4.0",
             "Payload report title");
         var store = new InMemoryPackInstallStore();
@@ -162,7 +162,7 @@ public sealed class ReportDefinitionPackProjectionTests
         await InstallAndActivatePackAsync(
             store,
             tenant,
-            "content-item-key",
+            "fixtures.content-item-key",
             "1.4.0",
             JsonSerializer.SerializeToNode(definition)!,
             TrustScope.OwnRoster,
@@ -185,9 +185,9 @@ public sealed class ReportDefinitionPackProjectionTests
         Assert.Equal(PackContentKind.ReportDefinition, refusal.ContentKind);
         Assert.Equal("pack.report-definition.malformed", refusal.Code);
         Assert.Null(await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "content-item-key", "1.4.0", CancellationToken.None));
+            tenant.Value, "fixtures.content-item-key", "1.4.0", CancellationToken.None));
         Assert.Null(await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "payload-report-key", "1.4.0", CancellationToken.None));
+            tenant.Value, "fixtures.payload-report-key", "1.4.0", CancellationToken.None));
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "unwired-report",
+            "fixtures.unwired-report",
             "1.0.0",
             "Unwired report");
         var store = new InMemoryPackInstallStore();
@@ -233,12 +233,12 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var original = CreateCivilianDefinition(
             tenantValue,
-            "monthly-operations",
+            "fixtures.monthly-operations",
             "3.2.1",
             "Original title");
         var conflicting = CreateCivilianDefinition(
             tenantValue,
-            "monthly-operations",
+            "fixtures.monthly-operations",
             "3.2.1",
             "Conflicting title");
         var store = new InMemoryPackInstallStore();
@@ -287,7 +287,7 @@ public sealed class ReportDefinitionPackProjectionTests
         Assert.Equal(PackContentKind.ReportDefinition, refusal.ContentKind);
         Assert.Equal("pack.report-definition.pinned_tuple_conflict", refusal.Code);
         var readBack = await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "monthly-operations", "3.2.1", CancellationToken.None);
+            tenant.Value, "fixtures.monthly-operations", "3.2.1", CancellationToken.None);
         Assert.NotNull(readBack);
         Assert.Equal("Original title", readBack.Title);
     }
@@ -299,7 +299,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "daily-inventory",
+            "fixtures.daily-inventory",
             "4.1.2",
             "Daily inventory");
         var store = new InMemoryPackInstallStore();
@@ -327,7 +327,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var firstSummary = await projector.ProjectActivePacksAsync(tenant);
         var secondSummary = await projector.ProjectActivePacksAsync(tenant);
         var readBack = await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "daily-inventory", "4.1.2", CancellationToken.None);
+            tenant.Value, "fixtures.daily-inventory", "4.1.2", CancellationToken.None);
 
         Assert.Empty(firstSummary.Refusals);
         Assert.Empty(secondSummary.Refusals);
@@ -345,7 +345,7 @@ public sealed class ReportDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "unknown-kind-report",
+            "fixtures.unknown-kind-report",
             "1.0.0",
             "Unknown kind report",
             reportKind: "reports.unknown/not-registered");
@@ -379,7 +379,7 @@ public sealed class ReportDefinitionPackProjectionTests
         // family; only registry pinned-tuple governance maps to pinned_tuple_conflict.
         Assert.Equal("pack.report-definition.malformed", refusal.Code);
         Assert.Null(await reportDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "unknown-kind-report", "1.0.0", CancellationToken.None));
+            tenant.Value, "fixtures.unknown-kind-report", "1.0.0", CancellationToken.None));
     }
 
     private static ReportDefinition CreateCivilianDefinition(

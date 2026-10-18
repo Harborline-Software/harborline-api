@@ -284,7 +284,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         var delayed = new PackInstaller(new PausedVerifier(verifier, entered, release), store,
             new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.Gate(_ => true));
         var candidate = await PackAsync("1.0.0");
-        var other = await PackAsync("1.0.0", "test.other", "other-form");
+        var other = await PackAsync("1.0.0", "test.other", "fixtures.other-form");
         var pending = Task.Run(() => delayed.InstallAsync(candidate, Context()));
         try
         {
@@ -333,11 +333,11 @@ public sealed class PackInstallPipelineTests : IDisposable
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
-            if (ownership) mutations.RecordKeyOwnership(Tenant, "s5c-form", PackKey);
+            if (ownership) mutations.RecordKeyOwnership(Tenant, "fixtures.s5c-form", PackKey);
             else
             {
                 var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now);
-                Assert.True((await immediate.NarrowAsync(Context(), PackKey, "s5c-form",
+                Assert.True((await immediate.NarrowAsync(Context(), PackKey, "fixtures.s5c-form",
                     new JsonObject { ["title"] = null }, decision)).Recorded);
             }
         }
@@ -348,7 +348,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Equal(["pack.install.refused.installed_state_changed"], refused.RefusalCodes);
         Assert.Null(store.GetVersion(Tenant, PackKey, "2.0.0"));
         Assert.Equal("1.0.0", store.GetWatermark(Tenant, PackKey)!.Version);
-        if (ownership) Assert.Equal("test.s5c", store.GetKeyOwnership(Tenant)["s5c-form"]);
+        if (ownership) Assert.Equal("test.s5c", store.GetKeyOwnership(Tenant)["fixtures.s5c-form"]);
         else Assert.Equal("{\"title\":null}", Assert.Single(store.GetOverrides(Tenant, PackKey)).OverlayPatch.ToJsonString());
         Assert.DoesNotContain(audit.Query(Tenant), row => row.Version == "2.0.0"
             && row.Action is PackInstallAuditAction.Upgraded or PackInstallAuditAction.BreakGlassOverride);
@@ -416,11 +416,11 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() => _installer.ActivateAsync(null!, PackKey, "1.0.0"))).ParamName);
         Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() => _installer.DeactivateAsync(null!, PackKey, "1.0.0"))).ParamName);
         Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            _installer.NarrowAsync(null!, PackKey, "s5c-form", patch, decision))).ParamName);
+            _installer.NarrowAsync(null!, PackKey, "fixtures.s5c-form", patch, decision))).ParamName);
         Assert.Equal("overlayPatch", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            _installer.NarrowAsync(Context(), PackKey, "s5c-form", null!, decision))).ParamName);
+            _installer.NarrowAsync(Context(), PackKey, "fixtures.s5c-form", null!, decision))).ParamName);
         Assert.Equal("decision", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            _installer.NarrowAsync(Context(), PackKey, "s5c-form", patch, null!))).ParamName);
+            _installer.NarrowAsync(Context(), PackKey, "fixtures.s5c-form", patch, null!))).ParamName);
 
         Assert.Empty(_stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
@@ -557,7 +557,7 @@ public sealed class PackInstallPipelineTests : IDisposable
         new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, _keys.PrincipalId, 1, TrustRootStatus.Current)]),
         PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(Now), TimeSpan.FromDays(30), Principal: "test-operator");
 
-    private async Task<byte[]> PackAsync(string version, string packKey = PackKey, string contentKey = "s5c-form")
+    private async Task<byte[]> PackAsync(string version, string packKey = PackKey, string contentKey = "fixtures.s5c-form")
     {
         var exporter = new PackExporter(
             new PackContentCanonicalizer(),

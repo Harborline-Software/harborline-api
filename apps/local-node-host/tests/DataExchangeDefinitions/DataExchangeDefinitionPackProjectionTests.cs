@@ -47,7 +47,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = new DataExchangeDefinition
         {
-            Key = "compliance-controls",
+            Key = "fixtures.compliance-controls",
             Version = "2.3.4",
             Tenant = tenantValue,
             SchemaVersion = 1,
@@ -100,7 +100,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = new DataExchangeDefinition
         {
-            Key = "regional-operations",
+            Key = "fixtures.regional-operations",
             Version = "3.2.1",
             Tenant = tenantValue,
             SchemaVersion = 1,
@@ -132,7 +132,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
 
         var summary = await projector.ProjectActivePacksAsync(tenant);
         var readBack = await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "regional-operations", "3.2.1", CancellationToken.None);
+            tenant.Value, "fixtures.regional-operations", "3.2.1", CancellationToken.None);
 
         Assert.Empty(summary.Refusals);
         Assert.NotNull(readBack);
@@ -147,7 +147,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "payload-exchange-key",
+            "fixtures.payload-exchange-key",
             "1.4.0",
             "Payload exchange title");
         var store = new InMemoryPackInstallStore();
@@ -155,7 +155,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         await InstallAndActivatePackAsync(
             store,
             tenant,
-            "content-item-key",
+            "fixtures.content-item-key",
             "1.4.0",
             JsonSerializer.SerializeToNode(definition)!,
             TrustScope.OwnRoster,
@@ -177,9 +177,9 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         Assert.Equal(PackContentKind.DataExchangeDefinition, refusal.ContentKind);
         Assert.Equal("pack.data-exchange-definition.malformed", refusal.Code);
         Assert.Null(await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "content-item-key", "1.4.0", CancellationToken.None));
+            tenant.Value, "fixtures.content-item-key", "1.4.0", CancellationToken.None));
         Assert.Null(await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "payload-exchange-key", "1.4.0", CancellationToken.None));
+            tenant.Value, "fixtures.payload-exchange-key", "1.4.0", CancellationToken.None));
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "unwired-exchange",
+            "fixtures.unwired-exchange",
             "1.0.0",
             "Unwired exchange");
         var store = new InMemoryPackInstallStore();
@@ -225,12 +225,12 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var original = CreateCivilianDefinition(
             tenantValue,
-            "monthly-operations",
+            "fixtures.monthly-operations",
             "3.2.1",
             "Original title");
         var conflicting = CreateCivilianDefinition(
             tenantValue,
-            "monthly-operations",
+            "fixtures.monthly-operations",
             "3.2.1",
             "Conflicting title");
         var store = new InMemoryPackInstallStore();
@@ -278,7 +278,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         Assert.Equal(PackContentKind.DataExchangeDefinition, refusal.ContentKind);
         Assert.Equal("pack.data-exchange-definition.pinned_tuple_conflict", refusal.Code);
         var readBack = await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "monthly-operations", "3.2.1", CancellationToken.None);
+            tenant.Value, "fixtures.monthly-operations", "3.2.1", CancellationToken.None);
         Assert.NotNull(readBack);
         Assert.Equal("Original title", readBack.Title);
     }
@@ -290,7 +290,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "daily-inventory",
+            "fixtures.daily-inventory",
             "4.1.2",
             "Daily inventory");
         var store = new InMemoryPackInstallStore();
@@ -317,7 +317,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var firstSummary = await projector.ProjectActivePacksAsync(tenant);
         var secondSummary = await projector.ProjectActivePacksAsync(tenant);
         var readBack = await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "daily-inventory", "4.1.2", CancellationToken.None);
+            tenant.Value, "fixtures.daily-inventory", "4.1.2", CancellationToken.None);
 
         Assert.Empty(firstSummary.Refusals);
         Assert.Empty(secondSummary.Refusals);
@@ -333,7 +333,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         var tenant = new TenantId(tenantValue);
         var definition = CreateCivilianDefinition(
             tenantValue,
-            "unknown-kind-exchange",
+            "fixtures.unknown-kind-exchange",
             "1.0.0",
             "Unknown kind exchange",
             exchangeKind: "banking.statement-import/not-registered");
@@ -366,7 +366,7 @@ public sealed class DataExchangeDefinitionPackProjectionTests
         // family; only registry pinned-tuple governance maps to pinned_tuple_conflict.
         Assert.Equal("pack.data-exchange-definition.malformed", refusal.Code);
         Assert.Null(await dataExchangeDefinitionRegistry.GetDefinitionAsync(
-            tenant.Value, "unknown-kind-exchange", "1.0.0", CancellationToken.None));
+            tenant.Value, "fixtures.unknown-kind-exchange", "1.0.0", CancellationToken.None));
     }
 
     private static DataExchangeDefinition CreateCivilianDefinition(

@@ -208,7 +208,7 @@ public sealed class ReleasedEnvelopeInterfaceRequirementTests : IAsyncLifetime
         Seed(FinanceKey, "1.0.0", 1, ["forms/invoice"], ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
         return AssertReleaseActivationRefusedAsync("proposal-615-mismatch",
             """{"title":"Alpha","envelope":{"requires":[{"capability":"acme.finance@2"}]}}""",
-            "pack.install.activate.unmet_interface_requirement: interface requirement 'acme.finance@2' declared by 'alpha' is not exposed by any active pack.");
+            "pack.install.activate.unmet_interface_requirement: interface requirement 'acme.finance@2' declared by 'release.alpha' is not exposed by any active pack.");
     }
 
     /// <summary>The unrevised provider shape of ReleasedPackProducerExposureIntegrationTests control 2:
@@ -219,7 +219,7 @@ public sealed class ReleasedEnvelopeInterfaceRequirementTests : IAsyncLifetime
         Seed(FinanceKey, "1.0.0", null, null, ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
         return AssertReleaseActivationRefusedAsync("proposal-615-undeclared",
             """{"title":"Alpha","envelope":{"requires":[{"capability":"acme.finance@1"}]}}""",
-            "pack.install.activate.unmet_interface_requirement: interface requirement 'acme.finance@1' declared by 'alpha' is not exposed by any active pack.");
+            "pack.install.activate.unmet_interface_requirement: interface requirement 'acme.finance@1' declared by 'release.alpha' is not exposed by any active pack.");
     }
 
     private async Task AssertActivationRefusedAsync(string body, string detail)
@@ -305,7 +305,7 @@ public sealed class ReleasedEnvelopeInterfaceRequirementTests : IAsyncLifetime
         using (var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId }))
             Assert.Equal(HttpStatusCode.OK, started.StatusCode);
         using (var edited = await _client.PutAsJsonAsync($"{proposal}/edits",
-            new { definitionKey = "alpha", packageKey = ReleaseKey, bodyJson = body, contentKind = AssetKind }))
+            new { definitionKey = "release.alpha", packageKey = ReleaseKey, bodyJson = body, contentKind = AssetKind }))
             Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
         using (var saved = await _client.PostAsJsonAsync($"{proposal}/versions", new { rationale = "Require an interface." }))
             Assert.Equal(HttpStatusCode.OK, saved.StatusCode);

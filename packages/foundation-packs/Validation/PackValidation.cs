@@ -16,6 +16,8 @@ public static class PackValidationCodes
     public const string ManifestVersionUnpinned = "pack.validation.manifest.version.unpinned";
     /// <summary>A content ref has a missing/blank key.</summary>
     public const string ContentKeyMissing = "pack.validation.content.key.missing";
+    /// <summary>A nonblank content key has no namespace or has an empty namespace segment.</summary>
+    public const string ContentKeyUnqualified = "pack.validation.content.key.unqualified";
     /// <summary>Two content items share the same key.</summary>
     public const string ContentKeyDuplicate = "pack.validation.content.key.duplicate";
     /// <summary>A content ref's version is missing or not a valid pinned semantic version.</summary>

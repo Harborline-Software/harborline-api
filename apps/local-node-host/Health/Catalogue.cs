@@ -118,7 +118,10 @@ public sealed record SystemRecordType(
         var carried = new Dictionary<string, PackSeedItem>(StringComparer.Ordinal);
         foreach (var item in platform.SeedItems.Where(item => item.Kind == PackContentKind.RecordType))
         {
-            if (!carried.TryAdd(item.Key, item))
+            if (string.IsNullOrWhiteSpace(item.Key)
+                || !PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor)
+                || !PackSealedSystemTypeAdmission.IsCanonicalCatalogueKey(item.Key, descriptor!)
+                || !carried.TryAdd(descriptor!.Name, item))
                 return Array.Empty<SystemRecordType>();
         }
 

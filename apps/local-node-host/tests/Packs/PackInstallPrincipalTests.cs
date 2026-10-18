@@ -182,7 +182,7 @@ public sealed class PackInstallPrincipalTests
                 Contents:
                 [
                     new PackContentSource(
-                        "principal-test-form",
+                        "fixtures.principal-test-form",
                         PackContentKind.FormDefinition,
                         "1.0.0",
                         new JsonObject { ["title"] = "principal test" }),

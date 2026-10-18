@@ -6,7 +6,7 @@
   "scopeTier": "Vertical",
   "contents": [
     {
-      "key": "content",
+      "key": "fixtures.content",
       "kind": "StandardsCatalog",
       "version": "1.0.0",
       "content": {}
