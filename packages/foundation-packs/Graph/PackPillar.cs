@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Packs.Graph;
 
@@ -74,26 +75,19 @@ public enum PackPillar
 public static class PackPillarMap
 {
     /// <summary>The customer pillar a content kind groups under (design note §2.1).</summary>
-    public static PackPillar ForKind(PackContentKind kind) => kind switch
+    public static PackPillar ForKind(PackContentKind kind)
     {
-        PackContentKind.AssetTypeDefinition => PackPillar.Records,
-        PackContentKind.FormDefinition => PackPillar.Forms,
-        PackContentKind.WorkflowDefinition => PackPillar.Automations,
-        PackContentKind.NavWorkspaceConfig => PackPillar.Navigation,
-        PackContentKind.StandardsCatalog => PackPillar.Rules,
-        PackContentKind.StandingRuleDefinition => PackPillar.Rules,
-        PackContentKind.CascadeDefaults => PackPillar.Settings,
-        PackContentKind.TerminologyOverride => PackPillar.Settings,
-        PackContentKind.TemplateDefinition => PackPillar.Documents,
-        PackContentKind.TaxonomyDefinition => PackPillar.Taxonomy,
-        PackContentKind.ReportDefinition => PackPillar.Reports,
-        PackContentKind.DataExchangeDefinition => PackPillar.DataExchange,
-        PackContentKind.Layout => PackPillar.Layout,
-        PackContentKind.Resource or PackContentKind.Bookable => PackPillar.Booking,
-        PackContentKind.ScheduleDefinition => PackPillar.Scheduling,
-        PackContentKind.ViewDefinition => PackPillar.Views,
-        _ => PackPillar.Other,
-    };
+        foreach (var registeredKind in PackContentKindRegistry.Kinds)
+        {
+            if (registeredKind.Status == PackContentKindStatus.Shipped
+                && registeredKind.Value == (int)kind)
+            {
+                return (PackPillar)PackContentKindRegistry.PillarOf(registeredKind.Name).Value;
+            }
+        }
+
+        return PackPillar.Other;
+    }
 
     /// <summary>
     /// The domain-generic customer noun TOKEN for a content kind ("recordType", "form", "automation", …) —
