@@ -243,9 +243,11 @@ public sealed class ReportCliPackRoundTripTests
         {
             Key = "acme.cli-reports/trial-balance",
             Version = "1.0.0",
-            Tenant = "11111111-1111-1111-1111-111111111111",
+            // Authored under a foreign tenant so the stored-tenant oracles only pass if projection
+            // re-scopes the definition to the installing tenant.
+            Tenant = ForeignTenant,
             Envelope = new(
-                "acme.cli-reports/trial-balance", "1.0.0", "11111111-1111-1111-1111-111111111111",
+                "acme.cli-reports/trial-balance", "1.0.0", ForeignTenant,
                 CascadeLayer.Tenant, provenance.RootElement.Clone(), [], new(1, 0)),
             SchemaVersion = 1,
             ReportKind = "trial-balance",
