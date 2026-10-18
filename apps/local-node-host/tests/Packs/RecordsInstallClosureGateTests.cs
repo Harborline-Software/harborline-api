@@ -35,7 +35,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// <remarks>
 /// Oracles: the refusal codes and pointers are literals from the Platform Records install gate contract at Platform
 /// 2c7bef291c6f5adc6d4a7a68885bb7627f20d68c (RecordTypeDefinitionStore.InstallEdges, records-ck-41). Every one of them
-/// is still emitted at the API's current Platform pin c3df8c33b8de2812c8a72f5ec40e2df73c656062, but that pin's install
+/// is still emitted at Platform c3df8c33b8de2812c8a72f5ec40e2df73c656062 and at the current pin 5ec3cf53, but that install
 /// vocabulary is larger: Platform PR 279 adds records.creation_role.required and records.creation_role.unexpected
 /// (structural, every phase but Author) and records.creation_role.unknown (the install edge for a role gate with no
 /// role vocabulary). The API does not publish those three, so they refuse under the fail-closed
