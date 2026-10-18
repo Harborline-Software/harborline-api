@@ -147,6 +147,7 @@ public static class PackComposerRoutes
                 Dependencies: dependencies,
                 CapabilityRequirements: request.CapabilityRequirements ?? Array.Empty<string>(),
                 Epoch: OwnRosterEpoch,
+                RenamedFrom: request.RenamedFrom,
                 ProviderSlot: string.IsNullOrWhiteSpace(request.ProviderSlot) ? null : request.ProviderSlot.Trim(),
                 Dcp: dcp,
                 Exposes: request.Exposes,
@@ -309,6 +310,7 @@ public static class PackComposerRoutes
 // ── Wire DTOs (local to the route) ─────────────────────────────────────────────
 
 /// <summary>The export request body.</summary>
+/// <remarks>RenamedFrom maps each new content key to its old key; omission preserves null.</remarks>
 public sealed record ExportPackRequestDto(
     string Key,
     string Version,
@@ -321,7 +323,8 @@ public sealed record ExportPackRequestDto(
     string? ProviderSlot = null,
     ExportDcpDto? Dcp = null,
     IReadOnlyList<string>? Exposes = null,
-    int? InterfaceVersion = null);
+    int? InterfaceVersion = null,
+    IReadOnlyList<PackContentRename>? RenamedFrom = null);
 
 /// <summary>The declared Domain Compliance Profile (ADR 0145). Omitted ⇒ grandfathered to <c>general</c>.
 /// A lean v1 surface — the B-2a DCP edit surface extends it for the rich counsel fields.</summary>
