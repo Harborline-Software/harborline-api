@@ -66,23 +66,35 @@ public sealed class WebTenantSwitchRealSeamTests
     private const string Username = "founder";
     private const string Password = "correct horse battery staple switch";
 
+    private readonly Xunit.Abstractions.ITestOutputHelper? _output;
+
+    public WebTenantSwitchRealSeamTests(Xunit.Abstractions.ITestOutputHelper? output = null) => _output = output;
+
+    // T-1090: provisional source budget, informed by one 14.0537065s hosted whole-test pass
+    // and the existing 60s recovery bound. Repeated Mac/per-phase sizing is still owed.
+    private static readonly TimeSpan LogoutWorkerBound = TimeSpan.FromSeconds(60);
+
     [Fact]
     public async Task A_killed_logout_process_is_recovered_by_a_fresh_process_without_the_caller_handle()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"logout-process-loss-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        Process? committed = null;
-        Process? recovered = null;
+        LogoutWorkerObservation? committed = null;
+        LogoutWorkerObservation? recovered = null;
+        Exception? primaryFailure = null;
         try
         {
-            committed = StartLogoutWorker(directory, "commit");
-            var stdout = committed.StandardOutput.ReadToEndAsync();
-            var stderr = committed.StandardError.ReadToEndAsync();
+            committed = new LogoutWorkerObservation(StartLogoutWorker(directory, "commit"));
             var marker = Path.Combine(directory, "committed.marker");
-            var deadline = DateTime.UtcNow.AddSeconds(60);
-            while (!File.Exists(marker) && !committed.HasExited && DateTime.UtcNow < deadline)
+            while (!File.Exists(marker) && !committed.HasExited && !committed.StartupDeadline.Expired)
+            {
+                committed.ThrowIfPumpFailed();
                 await Task.Delay(50);
-            Assert.True(File.Exists(marker), committed.HasExited ? await stdout + await stderr : "Worker did not reach the committed effect boundary.");
+            }
+            committed.ThrowIfPumpFailed();
+            if (!File.Exists(marker) && committed.HasExited)
+                await committed.CompleteAsync("commit startup", committed.StartupDeadline);
+            Assert.True(File.Exists(marker), committed.Diagnostics("commit marker", committed.StartupDeadline));
             // Observe the committed session effect while the child is stopped before the next home save.
             var identityFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(Path.Combine(directory, "identity.db"));
             var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(Path.Combine(directory, "sessions.db"));
@@ -94,36 +106,223 @@ public sealed class WebTenantSwitchRealSeamTests
             }
             await using (var sessions = sessionFactory.CreateDbContext())
                 Assert.Single(await sessions.Revocations.ToListAsync(), row => row.ReasonCode == "user-logout");
-            committed.Kill(entireProcessTree: true);
-            await committed.WaitForExitAsync();
-            await stdout;
-            await stderr;
+            await committed.KillAndCompleteAsync();
 
-            recovered = StartLogoutWorker(directory, "recover");
-            var recoveredOutput = recovered.StandardOutput.ReadToEndAsync();
-            var recoveredError = recovered.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            await recovered.WaitForExitAsync(timeout.Token);
-            Assert.True(recovered.ExitCode == 0, await recoveredOutput + await recoveredError);
+            recovered = new LogoutWorkerObservation(StartLogoutWorker(directory, "recover"));
+            await recovered.CompleteAsync("recovery", recovered.StartupDeadline);
+            Assert.True(recovered.ExitCode == 0, recovered.Diagnostics("recovery exit", recovered.StartupDeadline));
             Assert.True(File.Exists(Path.Combine(directory, "recovered.marker")));
             await using var proof = identityFactory.CreateDbContext();
             Assert.Equal(InstallationIdentityCoordinatorState.Completed,
                 (await proof.Coordinators.SingleAsync(row => row.CommandType == "WebSelectedSessionLogout")).State);
             Assert.Single(await proof.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
         }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            ReportLogoutWorkerFailure(exception + "\n" + committed?.CurrentDiagnostics("primary failure")
+                + "\n" + recovered?.CurrentDiagnostics("primary failure"), exception);
+            throw;
+        }
         finally
         {
+            var cleanupFailures = new List<string>();
             foreach (var child in new[] { committed, recovered })
             {
                 if (child is null) continue;
-                if (!child.HasExited)
+                try
                 {
-                    child.Kill(entireProcessTree: true);
-                    await child.WaitForExitAsync();
+                    var failure = await child.CleanupAsync();
+                    if (failure is not null) cleanupFailures.Add(failure);
                 }
-                child.Dispose();
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(child.CurrentDiagnostics("cleanup failure") + "\n" + exception);
+                }
             }
-            Directory.Delete(directory, recursive: true);
+            if (cleanupFailures.Count == 0)
+            {
+                try { Directory.Delete(directory, recursive: true); }
+                catch (Exception exception) { cleanupFailures.Add("Directory cleanup failed: " + exception); }
+            }
+            if (cleanupFailures.Count > 0)
+            {
+                var diagnostic = "Logout worker cleanup incomplete; retained directory: " + directory
+                    + "\n" + string.Join("\n", cleanupFailures);
+                ReportLogoutWorkerFailure(diagnostic, primaryFailure);
+                if (primaryFailure is not null) primaryFailure.Data["T1090.cleanup"] = diagnostic;
+                else throw new InvalidOperationException(diagnostic);
+            }
+        }
+    }
+
+    private void ReportLogoutWorkerFailure(string diagnostic, Exception? primary)
+    {
+        try
+        {
+            if (_output is not null) _output.WriteLine(diagnostic);
+            else if (primary is not null) primary.Data["T1090.diagnostic"] = diagnostic;
+            // With no primary failure, the caller throws a cleanup failure containing this text.
+        }
+        catch (Exception reportingFailure)
+        {
+            // Reporting must not replace the original assertion/worker/cleanup failure.
+            if (primary is not null) primary.Data["T1090.reporting"] = reportingFailure;
+        }
+    }
+
+    private sealed class LogoutWorkerDeadline
+    {
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        public TimeSpan Elapsed => _clock.Elapsed;
+        public TimeSpan Remaining
+        {
+            get
+            {
+                var elapsed = Elapsed;
+                return LogoutWorkerBound > elapsed ? LogoutWorkerBound - elapsed : TimeSpan.Zero;
+            }
+        }
+        public bool Expired => Remaining == TimeSpan.Zero;
+    }
+
+    private sealed class LogoutWorkerObservation
+    {
+        private readonly Process _process;
+        private readonly int _pid;
+        private readonly object _captureGate = new();
+        private readonly System.Text.StringBuilder _stdout = new();
+        private readonly System.Text.StringBuilder _stderr = new();
+        private readonly CancellationTokenSource _stopReaders = new();
+        private readonly TaskCompletionSource<Exception> _pumpFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Task _output;
+        private readonly Task _error;
+        private readonly Task _exit;
+        private LogoutWorkerDeadline? _completionDeadline;
+
+        public LogoutWorkerObservation(Process process)
+        {
+            _process = process;
+            _pid = process.Id;
+            StartupDeadline = new LogoutWorkerDeadline();
+            _output = CaptureAsync(process.StandardOutput, _stdout);
+            _error = CaptureAsync(process.StandardError, _stderr);
+            _exit = Task.Run(() => process.WaitForExitAsync(_stopReaders.Token));
+            ObserveFault(_output);
+            ObserveFault(_error);
+            ObserveFault(_exit);
+        }
+
+        public LogoutWorkerDeadline StartupDeadline { get; }
+        public bool HasExited => _process.HasExited;
+        public int ExitCode => _process.ExitCode;
+
+        public async Task KillAndCompleteAsync()
+        {
+            _completionDeadline ??= new LogoutWorkerDeadline();
+            await BoundedAsync(Task.Run(KillIfRunning), "kill", _completionDeadline);
+            await CompleteAsync("post-kill exit and output", _completionDeadline);
+        }
+
+        public async Task CompleteAsync(string phase, LogoutWorkerDeadline deadline)
+        {
+            _completionDeadline ??= deadline;
+            var completion = Task.WhenAll(_exit, _output, _error);
+            ObserveFault(completion);
+            var first = Task.WhenAny(completion, _pumpFailure.Task);
+            await BoundedAsync(first, phase, _completionDeadline);
+            ThrowIfPumpFailed();
+            await BoundedAsync(completion, phase, _completionDeadline);
+        }
+
+        public void ThrowIfPumpFailed()
+        {
+            if (_pumpFailure.Task.IsCompleted)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(_pumpFailure.Task.Result).Throw();
+        }
+
+        private async Task CaptureAsync(System.IO.StreamReader reader, System.Text.StringBuilder capture)
+        {
+            var buffer = new char[1024];
+            try
+            {
+                int count;
+                while ((count = await reader.ReadAsync(buffer.AsMemory(), _stopReaders.Token)) != 0)
+                    lock (_captureGate) capture.Append(buffer, 0, count);
+            }
+            catch (OperationCanceledException) when (_stopReaders.IsCancellationRequested) { }
+            catch (Exception exception)
+            {
+                _pumpFailure.TrySetResult(exception);
+                throw;
+            }
+        }
+
+        private void KillIfRunning()
+        {
+            if (_process.HasExited) return;
+            try { _process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) when (_process.HasExited) { }
+        }
+
+        private async Task BoundedAsync(Task operation, string phase, LogoutWorkerDeadline deadline)
+        {
+            ObserveFault(operation);
+            try { await operation.WaitAsync(deadline.Remaining); }
+            catch (TimeoutException exception) when (!operation.IsCompleted)
+            {
+                throw new TimeoutException(Diagnostics(phase, deadline), exception);
+            }
+            catch (Exception exception)
+            {
+                exception.Data["T1090.worker"] = Diagnostics(phase, deadline);
+                throw;
+            }
+        }
+
+        public async Task<string?> CleanupAsync()
+        {
+            _completionDeadline ??= StartupDeadline;
+            var failures = new List<string>();
+            var stop = Task.Run(KillIfRunning);
+            try
+            {
+                await BoundedAsync(stop, "cleanup kill", _completionDeadline);
+                await CompleteAsync("cleanup exit and output", _completionDeadline);
+            }
+            catch (Exception exception) { failures.Add(CurrentDiagnostics("cleanup") + "\n" + exception); }
+
+            // Serialize disposal after the kill attempt, even when the caller's budget expired.
+            // The continuation's caller wait is bounded too; late faults are always observed.
+            var dispose = stop.ContinueWith(_ =>
+            {
+                try { _stopReaders.Cancel(); }
+                finally
+                {
+                    try { _process.Dispose(); }
+                    finally { _stopReaders.Dispose(); }
+                }
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            try { await BoundedAsync(dispose, "cleanup dispose", _completionDeadline); }
+            catch (Exception exception) { failures.Add(CurrentDiagnostics("cleanup disposal") + "\n" + exception); }
+            return failures.Count == 0 ? null : string.Join("\n", failures);
+        }
+
+        public string CurrentDiagnostics(string phase) => Diagnostics(phase, _completionDeadline ?? StartupDeadline);
+
+        public string Diagnostics(string phase, LogoutWorkerDeadline deadline)
+        {
+            string exited;
+            try { exited = _process.HasExited.ToString(); }
+            catch (Exception exception) { exited = "unavailable (" + exception.GetType().Name + ")"; }
+            lock (_captureGate)
+                return $"phase={phase}; PID={_pid}; HasExited={exited}; elapsed={deadline.Elapsed}; budget={LogoutWorkerBound}\nstdout so far:\n{_stdout}\nstderr so far:\n{_stderr}";
+        }
+
+        private static void ObserveFault(Task task)
+        {
+            _ = task.ContinueWith(completed => { _ = completed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
     }
 
