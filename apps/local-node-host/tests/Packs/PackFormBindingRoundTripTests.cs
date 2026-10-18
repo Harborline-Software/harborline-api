@@ -37,6 +37,8 @@ using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.Definitions;
 
 using Xunit;
 
@@ -137,7 +139,10 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(workflows, TestAuthorization.AllowGate(), roleGate));
         var installer = new PackInstaller(
             verifier, packStore, new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
-            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate(),
+            layoutCapabilities: new Dictionary<string, string> { ["platform.layout"] = "1.0.0" },
+            layoutRegisters: new LayoutHostRegisters(LayoutBlockKindRegistry.Platform,
+                FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released));
 
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
@@ -516,10 +521,19 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
 
     private static IReadOnlyList<object> LayoutAndBookingContents() =>
     [
-        new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = new { definition = "layout" } },
+        new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = LayoutContent() },
         new { key = "booking.room", kind = "Resource", version = "1.0.0", content = new { definition = "resource" } },
         new { key = "booking.room-visit", kind = "Bookable", version = "1.0.0", content = new { definition = "bookable" } },
     ];
+
+    private static JsonElement LayoutContent() => JsonSerializer.Deserialize<JsonElement>(
+        LayoutDefinitionJson.SerializeCanonical(new LayoutDefinition(
+            new LayoutDefinitionEnvelope("layout.booking.surface", "1.0.0", "notes", LayoutCascadeLayer.TenantConfiguration,
+                JsonSerializer.SerializeToElement(new { source = "round-trip" }), "standard", false,
+                [new LayoutDefinitionRequirement("platform.layout", "1.0.0")], new DefinitionContractVersion(1, 0)),
+            1, LayoutMedium.Screen, LayoutIntent.Observe,
+            [new LayoutBlock("title", "layout.text", new LayoutStaticBinding(JsonSerializer.SerializeToElement("Booking")), [])],
+            [], [], [], null, [])));
 
     private static object Text(string en) => new
     {

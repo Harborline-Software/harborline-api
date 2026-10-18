@@ -39,11 +39,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     private readonly IPackContentAdmission _admission;
     private readonly IPackInstallAudit _audit;
     private readonly IPackPlatformCompatibility _platform;
+    private readonly IReadOnlyDictionary<string, string> _layoutCapabilities;
+    private readonly LayoutHostRegisters _layoutRegisters;
     private readonly AuthorizationGate _gate;
     private readonly IWritePipelineObserver? _pipelineObserver;
     private IPackProjectionDispatcher? _projector;
 
     /// <summary>Constructs the installer over the verifier + install store + admission port + audit sink.</summary>
+    /// <remarks><c>layoutCapabilities</c> supplies explicit host capability versions; omitted means unsupported.
+    /// <c>layoutRegisters</c> defaults to the platform grammar and released controls and rules.</remarks>
     public PackInstaller(
         IPackVerifier verifier,
         IPackInstallStore store,
@@ -51,7 +55,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         IPackInstallAudit audit,
         AuthorizationGate gate,
         IPackPlatformCompatibility? platform = null,
-        IWritePipelineObserver? pipelineObserver = null)
+        IWritePipelineObserver? pipelineObserver = null,
+        IReadOnlyDictionary<string, string>? layoutCapabilities = null,
+        LayoutHostRegisters? layoutRegisters = null)
     {
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -67,9 +73,14 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         // fail-closed direction would retract already-admitted content on every back-compat embedder.
         _platform = platform ?? PackPlatformCompatibility.Empty;
         _pipelineObserver = pipelineObserver;
+        _layoutCapabilities = layoutCapabilities ?? new Dictionary<string, string>();
+        _layoutRegisters = layoutRegisters ?? new LayoutHostRegisters(LayoutBlockKindRegistry.Platform,
+            FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released);
     }
 
     /// <summary>Constructs a split reader/writer composition without recovering mutation faces by cast.</summary>
+    /// <remarks><c>layoutCapabilities</c> supplies explicit host capability versions; omitted means unsupported.
+    /// <c>layoutRegisters</c> defaults to the platform grammar and released controls and rules.</remarks>
     public PackInstaller(
         IPackVerifier verifier,
         IPackInstallStore store,
@@ -79,7 +90,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         IPackInstallAudit audit,
         AuthorizationGate gate,
         IPackPlatformCompatibility? platform = null,
-        IWritePipelineObserver? pipelineObserver = null)
+        IWritePipelineObserver? pipelineObserver = null,
+        IReadOnlyDictionary<string, string>? layoutCapabilities = null,
+        LayoutHostRegisters? layoutRegisters = null)
     {
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -90,8 +103,14 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
         _platform = platform ?? PackPlatformCompatibility.Empty;
         _pipelineObserver = pipelineObserver;
+        _layoutCapabilities = layoutCapabilities ?? new Dictionary<string, string>();
+        _layoutRegisters = layoutRegisters ?? new LayoutHostRegisters(LayoutBlockKindRegistry.Platform,
+            FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released);
     }
 
+    /// <summary>Constructs a split reader/writer composition with its projection dispatcher.</summary>
+    /// <remarks><c>layoutCapabilities</c> supplies explicit host capability versions; omitted means unsupported.
+    /// <c>layoutRegisters</c> defaults to the platform grammar and released controls and rules.</remarks>
     public PackInstaller(
         IPackVerifier verifier,
         IPackInstallStore store,
@@ -102,12 +121,18 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         AuthorizationGate gate,
         IPackProjectionDispatcher projector,
         IPackPlatformCompatibility? platform = null,
-        IWritePipelineObserver? pipelineObserver = null)
-        : this(verifier, store, mutations, projectionStore, admission, audit, gate, platform, pipelineObserver)
+        IWritePipelineObserver? pipelineObserver = null,
+        IReadOnlyDictionary<string, string>? layoutCapabilities = null,
+        LayoutHostRegisters? layoutRegisters = null)
+        : this(verifier, store, mutations, projectionStore, admission, audit, gate, platform, pipelineObserver,
+            layoutCapabilities, layoutRegisters)
     {
         _projector = projector ?? throw new ArgumentNullException(nameof(projector));
     }
 
+    /// <summary>Constructs the installer with its projection dispatcher.</summary>
+    /// <remarks><c>layoutCapabilities</c> supplies explicit host capability versions; omitted means unsupported.
+    /// <c>layoutRegisters</c> defaults to the platform grammar and released controls and rules.</remarks>
     public PackInstaller(
         IPackVerifier verifier,
         IPackInstallStore store,
@@ -116,8 +141,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         AuthorizationGate gate,
         IPackProjectionDispatcher projector,
         IPackPlatformCompatibility? platform = null,
-        IWritePipelineObserver? pipelineObserver = null)
-        : this(verifier, store, admission, audit, gate, platform, pipelineObserver)
+        IWritePipelineObserver? pipelineObserver = null,
+        IReadOnlyDictionary<string, string>? layoutCapabilities = null,
+        LayoutHostRegisters? layoutRegisters = null)
+        : this(verifier, store, admission, audit, gate, platform, pipelineObserver,
+            layoutCapabilities, layoutRegisters)
     {
         _projector = projector ?? throw new ArgumentNullException(nameof(projector));
     }
@@ -1389,6 +1417,19 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                 destinationClassifications: destinationClassifications);
         }
 
+        var layoutRefusals = LayoutAdmissionRefusals(contents);
+        if (!collectRefusals && layoutRefusals.Count > 0)
+        {
+            var refused = HardRefusal(
+                manifest.Key, manifest.Version, layoutRefusals[0].Code, revocationStale,
+                signerB64, epoch, scope, refusals: layoutRefusals,
+                destinationClassifications: destinationClassifications);
+            return refused with
+            {
+                Preview = refused.Preview with { RefusalCodes = layoutRefusals.Select(refusal => refusal.Code).Distinct().ToList() },
+            };
+        }
+
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);
         var platformRefusals = unmetRequirements
             .Select(requirement => new PackInstallRefusal(
@@ -1521,6 +1562,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         {
             var collected = new List<PackInstallRefusal>(earlyRefusals);
             collected.AddRange(contractRefusals);
+            collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
             collected.AddRange(platformRefusals);
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
                 PackInstallCodes.RefusedAdmission,
@@ -1706,6 +1748,23 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             DestinationClassifications = destinationClassifications ?? Array.Empty<PackContentDestination>(),
         };
         return new InstallPlan(preview, null, epoch, null, null, null, PackInstallAuditAction.Refused);
+    }
+
+    private IReadOnlyList<PackInstallRefusal> LayoutAdmissionRefusals(IReadOnlyList<PackContentItem> contents)
+    {
+        var entries = contents.Where(item => item.Kind == PackContentKind.Layout)
+            .Select(item => new LayoutDefinitionPackageEntry(item.Key, item.Version,
+                PlatformPackageContent.PresentJson(item.CanonicalBytes.Span)));
+        try
+        {
+            LayoutPackHostAdmission.Admit(entries, _layoutCapabilities, _layoutRegisters);
+            return Array.Empty<PackInstallRefusal>();
+        }
+        catch (DefinitionRefusalException refused)
+        {
+            return refused.Refusals.Select(refusal => new PackInstallRefusal(
+                refusal.Code, refusal.Pointer, refusal.Target)).ToList();
+        }
     }
 
     private List<PackInstallRefusal> UnsupportedCascadeDefaultsRefusals(IReadOnlyList<PackContentItem> contents)

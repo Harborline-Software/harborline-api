@@ -109,7 +109,10 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
             _store,
             new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
             new InMemoryPackInstallAudit(),
-            Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
+            layoutCapabilities: new Dictionary<string, string> { ["platform.layout"] = "1.0.0" },
+            layoutRegisters: new LayoutHostRegisters(LayoutBlockKindRegistry.Platform,
+                FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released));
         var registryServices = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var types = registryServices.GetRequiredService<IEntityTypeRegistry>();
         _forms = new InMemoryFormDefinitionStore(TimeProvider.System);
@@ -205,7 +208,6 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
     /// contract and the shipped templates declare <c>{major: 1, minor: 0}</c>, and it deletes this test.
     /// </summary>
     [Theory(DisplayName = "T-572 S4: interim, an item with no envelope contract still installs (deleted by the definition.contract.missing follow-up)")]
-    [InlineData("Layout")]
     [InlineData("Resource")]
     [InlineData("Bookable")]
     public async Task Interim_install_admits_an_item_with_no_declared_contract(string kind)
@@ -215,6 +217,23 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+    }
+
+    [Fact]
+    public async Task Layout_without_a_declared_contract_is_refused_by_platform_admission()
+    {
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody("Layout", contract: null)));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("definition.contract.missing", refusal.GetProperty("code").GetString());
+        Assert.Equal("/envelope/contract", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
     }
 
     [Fact(DisplayName = "T-572 S4: check collects the contract refusal with the pack's other refusals and installs nothing")]
@@ -399,7 +418,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
             [PackContentKind.RoleDefinition] = ("role declaration wire; outside declared-definition fixtures", null, null),
             [PackContentKind.AuthorizationCapabilityBinding] = ("authorization binding wire; outside declared-definition fixtures", null, null),
             [PackContentKind.RecordType] = ("record-type descriptor wire; outside declared-definition fixtures", null, null),
-            [PackContentKind.Layout] = ("envelope.contract", "acme.surface", PlatformWindowContent()),
+            [PackContentKind.Layout] = ("envelope.contract", "acme.surface", LayoutContent(new { major = 2, minor = 0 })),
             [PackContentKind.Resource] = ("envelope.contract", "acme.surface", PlatformWindowContent()),
             [PackContentKind.Bookable] = ("envelope.contract", "acme.surface", PlatformWindowContent()),
         };
@@ -682,10 +701,23 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
                 key = "acme.surface",
                 kind,
                 version = "1.0.0",
-                content = (object)new { envelope = new { contract } },
+                content = kind == "Layout" ? (object)LayoutContent(contract) : new { envelope = new { contract } },
             },
         },
     };
+
+    private static JsonObject LayoutContent(object? contract)
+    {
+        var content = JsonNode.Parse(LayoutDefinitionJson.SerializeCanonical(new LayoutDefinition(
+            new LayoutDefinitionEnvelope("acme.surface", "1.0.0", NodeTenantFor().Value, LayoutCascadeLayer.TenantConfiguration,
+                JsonSerializer.SerializeToElement(new { source = "contract-window" }), "standard", false,
+                [new LayoutDefinitionRequirement("platform.layout", "1.0.0")], new DefinitionContractVersion(1, 0)),
+            1, LayoutMedium.Screen, LayoutIntent.Observe,
+            [new LayoutBlock("title", "layout.text", new LayoutStaticBinding(JsonSerializer.SerializeToElement("Surface")), [])],
+            [], [], [], null, [])))!.AsObject();
+        content["envelope"]!["contract"] = JsonSerializer.SerializeToNode(contract);
+        return content;
+    }
 
     private static Harborline.Foundation.Assets.Common.TenantId NodeTenantFor()
         => Harborline.Api.LocalNodeHost.Data.Financial.NodeTenant.Resolve(new MutableActiveTeamAccessor(new TeamContext(
