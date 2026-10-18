@@ -11,6 +11,7 @@ using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Blocks.BuilderDefinitions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
@@ -48,6 +49,144 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         var exception = Assert.Throws<Xunit.Sdk.XunitException>(
             () => KnownCodeProducerDeclaration(missingType, documents));
         Assert.Contains("MissingKnownCodeProducer is absent from", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Caught_definition_refusal_projection_uses_declared_layout_codes()
+    {
+        foreach (var exceptionType in new[]
+        {
+            "DefinitionRefusalException",
+            "global::Harborline.Blocks.BuilderDefinitions.DefinitionRefusalException",
+        })
+        {
+            foreach (var producer in new[]
+            {
+                "LayoutPackHostAdmission",
+                "global::Harborline.Blocks.BuilderDefinitions.LayoutPackHostAdmission",
+            })
+            {
+                var (document, code) = DefinitionRefusalProjectionProbe(exceptionType,
+                    tryBody: producer + ".Admit(entries, capabilities, registers);");
+                var resolution = ResolveCode(code, document, [document], "probe");
+                Assert.Contains("layout.definition.body_invalid", resolution.Values);
+                Assert.Contains("definition.contract.out_of_window", resolution.Values);
+            }
+        }
+
+        Assert.True(TryDeclaredCodeMember("LayoutDefinitionCodes.BodyInvalid", out var bodyInvalid));
+        Assert.Equal("layout.definition.body_invalid", bodyInvalid);
+        Assert.Contains("definition.contract.out_of_window", DeclaredCodeValues());
+    }
+
+    [Theory]
+    [InlineData("UnrelatedException", "class UnrelatedException : System.Exception { public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; } = []; }")]
+    [InlineData("DefinitionRefusalException", "class DefinitionRefusalException : System.Exception { public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; } = []; }")]
+    [InlineData("global::Harborline.Blocks.BuilderDefinitions.DefinitionRefusalException", "namespace Harborline.Blocks.BuilderDefinitions { class DefinitionRefusalException : System.Exception { public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; } = []; } }")]
+    public void Untrusted_caught_refusals_cannot_use_property_name_fallback(string exceptionType, string declaration)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe(exceptionType, declaration);
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("caught Refusals producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Alias", "using Alias = Harborline.Blocks.BuilderDefinitions.DefinitionRefusalException;")]
+    [InlineData("DefinitionRefusalException", "")]
+    [InlineData("DefinitionRefusalException", "using Harborline.Blocks.BuilderDefinitions; using DefinitionRefusalException = System.Exception;")]
+    [InlineData("Harborline.Blocks.BuilderDefinitions.DefinitionRefusalException", "using Harborline = FakeRoot;")]
+    public void Caught_refusal_type_requires_its_real_spelling_and_import(string exceptionType, string imports)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe(exceptionType, imports: imports);
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("caught Refusals producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Layout_catalogue_registration_does_not_admit_an_undeclared_literal()
+    {
+        var root = CSharpSyntaxTree.ParseText("class Probe { }").GetRoot();
+        var document = new SourceDocument("probe.cs", root);
+        var code = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
+            SyntaxFactory.Literal("layout.unpublished_probe"));
+        Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+    }
+
+    [Theory]
+    [InlineData("UnrelatedProducer.Admit();")]
+    [InlineData("throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install, [new DefinitionRefusal(\"layout.unpublished_probe\", \"\")]);")]
+    [InlineData("LayoutPackHostAdmission.Admit(entries, capabilities, registers); throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install, [new DefinitionRefusal(\"layout.unpublished_probe\", \"\")]);")]
+    [InlineData("LayoutPackHostAdmission.Admit(UnrelatedProducer.Entries(), capabilities, registers);")]
+    [InlineData("UnrelatedProducer.Prepare(); LayoutPackHostAdmission.Admit(entries, capabilities, registers);")]
+    public void Caught_real_exception_does_not_establish_the_layout_producer(string tryBody)
+    {
+        const string declaration = """
+            static class UnrelatedProducer
+            {
+                public static void Admit() => throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install,
+                    [new DefinitionRefusal("layout.unpublished_probe", "")]);
+                public static System.Collections.Generic.IEnumerable<LayoutDefinitionPackageEntry> Entries()
+                    => throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install,
+                        [new DefinitionRefusal("layout.unpublished_probe", "")]);
+                public static void Prepare() { }
+            }
+            """;
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", declaration, tryBody: tryBody);
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Alias", "using Harborline.Blocks.BuilderDefinitions; using Alias = Harborline.Blocks.BuilderDefinitions.LayoutPackHostAdmission;", "")]
+    [InlineData("LayoutPackHostAdmission", "using Harborline.Blocks.BuilderDefinitions; using LayoutPackHostAdmission = FakeProducer;", "static class FakeProducer { }")]
+    [InlineData("LayoutPackHostAdmission", "using Harborline.Blocks.BuilderDefinitions;", "static class LayoutPackHostAdmission { }")]
+    [InlineData("global::Harborline.Blocks.BuilderDefinitions.LayoutPackHostAdmission", "using Harborline.Blocks.BuilderDefinitions;", "namespace Harborline.Blocks.BuilderDefinitions { static class LayoutPackHostAdmission { } }")]
+    public void Layout_producer_aliases_and_shadows_do_not_establish_provenance(
+        string producer, string imports, string declaration)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", declaration, imports,
+            producer + ".Admit(entries, capabilities, registers);");
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("var LayoutPackHostAdmission = new UnrelatedProducer();", "", "")]
+    [InlineData("", "UnrelatedProducer LayoutPackHostAdmission", "")]
+    [InlineData("", "", "UnrelatedProducer LayoutPackHostAdmission = new UnrelatedProducer();")]
+    [InlineData("", "", "UnrelatedProducer LayoutPackHostAdmission => new UnrelatedProducer();")]
+    public void Layout_producer_value_bindings_do_not_establish_provenance(
+        string beforeTry, string parameters, string members)
+    {
+        const string declaration = """
+            class UnrelatedProducer
+            {
+                public void Admit(object entries, object capabilities, object registers)
+                    => throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install,
+                        [new DefinitionRefusal("layout.unpublished_probe", "")]);
+            }
+            """;
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", declaration,
+            beforeTry: beforeTry, parameters: parameters, members: members);
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static (SourceDocument Document, ExpressionSyntax Code) DefinitionRefusalProjectionProbe(
+        string exceptionType,
+        string declaration = "",
+        string imports = "using Harborline.Blocks.BuilderDefinitions;",
+        string tryBody = "LayoutPackHostAdmission.Admit(entries, capabilities, registers);",
+        string beforeTry = "",
+        string parameters = "",
+        string members = "")
+    {
+        var root = CSharpSyntaxTree.ParseText(imports + declaration + " class Probe { " + members + " void Project("
+            + parameters + ") { " + beforeTry + " try { " + tryBody + " } catch ("
+            + exceptionType + " refused) { _ = refused.Refusals.Select(refusal => new PackInstallRefusal(refusal.Code, \"\", refusal.Target)); } } }").GetRoot();
+        var code = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+            .Single(member => member.Name.Identifier.ValueText == "Code");
+        return (new SourceDocument("probe.cs", root), code);
     }
 
     [Theory]
@@ -393,6 +532,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             return new CodeResolution(DeclaredCodeValues().ToArray(), false);
         if (IsReceiverFromInvocation(receiver))
             return new CodeResolution(DeclaredCodeValues().ToArray(), false);
+        if (TryResolveCaughtDefinitionRefusalProjection(receiver, document, documents, site, out var definitionResolution))
+            return definitionResolution;
         var producerTypes = ProducerTypes(receiver, document, documents)
             .Where(type => !site.EndsWith($" ({type})", StringComparison.Ordinal))
             .ToArray();
@@ -409,6 +550,117 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         return producers
             .Select(producer => ResolveCode(producer.Code, producer.Document, documents, site, dynamicHops + 1))
             .Aggregate(CodeResolution.Empty, (current, next) => current.Combine(next));
+    }
+
+    private static bool TryResolveCaughtDefinitionRefusalProjection(
+        ExpressionSyntax receiver,
+        SourceDocument document,
+        IReadOnlyList<SourceDocument> documents,
+        string site,
+        out CodeResolution resolution)
+    {
+        resolution = CodeResolution.Empty;
+        if (receiver is not IdentifierNameSyntax identifier)
+            return false;
+        var lambda = receiver.Ancestors().OfType<LambdaExpressionSyntax>().FirstOrDefault();
+        if (lambda is null || !LambdaParameterNames(lambda).Contains(identifier.Identifier.ValueText)
+            || lambda.Parent is not ArgumentSyntax argument
+            || argument.Parent?.Parent is not InvocationExpressionSyntax invocation
+            || invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                Name.Identifier.ValueText: "Select",
+                Expression: MemberAccessExpressionSyntax
+                {
+                    Name.Identifier.ValueText: "Refusals",
+                    Expression: IdentifierNameSyntax caught,
+                },
+            })
+            return false;
+
+        var catchClause = lambda.Ancestors().OfType<CatchClauseSyntax>().FirstOrDefault();
+        if (catchClause is null)
+            return false;
+
+        var exceptionType = typeof(DefinitionRefusalException);
+        var imports = document.Root.ChildNodes().OfType<UsingDirectiveSyntax>()
+            .Concat(lambda.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().SelectMany(owner => owner.Usings))
+            .ToArray();
+        var spelling = catchClause.Declaration?.Type.ToString().Replace("global::", string.Empty, StringComparison.Ordinal);
+        var trustedSpelling = spelling == exceptionType.FullName
+            || (spelling == exceptionType.Name && imports.Any(import => import.Alias is null
+                && import.StaticKeyword.RawKind == 0 && import.Name?.ToString() == exceptionType.Namespace));
+        var shadowed = documents.Any(source => source.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+            .Any(type => type.Identifier.ValueText == exceptionType.Name))
+            || imports.Any(import => import.Alias?.Name.Identifier.ValueText == exceptionType.Name
+                || import.Alias?.Name.Identifier.ValueText == exceptionType.Namespace!.Split('.')[0]);
+        if (!trustedSpelling || shadowed
+            || catchClause.Declaration?.Identifier.ValueText != caught.Identifier.ValueText
+            || invocation.ArgumentList.Arguments.Count != 1 || LambdaParameterNames(lambda).Count() != 1)
+            throw new Xunit.Sdk.XunitException($"Untrusted caught Refusals producer at {site}: {caught}.");
+
+        if (catchClause.Parent is not TryStatementSyntax protectedTry || protectedTry.Block.Statements.Count != 1
+            || protectedTry.Block.Statements[0] is not ExpressionStatementSyntax
+            {
+                Expression: InvocationExpressionSyntax
+                {
+                    Expression: MemberAccessExpressionSyntax
+                    {
+                        Name: IdentifierNameSyntax { Identifier.ValueText: "Admit" },
+                        Expression: var producer,
+                    },
+                } producerCall,
+            })
+            throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
+
+        var producerType = typeof(LayoutPackHostAdmission);
+        var producerSpelling = producer.ToString().Replace("global::", string.Empty, StringComparison.Ordinal);
+        var trustedProducer = producerSpelling == producerType.FullName
+            || (producerSpelling == producerType.Name && imports.Any(import => import.Alias is null
+                && import.StaticKeyword.RawKind == 0 && import.Name?.ToString() == producerType.Namespace));
+        var producerShadowed = documents.Any(source => source.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+            .Any(type => type.Identifier.ValueText == producerType.Name))
+            || imports.Any(import => import.Alias?.Name.Identifier.ValueText == producerType.Name
+                || import.Alias?.Name.Identifier.ValueText == producerType.Namespace!.Split('.')[0]);
+        var receiverName = producerSpelling == producerType.Name ? producerType.Name : producerType.Namespace!.Split('.')[0];
+        var valueShadowed = !producer.ToString().StartsWith("global::", StringComparison.Ordinal)
+            && document.Root.DescendantNodes().Any(node => node switch
+            {
+                VariableDeclaratorSyntax variable => variable.Identifier.ValueText == receiverName,
+                ParameterSyntax parameter => parameter.Identifier.ValueText == receiverName,
+                PropertyDeclarationSyntax property => property.Identifier.ValueText == receiverName,
+                ForEachStatementSyntax loop => loop.Identifier.ValueText == receiverName,
+                CatchDeclarationSyntax caughtValue => caughtValue.Identifier.ValueText == receiverName,
+                SingleVariableDesignationSyntax designation => designation.Identifier.ValueText == receiverName,
+                FromClauseSyntax from => from.Identifier.ValueText == receiverName,
+                LetClauseSyntax let => let.Identifier.ValueText == receiverName,
+                JoinClauseSyntax join => join.Identifier.ValueText == receiverName,
+                JoinIntoClauseSyntax into => into.Identifier.ValueText == receiverName,
+                QueryContinuationSyntax continuation => continuation.Identifier.ValueText == receiverName,
+                _ => false,
+            });
+        if (!trustedProducer || producerShadowed || valueShadowed || producerCall.ArgumentList.Arguments.Count != 3
+            || producerCall.ArgumentList.Arguments.Any(parameter => parameter.NameColon is not null
+                || parameter.RefKindKeyword.RawKind != 0 || parameter.Expression is not IdentifierNameSyntax))
+            throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
+
+        var admit = producerType.GetMethod(nameof(LayoutPackHostAdmission.Admit),
+            [typeof(IEnumerable<LayoutDefinitionPackageEntry>), typeof(IReadOnlyDictionary<string, string>), typeof(LayoutHostRegisters)]);
+        Assert.NotNull(admit);
+        Assert.True(admit.IsStatic);
+        Assert.Equal(typeof(void), admit.ReturnType);
+        Assert.Equal(typeof(IReadOnlyList<DefinitionRefusal>),
+            exceptionType.GetProperty(nameof(DefinitionRefusalException.Refusals))?.PropertyType);
+        Assert.Equal(typeof(string), typeof(DefinitionRefusal).GetProperty(nameof(DefinitionRefusal.Code))?.PropertyType);
+        var values = typeof(LayoutDefinitionCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(string) && field.IsLiteral)
+            .Select(field => (string)field.GetRawConstantValue()!)
+            .Append(PackInstallCodes.RefusedContractOutOfWindow)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var catalogue = DeclaredCodeValues();
+        Assert.All(values, value => Assert.Contains(value, catalogue));
+        resolution = new CodeResolution(values, false);
+        return true;
     }
 
     // These rows deliberately name a result type and property, rather than accepting any .Code projection.
@@ -713,7 +965,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                    && type.Name.StartsWith("Pack", StringComparison.Ordinal))
                || type == typeof(FormDefinitionCodes)
                || type == typeof(CatalogueFieldSourceCodes)
-               || type == typeof(WorkflowAdmissionCodes));
+               || type == typeof(WorkflowAdmissionCodes)
+               || type == typeof(LayoutDefinitionCodes));
 
     private static HashSet<string> DeclaredCodeValues()
         => DeclaredCodeMembers()
@@ -754,6 +1007,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         typeof(PackAuthorizationContentAdmission).Assembly,
         typeof(FormDefinitionCodes).Assembly,
         typeof(WorkflowAdmissionCodes).Assembly,
+        typeof(LayoutDefinitionCodes).Assembly,
     ];
 
     private static IEnumerable<Type> Types(Assembly assembly)
