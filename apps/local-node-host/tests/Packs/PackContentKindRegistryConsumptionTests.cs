@@ -85,10 +85,26 @@ public sealed class PackContentKindRegistryConsumptionTests
     }
 
     [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 2)]
+    [InlineData(2, 4)]
+    [InlineData(3, 3)]
+    [InlineData(4, 5)]
+    [InlineData(5, 0)]
+    [InlineData(6, 5)]
     [InlineData(7, 6)]
     [InlineData(8, 7)]
     [InlineData(9, 8)]
+    [InlineData(10, 9)]
     [InlineData(11, 10)]
+    [InlineData(12, 11)]
+    [InlineData(13, 4)]
+    [InlineData(14, 99)]
+    [InlineData(15, 99)]
+    [InlineData(16, 99)]
+    [InlineData(17, 12)]
+    [InlineData(18, 13)]
+    [InlineData(19, 13)]
     public void Authoritative_shipped_numbering_keeps_the_literal_pillar(int kindValue, int pillarValue)
     {
         Assert.Equal(pillarValue, (int)PackPillarMap.ForKind((PackContentKind)kindValue));
