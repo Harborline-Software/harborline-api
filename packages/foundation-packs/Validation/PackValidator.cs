@@ -151,7 +151,7 @@ public sealed class PackValidator
         return errors.Count == 0 ? PackValidationResult.Valid : PackValidationResult.Invalid(errors);
     }
 
-    private static bool IsQualifiedContentKey(string key)
+    internal static bool IsQualifiedContentKey(string key)
         => key.IndexOfAny(['.', '/']) >= 0
            && key.Split(['.', '/']).All(segment => !string.IsNullOrWhiteSpace(segment));
 
