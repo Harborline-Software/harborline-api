@@ -117,7 +117,7 @@ public sealed partial class ComposedHostBootSmokeTests
         {
             new
             {
-                key = "chrome",
+                key = "fixtures.chrome",
                 kind = "NavWorkspaceConfig",
                 version = "1.0.0",
                 content = new

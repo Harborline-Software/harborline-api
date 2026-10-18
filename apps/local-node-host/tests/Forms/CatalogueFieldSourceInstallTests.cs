@@ -63,7 +63,7 @@ public sealed class CatalogueFieldSourceInstallTests
         var source = CatalogueFieldSourceContractTests.Content(false);
         source["overlay"]!["title"]!["values"]!["en"] = "sentinel-do-not-read";
         var bytes = await Export(keys, codec, CatalogueFieldSourceContractTests.Content(), "1.0.0",
-            [CatalogueFieldSourceContract.CapabilityId], [new PackContentSource("source", PackContentKind.FormDefinition, "2.3.4", source)]);
+            [CatalogueFieldSourceContract.CapabilityId], [new PackContentSource("fixtures.source", PackContentKind.FormDefinition, "2.3.4", source)]);
         Assert.True((await installer.InstallAsync(bytes, context)).Installed);
         Assert.True(installer.Activate(Tenant, PackKey, "1.0.0", context.Now, "test-operator").Activated);
         using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
@@ -72,14 +72,14 @@ public sealed class CatalogueFieldSourceInstallTests
             services.GetRequiredService<IEntityTypeRegistry>(), NullLogger<PackSeedProjector>.Instance, forms: formStore,
             schemas: schemas, time: TimeProvider.System, authorizedForms: lifecycle, catalogueFields: admission, catalogueDetails: templates);
         Assert.Equal(2, (await Projector(forms).ProjectActivePacksAsync(Tenant)).FormDefinitionsPublished);
-        var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", "source", "2.3.4", "title");
+        var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", "fixtures.source", "2.3.4", "title");
         var handle = forms.CatalogueSources.Resolve(Tenant, coordinate)!;
         var request = JsonSerializer.SerializeToElement(CatalogueFieldSourceContract.Fields.Select(field =>
             new CatalogueFieldReadRequest(coordinate with { Field = field.FieldId }, handle.Identity.Binding)).ToArray());
         var storedReads = observed.Reads;
         var result = await runtime.ProjectAsync("platform.detail.form", "1.0.0", request, TestAuthorization.Write(Tenant));
         Assert.Equal(["formId"], result.Values.Keys);
-        Assert.Equal("source", result.Values["formId"].GetString());
+        Assert.Equal("fixtures.source", result.Values["formId"].GetString());
         Assert.DoesNotContain("sentinel-do-not-read", JsonSerializer.Serialize(result), StringComparison.Ordinal);
         Assert.Equal(storedReads, observed.Reads);
         Assert.Equal(new CatalogueFieldProvenance("pack", PackKey, "1.0.0"), result.DetailBinding.Provenance);

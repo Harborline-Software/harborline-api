@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,11 +14,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
+using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
@@ -29,18 +33,21 @@ using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -191,6 +198,161 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         _key?.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Fresh_platform_preload_projects_every_current_view_and_form_without_diagnostics()
+    {
+        var tenant = new TenantId("aaaaaaaa-0000-0000-0000-000000001014");
+        var store = new InMemoryPackInstallStore();
+        Assert.Empty(store.ListInstalled(tenant));
+        var roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
+        var roleGate = new RoleGateAdmission(roles, _forms, _workflows);
+        var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
+        var authorizationWriter = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(roles), new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(), grants);
+        await new AccessGrantAuthorizationSeed(authorizationWriter, configuration, grants).InstallAsync(
+            tenant, AdmittedInstant.FromRecordedAct(TestAuthorization.At),
+            AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        var authorizedForms = TestAuthorization.FormLifecycle(_forms, TestAuthorization.AllowGate(), roleGate);
+        var views = new InMemoryViewDefinitionRegistry(new HostViewKindDescriptorRegistry(
+            _registry, _forms, _schemas, Harborline.Blocks.EntityViews.ViewKindRegistry.Platform));
+        var plans = new InMemoryRenderPlanCatalogue();
+        var defaults = new ActiveCascadeDefaultsProjection();
+        var details = new CatalogueDetailTemplates();
+        var codec = new PackFileCodec();
+        var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), store,
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate,
+                defaults: defaults, catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate(),
+            new PackPlatformCompatibility("1.0.0",
+                [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
+        var projector = new PackSeedProjector(store, _registry, NullLogger<PackSeedProjector>.Instance,
+            forms: _forms, schemas: _schemas, workflows: _workflows, time: TimeProvider.System,
+            viewDefinitions: views, authorizedForms: authorizedForms,
+            authorizedWorkflows: TestAuthorization.WorkflowLifecycle(
+                _workflows, TestAuthorization.AllowGate(), roleGate),
+            roleVocabulary: roles, authorizationDefinitions: authorizationWriter,
+            authorizationDefinitionCatalogue: configuration, renderPlans: plans, defaults: defaults,
+            catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports),
+            catalogueDetails: details);
+        ((IPackProjectionReconciler)installer).AttachProjector(projector);
+        var observed = new ObservedPlatformInstaller(installer);
+        using var signer = new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32));
+        var trust = new InMemoryPackTrustStore(
+            [new PackTrustRoot(TrustScope.OwnRoster, signer.Signer.IssuerId,
+                PackComposerRoutes.OwnRosterEpoch, TrustRootStatus.Current)]);
+        var preload = new PlatformPackPreloadHostedService(
+            new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+                new PackValidator(new PackContentPiiScanner()),
+                new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System),
+            signer, observed, store, trust, PackRevocationList.Empty, _activeTeam, TimeProvider.System,
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+        Assert.Empty(await views.ListDefinitionsAsync(tenant.Value, CancellationToken.None));
+        Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, "platform.detail.form")));
+        Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, "platform.pack.author")));
+        Assert.Empty(store.ListInstalled(tenant));
+
+        await preload.PreloadAsync(tenant, CancellationToken.None);
+
+        var activation = Assert.Single(observed.Activations);
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
+        Assert.True(activation.Projected);
+        var summary = Assert.IsType<PackSeedProjectionSummary>(activation.ProjectionResult);
+        Assert.Empty(summary.Refusals);
+        Assert.Empty(summary.PlatformRefusals);
+        Assert.False(summary.ProjectionRefused);
+        Assert.Equal(2, summary.FormDefinitionsPublished);
+        var active = Assert.IsType<InstalledPack>(store.GetActive(tenant, "harborline.platform"));
+        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
+        string[] expectedViewKeys =
+        [
+            "platform.list.asset-types",
+            "platform.list.forms",
+            "platform.list.workflows",
+            "platform.list.standards",
+            "platform.list.defaults",
+            "platform.list.terminology",
+            "platform.list.documents",
+            "platform.list.taxonomies",
+            "platform.list.reports",
+            "platform.list.data-exchanges",
+            "platform.list.standing-rules",
+            "platform.list.schedules",
+            "platform.list.views",
+            "platform.health.asset-types",
+            "platform.health.forms",
+            "platform.health.workflows",
+            "platform.health.standards",
+            "platform.health.defaults",
+            "platform.health.terminology",
+            "platform.health.documents",
+            "platform.health.taxonomies",
+            "platform.health.reports",
+            "platform.health.data-exchanges",
+            "platform.health.standing-rules",
+            "platform.health.schedules",
+            "platform.health.views",
+            "platform.browse.asset-types",
+            "platform.browse.forms",
+            "platform.browse.workflows",
+            "platform.browse.standards",
+            "platform.browse.defaults",
+            "platform.browse.terminology",
+            "platform.browse.documents",
+            "platform.browse.taxonomies",
+            "platform.browse.reports",
+            "platform.browse.data-exchanges",
+            "platform.browse.standing-rules",
+            "platform.browse.schedules",
+            "platform.browse.views",
+        ];
+        var definitions = await views.ListDefinitionsAsync(tenant.Value, CancellationToken.None);
+        Assert.Equal(39, definitions.Count);
+        Assert.Equal(expectedViewKeys.Order(StringComparer.Ordinal),
+            definitions.Select(definition => definition.Key).Order(StringComparer.Ordinal));
+        var viewItems = active.SeedItems.Where(item => item.Kind == PackContentKind.ViewDefinition).ToArray();
+        Assert.Equal(39, viewItems.Length);
+        Assert.Equal(expectedViewKeys.Order(StringComparer.Ordinal),
+            viewItems.Select(item => item.Key).Order(StringComparer.Ordinal));
+        foreach (var item in viewItems)
+        {
+            using var body = JsonDocument.Parse(item.CanonicalJson);
+            Assert.Equal("layout.table", body.RootElement.GetProperty("viewKind").GetString());
+        }
+
+        var catalogue = new ProjectedCatalogue(authorizedForms, views, plans,
+            new CatalogueRegistries(store, defaults: defaults));
+        var currentViews = await catalogue.ListAsync(tenant, PackContentKind.ViewDefinition);
+        Assert.Empty(currentViews.KindsUnavailable);
+        Assert.Equal(expectedViewKeys.Order(StringComparer.Ordinal),
+            currentViews.Entries.Select(entry => entry.Id).Order(StringComparer.Ordinal));
+        foreach (var definition in definitions)
+        {
+            Assert.Equal("1.0.0", definition.Version);
+            Assert.Equal("layout.table", definition.ViewKind);
+            var plan = Assert.IsType<RenderPlan>(plans.Get(
+                tenant, PackContentKind.ViewDefinition, definition.Key, "1.0.0"));
+            Assert.Equal("harborline.platform", plan.PackKey);
+            Assert.Equal("1.6.1", plan.PackVersion);
+            Assert.Equal("layout.table", plan.Bindings.GetProperty("viewKind").GetString());
+            var entry = Assert.Single(currentViews.Entries, candidate => candidate.Id == definition.Key);
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "pack"), entry.Provenance);
+            Assert.NotNull(entry.RenderPlan);
+            Assert.Equal("1.6.1", entry.RenderPlan!.PackVersion);
+        }
+
+        foreach (var formKey in new[] { "platform.detail.form", "platform.pack.author" })
+        {
+            var form = await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formKey));
+            Assert.NotNull(form);
+            Assert.Equal("1.0.1", form!.Version.ToString());
+            Assert.Equal(FormDefinitionStatus.Published, form.Status);
+            Assert.Equal("harborline.platform", form.PackSource?.PackId);
+            Assert.Equal("1.6.1", form.PackSource?.PackVersion);
+        }
     }
 
     [Fact(DisplayName = "install → activate a General asset-type pack → GET /types returns the 6 (dead-end closed)")]
@@ -467,11 +629,16 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(first.DefinitionHash, replay!.DefinitionHash);
     }
 
-    [Fact(DisplayName = "ticket 176: a sealed compiled-kind claim is refused through pack admission and projects nothing")]
-    public async Task Sealed_System_Type_Claim_Is_Refused_Through_Admission_Path()
+    [Theory(DisplayName = "ticket 176: a sealed compiled-kind claim is refused through pack admission and projects nothing")]
+    [InlineData("fOrMdEfInItIoN")]
+    [InlineData("harborline.platform.FormDefinition")]
+    [InlineData("Harborline.Platform.fOrMdEfInItIoN")]
+    public async Task Sealed_System_Type_Claim_Is_Refused_Through_Admission_Path(string sealedKey)
     {
-        const string sealedKey = "fOrMdEfInItIoN";
-        var packBytes = await ExportAsync(FormPackBody(sealedKey, "1.0.0", invalidRule: false));
+        var body = FormPackBody(sealedKey, "1.0.0", invalidRule: false);
+        var packBytes = sealedKey == "fOrMdEfInItIoN"
+            ? await LegacyPackFixtureSigner.SignNameProbeAsync(body, new Ed25519Signer(_key))
+            : await ExportAsync(body);
 
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var activation = await _client.PostAsJsonAsync(
@@ -480,7 +647,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         using var response = JsonDocument.Parse(await activation.Content.ReadAsStringAsync());
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(sealedKey, refusal.GetProperty("contentKey").GetString());
-        Assert.Equal(PackSealedSystemTypeAdmissionCodes.RefusedCode, refusal.GetProperty("code").GetString());
+        Assert.Equal("pack.projection.sealed_system_type_claim", refusal.GetProperty("code").GetString());
         Assert.Equal("/contents/0/contentBase64", refusal.GetProperty("pointer").GetString());
 
         var tenant = NodeTenant.Resolve(_activeTeam);
@@ -493,7 +660,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     public async Task Substring_Of_Sealed_System_Type_Name_Is_Admitted_Through_Pack_Admission()
     {
         const string formId = "FormDefinitionTemplate";
-        var packBytes = await ExportAsync(FormPackBody(formId, "1.0.0", invalidRule: false));
+        var packBytes = await LegacyPackFixtureSigner.SignNameProbeAsync(
+            FormPackBody(formId, "1.0.0", invalidRule: false), new Ed25519Signer(_key));
 
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var activation = await _client.PostAsJsonAsync(
@@ -1624,6 +1792,38 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         public Task SetActiveAsync(TeamId teamId, CancellationToken ct) => Task.CompletedTask;
         public event EventHandler<ActiveTeamChangedEventArgs>? ActiveChanged;
         private void _keep() => ActiveChanged?.Invoke(this, new ActiveTeamChangedEventArgs(null, null));
+    }
+
+    private sealed class ObservedPlatformInstaller(IPackInstaller inner) : IPackInstaller
+    {
+        public List<PackActivationOutcome> Activations { get; } = [];
+
+        public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) =>
+            inner.Preview(bytes, context);
+
+        public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) =>
+            inner.Check(bytes, context);
+
+        public Task<PackInstallOutcome> InstallAsync(
+            ReadOnlyMemory<byte> bytes, PackInstallContext context, CancellationToken cancellationToken = default) =>
+            inner.InstallAsync(bytes, context, cancellationToken);
+
+        public async Task<PackActivationOutcome> ActivateAsync(
+            PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default)
+        {
+            var outcome = await inner.ActivateAsync(context, packKey, version, cancellationToken);
+            Activations.Add(outcome);
+            return outcome;
+        }
+
+        public Task<PackDeactivationOutcome> DeactivateAsync(
+            PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default) =>
+            inner.DeactivateAsync(context, packKey, version, cancellationToken);
+
+        public Task<PackNarrowingOutcome> NarrowAsync(
+            PackInstallContext context, string packKey, string contentKey, JsonNode overlayPatch,
+            AuthorizationDecision decision, CancellationToken cancellationToken = default) =>
+            inner.NarrowAsync(context, packKey, contentKey, overlayPatch, decision, cancellationToken);
     }
 
     private sealed class ThrowingProjectionReconciler : IPackProjectionReconciler

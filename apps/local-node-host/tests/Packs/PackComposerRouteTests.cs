@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -80,7 +82,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         await _app.DisposeAsync();
     }
 
-    private static object ValidExportBody() => new
+    private static object ValidExportBody(string contentKey = "acme.intake-form") => new
     {
         key = "acme.inspections",
         version = "1.0.0",
@@ -91,7 +93,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         {
             new
             {
-                key = "intake-form",
+                key = contentKey,
                 kind = "FormDefinition",
                 version = "1.0.0",
                 content = new { title = "Intake", assignee = "role:approver" },
@@ -146,7 +148,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
             {
                 new
                 {
-                    key = "intake-form",
+                    key = "acme.intake-form",
                     kind = "FormDefinition",
                     version = "1.0.0",
                     content = new { title = "Intake", assignee = "role:approver" },
@@ -174,7 +176,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
             {
                 new
                 {
-                    key = "leaky-form",
+                    key = "leaky.form",
                     kind = "FormDefinition",
                     version = "1.0.0",
                     content = new { title = "x", submittedValues = new { amount = "500" } },
@@ -193,6 +195,117 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         using var validationDoc = JsonDocument.Parse(await validationResp.Content.ReadAsStringAsync());
         Assert.False(validationDoc.RootElement.GetProperty("valid").GetBoolean());
         Assert.Contains("pii.instance_data", validationDoc.RootElement.GetProperty("codes").GetRawText());
+    }
+
+    [Theory]
+    [InlineData("intake-form")]
+    [InlineData(".intake")]
+    [InlineData("acme.")]
+    [InlineData("acme..intake")]
+    [InlineData("/intake")]
+    [InlineData("acme/")]
+    [InlineData("acme//intake")]
+    [InlineData("acme./intake")]
+    [InlineData("acme/ /intake")]
+    [InlineData(" .intake")]
+    [InlineData("acme. \t.intake")]
+    public async Task Unqualified_keys_are_refused_before_signing_by_validator_exporter_and_routes(string key)
+    {
+        var source = new PackContentSource(key, PackContentKind.FormDefinition, "1.0.0",
+            new JsonObject { ["title"] = "Namespace proof" });
+        var item = new PackContentCanonicalizer().Canonicalize(source);
+        var manifest = new PackManifest("unrelated.publisher", "1.0.0", "Namespace proof", "Definition only",
+            PackScopeTier.Horizontal, [new(key, PackContentKind.FormDefinition, "1.0.0", item.ContentAddress)], [], []);
+        var validation = new PackValidator(new PackContentPiiScanner()).Validate(manifest, [item]);
+        var finding = Assert.Single(validation.Errors);
+        Assert.Equal("pack.validation.content.key.unqualified", finding.Code);
+        Assert.Equal(key, finding.Target);
+
+        var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()),
+            new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), new PackFileCodec(), timeProvider: TimeProvider.System);
+        var result = await exporter.ExportAsync(new PackExportRequest(
+            "unrelated.publisher", "1.0.0", "Namespace proof", "Definition only", PackScopeTier.Horizontal,
+            [source], [], [], 1, Dcp: DomainComplianceProfile.General(_key.PrincipalId.ToBase64Url())), _signer);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.File);
+        Assert.Null(result.FileBytes);
+        Assert.Equal("pack.validation.content.key.unqualified", Assert.Single(result.Validation.Errors).Code);
+        Assert.Equal(0, _signer.Calls);
+
+        foreach (var suffix in new[] { "?validateOnly=true", "" })
+        {
+            var response = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute + suffix, ValidExportBody(key));
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+            Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var code = Assert.Single(document.RootElement.GetProperty("codes").EnumerateArray());
+            Assert.Equal("pack.validation.content.key.unqualified", code.GetProperty("code").GetString());
+            Assert.Equal(key, code.GetProperty("target").GetString());
+            Assert.False(document.RootElement.TryGetProperty("fileBytes", out _));
+        }
+        Assert.Equal(0, _signer.Calls);
+    }
+
+    [Theory]
+    [InlineData("access.grant-a-role")]
+    [InlineData("shared.equipment")]
+    [InlineData("harborline.general.equipment")]
+    [InlineData("records/eam.meter")]
+    [InlineData("forms/invoice")]
+    [InlineData("defaults/package")]
+    [InlineData("authorization/tenant-read")]
+    public async Task Qualified_keys_export_verbatim_under_a_different_pack_namespace(string key)
+    {
+        var validation = await _client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + "?validateOnly=true", ValidExportBody(key));
+        Assert.Equal(HttpStatusCode.OK, validation.StatusCode);
+        Assert.Equal(0, _signer.Calls);
+        var response = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, ValidExportBody(key));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+        var file = new PackFileCodec().TryDecode(await response.Content.ReadAsByteArrayAsync());
+        Assert.NotNull(file);
+        Assert.Equal("acme.inspections", file.Envelope!.Payload.Manifest.Key);
+        Assert.Equal(key, Assert.Single(file.Envelope.Payload.Manifest.Contents).Key);
+        Assert.Equal(key, Assert.Single(file.Contents).Key);
+        Assert.Equal(1, _signer.Calls);
+    }
+
+    [Fact]
+    public void Blank_keys_keep_the_existing_missing_finding()
+    {
+        var item = new PackContentCanonicalizer().Canonicalize(new PackContentSource(" ",
+            PackContentKind.FormDefinition, "1.0.0", new JsonObject { ["title"] = "Blank key" }));
+        var manifest = new PackManifest("acme.blank", "1.0.0", "Blank key", "Definition only",
+            PackScopeTier.Horizontal, [new(" ", PackContentKind.FormDefinition, "1.0.0", item.ContentAddress)], [], []);
+        var result = new PackValidator(new PackContentPiiScanner()).Validate(manifest, [item]);
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.key.missing");
+        Assert.DoesNotContain(result.Errors, error => error.Code == "pack.validation.content.key.unqualified");
+    }
+
+    [Fact]
+    public void Namespace_findings_do_not_hide_other_content_diagnostics()
+    {
+        var canonicalizer = new PackContentCanonicalizer();
+        var item = canonicalizer.Canonicalize(new PackContentSource("bare", PackContentKind.FormDefinition,
+            "1.0.0", new JsonObject { ["submittedValues"] = new JsonObject { ["amount"] = 5 } }));
+        var different = canonicalizer.Canonicalize(new PackContentSource("acme.other", PackContentKind.FormDefinition,
+            "1.0.0", new JsonObject { ["title"] = "Different addressed bytes" }));
+        var manifest = new PackManifest("acme.diagnostics", "1.0.0", "Diagnostics", "Definition only",
+            PackScopeTier.Horizontal,
+            [
+                new("bare", PackContentKind.FormDefinition, "*", different.ContentAddress),
+                new("bare", PackContentKind.FormDefinition, "1.0.0", item.ContentAddress),
+                new("missing", PackContentKind.FormDefinition, "1.0.0", different.ContentAddress),
+            ], [], []);
+        var result = new PackValidator(new PackContentPiiScanner()).Validate(manifest, [item]);
+        Assert.Equal(3, result.Errors.Count(error => error.Code == "pack.validation.content.key.unqualified"));
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.key.duplicate" && error.Target == "bare");
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.version.unpinned" && error.Target == "bare");
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.item.missing" && error.Target == "missing");
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.address.mismatch" && error.Target == "bare");
+        Assert.Contains(result.Errors, error => error.Code == "pack.validation.content.pii.instance_data" && error.Target == "bare:$.submittedValues");
     }
 
     [Fact(DisplayName = "verify of garbage is VerificationFailed")]

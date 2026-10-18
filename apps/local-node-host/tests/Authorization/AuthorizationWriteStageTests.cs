@@ -2538,7 +2538,7 @@ public sealed class AuthorizationWriteStageTests
         var exported = await exporter.ExportAsync(new PackExportRequest(
             "pack", "1.0.0", "Authorization stage pack", "Valid signed denial fixture",
             PackScopeTier.Horizontal,
-            [new PackContentSource("pack-form", PackContentKind.FormDefinition, "1.0.0",
+            [new PackContentSource("fixtures.pack-form", PackContentKind.FormDefinition, "1.0.0",
                 new JsonObject { ["title"] = "Authorization stage" })],
             Array.Empty<PackDependencyRef>(),
             Array.Empty<string>(),

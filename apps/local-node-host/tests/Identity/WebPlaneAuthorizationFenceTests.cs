@@ -579,7 +579,7 @@ public sealed class WebPlaneAuthorizationFenceTests
                 Contents: new[]
                 {
                     new PackContentSource(
-                        "intake", PackContentKind.FormDefinition, "1.0.0",
+                        "fixtures.intake", PackContentKind.FormDefinition, "1.0.0",
                         System.Text.Json.Nodes.JsonNode.Parse(
                             """{"title":"Intake","assignee":"role:approver"}""")!),
                 },

@@ -24,7 +24,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "1.6.0";
+    public const string PackVersion = "1.6.1";
     private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
 
     private readonly IPackExporter exporter;
@@ -108,7 +108,8 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
 
     internal static PackExportRequest ReadExportRequest(Stream stream, string authoringPrincipal)
     {
-        var document = JsonSerializer.Deserialize<ExportPackRequestDto>(stream, ExportJsonOptions)
+        using var recipe = JsonDocument.Parse(stream);
+        var document = recipe.RootElement.Deserialize<ExportPackRequestDto>(ExportJsonOptions)
             ?? throw new InvalidOperationException("The platform export document is not a JSON object.");
         return new PackExportRequest(Key: document.Key, Version: document.Version, Name: document.Name ?? document.Key,
             Description: document.Description ?? string.Empty, ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, true),
@@ -116,6 +117,9 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
             Dependencies: (document.Dependencies ?? []).Select(dependency => new PackDependencyRef(
                 dependency.Key, dependency.Version, dependency.DeclaredDependencyKeys ?? [])).ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? [], Epoch: PackComposerRoutes.OwnRosterEpoch,
+            RenamedFrom: recipe.RootElement.TryGetProperty("renamedFrom", out var renamedFrom)
+                ? renamedFrom.Deserialize<PackContentRename[]>(ExportJsonOptions)
+                : null,
             Dcp: DomainComplianceProfile.General(authoringPrincipal));
     }
 

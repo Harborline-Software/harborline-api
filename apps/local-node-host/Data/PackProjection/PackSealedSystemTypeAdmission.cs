@@ -29,9 +29,17 @@ public static class PackSealedSystemTypeAdmission
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         descriptor = SystemRecordType.All.SingleOrDefault(type =>
-            string.Equals(type.Name, key, StringComparison.OrdinalIgnoreCase));
+            string.Equals(type.Name, key, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(QualifiedKey(type), key, StringComparison.OrdinalIgnoreCase));
         return descriptor is not null;
     }
+
+    internal static string QualifiedKey(SystemRecordType descriptor)
+        => PlatformPackKey + "." + descriptor.Name;
+
+    internal static bool IsCanonicalCatalogueKey(string key, SystemRecordType descriptor)
+        => string.Equals(key, descriptor.Name, StringComparison.Ordinal)
+           || string.Equals(key, QualifiedKey(descriptor), StringComparison.Ordinal);
 
     /// <summary>
     /// The platform seed records the compiled descriptors for catalogue provenance, but never supplies

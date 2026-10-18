@@ -68,7 +68,7 @@ public sealed class CascadeDefaultsTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.6.0", request.Version);
+        Assert.Equal("1.6.1", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
@@ -185,7 +185,7 @@ public sealed class CascadeDefaultsTests
     public void Admission_rejects_unknown_or_malformed_contract(string before, string after, string code)
     {
         var adapter = new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: new());
-        var refusal = Assert.Single(adapter.Admit([new(Package, "defaults", PackContentKind.CascadeDefaults,
+        var refusal = Assert.Single(adapter.Admit([new(Package, "fixtures.defaults", PackContentKind.CascadeDefaults,
             "1.0.0", Body.Replace(before, after, StringComparison.Ordinal))], Tenant).Refusals);
         Assert.Equal(code, refusal.Code);
         Assert.StartsWith("/", refusal.Pointer);
@@ -194,7 +194,7 @@ public sealed class CascadeDefaultsTests
     [Fact]
     public void Admission_requires_consumer_and_rejects_cross_item_duplicate_coordinates()
     {
-        var item = new PackComposedItem(Package, "defaults", PackContentKind.CascadeDefaults, "1.0.0", Body);
+        var item = new PackComposedItem(Package, "fixtures.defaults", PackContentKind.CascadeDefaults, "1.0.0", Body);
         Assert.Equal(PackAdmissionCodes.NotWired, Assert.Single(new WorkflowRefusingPackContentAdmission().Admit([item], Tenant).Refusals).Code);
         Assert.Equal(PackAdmissionCodes.NotWired, Assert.Single(new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>()).Admit([item], Tenant).Refusals).Code);
         var adapter = new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: new());
@@ -221,7 +221,7 @@ public sealed class CascadeDefaultsTests
         async Task<byte[]> Export(string version, string body)
         {
             var exported = await exporter.ExportAsync(new PackExportRequest(Package, version, "Defaults", "Governance admission",
-                PackScopeTier.Vertical, [new PackContentSource("defaults", PackContentKind.CascadeDefaults, version, JsonNode.Parse(body)!)],
+                PackScopeTier.Vertical, [new PackContentSource("fixtures.defaults", PackContentKind.CascadeDefaults, version, JsonNode.Parse(body)!)],
                 [], [], Epoch: 1, Dcp: DomainComplianceProfile.General("test-author")), new Ed25519Signer(keys));
             Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
             return exported.FileBytes!;
@@ -300,9 +300,9 @@ public sealed class CascadeDefaultsTests
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
             AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "test-operator");
         var decision = TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate);
-        Assert.False((await installer.NarrowAsync(context, Package, "defaults", JsonNode.Parse("""{"schemaVersion":null}""")!, decision)).Recorded);
+        Assert.False((await installer.NarrowAsync(context, Package, "fixtures.defaults", JsonNode.Parse("""{"schemaVersion":null}""")!, decision)).Recorded);
         Assert.Empty(fixture.Packs.GetOverrides(Tenant, Package));
-        Assert.True((await installer.NarrowAsync(context, Package, "defaults", patch, decision)).Recorded);
+        Assert.True((await installer.NarrowAsync(context, Package, "fixtures.defaults", patch, decision)).Recorded);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Equal(2, fixture.Defaults.Resolve(Tenant, Package, "contact", "title").Values.Masking!.RevealLast);
         Assert.True(Assert.Single(fixture.Defaults.List(Tenant)).Source.TenantOverride);
@@ -320,7 +320,7 @@ public sealed class CascadeDefaultsTests
         fixture.Packs.Activate(Tenant, "alternate-pack", "1.0.0");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Empty(fixture.Defaults.List(Tenant));
-        fixture.Packs.RecordKeyOwnership(Tenant, "defaults", "alternate-pack");
+        fixture.Packs.RecordKeyOwnership(Tenant, "fixtures.defaults", "alternate-pack");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Equal("alternate-pack", Assert.Single(fixture.Defaults.List(Tenant)).Source.PackId);
     }
@@ -413,7 +413,7 @@ public sealed class CascadeDefaultsTests
         var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
             AdmittedInstant.FromRecordedAct(TestAuthorization.At), TimeSpan.FromDays(30), Principal: "test-operator");
         var before = Assert.Single(fixture.Packs.ListInstalled(Tenant));
-        var refusal = await installer.NarrowAsync(context, Package, "defaults", new JsonObject { ["defaults"] = declarations },
+        var refusal = await installer.NarrowAsync(context, Package, "fixtures.defaults", new JsonObject { ["defaults"] = declarations },
             TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate));
         Assert.False(refusal.Recorded);
         Assert.Equal("pack.defaults.relax_forbidden", refusal.RefusalCode);
@@ -433,7 +433,7 @@ public sealed class CascadeDefaultsTests
         var seed = "{\"schemaVersion\":1,\"title\":\"Publisher policy\",\"defaults\":[{\"recordType\":\"contact\"," + axis + "}]}";
         var composed = """{"schemaVersion":1,"title":"Publisher policy","defaults":[]}""";
         var adapter = new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: new());
-        var refusal = Assert.Single(adapter.Admit([new(Package, "defaults", PackContentKind.CascadeDefaults,
+        var refusal = Assert.Single(adapter.Admit([new(Package, "fixtures.defaults", PackContentKind.CascadeDefaults,
             "1.0.0", composed, SeedCanonicalJson: seed)], Tenant).Refusals);
         Assert.Equal(CascadeDefaultsRestrictionCheck.Refused, refusal.Code);
     }
@@ -446,7 +446,7 @@ public sealed class CascadeDefaultsTests
         fixture.Packs.Activate(Tenant, Package, "1.0.0");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         var before = Assert.Single(fixture.Defaults.List(Tenant));
-        fixture.Packs.SaveOverride(Tenant, Package, new("defaults", JsonNode.Parse("""{"defaults":[]}""")!));
+        fixture.Packs.SaveOverride(Tenant, Package, new("fixtures.defaults", JsonNode.Parse("""{"defaults":[]}""")!));
         var refusal = Assert.Single((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
         Assert.Equal(CascadeDefaultsRestrictionCheck.Refused, refusal.Code);
         Assert.Same(before, Assert.Single(fixture.Defaults.List(Tenant)));
@@ -571,7 +571,7 @@ public sealed class CascadeDefaultsTests
                 new InMemoryRoleVocabulary([RoleDefinition.CreateTenantRole(RoleDefinitionId.New(), "default-reader", "Reader", Tenant)]))));
         public void Install(string version, string body, bool includeForm = false, string package = Package, PackSeedItem? extra = null)
         {
-            var items = new List<PackSeedItem> { new("defaults", PackContentKind.CascadeDefaults, version, body, Cid.FromBytes(Encoding.UTF8.GetBytes(body))) };
+            var items = new List<PackSeedItem> { new("fixtures.defaults", PackContentKind.CascadeDefaults, version, body, Cid.FromBytes(Encoding.UTF8.GetBytes(body))) };
             if (extra is not null) items.Add(extra);
             if (includeForm)
             {

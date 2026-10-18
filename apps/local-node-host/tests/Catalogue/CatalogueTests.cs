@@ -19,7 +19,7 @@ public sealed class CatalogueTests
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
             "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        Assert.Equal("7717911ff08ed71c8b51d2f2a59a633d147eef5934ffde0c6a5e8de22c456919",
+        Assert.Equal("513a2816fff731d73f63572197f7f8e31f48f19a798dd5941d9b45c5e08e1c50",
             Convert.ToHexStringLower(SHA256.HashData(stream)));
     }
 
@@ -84,6 +84,72 @@ public sealed class CatalogueTests
 
         Assert.True(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("harborline.platform", item));
         Assert.False(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("example.other", item));
+    }
+
+    [Fact]
+    public void New_platform_recipe_qualifies_only_the_transport_keys_and_advances_the_immutable_version()
+    {
+        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
+            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
+        using var document = JsonDocument.Parse(stream);
+        Assert.Equal("1.6.1", document.RootElement.GetProperty("version").GetString());
+        Assert.Equal(new[]
+        {
+            "harborline.platform.FormDefinition", "harborline.platform.WorkflowDefinition",
+            "harborline.platform.StandardsCatalog", "harborline.platform.NavWorkspaceConfig",
+            "harborline.platform.CascadeDefaults", "harborline.platform.AssetTypeDefinition",
+            "harborline.platform.TerminologyOverride", "harborline.platform.TemplateDefinition",
+            "harborline.platform.TaxonomyDefinition", "harborline.platform.ReportDefinition",
+            "harborline.platform.ViewDefinition", "harborline.platform.ScheduleDefinition",
+            "harborline.platform.DataExchangeDefinition", "harborline.platform.StandingRuleDefinition",
+            "harborline.platform.RoleDefinition", "harborline.platform.AuthorizationCapabilityBinding",
+            "harborline.platform.Layout", "harborline.platform.Resource", "harborline.platform.Bookable",
+        }, document.RootElement.GetProperty("contents").EnumerateArray()
+            .Where(item => item.GetProperty("kind").GetString() == "RecordType")
+            .Select(item => item.GetProperty("key").GetString()));
+        Assert.Equal(new[]
+        {
+            "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition",
+            "DataExchangeDefinition", "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "Layout", "Resource", "Bookable",
+        }, SystemRecordType.All.Select(item => item.Name));
+    }
+
+    [Theory]
+    [InlineData("FormDefinition")]
+    [InlineData("fOrMdEfInItIoN")]
+    [InlineData("harborline.platform.FormDefinition")]
+    [InlineData("Harborline.Platform.fOrMdEfInItIoN")]
+    public void Both_known_spellings_resolve_the_one_compiled_descriptor_and_remain_platform_only(string key)
+    {
+        Assert.True(PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(key, out var descriptor));
+        Assert.NotNull(descriptor);
+        Assert.Equal("FormDefinition", descriptor.Name);
+        Assert.Equal(PackContentKind.FormDefinition, descriptor.Kind);
+        Assert.Same(SystemRecordType.All.Single(item => item.Name == "FormDefinition"), descriptor);
+        var seed = new PackSeedItem(key, PackContentKind.RecordType, "1.0.0", "{}", Cid.FromBytes([]));
+        Assert.True(PackSealedSystemTypeAdmission.ClaimsSealedSystemType(seed));
+        Assert.True(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("harborline.platform", seed));
+        Assert.False(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("other.publisher", seed));
+        Assert.False(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("Harborline.Platform", seed));
+    }
+
+    [Theory]
+    [InlineData("vendor.FormDefinition")]
+    [InlineData("vendor.harborline.platform.FormDefinition")]
+    [InlineData("harborline.platform.FormDefinitionTemplate")]
+    [InlineData("FormDefinitionTemplate")]
+    [InlineData("shared.equipment")]
+    [InlineData("harborline.platform.UnknownDefinition")]
+    public void Arbitrary_namespaces_and_suffix_lookalikes_do_not_claim_compiled_identities(string key)
+    {
+        Assert.False(PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(key, out var descriptor));
+        Assert.Null(descriptor);
+        var seed = new PackSeedItem(key, PackContentKind.FormDefinition, "1.0.0", "{}", Cid.FromBytes([]));
+        Assert.False(PackSealedSystemTypeAdmission.ClaimsSealedSystemType(seed));
+        Assert.False(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("harborline.platform", seed));
     }
 
     [Fact(DisplayName = "402.4: a definition-only change changes only that definition's render-plan hash")]

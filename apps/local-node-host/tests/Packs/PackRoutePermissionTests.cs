@@ -454,7 +454,7 @@ public sealed class PackRoutePermissionTests : IAsyncLifetime
         {
             new
             {
-                key = "intake",
+                key = "fixtures.intake",
                 kind = "FormDefinition",
                 version = "1.0.0",
                 content = new { title = "Intake", assignee = "role:approver" },
