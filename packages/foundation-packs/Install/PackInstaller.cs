@@ -1422,21 +1422,21 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         if (layoutRefusals.Count > 0 && (!collectRefusals
             || layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)))
         {
-            var refusals = layoutRefusals;
+            var layoutAdmissionRefusals = layoutRefusals;
             if (collectRefusals)
             {
                 var collected = earlyRefusals.Concat(contractRefusals).ToList();
                 collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
-                refusals = collected;
+                layoutAdmissionRefusals = collected;
             }
 
             var refused = HardRefusal(
-                manifest.Key, manifest.Version, refusals[0].Code, revocationStale,
-                signerB64, epoch, scope, refusals: refusals,
+                manifest.Key, manifest.Version, layoutAdmissionRefusals[0].Code, revocationStale,
+                signerB64, epoch, scope, refusals: layoutAdmissionRefusals,
                 destinationClassifications: destinationClassifications);
             return refused with
             {
-                Preview = refused.Preview with { RefusalCodes = refusals.Select(refusal => refusal.Code).Distinct().ToList() },
+                Preview = refused.Preview with { RefusalCodes = layoutAdmissionRefusals.Select(refusal => refusal.Code).Distinct().ToList() },
             };
         }
 
