@@ -23,6 +23,7 @@ const fail = (code, detail) => { throw new Error(`focused-mode ${code}: ${detail
 function category(file) {
   if (!safePath(file)) return 'unknown'
   if (/^(README|CONTRIBUTING|AGENTS|CI-PIPELINE)\.md$/.test(file)
+    || file === 'apps/local-node-host/README.md'
     || /^(docs|adrs|designs)\/.*\.md$/.test(file)) return 'documentation'
   if (/coverage|\.runsettings$/i.test(file)) return 'coverage'
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
