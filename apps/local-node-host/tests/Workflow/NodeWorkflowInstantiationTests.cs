@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.FinancialAr.Models;
@@ -11,6 +13,8 @@ using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Blocks.FinancialAr.Data;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Definitions;
 // PartyId lives in People.Foundation.Models (used by the seeded schedule).
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Scheduling;
@@ -18,6 +22,7 @@ using Harborline.Api.Foundation.Scheduling.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -57,62 +62,279 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Strict_recurrence_failure_prevents_daemon_dispatch_and_all_durable_workflow_effects(bool capped)
+    [InlineData("unsupported")]
+    [InlineData("malformed")]
+    [InlineData("cap")]
+    public async Task Strict_recurrence_refusal_skips_only_the_bad_instance_and_healthy_monthly_dispatch_survives_reopen(string failure)
     {
         var factory = NewFactory();
         var store = NewStore(factory);
         var instantiation = NewInstantiation(store, factory);
-        var at = capped
-            ? new DateTimeOffset(2028, 9, 27, 0, 0, 0, TimeSpan.Zero)
-            : new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
-        await SeedScheduleAsync(factory, "SCHED-STRICT", capped ? "FREQ=DAILY" : "FREQ=DAILY;EXDATE=20260106",
-            new DateOnly(2026, 1, 1), 250m);
-        Assert.Equal(1, await instantiation.SyncRecurringGenerationProcessesAsync(LocalTenantId, at));
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        var rule = failure switch
+        {
+            "unsupported" => "FREQ=DAILY;EXDATE=20260106",
+            "malformed" => "FREQ=DAILY;INTERVAL=0",
+            "cap" => "FREQ=DAILY",
+            _ => throw new InvalidOperationException("Unknown literal recurrence fixture."),
+        };
+        // The cap fixture has a genuinely unprocessed >1000-date backlog; its cursor must not
+        // be silently moved to today. The healthy schedule remains entirely within the open period.
+        var startsOn = failure == "cap" ? new DateOnly(2023, 1, 1) : new DateOnly(2026, 1, 1);
+        await SeedScheduleAsync(factory, "SCHED-STRICT", rule, startsOn, 250m);
+        await SeedScheduleAsync(factory, "SCHED-HEALTHY", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 1, 1), 250m);
+        Assert.Equal(2, await instantiation.SyncRecurringGenerationProcessesAsync(LocalTenantId, at));
         const string instanceId = "recurring-generation:SCHED-STRICT";
         var before = (await store.LoadAsync(instanceId))!;
         Assert.Equal(WorkflowStatus.Running, before.Status);
-        Assert.Equal("generate@2026-01-01", before.CurrentStep);
         long eventsBefore;
         await using (var context = await factory.CreateDbContextAsync())
         {
             Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync());
-            eventsBefore = await context.Set<WorkflowEventRecord>().LongCountAsync();
+            eventsBefore = await context.Set<WorkflowEventRecord>().LongCountAsync(row => row.InstanceId == instanceId);
         }
-        var services = new ServiceCollection();
-        services.AddFoundationScheduling();
-        using var provider = services.BuildServiceProvider();
-        var daemon = new WorkflowScheduleDaemon(
-            new NodeRecurringScheduleSource(factory, provider.GetRequiredService<IRruleExpansionService>()),
-            new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) }),
-            new FixedClock(at), NullLogger<WorkflowScheduleDaemon>.Instance,
-            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), store: store);
-
-        if (capped)
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), log);
+        var due = await source.GetDueTriggersAsync(at);
+        var healthy = Assert.Single(due);
+        Assert.Equal("recurring-generation:SCHED-HEALTHY", healthy.InstanceId);
+        Assert.Equal("generate@2026-01-01", healthy.Step);
+        var refusal = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, refusal.Level);
+        Assert.Contains("recurring-generation:SCHED-STRICT", refusal.Message, StringComparison.Ordinal);
+        if (failure == "cap")
         {
-            var error = await Assert.ThrowsAsync<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(
-                () => daemon.TickAsync());
+            var error = Assert.IsType<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(refusal.Error);
             Assert.Equal(1000, error.CandidateLimit);
             Assert.Equal(1001, error.CandidatesExamined);
-            Assert.Equal(new DateOnly(2026, 1, 1), error.RequestedRangeStart);
-            Assert.Equal(new DateOnly(2028, 9, 27), error.RequestedRangeEnd);
         }
-        else await Assert.ThrowsAsync<NotSupportedException>(() => daemon.TickAsync());
+        else if (failure == "malformed") Assert.IsType<FormatException>(refusal.Error);
+        else Assert.IsType<NotSupportedException>(refusal.Error);
+        await NewRecurringDaemon(factory, store, source, at).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(factory));
 
         var restartedFactory = NewFactory();
-        var after = (await NewStore(restartedFactory).LoadAsync(instanceId))!;
-        Assert.Equal(0, await CountJournalEntriesAsync(restartedFactory));
+        var restartedStore = NewStore(restartedFactory);
+        await NewRecurringDaemon(restartedFactory, restartedStore,
+            new NodeRecurringScheduleSource(restartedFactory, new InMemoryRruleExpansionService(), log), at).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(restartedFactory));
+        var after = (await restartedStore.LoadAsync(instanceId))!;
         Assert.Equal(WorkflowStatus.Running, after.Status);
-        Assert.Equal("generate@2026-01-01", after.CurrentStep);
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
         Assert.Equal(0, after.Iteration);
         Assert.Equal(before.StateJson, after.StateJson);
         Assert.Equal(before.DefinitionVersion, after.DefinitionVersion);
         Assert.Equal(before.CreatedAt, after.CreatedAt);
         Assert.Equal(before.UpdatedAt, after.UpdatedAt);
         await using var fresh = await restartedFactory.CreateDbContextAsync();
-        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync());
-        Assert.Equal(eventsBefore, await fresh.Set<WorkflowEventRecord>().LongCountAsync());
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == instanceId));
+        Assert.Equal(1, await fresh.Set<WorkflowStepIdempotencyRecord>()
+            .CountAsync(row => row.InstanceId == "recurring-generation:SCHED-HEALTHY"));
+        Assert.Equal(eventsBefore, await fresh.Set<WorkflowEventRecord>().LongCountAsync(row => row.InstanceId == instanceId));
+    }
+
+    [Fact]
+    public async Task Long_lived_daily_cursor_reyields_the_prior_occurrence_but_posts_only_two_new_dates_after_reopen()
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        await SeedScheduleAsync(factory, "SCHED-LONG", "FREQ=DAILY", new DateOnly(2023, 1, 1), 250m);
+        await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId,
+            new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        const string id = "recurring-generation:SCHED-LONG";
+        // Establish a recent durable position through the real store, then actually dispatch/post
+        // Jan5. The test does not fabricate a prior Jan5 idempotency receipt or financial effect.
+        await store.AdvanceAsync(new WorkflowStepKey(id, 0, "generate@2023-01-01"), null, "{}", "Advanced", "{}",
+            "generate@2026-01-05", WorkflowStatus.Running, new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero));
+        await NewRecurringDaemon(factory, store,
+            new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService()),
+            new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero)).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(factory));
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), log);
+        var due = await source.GetDueTriggersAsync(at);
+        Assert.Equal(new[] { "generate@2026-01-05", "generate@2026-01-06", "generate@2026-01-07" }, due.Select(row => row.Step));
+        Assert.All(due, row => Assert.Equal(id, row.InstanceId));
+        await NewRecurringDaemon(factory, store, source, at).TickAsync();
+        Assert.Equal(3, await CountJournalEntriesAsync(factory)); // Jan5 replay plus exactly Jan6/7 newly posted.
+        Assert.Empty(log.Entries);
+        var beforeReopen = (await store.LoadAsync(id))!;
+        Assert.Equal("generate@2026-01-07", beforeReopen.CurrentStep);
+        Assert.Contains("2023-01-01", beforeReopen.StateJson, StringComparison.Ordinal);
+        var reopenedFactory = NewFactory();
+        var reopenedStore = NewStore(reopenedFactory);
+        await NewRecurringDaemon(reopenedFactory, reopenedStore,
+            new NodeRecurringScheduleSource(reopenedFactory, new InMemoryRruleExpansionService(), log), at).TickAsync();
+        Assert.Equal(3, await CountJournalEntriesAsync(reopenedFactory));
+        var afterReopen = (await reopenedStore.LoadAsync(id))!;
+        Assert.Equal(beforeReopen.StateJson, afterReopen.StateJson);
+        Assert.Equal(beforeReopen.UpdatedAt, afterReopen.UpdatedAt);
+        await using var context = await reopenedFactory.CreateDbContextAsync();
+        Assert.Equal(new[] { "generate@2026-01-05", "generate@2026-01-06", "generate@2026-01-07" },
+            await context.Set<WorkflowStepIdempotencyRecord>().Where(row => row.InstanceId == id && row.Step != "generate@2023-01-01")
+                .OrderBy(row => row.Step).Select(row => row.Step).ToArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("FREQ=DAILY", "2026-01-05", "2026-01-07", true)]
+    [InlineData("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO", "2026-01-05", "2026-01-14", true)]
+    [InlineData("FREQ=DAILY;COUNT=3", "2026-01-05", "2026-01-07", false)]
+    public async Task Admitted_definition_uses_last_advance_as_window_without_resetting_old_DTSTART_phase_or_COUNT(
+        string rule, string lastAdvance, string asOf, bool hasDue)
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var anchor = new DateTimeOffset(2020, 1, 6, 0, 0, 0, TimeSpan.Zero); // Monday.
+        var advanced = DateTimeOffset.Parse(lastAdvance + "T00:00:00Z", CultureInfo.InvariantCulture);
+        var at = DateTimeOffset.Parse(asOf + "T00:00:00Z", CultureInfo.InvariantCulture);
+        var definitions = await NewPublishedSchedulesAsync("cursor-definition", anchor, rule);
+        await CreateWaitingInstanceAsync(store, "definition-cursor", "cursor-definition", anchor, advanced);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), definitions, log);
+        var due = await source.GetDueTriggersAsync(at);
+        if (hasDue)
+        {
+            var trigger = Assert.Single(due);
+            Assert.Equal("definition-cursor", trigger.InstanceId);
+            Assert.Equal("waiting", trigger.Step);
+        }
+        else Assert.Empty(due);
+        Assert.Empty(log.Entries);
+        Assert.Equal(0, await CountJournalEntriesAsync(factory));
+
+        // The source's real recurrence inputs are separately pinned by literal date oracles. In
+        // particular Jan5 is off-phase (313 weeks after DTSTART); rebasing would incorrectly emit it.
+        var expansion = new InMemoryRruleExpansionService();
+        var dates = expansion.ExpandOccurrences(rule, new DateOnly(2020, 1, 6), DateOnly.FromDateTime(at.UtcDateTime),
+            0, 0, DateOnly.FromDateTime(advanced.UtcDateTime), "UTC");
+        if (rule.StartsWith("FREQ=WEEKLY", StringComparison.Ordinal))
+        {
+            Assert.Equal(new DateOnly[] { new(2026, 1, 12) }, dates);
+            Assert.Empty(await source.GetDueTriggersAsync(new DateTimeOffset(2026, 1, 11, 0, 0, 0, TimeSpan.Zero)));
+        }
+        else if (hasDue) Assert.Equal(new DateOnly[] { new(2026, 1, 5), new(2026, 1, 6), new(2026, 1, 7) }, dates);
+        else Assert.Empty(dates);
+        var retained = (await store.LoadAsync("definition-cursor"))!;
+        Assert.Equal(anchor, retained.CreatedAt);
+        Assert.Equal(advanced, retained.UpdatedAt);
+        Assert.Equal("waiting", retained.CurrentStep);
+    }
+
+    [Fact]
+    public async Task Later_lawful_binding_cap_discards_earlier_candidate_for_only_that_admitted_instance()
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var anchor = new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        // Both rules really pass register/load admission. The sparse first binding has due dates;
+        // the second lawful DAILY binding exceeds1000 only for this instance's unadvanced backlog.
+        var definitions = await NewPublishedSchedulesAsync("multi-binding", anchor,
+            "FREQ=MONTHLY;BYMONTHDAY=1", "FREQ=DAILY");
+        await CreateWaitingInstanceAsync(store, "definition-with-backlog", "multi-binding", anchor, null);
+        await SeedScheduleAsync(factory, "SCHED-HEALTHY", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 1, 1), 250m);
+        await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId, at);
+        var before = (await store.LoadAsync("definition-with-backlog"))!;
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), definitions, log);
+        var due = await source.GetDueTriggersAsync(at);
+        Assert.Equal("recurring-generation:SCHED-HEALTHY", Assert.Single(due).InstanceId);
+        Assert.IsType<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(Assert.Single(log.Entries).Error);
+        Assert.Contains("definition-with-backlog", log.Entries[0].Message, StringComparison.Ordinal);
+        await NewRecurringDaemon(factory, store, source, at).TickAsync();
+        Assert.Equal(1, await CountJournalEntriesAsync(factory));
+        var after = (await NewStore(NewFactory()).LoadAsync("definition-with-backlog"))!;
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        await using var context = await factory.CreateDbContextAsync();
+        Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync(row => row.InstanceId == "definition-with-backlog"));
+        Assert.Equal(0, await context.Set<WorkflowEventRecord>().CountAsync(row => row.InstanceId == "definition-with-backlog"));
+    }
+
+    [Fact]
+    public async Task Definition_read_operational_failure_and_caller_cancellation_are_not_expansion_refusals()
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        await CreateWaitingInstanceAsync(store, "read-failure", "read-failure", at, null);
+        var expected = new NotSupportedException("literal definition-store failure, not recurrence refusal");
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(),
+            new FailingDefinitionRead(expected), log);
+        var actual = await Assert.ThrowsAsync<NotSupportedException>(() => source.GetDueTriggersAsync(at));
+        Assert.Same(expected, actual);
+        Assert.Empty(log.Entries);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => source.GetDueTriggersAsync(at, cancellation.Token));
+        Assert.Empty(log.Entries);
+    }
+
+    private static WorkflowScheduleDaemon NewRecurringDaemon(
+        IDbContextFactory<LocalNodeDbContext> factory, IWorkflowStore store,
+        IWorkflowScheduleSource source, DateTimeOffset at)
+        => new(source, new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) }),
+            new FixedClock(at), NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: TestAuthorization.AllowGate(), store: store);
+
+    private static async Task<EntityStoreWorkflowDefinitionStore> NewPublishedSchedulesAsync(
+        string key, DateTimeOffset at, params string[] rules)
+    {
+        var clock = new FixedClock(at);
+        var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), clock);
+        var store = new EntityStoreWorkflowDefinitionStore(new InMemoryEntityStoreReader(entities), entities,
+            new WorkflowAdmissionValidator(), clock);
+        var lifecycle = TestAuthorization.WorkflowLifecycle(store, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
+        using var authored = JsonSerializer.SerializeToDocument(new
+        {
+            tenant = "local", key, version = "1.0.0", initialState = "start",
+            states = new[] { new { id = "start", kind = "Normal" }, new { id = "waiting", kind = "Normal" }, new { id = "done", kind = "Terminal" } },
+            triggers = new object[] { new { id = "ready", kind = "Event", eventType = "fixture.ready" } }
+                .Concat(rules.Select((rule, index) => (object)new { id = $"schedule-{index}", kind = "Schedule", rrule = rule })).ToArray(),
+            transitions = new object[] { new { id = "enter", from = "start", on = "ready", to = "waiting" } }
+                .Concat(rules.Select((_, index) => (object)new { id = $"due-{index}", from = "waiting", on = $"schedule-{index}", to = "done" })).ToArray(),
+            actions = Array.Empty<object>(), guards = Array.Empty<object>(),
+        });
+        await lifecycle.RegisterAndPublishAsync(authored.RootElement, TestAuthorization.Write(LocalTenantId, at: at));
+        Assert.Equal(WorkflowDefinitionStatus.Published,
+            (await store.GetAdmittedAsync(new DefinitionCoordinates(LocalTenantId, key, "1.0.0"))).Status);
+        return store;
+    }
+
+    private static async Task CreateWaitingInstanceAsync(
+        IWorkflowStore store, string id, string definition, DateTimeOffset created, DateTimeOffset? advanced)
+    {
+        await store.CreateInstanceAsync(new WorkflowInstanceRecord
+        {
+            Id = id, TenantId = "local", DefinitionKey = definition, DefinitionVersion = "1.0.0",
+            CurrentStep = advanced.HasValue ? "start" : "waiting", Status = WorkflowStatus.Running,
+        }, created);
+        if (advanced is { } at)
+        {
+            await store.AdvanceAsync(new WorkflowStepKey(id, 0, "start"), null, "{}", "Advanced", "{}",
+                "waiting", WorkflowStatus.Running, at);
+        }
+    }
+
+    private sealed class ScheduleLog : ILogger<NodeRecurringScheduleSource>
+    {
+        public List<(LogLevel Level, Exception? Error, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, exception, formatter(state, exception)));
+    }
+
+    // A failure injection, never a passing/admitted definition or a fake recurrence producer.
+    private sealed class FailingDefinitionRead(Exception failure) : IWorkflowDefinitionExecutionStore
+    {
+        public ValueTask<WorkflowDefinitionRecord?> GetAdmittedCurrentPublishedAsync(DefinitionAddress address, CancellationToken ct = default)
+            => throw failure;
+        public ValueTask<WorkflowDefinitionRecord> GetAdmittedAsync(DefinitionCoordinates coordinates, CancellationToken ct = default)
+            => throw failure;
     }
 
     private IDbContextFactory<LocalNodeDbContext> NewFactory()

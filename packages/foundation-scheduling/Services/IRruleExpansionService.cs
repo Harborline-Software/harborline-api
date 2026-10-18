@@ -6,24 +6,15 @@ namespace Harborline.Api.Foundation.Scheduling;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Fleet bounded RRULE subset</b> — this contract mirrors the
-/// ui-react <c>expandRecurrence</c> function in
-/// <c>SchedulerRecurrence.ts</c> exactly so the same RRULE configured
-/// in the Scheduler UI expands to the same occurrence set on the
-/// backend. Cross-tier consistency is a binding requirement per
-/// council-verdict-net-arch-2026-06-12T2213Z §C-2.
+/// <b>Strict shared RRULE producer.</b> This API facade delegates to the pinned Platform
+/// <c>Harborline.Foundation.Scheduling</c> implementation. The producer defines the supported
+/// RFC 5545 subset; this facade does not retain a separate parser or claim exact equivalence
+/// to a UI implementation.
 /// </para>
 /// <para>
-/// <b>Supported subset:</b>
-/// <list type="bullet">
-///   <item><description><c>FREQ</c> — DAILY | WEEKLY | MONTHLY | YEARLY</description></item>
-///   <item><description><c>INTERVAL=N</c> — positive integer (default 1)</description></item>
-///   <item><description><c>COUNT=N</c> or <c>UNTIL=YYYYMMDD</c> (mutually exclusive; UNTIL wins when both present)</description></item>
-///   <item><description><c>BYDAY</c> — weekday list e.g. <c>MO,WE,FR</c>; with monthly ordinal e.g. <c>1MO</c> (first Monday), <c>-1FR</c> (last Friday)</description></item>
-///   <item><description><c>BYMONTHDAY</c> — calendar day 1–28 (capped at 28 to avoid month-end ambiguity across February and 30-day months)</description></item>
-///   <item><description><c>BYMONTH</c> — month number 1–12</description></item>
-///   <item><description>Hard occurrence cap: 1 000 occurrences per call to prevent runaway expansion</description></item>
-/// </list>
+/// The shared subset includes DAILY/WEEKLY/MONTHLY/YEARLY frequency and supported INTERVAL,
+/// COUNT/UNTIL and BY* selectors. Combination applicability, value bounds and the complete-or-refusal
+/// occurrence limit belong to that producer, not to copied API parsing rules.
 /// </para>
 /// <para>
 /// Unsupported RRULE components (EXDATE, BYWEEKNO, BYYEARDAY, etc.)
@@ -67,10 +58,8 @@ public interface IRruleExpansionService
     /// </param>
     /// <param name="timezone">
     /// IANA timezone id for the schedule owner (e.g. <c>America/Los_Angeles</c>).
-    /// V1 treats all dates as naive (no timezone conversion); the
-    /// parameter is accepted now so callers are timezone-aware at the
-    /// call site and the Ical.Net follow-on can use it without a
-    /// signature change.
+    /// The pinned producer accepts this coordinate without timezone conversion; this facade
+    /// forwards it unchanged and introduces no timezone policy.
     /// </param>
     /// <returns>
     /// Occurrences in ascending date order, filtered by
