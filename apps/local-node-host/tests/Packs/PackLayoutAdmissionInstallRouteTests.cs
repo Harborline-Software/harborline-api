@@ -52,6 +52,7 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
     private InMemoryPackInstallStore _store = null!;
     private PackInstaller _installer = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
+    private string? _platformSeed;
 
     public Task InitializeAsync() => Task.CompletedTask;
 
@@ -202,6 +203,7 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
         string failure, string? capabilityVersion)
     {
         await StartAsync(capabilityVersion);
+        InstallPlatformSeed();
         var content = LayoutContent();
         content[BodyMarker] = true;
         var rawBody = failure switch
@@ -221,6 +223,7 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
     public async Task Undecodable_entries_do_not_hide_later_layout_semantics_or_allow_partial_install()
     {
         await StartAsync();
+        InstallPlatformSeed();
         var strict = LayoutContent("acme.strict");
         strict[BodyMarker] = true;
         var semantic = LayoutContent("acme.semantic");
@@ -350,10 +353,24 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
         Assert.DoesNotContain("LineNumber", json, StringComparison.Ordinal);
     }
 
+    // Preview and check exist only once the node has an installed pack (ticket 176 s4a), so a test that
+    // posts to them first seeds the platform pack, as the host's boot preload does. That seed is the only
+    // installed state such a test starts with, and AssertNoWrites then requires it to be left exactly as is.
+    private void InstallPlatformSeed()
+    {
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        PlatformPackTestPreload.Activate(_store, tenant);
+        Assert.Equal(PlatformPackTestPreload.PackKey, Assert.Single(_store.ListInstalled(tenant)).PackKey);
+        _platformSeed = JsonSerializer.Serialize(_store.ListInstalled(tenant));
+    }
+
     private void AssertNoWrites()
     {
         var tenant = NodeTenant.Resolve(_activeTeam);
-        Assert.Empty(_store.ListInstalled(tenant));
+        if (_platformSeed is null)
+            Assert.Empty(_store.ListInstalled(tenant));
+        else
+            Assert.Equal(_platformSeed, JsonSerializer.Serialize(_store.ListInstalled(tenant)));
         Assert.Null(_store.GetWatermark(tenant, "acme.layout-pack"));
         Assert.Empty(_store.GetOverrides(tenant, "acme.layout-pack"));
     }
