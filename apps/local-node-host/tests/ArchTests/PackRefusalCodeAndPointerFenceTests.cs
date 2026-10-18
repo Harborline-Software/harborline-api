@@ -52,6 +52,58 @@ public sealed class PackRefusalCodeAndPointerFenceTests
     }
 
     [Fact]
+    public void Indexed_refusal_list_accepts_read_only_Count_for_lists_and_aliases()
+    {
+        foreach (var receiver in new[] { "source", "alias" })
+        {
+            foreach (var operation in new[]
+            {
+                "_ = receiver.Count;",
+                "var count = (receiver.Count);",
+                "if ((receiver.Count) > 0) { }",
+            })
+            {
+                var resolution = IndexedListCountProbe(operation, receiver);
+                Assert.Equal(2, resolution.Values.Count);
+                Assert.Contains("layout.definition.body_invalid", resolution.Values);
+                Assert.Contains("definition.contract.out_of_window", resolution.Values);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("receiver.Count = 0;")]
+    [InlineData("receiver.Count += 1;")]
+    [InlineData("receiver.Count++;")]
+    [InlineData("++receiver.Count;")]
+    [InlineData("receiver.Count--;")]
+    [InlineData("--receiver.Count;")]
+    [InlineData("(receiver.Count) = 0;")]
+    [InlineData("(receiver.Count, _) = (0, 0);")]
+    [InlineData("Escape(ref receiver.Count);")]
+    [InlineData("Escape(out receiver.Count);")]
+    [InlineData("_ = receiver.Capacity;")]
+    public void Indexed_refusal_list_rejects_Count_writes_and_unproven_members(string operation)
+    {
+        foreach (var receiver in new[] { "source", "alias" })
+        {
+            var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+                () => IndexedListCountProbe(operation, receiver));
+            Assert.Contains(receiver == "source" ? "unsupported list member/write" : "unsupported alias member/write",
+                exception.Message, StringComparison.Ordinal);
+        }
+    }
+
+    private static CodeResolution IndexedListCountProbe(string operation, string receiver)
+        => IndexedListFlowProbe("""
+            var source = new List<PackInstallRefusal>();
+            source.Add(new PackInstallRefusal("layout.definition.body_invalid", ""));
+            source.Add(new PackInstallRefusal("definition.contract.out_of_window", ""));
+            var alias = source;
+            """ + operation.Replace("receiver", receiver, StringComparison.Ordinal)
+            + " var layoutAdmissionRefusals = source;");
+
+    [Fact]
     public void Strict_dispatch_resolves_the_real_layout_projection_before_receiver_inference()
     {
         var documents = ProductionDocuments().ToArray();
@@ -1014,7 +1066,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                         throw Invalid("unsupported list call", call);
                     }
 
-                    if (member.Name.Identifier.ValueText == "Count" && member.Parent is not AssignmentExpressionSyntax)
+                    if (IsReadOnlyListCount(member))
                         continue;
                     throw Invalid("unsupported list member/write", member);
                 }
@@ -1090,7 +1142,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                         if (member.Name.Identifier.ValueText is not ("Any" or "MinBy" or "Contains" or "Concat" or "ToList" or "Where" or "Select"))
                             throw Invalid("mutable list alias", call);
                     }
-                    else if (member.Name.Identifier.ValueText != "Count" || member.Parent is AssignmentExpressionSyntax)
+                    else if (!IsReadOnlyListCount(member))
                         throw Invalid("unsupported alias member/write", member);
                     continue;
                 }
@@ -1165,6 +1217,21 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                     && actual.GetParameters().Length == method.ParameterList.Parameters.Count)
                 .Any(actual => actual.GetParameters()[parameterIndex].ParameterType
                     == typeof(IReadOnlyList<Harborline.Api.Foundation.Packs.Model.PackContentItem>));
+        }
+
+        private static bool IsReadOnlyListCount(MemberAccessExpressionSyntax member)
+        {
+            if (member.Name.Identifier.ValueText != "Count") return false;
+            ExpressionSyntax value = member;
+            while (value.Parent is ParenthesizedExpressionSyntax parenthesized)
+                value = parenthesized;
+            return value.Parent switch
+            {
+                AssignmentExpressionSyntax assignment => assignment.Right == value,
+                BinaryExpressionSyntax => true,
+                EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax } => true,
+                _ => false,
+            };
         }
 
         private ExpressionSyntax ConstructorCode(ObjectCreationExpressionSyntax creation)
