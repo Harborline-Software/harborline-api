@@ -278,6 +278,54 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         Assert.Contains("definition.contract.out_of_window", resolution.Values);
     }
 
+    [Fact]
+    public void Indexed_refusal_list_accepts_proven_indexer_reads_for_lists_and_aliases()
+    {
+        foreach (var receiver in new[] { "source", "alias" })
+        {
+            foreach (var operation in new[]
+            {
+                "_ = (layoutAdmissionRefusals[0]);",
+                "var first = (layoutAdmissionRefusals[0]);",
+                "if ((layoutAdmissionRefusals[0]) != null) { }",
+                "_ = (layoutAdmissionRefusals[0]).Code;",
+                "Observe((layoutAdmissionRefusals[0]));",
+                "Observe((layoutAdmissionRefusals[0]).Code);",
+            })
+            {
+                var resolution = IndexedListElementProbe(operation, receiver);
+                Assert.Equal(2, resolution.Values.Count);
+                Assert.Contains("layout.definition.body_invalid", resolution.Values);
+                Assert.Contains("definition.contract.out_of_window", resolution.Values);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("(layoutAdmissionRefusals[0]) = new PackInstallRefusal(\"layout.definition.foo\", \"\");")]
+    [InlineData("(layoutAdmissionRefusals[0], _) = (new PackInstallRefusal(\"layout.definition.foo\", \"\"), 0);")]
+    [InlineData("Escape(ref layoutAdmissionRefusals[0]);")]
+    [InlineData("Escape(out layoutAdmissionRefusals[0]);")]
+    public void Indexed_refusal_list_rejects_wrapped_indexer_writes_and_ref_out_arguments(string operation)
+    {
+        foreach (var receiver in new[] { "source", "alias" })
+        {
+            var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+                () => IndexedListElementProbe(operation, receiver));
+            Assert.Contains(receiver == "source" ? "indexed list write" : "mutable indexed alias",
+                exception.Message, StringComparison.Ordinal);
+        }
+    }
+
+    private static CodeResolution IndexedListElementProbe(string operation, string receiver)
+        => IndexedListFlowProbe("""
+            var source = new List<PackInstallRefusal>();
+            source.Add(new PackInstallRefusal("layout.definition.body_invalid", ""));
+            source.Add(new PackInstallRefusal("definition.contract.out_of_window", ""));
+            var alias = source;
+            """ + operation.Replace("layoutAdmissionRefusals", receiver, StringComparison.Ordinal)
+            + " var layoutAdmissionRefusals = source;");
+
     [Theory]
     [InlineData("layoutAdmissionRefusals = Untrusted();")]
     [InlineData("layoutAdmissionRefusals.AddRange(Untrusted());")]
@@ -1075,7 +1123,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                     continue;
                 if (reference.Parent is ElementAccessExpressionSyntax element && element.Expression == reference)
                 {
-                    if (element.Parent is AssignmentExpressionSyntax or PrefixUnaryExpressionSyntax or PostfixUnaryExpressionSyntax)
+                    if (!IsReadOnlyListElement(element))
                         throw Invalid("indexed list write", element);
                     continue;
                 }
@@ -1149,7 +1197,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                 if (reference.Parent is ElementAccessExpressionSyntax element
                     && element.Expression == reference)
                 {
-                    if (element.Parent is AssignmentExpressionSyntax or PrefixUnaryExpressionSyntax or PostfixUnaryExpressionSyntax)
+                    if (!IsReadOnlyListElement(element))
                         throw Invalid("mutable indexed alias", reference);
                     continue;
                 }
@@ -1217,6 +1265,30 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                     && actual.GetParameters().Length == method.ParameterList.Parameters.Count)
                 .Any(actual => actual.GetParameters()[parameterIndex].ParameterType
                     == typeof(IReadOnlyList<Harborline.Api.Foundation.Packs.Model.PackContentItem>));
+        }
+
+        private static bool IsReadOnlyListElement(ElementAccessExpressionSyntax element)
+        {
+            ExpressionSyntax value = element;
+            while (true)
+            {
+                if (value.Parent is ParenthesizedExpressionSyntax parenthesized)
+                    value = parenthesized;
+                else if (value.Parent is MemberAccessExpressionSyntax member && member.Expression == value)
+                    value = member;
+                else
+                    break;
+            }
+
+            return value.Parent switch
+            {
+                AssignmentExpressionSyntax assignment => assignment.Right == value,
+                BinaryExpressionSyntax => true,
+                EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax } => true,
+                ArgumentSyntax argument => argument.RefKindKeyword.RawKind == 0
+                    && argument.Parent is ArgumentListSyntax,
+                _ => false,
+            };
         }
 
         private static bool IsReadOnlyListCount(MemberAccessExpressionSyntax member)
