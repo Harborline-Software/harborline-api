@@ -78,7 +78,7 @@ public sealed class PackCapabilityCompatibilityTests
         var store = new InMemoryPackInstallStore();
         var content = EnvelopeRequirement("packs.pillar.future").ToJsonString();
         var seed = new PackSeedItem(
-            "missing-capability-form",
+            "fixtures.missing-capability-form",
             PackContentKind.FormDefinition,
             "1.0.0",
             content,
@@ -153,7 +153,7 @@ public sealed class PackCapabilityCompatibilityTests
 
         var unmet = Assert.Single(preview.UnmetPlatformRequirements);
         Assert.Equal("packs.pillar.future", unmet.Capability);
-        Assert.Equal("missing-capability-form", unmet.DeclaredBy);
+        Assert.Equal("fixtures.missing-capability-form", unmet.DeclaredBy);
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public sealed class PackCapabilityCompatibilityTests
 
         Assert.Equal(PackInstallVerdict.WouldInstall, preview.Verdict);
         var admittedDestination = Assert.Single(preview.DestinationClassifications);
-        Assert.Equal("missing-capability-form", admittedDestination.ContentKey);
+        Assert.Equal("fixtures.missing-capability-form", admittedDestination.ContentKey);
         Assert.Equal(PackPillar.Forms, admittedDestination.Pillar);
     }
 
@@ -257,7 +257,7 @@ public sealed class PackCapabilityCompatibilityTests
                 Contents:
                 [
                     new PackContentSource(
-                        "missing-capability-form",
+                        "fixtures.missing-capability-form",
                         kind,
                         "1.0.0",
                         content),

@@ -233,10 +233,10 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             Contents = [.. platform.Contents, new PackContentSource("record-type", PackContentKind.RecordType, "1.0.0",
                 new System.Text.Json.Nodes.JsonObject { ["sealed"] = true })],
         };
-        var exported = await _exporter.ExportAsync(claiming, _signer.Signer, CancellationToken.None);
-        Assert.True(exported.Succeeded, string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
+        var bytes = await Harborline.Api.LocalNodeHost.Tests.Packs.LegacyPackFixtureSigner
+            .SignPlatformCompiledShapeProbeAsync(claiming, _signer.Signer);
 
-        var outcome = await _installer.InstallAsync(exported.FileBytes!, PackContext());
+        var outcome = await _installer.InstallAsync(bytes, PackContext());
 
         Assert.False(outcome.Installed);
         Assert.Equal([KernelBootstrapErrors.CompiledShapeReplacement], outcome.RefusalCodes);
@@ -262,12 +262,20 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal(3, CompiledEntries(types).Length);
         var entries = SealedSeedEntries(types);
         Assert.Equal(19, entries.Length);
+        Assert.Equal(new[]
+        {
+            "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition",
+            "DataExchangeDefinition", "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "Layout", "Resource", "Bookable",
+        }, entries.Select(entry => entry.GetProperty("name").GetString()));
         Assert.All(entries, entry =>
         {
             Assert.True(entry.GetProperty("sealed").GetBoolean());
             var provenance = entry.GetProperty("provenance");
             Assert.Equal("harborline.platform", provenance.GetProperty("packKey").GetString());
-            Assert.Equal(PlatformPackPreloadHostedService.PackVersion, provenance.GetProperty("packVersion").GetString());
+            Assert.Equal("1.6.1", provenance.GetProperty("packVersion").GetString());
             Assert.Equal("platform", provenance.GetProperty("kind").GetString());
         });
     }
@@ -293,12 +301,93 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(
             _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey));
-        var descriptor = Assert.Single(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
+        var descriptor = Assert.Single(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "harborline.platform.FormDefinition");
         var duplicate = active with { SeedItems = [.. active.SeedItems, descriptor] };
 
         var types = SystemRecordType.FromActivePlatformPack(duplicate);
 
         Assert.Empty(types);
+    }
+
+    [Theory]
+    [InlineData("FormDefinition")]
+    [InlineData("harborline.platform.FormDefinition")]
+    public async Task Canonical_old_and_new_catalogue_keys_keep_the_public_compiled_name(string key)
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var variant = active with
+        {
+            SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
+                ? item with { Key = key } : item).ToArray(),
+        };
+        var types = SystemRecordType.FromActivePlatformPack(variant);
+        Assert.Equal(19, types.Count);
+        var form = Assert.Single(types, item => item.Kind == PackContentKind.FormDefinition);
+        Assert.Equal("FormDefinition", form.Name);
+        Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), form.Provenance);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    [InlineData("formdefinition")]
+    [InlineData("harborline.platform.formdefinition")]
+    [InlineData("Harborline.Platform.FormDefinition")]
+    [InlineData("other.FormDefinition")]
+    [InlineData("harborline.platform.UnknownDefinition")]
+    public async Task Noncanonical_or_unknown_catalogue_keys_fail_closed(string key)
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var variant = active with
+        {
+            SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
+                ? item with { Key = key } : item).ToArray(),
+        };
+        Assert.Empty(SystemRecordType.FromActivePlatformPack(variant));
+    }
+
+    [Fact]
+    public async Task Mixed_legacy_and_qualified_aliases_of_one_compiled_identity_fail_closed()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var descriptor = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
+        var mixed = active with { SeedItems = [.. active.SeedItems, descriptor with { Key = "FormDefinition" }] };
+        Assert.Empty(SystemRecordType.FromActivePlatformPack(mixed));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("wrong-kind")]
+    [InlineData("invalid-body")]
+    [InlineData("other-owner")]
+    public async Task Missing_wrong_or_invalid_descriptors_and_other_owners_keep_the_catalogue_empty(string defect)
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var variant = defect switch
+        {
+            "missing" => active with
+            {
+                SeedItems = active.SeedItems.Where(item => item.Key != "harborline.platform.FormDefinition").ToArray(),
+            },
+            "wrong-kind" => active with
+            {
+                SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
+                    ? item with { Kind = PackContentKind.FormDefinition } : item).ToArray(),
+            },
+            "invalid-body" => active with
+            {
+                SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
+                    ? item with { CanonicalJson = """{"sealed":false,"provenance":{"kind":"platform"}}""" } : item).ToArray(),
+            },
+            "other-owner" => active with { PackKey = "other.publisher" },
+            _ => throw new ArgumentOutOfRangeException(nameof(defect)),
+        };
+        Assert.Empty(SystemRecordType.FromActivePlatformPack(variant));
     }
 
     public async Task DisposeAsync()

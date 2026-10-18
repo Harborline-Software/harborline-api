@@ -237,7 +237,7 @@ public sealed class PackInstallCoordinateMismatchTests : IAsyncLifetime
         scopeTier = "Vertical",
         contents = Enumerable.Range(0, contentItems).Select(index => new
         {
-            key = $"intake-{index:D4}-{new string('k', 40)}",
+            key = $"fixtures.intake-{index:D4}-{new string('k', 40)}",
             kind = "FormDefinition",
             version = "1.0.0",
             content = new { title = $"Intake {index}", assignee = "role:approver" },

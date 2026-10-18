@@ -297,7 +297,8 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     {
         // Preview and check are exposed once something is installed, so install an ordinary pack first.
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(FormPackBody()))).StatusCode);
-        var packBytes = await ExportAsync(CompiledShapeClaimPackBody());
+        var packBytes = await LegacyPackFixtureSigner.SignCompiledShapeProbeAsync(
+            CompiledShapeClaimPackBody(), new Ed25519Signer(_key));
         var before = CatalogueHash();
 
         foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
@@ -375,7 +376,8 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     [Trait("Holds", "kernel-core-ck-1")]
     public async Task Install_names_the_compiled_shape_refusal_ahead_of_an_earlier_standards_catalog_refusal()
     {
-        var packBytes = await ExportAsync(CompiledShapeClaimAfterStandardsPackBody());
+        var packBytes = await LegacyPackFixtureSigner.SignCompiledShapeProbeAsync(
+            CompiledShapeClaimAfterStandardsPackBody(), new Ed25519Signer(_key));
         var before = CatalogueHash();
 
         using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes);
@@ -455,7 +457,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         {
             new
             {
-                key = "intake",
+                key = "fixtures.intake",
                 kind = "FormDefinition",
                 version = "1.0.0",
                 content = PackProjectionTestFixture.FormContent("Intake"),
@@ -476,7 +478,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         {
             new
             {
-                key = "wf",
+                key = "fixtures.wf",
                 kind = "WorkflowDefinition",
                 version = "1.0.0",
                 content = new
@@ -504,7 +506,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         scopeTier = "Vertical",
         contents = new object[]
         {
-            new { key = "standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
+            new { key = "fixtures.standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
             new { key = "Record-Type", kind = "RecordType", version = "1.0.0", content = new { @sealed = true } },
         },
         dependencies = Array.Empty<object>(),
@@ -522,7 +524,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         {
             new
             {
-                key = "intake",
+                key = "fixtures.intake",
                 kind = "FormDefinition",
                 version = "1.0.0",
                 content = PackProjectionTestFixture.FormContent("Intake"),
@@ -542,9 +544,9 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         scopeTier = "Vertical",
         contents = new[]
         {
-            new { key = "standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
-            new { key = "cascade", kind = "CascadeDefaults", version = "1.0.0", content = new { } },
-            new { key = "terms", kind = "TerminologyOverride", version = "1.0.0", content = new { } },
+            new { key = "fixtures.standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
+            new { key = "fixtures.cascade", kind = "CascadeDefaults", version = "1.0.0", content = new { } },
+            new { key = "fixtures.terms", kind = "TerminologyOverride", version = "1.0.0", content = new { } },
         },
         dependencies = Array.Empty<object>(),
         capabilityRequirements = Array.Empty<string>(),

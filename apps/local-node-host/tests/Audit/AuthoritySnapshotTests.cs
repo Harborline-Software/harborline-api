@@ -350,7 +350,7 @@ public sealed class AuthoritySnapshotTests
             Tenant, installed.PackKey, "pack", Permission.PackagesOperate, at: At);
         var beforeNarrowing = recorded.Decisions.Count;
         var beforeNarrowingGateCalls = gateCalls;
-        var narrowed = await installer.NarrowAsync(context, installed.PackKey, "ticket-199-form",
+        var narrowed = await installer.NarrowAsync(context, installed.PackKey, "fixtures.ticket-199-form",
             new JsonObject { ["title"] = null }, narrowingDecision);
         Assert.True(narrowed.Recorded);
         Assert.Same(narrowingDecision, narrowed.Decision);
@@ -359,7 +359,7 @@ public sealed class AuthoritySnapshotTests
             new JsonObject(), narrowingDecision);
         Assert.False(unknown.Recorded);
         Assert.Same(narrowingDecision, unknown.Decision);
-        var widened = await installer.NarrowAsync(context, installed.PackKey, "ticket-199-form",
+        var widened = await installer.NarrowAsync(context, installed.PackKey, "fixtures.ticket-199-form",
             new JsonObject { ["title"] = "widened" }, narrowingDecision);
         Assert.False(widened.Recorded);
         Assert.Same(narrowingDecision, widened.Decision);
@@ -370,7 +370,7 @@ public sealed class AuthoritySnapshotTests
         var deactivated = await installer.DeactivateAsync(context, installed.PackKey, installed.Version);
         Assert.True(deactivated.Deactivated);
         Assert.Same(deactivated.Decision, recorded.LastDecision);
-        var inactive = await installer.NarrowAsync(context, installed.PackKey, "ticket-199-form",
+        var inactive = await installer.NarrowAsync(context, installed.PackKey, "fixtures.ticket-199-form",
             new JsonObject { ["title"] = null }, narrowingDecision);
         Assert.False(inactive.Recorded);
         Assert.Same(narrowingDecision, inactive.Decision);
@@ -450,7 +450,7 @@ public sealed class AuthoritySnapshotTests
         var export = await exporter.ExportAsync(new PackExportRequest(
             "ticket.199.audit", version, "Ticket 199 audit", "Decision identity runtime path",
             PackScopeTier.Horizontal,
-            [new PackContentSource("ticket-199-form", PackContentKind.FormDefinition, version,
+            [new PackContentSource("fixtures.ticket-199-form", PackContentKind.FormDefinition, version,
                 new JsonObject { ["title"] = "ticket 199" })],
             Array.Empty<PackDependencyRef>(),
             Array.Empty<string>(),

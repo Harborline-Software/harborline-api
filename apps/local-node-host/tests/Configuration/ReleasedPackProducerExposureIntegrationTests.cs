@@ -242,12 +242,12 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
         Assert.Equal(("1.0.0", 1), (advertised.Version, advertised.InterfaceVersion));
         Assert.Equal(new[] { "forms/invoice" }, advertised.Exposes);
         var baseline = _proposals.ReadEffective(_tenant);
-        Assert.Null(Owner(baseline, "alpha"));
-        Assert.Null(Owner(baseline, "zeta"));
+        Assert.Null(Owner(baseline, "release.alpha"));
+        Assert.Null(Owner(baseline, "release.zeta"));
 
         await StartAsync(proposalId);
-        await AutosaveAsync(proposalId, "zeta", zetaBody, AssetKind, ReleaseKey);
-        await AutosaveAsync(proposalId, "alpha", alphaBody, FormKind, ReleaseKey);
+        await AutosaveAsync(proposalId, "release.zeta", zetaBody, AssetKind, ReleaseKey);
+        await AutosaveAsync(proposalId, "release.alpha", alphaBody, FormKind, ReleaseKey);
         var digest = await SaveCheckReleaseAsync(proposalId, ReleaseKey);
 
         var offer = Offer(digest);
@@ -259,23 +259,23 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
         using (var parsed = JsonDocument.Parse(document))
         {
             var root = parsed.RootElement;
-            Assert.Equal(new[] { "alpha", "zeta" }, RootExposes(root));
+            Assert.Equal(new[] { "release.alpha", "release.zeta" }, RootExposes(root));
             Assert.Equal(3, root.GetProperty("interfaceVersion").GetInt32());
             Assert.Equal(new[] { "acme.finance@1.0.0" }, Closure(root));
-            AssertBody(alphaBody, JsonNode.Parse(Payload(root, "alpha").GetProperty("body").GetRawText()));
-            AssertBody(zetaBody, JsonNode.Parse(Payload(root, "zeta").GetProperty("body").GetRawText()));
-            Assert.Equal((ReleaseKey, FormKind), (Payload(root, "alpha").GetProperty("packageKey").GetString(),
-                Payload(root, "alpha").GetProperty("contentKind").GetString()));
-            Assert.Equal((ReleaseKey, AssetKind), (Payload(root, "zeta").GetProperty("packageKey").GetString(),
-                Payload(root, "zeta").GetProperty("contentKind").GetString()));
+            AssertBody(alphaBody, JsonNode.Parse(Payload(root, "release.alpha").GetProperty("body").GetRawText()));
+            AssertBody(zetaBody, JsonNode.Parse(Payload(root, "release.zeta").GetProperty("body").GetRawText()));
+            Assert.Equal((ReleaseKey, FormKind), (Payload(root, "release.alpha").GetProperty("packageKey").GetString(),
+                Payload(root, "release.alpha").GetProperty("contentKind").GetString()));
+            Assert.Equal((ReleaseKey, AssetKind), (Payload(root, "release.zeta").GetProperty("packageKey").GetString(),
+                Payload(root, "release.zeta").GetProperty("contentKind").GetString()));
         }
 
         var converted = ReleasedPackConversion.Convert(document, _node.Signer.IssuerId.ToBase64Url());
         var request = Assert.IsType<PackExportRequest>(converted.Request);
         Assert.Empty(converted.ForeignEdits);
-        AssertBody(alphaBody, Assert.Single(request.Contents, content => content.Key == "alpha").Content);
-        AssertBody(zetaBody, Assert.Single(request.Contents, content => content.Key == "zeta").Content);
-        Assert.Equal(new[] { "alpha", "zeta" }, request.Exposes);
+        AssertBody(alphaBody, Assert.Single(request.Contents, content => content.Key == "release.alpha").Content);
+        AssertBody(zetaBody, Assert.Single(request.Contents, content => content.Key == "release.zeta").Content);
+        Assert.Equal(new[] { "release.alpha", "release.zeta" }, request.Exposes);
         Assert.Equal(3, request.InterfaceVersion);
         Assert.Equal(new[] { ("acme.finance", "1.0.0") }, request.Dependencies.Select(pin => (pin.Key, pin.Version)).ToArray());
 
@@ -290,21 +290,21 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
         Assert.Equal(PackVerdict.Verified, verified.Verdict);
         var manifest = verified.Manifest!;
         Assert.Equal((ReleaseKey, Revision), (manifest.Key, manifest.Version));
-        Assert.Equal(new[] { "alpha", "zeta" }, manifest.Exposes);
+        Assert.Equal(new[] { "release.alpha", "release.zeta" }, manifest.Exposes);
         Assert.Equal(3, manifest.InterfaceVersion);
-        Assert.Equal(new[] { ("alpha", PackContentKind.FormDefinition), ("zeta", PackContentKind.AssetTypeDefinition) },
+        Assert.Equal(new[] { ("release.alpha", PackContentKind.FormDefinition), ("release.zeta", PackContentKind.AssetTypeDefinition) },
             manifest.Contents.Select(content => (content.Key, content.Kind)).ToArray());
         Assert.Equal(new[] { ("acme.finance", "1.0.0") }, manifest.Dependencies.Select(pin => (pin.Key, pin.Version)).ToArray());
 
         var pack = Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == ReleaseKey);
         Assert.Equal((Revision, PackLifecycleState.Active), (pack.Version, pack.Lifecycle));
-        Assert.Equal(new[] { "alpha", "zeta" }, pack.Exposes);
+        Assert.Equal(new[] { "release.alpha", "release.zeta" }, pack.Exposes);
         Assert.Equal(3, pack.InterfaceVersion);
         Assert.Equal(new[] { ("acme.finance", "1.0.0") }, pack.Dependencies.Select(pin => (pin.Key, pin.Version)).ToArray());
         Assert.Collection(pack.SeedItems.OrderBy(item => item.Key, StringComparer.Ordinal),
             alpha =>
             {
-                Assert.Equal(("alpha", PackContentKind.FormDefinition, Revision), (alpha.Key, alpha.Kind, alpha.Version));
+                Assert.Equal(("release.alpha", PackContentKind.FormDefinition, Revision), (alpha.Key, alpha.Kind, alpha.Version));
                 var body = alpha.ParseContent();
                 AssertBody(alphaBody, body);
                 Assert.Equal("Alpha", body["title"]!.GetValue<string>());
@@ -313,7 +313,7 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
             },
             zeta =>
             {
-                Assert.Equal(("zeta", PackContentKind.AssetTypeDefinition, Revision), (zeta.Key, zeta.Kind, zeta.Version));
+                Assert.Equal(("release.zeta", PackContentKind.AssetTypeDefinition, Revision), (zeta.Key, zeta.Kind, zeta.Version));
                 var body = zeta.ParseContent();
                 AssertBody(zetaBody, body);
                 Assert.Equal("Zeta", body["title"]!.GetValue<string>());

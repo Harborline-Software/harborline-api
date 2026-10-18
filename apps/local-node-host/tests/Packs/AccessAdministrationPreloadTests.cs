@@ -272,7 +272,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var listedBinding = listedBody.GetProperty("catalogueFieldBinding");
         Assert.Equal("harborline.platform",
             listedBinding.GetProperty("provenance").GetProperty("packKey").GetString());
-        Assert.Equal("1.6.0",
+        Assert.Equal("1.6.1",
             listedBinding.GetProperty("provenance").GetProperty("packVersion").GetString());
         var listedSourceBinding = JsonSerializer.Deserialize<CatalogueFieldSourceBinding>(listedBinding)!;
         var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
@@ -316,7 +316,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             projection.Values["title"].GetProperty("values").GetProperty("en").GetString());
         Assert.Equal("1.0.1", projection.Values["version"].GetString());
         Assert.True(projection.ReadOnly);
-        Assert.Equal("1.6.0", projection.DetailBinding.Provenance.PackVersion);
+        Assert.Equal("1.6.1", projection.DetailBinding.Provenance.PackVersion);
         Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "1.0.1")!.DefinitionHash,
             projection.DetailBinding.DefinitionHash);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
@@ -669,7 +669,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("1.0.0", legacyDetail.Version);
         Assert.Equal("Literal", legacyAuthor.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         Assert.Equal("Literal", legacyDetail.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
-        var legacyBytes = await ExportAsync(legacy);
+        var legacyBytes = await LegacyPackFixtureSigner.SignPlatformSnapshotAsync(fixtureBytes, _signer.Signer);
         Assert.True((await _installer.InstallAsync(legacyBytes, context)).Installed);
         var activation = _installer.Activate(context, legacy.Key, legacy.Version);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
@@ -687,7 +687,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.6.0", active.Version);
+        Assert.Equal("1.6.1", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var preservedLegacy = _store.GetVersion(Tenant, legacy.Key, "1.3.0")!;
         Assert.Equal(PackLifecycleState.Superseded, preservedLegacy.Lifecycle);
@@ -712,19 +712,246 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(FormDefinitionStatus.Published, newAuthor.Status);
         Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
         Assert.Equal("Author a domain pack", newAuthor.Overlay.Title!.Values["en"]);
-        Assert.Equal("1.6.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
+        Assert.Equal("1.6.1", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
+
+        string[] expectedViewKeys =
+        [
+            "platform.list.asset-types",
+            "platform.list.forms",
+            "platform.list.workflows",
+            "platform.list.standards",
+            "platform.list.defaults",
+            "platform.list.terminology",
+            "platform.list.documents",
+            "platform.list.taxonomies",
+            "platform.list.reports",
+            "platform.list.data-exchanges",
+            "platform.list.standing-rules",
+            "platform.list.schedules",
+            "platform.list.views",
+            "platform.health.asset-types",
+            "platform.health.forms",
+            "platform.health.workflows",
+            "platform.health.standards",
+            "platform.health.defaults",
+            "platform.health.terminology",
+            "platform.health.documents",
+            "platform.health.taxonomies",
+            "platform.health.reports",
+            "platform.health.data-exchanges",
+            "platform.health.standing-rules",
+            "platform.health.schedules",
+            "platform.health.views",
+            "platform.browse.asset-types",
+            "platform.browse.forms",
+            "platform.browse.workflows",
+            "platform.browse.standards",
+            "platform.browse.defaults",
+            "platform.browse.terminology",
+            "platform.browse.documents",
+            "platform.browse.taxonomies",
+            "platform.browse.reports",
+            "platform.browse.data-exchanges",
+            "platform.browse.standing-rules",
+            "platform.browse.schedules",
+            "platform.browse.views",
+        ];
+        Assert.Equal(expectedViewKeys.Order(StringComparer.Ordinal),
+            projected.Select(view => view.Key).Order(StringComparer.Ordinal));
+        var currentCatalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans,
+            new CatalogueRegistries(_store, defaults: _defaults));
+        var currentViews = await currentCatalogue.ListAsync(Tenant, PackContentKind.ViewDefinition);
+        Assert.Empty(currentViews.KindsUnavailable);
+        Assert.Equal(expectedViewKeys.Order(StringComparer.Ordinal),
+            currentViews.Entries.Select(entry => entry.Id).Order(StringComparer.Ordinal));
+        foreach (var view in projected)
+        {
+            Assert.Equal("1.0.0", view.Version);
+            Assert.Equal("layout.table", view.ViewKind);
+            var plan = Assert.IsType<RenderPlan>(_renderPlans.Get(
+                Tenant, PackContentKind.ViewDefinition, view.Key, "1.0.0"));
+            Assert.Equal("harborline.platform", plan.PackKey);
+            Assert.Equal("1.6.1", plan.PackVersion);
+            Assert.Equal("layout.table", plan.Bindings.GetProperty("viewKind").GetString());
+            var entry = Assert.Single(currentViews.Entries, candidate => candidate.Id == view.Key);
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "pack"), entry.Provenance);
+            Assert.NotNull(entry.RenderPlan);
+            Assert.Equal("1.6.1", entry.RenderPlan!.PackVersion);
+        }
+
         Assert.Equal(
-            new[] { "1.3.0", "1.6.0" },
+            new[] { "1.3.0", "1.6.1" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
+    }
+
+    [Fact]
+    public async Task Platform_preload_upgrades_exact_1_6_to_qualified_1_6_1_without_rewriting_the_predecessor()
+    {
+        var recipe = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json"));
+        Assert.Equal("7717911ff08ed71c8b51d2f2a59a633d147eef5934ffde0c6a5e8de22c456919",
+            Convert.ToHexStringLower(SHA256.HashData(recipe)));
+        var signed = await LegacyPackFixtureSigner.SignPlatformSnapshotAsync(recipe, _signer.Signer);
+        var signedBefore = signed.ToArray();
+        var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
+            PackInstallRoutes.RevocationMaxAge, Principal: TestDesktopOperator.Principal);
+        Assert.True((await _installer.InstallAsync(signed, context)).Installed);
+        var activation = _installer.Activate(context, "harborline.platform", "1.6.0");
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
+        var old = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
+        Assert.Equal("1.6.0", old.Version);
+        Assert.Contains(old.SeedItems, item => item.Key == "FormDefinition" && item.Kind == PackContentKind.RecordType);
+        var oldItems = old.SeedItems.ToDictionary(item => item.Key,
+            item => (item.Kind, item.Version, item.CanonicalJson, item.ContentAddress), StringComparer.Ordinal);
+        var oldTypes = SystemRecordType.FromActivePlatformPack(old);
+        Assert.Equal(19, oldTypes.Count);
+        Assert.Equal("1.6.0", Assert.Single(oldTypes, item => item.Name == "FormDefinition").Provenance.PackVersion);
+
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
+        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
+        Assert.DoesNotContain(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
+        var currentFormType = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
+        Assert.Equal(oldItems["FormDefinition"].ContentAddress, currentFormType.ContentAddress);
+        Assert.Equal(oldItems["FormDefinition"].CanonicalJson, currentFormType.CanonicalJson);
+        var preserved = Assert.IsType<InstalledPack>(_store.GetVersion(Tenant, "harborline.platform", "1.6.0"));
+        Assert.Equal(PackLifecycleState.Superseded, preserved.Lifecycle);
+        Assert.Equal(oldItems.Count, preserved.SeedItems.Count);
+        foreach (var item in preserved.SeedItems)
+            Assert.Equal(oldItems[item.Key], (item.Kind, item.Version, item.CanonicalJson, item.ContentAddress));
+        Assert.Equal(signedBefore, signed);
+        Assert.Equal(recipe, await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json")));
+
+        var types = SystemRecordType.FromActivePlatformPack(active);
+        Assert.Equal(new[]
+        {
+            "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition",
+            "DataExchangeDefinition", "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "Layout", "Resource", "Bookable",
+        }, types.Select(item => item.Name));
+        Assert.All(types, item => Assert.Equal(
+            new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+        var activeBefore = JsonSerializer.Serialize(active);
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+        Assert.Equal(activeBefore, JsonSerializer.Serialize(_store.GetActive(Tenant, "harborline.platform")));
+        Assert.Equal(new[] { "1.6.0", "1.6.1" }, _store.ListInstalled(Tenant)
+            .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
+        Assert.Equal(2, _audit.Query(Tenant).Count(item => item.Action == PackInstallAuditAction.Activated));
+    }
+
+    [Fact]
+    public async Task Platform_preload_reattaches_legacy_compiled_key_override_without_orphaning_it()
+    {
+        var recipe = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json"));
+        Assert.Equal("7717911ff08ed71c8b51d2f2a59a633d147eef5934ffde0c6a5e8de22c456919",
+            Convert.ToHexStringLower(SHA256.HashData(recipe)));
+        var signed = await LegacyPackFixtureSigner.SignPlatformSnapshotAsync(recipe, _signer.Signer);
+        var signedBefore = signed.ToArray();
+        var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
+            PackInstallRoutes.RevocationMaxAge, Principal: TestDesktopOperator.Principal);
+        Assert.True((await _installer.InstallAsync(signed, context)).Installed);
+        Assert.True(_installer.Activate(context, "harborline.platform", "1.6.0").Activated);
+        var old = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
+        Assert.Equal("1.6.0", old.Version);
+        Assert.Contains(old.SeedItems, item => item.Key == "FormDefinition" && item.Kind == PackContentKind.RecordType);
+        var oldItems = old.SeedItems.ToDictionary(item => item.Key,
+            item => (item.Kind, item.Version, item.CanonicalJson, item.ContentAddress), StringComparer.Ordinal);
+
+        _store.SaveOverride(Tenant, "harborline.platform", new PackTenantOverride(
+            "FormDefinition", JsonNode.Parse("""{"title":"T1014 retained tenant label"}""")!));
+        var before = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
+        Assert.Equal("FormDefinition", before.ContentKey);
+        Assert.Equal("""{"title":"T1014 retained tenant label"}""", before.OverlayPatch.ToJsonString());
+
+        PackContentRename[] expectedRenames =
+        [
+            new("harborline.platform.FormDefinition", "FormDefinition"),
+            new("harborline.platform.WorkflowDefinition", "WorkflowDefinition"),
+            new("harborline.platform.StandardsCatalog", "StandardsCatalog"),
+            new("harborline.platform.NavWorkspaceConfig", "NavWorkspaceConfig"),
+            new("harborline.platform.CascadeDefaults", "CascadeDefaults"),
+            new("harborline.platform.AssetTypeDefinition", "AssetTypeDefinition"),
+            new("harborline.platform.TerminologyOverride", "TerminologyOverride"),
+            new("harborline.platform.TemplateDefinition", "TemplateDefinition"),
+            new("harborline.platform.TaxonomyDefinition", "TaxonomyDefinition"),
+            new("harborline.platform.ReportDefinition", "ReportDefinition"),
+            new("harborline.platform.ViewDefinition", "ViewDefinition"),
+            new("harborline.platform.ScheduleDefinition", "ScheduleDefinition"),
+            new("harborline.platform.DataExchangeDefinition", "DataExchangeDefinition"),
+            new("harborline.platform.StandingRuleDefinition", "StandingRuleDefinition"),
+            new("harborline.platform.RoleDefinition", "RoleDefinition"),
+            new("harborline.platform.AuthorizationCapabilityBinding", "AuthorizationCapabilityBinding"),
+            new("harborline.platform.Layout", "Layout"),
+            new("harborline.platform.Resource", "Resource"),
+            new("harborline.platform.Bookable", "Bookable"),
+        ];
+        var request = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        Assert.Equal("1.6.1", request.Version);
+        Assert.Equal(expectedRenames, request.RenamedFrom);
+        var observed = new ObservedOverrideUpgradeInstaller(_installer);
+        var preload = new PlatformPackPreloadHostedService(
+            new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+                new PackValidator(new PackContentPiiScanner()),
+                new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), new PackFileCodec(),
+                timeProvider: TimeProvider.System),
+            _signer, observed, _store, TrustingTheNodeKey(), PackRevocationList.Empty,
+            new NoActiveTeam(), TimeProvider.System,
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+
+        await preload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var installation = Assert.Single(observed.Installations);
+        Assert.True(installation.Outcome.Installed, JsonSerializer.Serialize(installation.Outcome));
+        Assert.Empty(installation.Outcome.Preview.Conflicts);
+        Assert.DoesNotContain(installation.Outcome.Preview.Conflicts,
+            conflict => conflict.Kind.ToString() == "OrphanedByRemoval");
+        var file = new PackFileCodec().TryDecode(installation.Bytes);
+        Assert.NotNull(file);
+        Assert.Equal(expectedRenames, file!.Envelope!.Payload.Manifest.RenamedFrom);
+        var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
+        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
+        var retained = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
+        Assert.Equal("harborline.platform.FormDefinition", retained.ContentKey);
+        Assert.Equal("""{"title":"T1014 retained tenant label"}""", retained.OverlayPatch.ToJsonString());
+        Assert.DoesNotContain(_store.GetOverrides(Tenant, "harborline.platform"),
+            item => item.ContentKey == "FormDefinition");
+        Assert.Empty(_store.GetOverrides(new("aaaaaaaa-0000-0000-0000-000000001015"), "harborline.platform"));
+
+        var preserved = Assert.IsType<InstalledPack>(_store.GetVersion(Tenant, "harborline.platform", "1.6.0"));
+        Assert.Equal(PackLifecycleState.Superseded, preserved.Lifecycle);
+        Assert.Equal(oldItems.Count, preserved.SeedItems.Count);
+        foreach (var item in preserved.SeedItems)
+            Assert.Equal(oldItems[item.Key], (item.Kind, item.Version, item.CanonicalJson, item.ContentAddress));
+        Assert.Equal(signedBefore, signed);
+        Assert.Equal(recipe, await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json")));
+
+        await preload.PreloadAsync(Tenant, CancellationToken.None);
+
+        Assert.Single(observed.Installations);
+        var repeated = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
+        Assert.Equal("harborline.platform.FormDefinition", repeated.ContentKey);
+        Assert.Equal("""{"title":"T1014 retained tenant label"}""", repeated.OverlayPatch.ToJsonString());
+        Assert.Equal(new[] { "1.6.0", "1.6.1" }, _store.ListInstalled(Tenant)
+            .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
     }
 
     private static string ImmutableFormSemantics(FormDefinition definition) => JsonSerializer.Serialize(new
@@ -754,16 +981,23 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         {
             Assert.True(PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor),
                 $"Carried RecordType key '{item.Key}' does not resolve to a compiled catalogue descriptor.");
-            Assert.Same(compiledByName[item.Key], descriptor);
+            Assert.Same(compiledByName[descriptor!.Name], descriptor);
             Assert.True(descriptor!.Sealed);
             Assert.Equal("platform", descriptor.Provenance.Kind);
         }
 
-        var carriedKeys = carried.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
-        var compiledKeys = SystemRecordType.All.Select(type => type.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(compiledKeys.Count, carriedKeys.Count);
-        Assert.Empty(carriedKeys.Except(compiledKeys));
-        Assert.Empty(compiledKeys.Except(carriedKeys));
+        Assert.Equal(new[]
+        {
+            "harborline.platform.FormDefinition", "harborline.platform.WorkflowDefinition",
+            "harborline.platform.StandardsCatalog", "harborline.platform.NavWorkspaceConfig",
+            "harborline.platform.CascadeDefaults", "harborline.platform.AssetTypeDefinition",
+            "harborline.platform.TerminologyOverride", "harborline.platform.TemplateDefinition",
+            "harborline.platform.TaxonomyDefinition", "harborline.platform.ReportDefinition",
+            "harborline.platform.ViewDefinition", "harborline.platform.ScheduleDefinition",
+            "harborline.platform.DataExchangeDefinition", "harborline.platform.StandingRuleDefinition",
+            "harborline.platform.RoleDefinition", "harborline.platform.AuthorizationCapabilityBinding",
+            "harborline.platform.Layout", "harborline.platform.Resource", "harborline.platform.Bookable",
+        }, carried.Select(item => item.Key));
     }
 
     [Fact]
@@ -1036,6 +1270,39 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             document.CapabilityRequirements ?? [],
             PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(authoringPrincipal));
+    }
+
+    private sealed class ObservedOverrideUpgradeInstaller(IPackInstaller inner) : IPackInstaller
+    {
+        public List<(byte[] Bytes, PackInstallOutcome Outcome)> Installations { get; } = [];
+
+        public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) =>
+            inner.Preview(bytes, context);
+
+        public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) =>
+            inner.Check(bytes, context);
+
+        public async Task<PackInstallOutcome> InstallAsync(
+            ReadOnlyMemory<byte> bytes, PackInstallContext context, CancellationToken cancellationToken = default)
+        {
+            var snapshot = bytes.ToArray();
+            var outcome = await inner.InstallAsync(bytes, context, cancellationToken);
+            Installations.Add((snapshot, outcome));
+            return outcome;
+        }
+
+        public Task<PackActivationOutcome> ActivateAsync(
+            PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default) =>
+            inner.ActivateAsync(context, packKey, version, cancellationToken);
+
+        public Task<PackDeactivationOutcome> DeactivateAsync(
+            PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default) =>
+            inner.DeactivateAsync(context, packKey, version, cancellationToken);
+
+        public Task<PackNarrowingOutcome> NarrowAsync(
+            PackInstallContext context, string packKey, string contentKey, JsonNode overlayPatch,
+            AuthorizationDecision decision, CancellationToken cancellationToken = default) =>
+            inner.NarrowAsync(context, packKey, contentKey, overlayPatch, decision, cancellationToken);
     }
 
     private async Task<byte[]> ExportAsync(PackExportRequest request)

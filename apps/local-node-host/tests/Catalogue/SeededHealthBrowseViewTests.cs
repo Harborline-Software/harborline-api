@@ -24,10 +24,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 public sealed class SeededHealthBrowseViewTests
 {
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
-    private const string PackVersion = "1.6.0";
+    private const string PackVersion = "1.6.1";
     private const string DefinitionVersion = "1.0.0";
-    private const string RetiredGridKind = "views.entity-list/grid";
-    private const string GridKind = Harborline.Blocks.EntityViews.ViewKindIds.Table;
+    private const string GridKind = "layout.table";
 
     private static readonly SurfaceExpectation[] ExpectedSurfaces =
     [
@@ -75,6 +74,33 @@ public sealed class SeededHealthBrowseViewTests
                 definitions[$"platform.browse.{surface.PrimitiveId}"],
                 surface,
                 expectedActions: surface.PrimitiveId == "forms");
+        }
+    }
+
+    [Fact]
+    public void New_platform_views_match_the_immutable_predecessor_after_only_the_canonical_kind_projection()
+    {
+        using var current = ReadPack();
+        Assert.Equal("1.6.1", current.RootElement.GetProperty("version").GetString());
+        using var legacy = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(
+            AppContext.BaseDirectory, "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json")));
+        Assert.Equal("1.6.0", legacy.RootElement.GetProperty("version").GetString());
+        var previous = ViewItems(legacy).ToDictionary(
+            item => item.GetProperty("key").GetString()!, StringComparer.Ordinal);
+        var released = ViewItems(current).ToArray();
+
+        Assert.Equal(39, released.Length);
+        Assert.Equal(previous.Keys.Order(StringComparer.Ordinal),
+            released.Select(item => item.GetProperty("key").GetString()!).Order(StringComparer.Ordinal));
+        foreach (var item in released)
+        {
+            var key = item.GetProperty("key").GetString()!;
+            var projected = ReleasedViewKindCompatibility.Project(
+                "harborline.platform", "1.6.0", ToSeedItem(previous[key]));
+            Assert.Equal("layout.table", item.GetProperty("content").GetProperty("viewKind").GetString());
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(projected.CanonicalJson),
+                JsonNode.Parse(item.GetProperty("content").GetRawText())), key);
         }
     }
 
@@ -172,7 +198,7 @@ public sealed class SeededHealthBrowseViewTests
         Assert.Equal(DefinitionVersion, content.GetProperty("version").GetString());
         Assert.Equal("bootstrap", content.GetProperty("tenant").GetString());
         Assert.Equal(1, content.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal(RetiredGridKind, content.GetProperty("viewKind").GetString());
+        Assert.Equal(GridKind, content.GetProperty("viewKind").GetString());
         Assert.Equal(expected.EntityType, parameters.GetProperty("entityType").GetString());
         Assert.Equal(
             expected.FieldIds,

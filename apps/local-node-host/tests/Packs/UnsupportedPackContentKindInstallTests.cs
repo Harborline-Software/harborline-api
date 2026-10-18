@@ -199,7 +199,7 @@ public sealed class UnsupportedPackContentKindInstallTests
         var canonicalJson = navContent.ToJsonString();
         var item = new PackComposedItem(
             "test.oversized-navigation",
-            "content",
+            "fixtures.content",
             PackContentKind.NavWorkspaceConfig,
             "1.0.0",
             canonicalJson);
@@ -411,10 +411,10 @@ public sealed class UnsupportedPackContentKindInstallTests
             codec, timeProvider: TimeProvider.System);
         var sources = new List<PackContentSource>
         {
-            new("content", kind, "1.0.0", content ?? new JsonObject()),
+            new("fixtures.content", kind, "1.0.0", content ?? new JsonObject()),
         };
         if (secondContent is not null)
-            sources.Add(new PackContentSource("content-two", kind, "1.0.0", secondContent));
+            sources.Add(new PackContentSource("fixtures.content-two", kind, "1.0.0", secondContent));
         var export = await exporter.ExportAsync(
             new PackExportRequest(
                 Key: $"test.{kind.ToString().ToLowerInvariant()}",
