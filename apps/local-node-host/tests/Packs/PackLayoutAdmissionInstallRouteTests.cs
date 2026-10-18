@@ -220,6 +220,47 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Missing_binding_kind_refuses_with_configured_layout_capability_without_writes()
+    {
+        await StartAsync("1.0.0");
+        InstallPlatformSeed();
+        var content = LayoutContent();
+        var binding = content["blocks"]![0]!["binding"]!.AsObject();
+        Assert.True(binding.Remove("binding_kind"));
+        Assert.False(binding.ContainsKey("binding_kind"));
+        var rawBody = content.ToJsonString();
+        using var rawDocument = JsonDocument.Parse(rawBody);
+        Assert.False(rawDocument.RootElement.GetProperty("blocks")[0].GetProperty("binding")
+            .TryGetProperty("binding_kind", out _));
+        var bytes = await ReplaceBodiesAsync(await ExportAsync(LayoutContent()), ("acme.layout", rawBody));
+        var expected = new PackInstallRefusal("layout.definition.body_invalid", "", "acme.layout@1.0.0");
+
+        AssertRefusals(_installer.Preview(bytes, Context()), expected);
+        AssertNoWrites();
+        AssertRefusals(_installer.Check(bytes, Context()), expected);
+        AssertNoWrites();
+        foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
+        {
+            using var response = await PostBytesAsync(route, bytes);
+            Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.Equal(route == PackInstallRoutes.InstallRoute
+                ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+            var json = await response.Content.ReadAsStringAsync();
+            AssertNoBodyDetails(json);
+            using var document = JsonDocument.Parse(json);
+            var body = document.RootElement;
+            if (route == PackInstallRoutes.InstallRoute)
+            {
+                Assert.False(body.GetProperty("installed").GetBoolean());
+                Assert.Equal("install", body.GetProperty("stage").GetString());
+                AssertDtoRefusals(body.GetProperty("preview"), [expected]);
+            }
+            AssertDtoRefusals(body, [expected]);
+            AssertNoWrites();
+        }
+    }
+
+    [Fact]
     public async Task Undecodable_entries_do_not_hide_later_layout_semantics_or_allow_partial_install()
     {
         await StartAsync();

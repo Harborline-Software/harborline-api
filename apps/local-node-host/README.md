@@ -45,6 +45,8 @@ support and version contract is approved. A package or platform version alone do
 not declare Layout support. A Layout definition requiring an unavailable capability
 refuses its whole pack with `layout.pack.capability_unsupported`, including mixed
 Layout and navigation packs, new imports, upgrades and same-version reimports.
+A Layout definition with no declared requirement refuses its whole pack with
+`layout.pack.capability_undeclared`.
 Preview and Check report `Refused` with HTTP 200. Install reports HTTP 422 with
 `installed: false`. A Layout admission refusal preserves installed versions, tenant overrides,
 watermarks, active configuration pointers and projections.
@@ -52,8 +54,8 @@ watermarks, active configuration pointers and projections.
 This admission policy does not retroactively quarantine already-installed Layout
 declarations. The default-host preservation tests cover historical Draft Layout;
 they do not prove preservation of a previously Active Layout configuration.
-Stable refusal of every malformed Layout body is not yet guaranteed; the
-missing-`binding_kind` regression waits on the pinned decoder revision.
+Stable refusal of every malformed Layout body is not yet guaranteed. An out-of-order
+`binding_kind` still escapes as `NotSupportedException`; owner decision Q16 remains pending.
 
 ## Pairing GA gates
 

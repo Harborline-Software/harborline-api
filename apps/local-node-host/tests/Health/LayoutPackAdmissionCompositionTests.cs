@@ -22,8 +22,12 @@ public sealed partial class ComposedHostBootSmokeTests
         => await AssertDefaultLayoutPackRefusalAsync(legacyScenario: null);
 
     [Fact]
-    public async Task Program_Composition_DefaultLayoutWithoutRequirementsReportsAdmissionOutcome()
+    public async Task Program_Composition_DefaultLayoutWithoutRequirementsRefusesWholePackAsCapabilityUndeclared()
         => await AssertDefaultLayoutPackRefusalAsync(legacyScenario: null, emptyRequirements: true);
+
+    [Fact]
+    public async Task Program_Composition_MissingLayoutBindingKindRefusesAndPreservesHistoricalDraftState()
+        => await AssertDefaultLayoutPackRefusalAsync(legacyScenario: "upgrade", missingBindingKind: true);
 
     [Theory]
     [InlineData("upgrade")]
@@ -32,7 +36,8 @@ public sealed partial class ComposedHostBootSmokeTests
     public async Task Program_Composition_LayoutRefusalPreservesHistoricalDraftState(string legacyScenario)
         => await AssertDefaultLayoutPackRefusalAsync(legacyScenario);
 
-    private static async Task AssertDefaultLayoutPackRefusalAsync(string? legacyScenario, bool emptyRequirements = false)
+    private static async Task AssertDefaultLayoutPackRefusalAsync(string? legacyScenario,
+        bool emptyRequirements = false, bool missingBindingKind = false)
     {
         const string rootSeedHex =
             "4646464646464646464646464646464646464646464646464646464646464646";
@@ -73,6 +78,16 @@ public sealed partial class ComposedHostBootSmokeTests
                 LayoutAdmissionDefinitionJson(version, tenant, emptyRequirements));
             if (emptyRequirements)
                 Assert.Empty(definition.GetProperty("envelope").GetProperty("requires").EnumerateArray());
+            if (missingBindingKind)
+            {
+                var malformed = System.Text.Json.Nodes.JsonNode.Parse(definition.GetRawText())!;
+                var binding = malformed["blocks"]![0]!["binding"]!.AsObject();
+                Assert.True(binding.Remove("binding_kind"));
+                Assert.False(binding.ContainsKey("binding_kind"));
+                definition = JsonSerializer.SerializeToElement(malformed);
+                Assert.False(definition.GetProperty("blocks")[0].GetProperty("binding")
+                    .TryGetProperty("binding_kind", out _));
+            }
             var contents = new List<object>
             {
                 new { key = "layout-admission.layout", kind = "Layout", version, content = definition },
@@ -97,6 +112,7 @@ public sealed partial class ComposedHostBootSmokeTests
                 content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
                 using var response = await client.PostAsync(route, content, deadline);
                 var body = await response.Content.ReadAsStringAsync(deadline);
+                Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
                 Assert.Equal(route == PackInstallRoutes.InstallRoute
                     ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
                 using var document = JsonDocument.Parse(body);
@@ -106,11 +122,11 @@ public sealed partial class ComposedHostBootSmokeTests
                     Assert.False(result.GetProperty("installed").GetBoolean(), body);
                     Assert.Equal("install", result.GetProperty("stage").GetString());
                     Assert.Equal("Refused", result.GetProperty("preview").GetProperty("verdict").GetString());
-                    AssertLayoutCapabilityRefusal(result.GetProperty("preview"), version, emptyRequirements);
+                    AssertLayoutAdmissionRefusal(result.GetProperty("preview"), version, emptyRequirements, missingBindingKind);
                 }
                 else
                     Assert.Equal("Refused", result.GetProperty("verdict").GetString());
-                AssertLayoutCapabilityRefusal(result, version, emptyRequirements);
+                AssertLayoutAdmissionRefusal(result, version, emptyRequirements, missingBindingKind);
                 Assert.Equal(baseline,
                     await ReadLayoutAdmissionStateAsync(factory, tenant, client, legacyScenario is not null, deadline));
             }
@@ -253,18 +269,20 @@ public sealed partial class ComposedHostBootSmokeTests
                 System.Text.Json.Nodes.JsonNode.Parse("""{"intent":"Observe"}""")!)]));
     }
 
-    private static void AssertLayoutCapabilityRefusal(JsonElement result, string version, bool emptyRequirements = false)
+    private static void AssertLayoutAdmissionRefusal(JsonElement result, string version,
+        bool emptyRequirements = false, bool missingBindingKind = false)
     {
-        var expectedCode = emptyRequirements
-            ? "layout.pack.capability_undeclared" : "layout.pack.capability_unsupported";
-        var expectedPointer = emptyRequirements
-            ? "/envelope/requires" : "/envelope/requires/0/minimum_platform_version";
+        var expectedCode = missingBindingKind ? "layout.definition.body_invalid"
+            : emptyRequirements ? "layout.pack.capability_undeclared" : "layout.pack.capability_unsupported";
+        var expectedPointer = missingBindingKind ? ""
+            : emptyRequirements ? "/envelope/requires" : "/envelope/requires/0/minimum_platform_version";
         var code = Assert.Single(result.GetProperty("refusalCodes").EnumerateArray());
         Assert.Equal(expectedCode, code.GetString());
         var refusal = Assert.Single(result.GetProperty("refusals").EnumerateArray());
         Assert.Equal(expectedCode, refusal.GetProperty("code").GetString());
         Assert.Equal(expectedPointer, refusal.GetProperty("pointer").GetString());
-        Assert.Equal("layout-admission.layout@" + version, refusal.GetProperty("target").GetString());
+        Assert.Equal(missingBindingKind ? "layout-admission.layout@2.0.0" : "layout-admission.layout@" + version,
+            refusal.GetProperty("target").GetString());
     }
 
     private sealed record LayoutAdmissionPreservedState(string InstalledVersions, string Overrides, string Watermarks,
