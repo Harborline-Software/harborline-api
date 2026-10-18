@@ -126,13 +126,14 @@ public sealed class PackExporter : IPackExporter
         // (3b) Goal 3 P3: the exposed-definition entries are signed facts copied from the producer's release, never
         //      computed here, so the exporter only refuses a malformed set before anything is signed.
         var exposureErrors = ExposedDefinitionErrors(request);
+        var renameErrors = RenameErrors(request);
 
         // (4) Validate FIRST — fail-closed. Never sign an invalid pack. Combine the completeness/PII
         //     findings with the DCP gate findings so the caller sees the full picture in ONE result.
         var validation = _validator.Validate(manifest, items);
-        if (!validation.IsValid || dcpErrors.Count > 0 || referenceErrors.Count > 0 || exposureErrors.Count > 0)
+        if (!validation.IsValid || dcpErrors.Count > 0 || referenceErrors.Count > 0 || exposureErrors.Count > 0 || renameErrors.Count > 0)
         {
-            var combined = validation.Errors.Concat(referenceErrors).Concat(exposureErrors).Concat(dcpErrors).ToList();
+            var combined = validation.Errors.Concat(referenceErrors).Concat(exposureErrors).Concat(dcpErrors).Concat(renameErrors).ToList();
             var failed = PackValidationResult.Invalid(combined);
             return new PackExportOutcome(Succeeded: false, File: null, FileBytes: null, Validation: failed);
         }
@@ -194,6 +195,52 @@ public sealed class PackExporter : IPackExporter
                 || !seen.Add(key) || string.IsNullOrWhiteSpace(entry.Version) || !IsStoreDigest(entry.Digest))
                 errors.Add(new PackValidationError(PackExportCodes.ExposedDefinitionMalformed, $"exposedDefinitions/{index}",
                     "An exposed-definition entry must name a distinct exposed key, a nonblank version and a sha256: digest of 64 lowercase hex digits."));
+        }
+        return errors;
+    }
+
+    /// <summary>Refuses malformed key-stability entries before validation-only or signing succeeds.</summary>
+    private static List<PackValidationError> RenameErrors(PackExportRequest request)
+    {
+        var errors = new List<PackValidationError>();
+        if (request.RenamedFrom is not { } entries)
+            return errors;
+
+        var contentKeys = request.Contents.Select(content => content.Key).ToHashSet(StringComparer.Ordinal);
+        var seenNew = new HashSet<string>(StringComparer.Ordinal);
+        var seenOld = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var target = $"renamedFrom/{index}";
+            if (entry is null)
+            {
+                errors.Add(new PackValidationError(PackValidationCodes.ContentKeyMissing, target,
+                    "A rename entry requires a new content key and a prior key."));
+                continue;
+            }
+
+            var newMissing = string.IsNullOrWhiteSpace(entry.NewKey);
+            var oldMissing = string.IsNullOrWhiteSpace(entry.OldKey);
+            if (newMissing || oldMissing)
+                errors.Add(new PackValidationError(PackValidationCodes.ContentKeyMissing, target,
+                    "A rename entry requires a nonblank new content key and prior key."));
+
+            if (!newMissing)
+            {
+                if (!PackValidator.IsQualifiedContentKey(entry.NewKey))
+                    errors.Add(new PackValidationError(PackValidationCodes.ContentKeyUnqualified, target,
+                        "A rename's new content key must have a namespace and nonempty segments."));
+                if (!contentKeys.Contains(entry.NewKey))
+                    errors.Add(new PackValidationError(PackValidationCodes.ContentItemMissing, target,
+                        "A rename's new content key must name an exported content item."));
+            }
+
+            var duplicateNew = !newMissing && !seenNew.Add(entry.NewKey);
+            var duplicateOld = !oldMissing && !seenOld.Add(entry.OldKey);
+            if (duplicateNew || duplicateOld)
+                errors.Add(new PackValidationError(PackValidationCodes.ContentKeyDuplicate, target,
+                    "A rename's new key and prior key must each be distinct."));
         }
         return errors;
     }
