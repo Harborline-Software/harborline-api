@@ -875,10 +875,10 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             item => (item.Kind, item.Version, item.CanonicalJson, item.ContentAddress), StringComparer.Ordinal);
 
         _store.SaveOverride(Tenant, "harborline.platform", new PackTenantOverride(
-            "FormDefinition", JsonNode.Parse("""{"title":"T1014 retained tenant label"}""")!));
+            "FormDefinition", JsonNode.Parse("""{"provenance":{"kind":null}}""")!));
         var before = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal("FormDefinition", before.ContentKey);
-        Assert.Equal("""{"title":"T1014 retained tenant label"}""", before.OverlayPatch.ToJsonString());
+        Assert.Equal("""{"provenance":{"kind":null}}""", before.OverlayPatch.ToJsonString());
 
         PackContentRename[] expectedRenames =
         [
@@ -930,7 +930,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var retained = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal("harborline.platform.FormDefinition", retained.ContentKey);
-        Assert.Equal("""{"title":"T1014 retained tenant label"}""", retained.OverlayPatch.ToJsonString());
+        Assert.Equal("""{"provenance":{"kind":null}}""", retained.OverlayPatch.ToJsonString());
         Assert.DoesNotContain(_store.GetOverrides(Tenant, "harborline.platform"),
             item => item.ContentKey == "FormDefinition");
         Assert.Empty(_store.GetOverrides(new("aaaaaaaa-0000-0000-0000-000000001015"), "harborline.platform"));
@@ -949,7 +949,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Single(observed.Installations);
         var repeated = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal("harborline.platform.FormDefinition", repeated.ContentKey);
-        Assert.Equal("""{"title":"T1014 retained tenant label"}""", repeated.OverlayPatch.ToJsonString());
+        Assert.Equal("""{"provenance":{"kind":null}}""", repeated.OverlayPatch.ToJsonString());
         Assert.Equal(new[] { "1.6.0", "1.6.1" }, _store.ListInstalled(Tenant)
             .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
     }
