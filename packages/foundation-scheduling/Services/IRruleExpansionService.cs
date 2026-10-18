@@ -27,8 +27,14 @@ namespace Harborline.Api.Foundation.Scheduling;
 /// </para>
 /// <para>
 /// Unsupported RRULE components (EXDATE, BYWEEKNO, BYYEARDAY, etc.)
-/// are silently ignored in v1. The Ical.Net-backed follow-on hand-off
-/// will replace this implementation with full RFC 5545 support.
+/// are refused by the shared Platform producer so an authored restriction cannot be silently discarded.
+/// Malformed values of supported parts are refused rather than defaulted or dropped.
+/// </para>
+/// <para>
+/// The result is complete or an exception is propagated. When the requested range would exceed the
+/// producer's 1 000-occurrence limit, it throws
+/// <see cref="Harborline.Foundation.Scheduling.RruleExpansionCapExceededException"/> instead of returning
+/// an indistinguishable partial list. The producer's exception and its range metadata are preserved.
 /// </para>
 /// </remarks>
 public interface IRruleExpansionService
@@ -69,13 +75,19 @@ public interface IRruleExpansionService
     /// <returns>
     /// Occurrences in ascending date order, filtered by
     /// <paramref name="leadDays"/> and bounded by <paramref name="end"/>
-    /// (or <c>today + lookaheadDays</c>). Never exceeds 1 000 items.
+    /// (or <c>today + lookaheadDays</c>). Never exceeds 1 000 items and never returns a capped partial result.
     /// </returns>
     /// <exception cref="FormatException">
-    /// Thrown when <paramref name="rrule"/> is missing a <c>FREQ=</c> component.
+    /// Thrown when <paramref name="rrule"/> is missing a <c>FREQ=</c> component or a supported part is malformed.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="rrule"/> is null or whitespace.
+    /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// Thrown for a component or combination outside the producer's supported subset.
+    /// </exception>
+    /// <exception cref="Harborline.Foundation.Scheduling.RruleExpansionCapExceededException">
+    /// Thrown when the producer cannot return a complete expansion within its occurrence limit.
     /// </exception>
     IReadOnlyList<DateOnly> ExpandOccurrences(
         string rrule,

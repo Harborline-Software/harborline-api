@@ -31,6 +31,7 @@
          unnecessary via transitive availability through foundation. Per fleet-conventions
          "NU1510 — keep the PackageRef, suppress the warning". -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Harborline.Foundation.Scheduling" />
   </ItemGroup>
   <ItemGroup>
     <!-- foundation-scheduling is facade-independent: references only foundation (TenantId etc.)

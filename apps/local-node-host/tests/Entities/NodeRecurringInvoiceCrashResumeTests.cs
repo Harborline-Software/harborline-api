@@ -100,6 +100,62 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         catch { /* best-effort temp cleanup */ }
     }
 
+    [Theory]
+    [InlineData("unsupported")]
+    [InlineData("malformed")]
+    [InlineData("cap")]
+    public async Task Strict_recurrence_refusal_precedes_invoice_JE_and_generation_cursor_writes(string failure)
+    {
+        var id = new RecurringInvoiceScheduleId("00000000-0000-0000-0000-0000000000b1");
+        var rule = failure switch
+        {
+            "unsupported" => "FREQ=DAILY;EXDATE=20260106",
+            "malformed" => "FREQ=DAILY;INTERVAL=0",
+            "cap" => "FREQ=DAILY",
+            _ => throw new InvalidOperationException("Unknown literal strict recurrence fixture."),
+        };
+        var schedule = RecurringInvoiceSchedule.Create(
+            tenantId: LocalTenantId, chartId: new ChartOfAccountsId("CH-1"), customerId: new PartyId("customer-1"),
+            arAccountId: new GLAccountId("1100"), recurrenceRule: rule, startsOn: new DateOnly(2026, 1, 1),
+            timezone: "UTC", lineTemplates: new[] { new RecurringInvoiceLineTemplate("Strict fixture", 1m, 250m, new GLAccountId("4000")) },
+            endsOn: null, lookaheadHorizonDays: failure == "cap" ? 1000 : 2, generateLeadDays: 0, id: id);
+        await using (var context = await _factory.CreateDbContextAsync())
+        {
+            context.Set<RecurringInvoiceSchedule>().Add(schedule);
+            await context.SaveChangesAsync();
+            Assert.Equal(0, await context.Set<Invoice>().IgnoreQueryFilters().CountAsync());
+        }
+        var service = BuildService(new NodeRecurringInvoiceWriteEnlister());
+        var asOf = new DateOnly(2026, 1, 1); // Keep the full1001-date window; do not filter to the far endpoint.
+        if (failure == "cap")
+        {
+            var error = await Assert.ThrowsAsync<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(
+                () => service.GenerateDueInvoicesAsync(id, asOf, Authority));
+            Assert.Equal(1000, error.CandidateLimit);
+            Assert.Equal(1001, error.CandidatesExamined);
+            Assert.Equal(new DateOnly(2026, 1, 1), error.RequestedRangeStart);
+            Assert.Equal(new DateOnly(2028, 9, 27), error.RequestedRangeEnd);
+        }
+        else if (failure == "malformed")
+            await Assert.ThrowsAsync<FormatException>(() => service.GenerateDueInvoicesAsync(id, asOf, Authority));
+        else
+            await Assert.ThrowsAsync<NotSupportedException>(() => service.GenerateDueInvoicesAsync(id, asOf, Authority));
+
+        await using var fresh = await _factory.CreateDbContextAsync();
+        Assert.Equal(0, await fresh.Set<Invoice>().IgnoreQueryFilters().CountAsync());
+        Assert.Equal(0, await CountJournalEntriesAsync());
+        var retained = await fresh.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync(row => row.Id == id);
+        Assert.Empty(retained.GeneratedInvoices);
+        Assert.Null(retained.LastGeneratedAtUtc);
+        Assert.Equal(RecurringScheduleStatus.Active, retained.Status);
+        Assert.Equal(rule, retained.RecurrenceRule);
+        Assert.Equal(new DateOnly(2026, 1, 1), retained.StartsOn);
+        Assert.Null(retained.EndsOn);
+        var original = await fresh.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync(row => row.Id == ScheduleId);
+        Assert.Empty(original.GeneratedInvoices);
+        Assert.Null(original.LastGeneratedAtUtc);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     //  THE REGRESSION GATE — crash between effect and idempotency, then resume.
     // ─────────────────────────────────────────────────────────────────────────

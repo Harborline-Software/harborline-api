@@ -56,6 +56,65 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Strict_recurrence_failure_prevents_daemon_dispatch_and_all_durable_workflow_effects(bool capped)
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var instantiation = NewInstantiation(store, factory);
+        var at = capped
+            ? new DateTimeOffset(2028, 9, 27, 0, 0, 0, TimeSpan.Zero)
+            : new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        await SeedScheduleAsync(factory, "SCHED-STRICT", capped ? "FREQ=DAILY" : "FREQ=DAILY;EXDATE=20260106",
+            new DateOnly(2026, 1, 1), 250m);
+        Assert.Equal(1, await instantiation.SyncRecurringGenerationProcessesAsync(LocalTenantId, at));
+        const string instanceId = "recurring-generation:SCHED-STRICT";
+        var before = (await store.LoadAsync(instanceId))!;
+        Assert.Equal(WorkflowStatus.Running, before.Status);
+        Assert.Equal("generate@2026-01-01", before.CurrentStep);
+        long eventsBefore;
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync());
+            eventsBefore = await context.Set<WorkflowEventRecord>().LongCountAsync();
+        }
+        var services = new ServiceCollection();
+        services.AddFoundationScheduling();
+        using var provider = services.BuildServiceProvider();
+        var daemon = new WorkflowScheduleDaemon(
+            new NodeRecurringScheduleSource(factory, provider.GetRequiredService<IRruleExpansionService>()),
+            new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) }),
+            new FixedClock(at), NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), store: store);
+
+        if (capped)
+        {
+            var error = await Assert.ThrowsAsync<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(
+                () => daemon.TickAsync());
+            Assert.Equal(1000, error.CandidateLimit);
+            Assert.Equal(1001, error.CandidatesExamined);
+            Assert.Equal(new DateOnly(2026, 1, 1), error.RequestedRangeStart);
+            Assert.Equal(new DateOnly(2028, 9, 27), error.RequestedRangeEnd);
+        }
+        else await Assert.ThrowsAsync<NotSupportedException>(() => daemon.TickAsync());
+
+        var restartedFactory = NewFactory();
+        var after = (await NewStore(restartedFactory).LoadAsync(instanceId))!;
+        Assert.Equal(0, await CountJournalEntriesAsync(restartedFactory));
+        Assert.Equal(WorkflowStatus.Running, after.Status);
+        Assert.Equal("generate@2026-01-01", after.CurrentStep);
+        Assert.Equal(0, after.Iteration);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal(before.DefinitionVersion, after.DefinitionVersion);
+        Assert.Equal(before.CreatedAt, after.CreatedAt);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        await using var fresh = await restartedFactory.CreateDbContextAsync();
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync());
+        Assert.Equal(eventsBefore, await fresh.Set<WorkflowEventRecord>().LongCountAsync());
+    }
+
     private IDbContextFactory<LocalNodeDbContext> NewFactory()
     {
         var services = new ServiceCollection();
