@@ -16,6 +16,14 @@ using Harborline.Api.LocalNodeHost.Data;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
 
+/// <summary>A host-only creation refusal with a bounded, safe recurrence diagnostic.</summary>
+/// <param name="safeDetail">The fixed diagnostic selected at the shared producer boundary.</param>
+internal sealed class RecurringInvoiceRecurrenceValidationException(string safeDetail) : Exception(safeDetail)
+{
+    /// <summary>The safe detail the create route may return without exposing the rule or exception.</summary>
+    public string SafeDetail { get; } = safeDetail;
+}
+
 /// <summary>
 /// Node-resident <see cref="IRecurringInvoiceService"/> over the recoverable, Store-DEK-enveloped
 /// <see cref="LocalNodeDbContext"/> (ADR 0113 ABSOLUTE local-first; T2b recurring-invoice node-flip).
@@ -147,6 +155,9 @@ public sealed class NodeEfRecurringInvoiceService : IRecurringInvoiceService
         int generateLeadDays = 0,
         CancellationToken cancellationToken = default)
     {
+        ValidateRecurrenceForCreation(recurrenceRule, startsOn, endsOn, lookaheadHorizonDays,
+            generateLeadDays, timezone, cancellationToken);
+
         var schedule = RecurringInvoiceSchedule.Create(
             tenantId, chartId, customerId, arAccountId,
             recurrenceRule, startsOn, timezone, lineTemplates,
@@ -158,6 +169,32 @@ public sealed class NodeEfRecurringInvoiceService : IRecurringInvoiceService
         await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return schedule;
     }
+
+    private void ValidateRecurrenceForCreation(string rule, DateOnly startsOn, DateOnly? endsOn,
+        int lookaheadDays, int leadDays, string timezone, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string? refusal = null;
+        try
+        {
+            _ = _rrule.ExpandOccurrences(rule, startsOn, endsOn, lookaheadDays, leadDays, startsOn, timezone);
+        }
+        catch (Exception error) when (error is NotSupportedException or FormatException
+            or global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException)
+        {
+            refusal = RecurrenceRefusalDetail(error);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (refusal is not null) throw new RecurringInvoiceRecurrenceValidationException(refusal);
+    }
+
+    private static string RecurrenceRefusalDetail(Exception error) => error switch
+    {
+        global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException =>
+            "RecurrenceRule exceeds the supported expansion limit for the requested range.",
+        FormatException => "RecurrenceRule contains a malformed value.",
+        _ => "RecurrenceRule contains an unsupported component.",
+    };
 
     /// <inheritdoc />
     public async Task PauseScheduleAsync(
@@ -208,14 +245,28 @@ public sealed class NodeEfRecurringInvoiceService : IRecurringInvoiceService
         if (schedule.Status == RecurringScheduleStatus.Archived)
             return new ScheduleGenerationResult(scheduleId, ScheduleGenerationOutcome.Archived, []);
 
-        var dueOccurrences = _rrule.ExpandOccurrences(
-            rrule: schedule.RecurrenceRule,
-            start: schedule.StartsOn,
-            end: schedule.EndsOn,
-            lookaheadDays: schedule.LookaheadHorizonDays,
-            leadDays: schedule.GenerateLeadDays,
-            today: asOf,
-            timezone: schedule.Timezone);
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<DateOnly> dueOccurrences = [];
+        string? recurrenceRefusal = null;
+        try
+        {
+            dueOccurrences = _rrule.ExpandOccurrences(
+                rrule: schedule.RecurrenceRule,
+                start: schedule.StartsOn,
+                end: schedule.EndsOn,
+                lookaheadDays: schedule.LookaheadHorizonDays,
+                leadDays: schedule.GenerateLeadDays,
+                today: asOf,
+                timezone: schedule.Timezone);
+        }
+        catch (Exception error) when (error is NotSupportedException or FormatException
+            or global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException)
+        {
+            recurrenceRefusal = RecurrenceRefusalDetail(error);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (recurrenceRefusal is not null)
+            return new ScheduleGenerationResult(scheduleId, ScheduleGenerationOutcome.Failed, [], recurrenceRefusal);
 
         var entries = new List<InvoiceGenerationEntry>(dueOccurrences.Count);
 
