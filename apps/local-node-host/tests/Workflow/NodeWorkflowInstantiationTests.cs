@@ -488,6 +488,428 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         Assert.Empty(log.Entries);
     }
 
+    [Theory]
+    [InlineData(false, "unsupported")]
+    [InlineData(false, "malformed")]
+    [InlineData(false, "cap")]
+    [InlineData(false, "success-due")]
+    [InlineData(false, "success-empty")]
+    [InlineData(true, "unsupported")]
+    [InlineData(true, "malformed")]
+    [InlineData(true, "cap")]
+    [InlineData(true, "success-due")]
+    [InlineData(true, "success-empty")]
+    public async Task Cancellation_completion_observes_the_last_expansion_even_after_refusal_or_success(
+        bool declarative, string boundary)
+    {
+        var rule = boundary == "success-empty" ? "FREQ=MONTHLY;BYMONTHDAY=8" : "FREQ=MONTHLY;BYMONTHDAY=1";
+        var fixture = await NewCompletionFixtureAsync(declarative, rule);
+        using var cancellation = new CancellationTokenSource();
+        var failure = CompletionExpansionFault(boundary);
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure, cancel: true);
+        var log = new ScheduleLog();
+        var source = NewCompletionSource(fixture, expansion, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        // Only the source call can satisfy this cancellation assertion, not a later verification read.
+        var actual = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, actual.CancellationToken);
+        Assert.True(cancellation.IsCancellationRequested);
+        AssertCompletionExpansion(expansion, rule, boundary == "success-empty");
+        if (failure is null) Assert.Empty(log.Entries);
+        else AssertCompletionWarning(log, fixture.Id, failure);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Theory]
+    [InlineData("admission")]
+    [InlineData("missing")]
+    public async Task Cancellation_completion_observes_the_last_exact_read_skip(string boundary)
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative: true);
+        using var cancellation = new CancellationTokenSource();
+        var failure = CompletionReadFault(boundary);
+        var definitions = new CompletionDefinitionReadBoundary(cancellation, failure, cancel: true);
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: false);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(fixture.Factory, expansion, definitions, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var actual = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, actual.CancellationToken);
+        Assert.True(cancellation.IsCancellationRequested);
+        AssertCompletionRead(definitions, cancellation.Token);
+        Assert.Equal(0, expansion.Calls);
+        if (boundary == "admission") AssertCompletionWarning(log, fixture.Id, failure);
+        else Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancellation_completion_preserves_the_original_unknown_expansion_fault(bool declarative)
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative);
+        using var cancellation = new CancellationTokenSource();
+        var expected = new InvalidOperationException("literal unknown expansion fault");
+        var expansion = new CompletionBoundaryExpansion(cancellation, expected, cancel: true);
+        var log = new ScheduleLog();
+        var source = NewCompletionSource(fixture, expansion, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Same(expected, actual);
+        Assert.True(cancellation.IsCancellationRequested);
+        AssertCompletionExpansion(expansion, "FREQ=MONTHLY;BYMONTHDAY=1", empty: false);
+        Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Fact]
+    public async Task Cancellation_completion_preserves_the_original_unknown_exact_read_fault()
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative: true);
+        using var cancellation = new CancellationTokenSource();
+        var expected = new InvalidOperationException("literal unknown definition read fault");
+        var definitions = new CompletionDefinitionReadBoundary(cancellation, expected, cancel: true);
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: false);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(fixture.Factory, expansion, definitions, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Same(expected, actual);
+        Assert.True(cancellation.IsCancellationRequested);
+        AssertCompletionRead(definitions, cancellation.Token);
+        Assert.Equal(0, expansion.Calls);
+        Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancellation_completion_preserves_an_already_thrown_expansion_cancellation(bool declarative)
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative);
+        using var cancellation = new CancellationTokenSource();
+        var expected = new OperationCanceledException("literal expansion dependency cancellation", cancellation.Token);
+        var expansion = new CompletionBoundaryExpansion(cancellation, expected, cancel: true);
+        var log = new ScheduleLog();
+        var source = NewCompletionSource(fixture, expansion, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var actual = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Same(expected, actual);
+        Assert.Equal(cancellation.Token, actual.CancellationToken);
+        Assert.True(cancellation.IsCancellationRequested);
+        AssertCompletionExpansion(expansion, "FREQ=MONTHLY;BYMONTHDAY=1", empty: false);
+        Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Theory]
+    [InlineData("admission")]
+    [InlineData("missing")]
+    public async Task Cancellation_completion_keeps_uncancelled_exact_read_refusal_and_missing_behavior(string boundary)
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative: true);
+        using var cancellation = new CancellationTokenSource();
+        var failure = CompletionReadFault(boundary);
+        var definitions = new CompletionDefinitionReadBoundary(cancellation, failure, cancel: false);
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: false);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(fixture.Factory, expansion, definitions, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var due = await source.GetDueTriggersAsync(CompletionAt, cancellation.Token);
+
+        Assert.Empty(due);
+        Assert.False(cancellation.IsCancellationRequested);
+        AssertCompletionRead(definitions, cancellation.Token);
+        Assert.Equal(0, expansion.Calls);
+        if (boundary == "admission") AssertCompletionWarning(log, fixture.Id, failure);
+        else Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancellation_completion_keeps_a_real_uncancelled_monthly_schedule_due(bool declarative)
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative);
+        using var cancellation = new CancellationTokenSource();
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: false);
+        var log = new ScheduleLog();
+        var source = NewCompletionSource(fixture, expansion, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var due = await source.GetDueTriggersAsync(CompletionAt, cancellation.Token);
+
+        var trigger = Assert.Single(due);
+        Assert.Equal(WorkflowTriggerKind.Schedule, trigger.Kind);
+        Assert.Equal(fixture.Id, trigger.InstanceId);
+        Assert.Equal(declarative ? "waiting" : "generate@2026-01-01", trigger.Step);
+        Assert.False(cancellation.IsCancellationRequested);
+        AssertCompletionExpansion(expansion, "FREQ=MONTHLY;BYMONTHDAY=1", empty: false);
+        Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    [Fact]
+    public async Task Cancellation_completion_keeps_an_uncancelled_empty_store_empty()
+    {
+        var factory = NewFactory();
+        using var cancellation = new CancellationTokenSource();
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: true);
+        var definitions = new CompletionDefinitionReadBoundary(cancellation,
+            new InvalidOperationException("empty source must not read a definition"), cancel: true);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, expansion, definitions, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var due = await source.GetDueTriggersAsync(CompletionAt, cancellation.Token);
+
+        Assert.Empty(due);
+        Assert.False(cancellation.IsCancellationRequested);
+        Assert.Equal(0, expansion.Calls);
+        Assert.Equal(0, definitions.ExactReads);
+        Assert.Equal(0, definitions.CurrentReads);
+        Assert.Empty(log.Entries);
+        await using var fresh = await NewFactory().CreateDbContextAsync();
+        Assert.Equal(0, await fresh.Set<WorkflowInstanceRecord>().CountAsync());
+        Assert.Equal(0, await fresh.Set<WorkflowEventRecord>().CountAsync());
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync());
+        Assert.Equal(0, await fresh.Set<JournalEntry>().CountAsync());
+    }
+
+    [Fact]
+    public async Task Cancellation_completion_keeps_precancelled_callers_out_of_the_expansion_seam()
+    {
+        var fixture = await NewCompletionFixtureAsync(declarative: false);
+        using var cancellation = new CancellationTokenSource();
+        var expansion = new CompletionBoundaryExpansion(cancellation, failure: null, cancel: false);
+        var log = new ScheduleLog();
+        var source = NewCompletionSource(fixture, expansion, log);
+        cancellation.Cancel();
+
+        var actual = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => source.GetDueTriggersAsync(CompletionAt, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, actual.CancellationToken);
+        Assert.Equal(0, expansion.Calls);
+        Assert.Empty(log.Entries);
+        await AssertCompletionStateUnchangedAsync(fixture);
+    }
+
+    private static readonly DateTimeOffset CompletionAnchor = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset CompletionAt = new(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+
+    private sealed record CompletionSnapshot(WorkflowInstanceRecord Instance, string InstanceJson, string EventsJson);
+    private sealed record CompletionFixture(
+        IDbContextFactory<LocalNodeDbContext> Factory,
+        IWorkflowDefinitionExecutionStore? Definitions,
+        string Id,
+        CompletionSnapshot Before);
+
+    private async Task<CompletionFixture> NewCompletionFixtureAsync(
+        bool declarative, string rule = "FREQ=MONTHLY;BYMONTHDAY=1")
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        IWorkflowDefinitionExecutionStore? definitions = null;
+        string id;
+        if (declarative)
+        {
+            definitions = await NewPublishedSchedulesAsync("completion-definition", CompletionAnchor, rule);
+            id = "completion-declarative";
+            await CreateWaitingInstanceAsync(store, id, "completion-definition", CompletionAnchor, null);
+        }
+        else
+        {
+            await SeedScheduleAsync(factory, "SCHED-COMPLETION", rule, new DateOnly(2026, 1, 1), 250m);
+            Assert.Equal(1, await NewInstantiation(store, factory)
+                .SyncRecurringGenerationProcessesAsync(LocalTenantId, CompletionAt));
+            id = "recurring-generation:SCHED-COMPLETION";
+        }
+
+        var before = Assert.IsType<WorkflowInstanceRecord>(await store.LoadAsync(id));
+        Assert.Equal(WorkflowStatus.Running, before.Status);
+        Assert.Equal(0, before.Iteration);
+        await using var context = await factory.CreateDbContextAsync();
+        Assert.Equal(1, await context.Set<WorkflowInstanceRecord>().CountAsync());
+        Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>().CountAsync());
+        Assert.Equal(0, await context.Set<JournalEntry>().CountAsync());
+        var events = await context.Set<WorkflowEventRecord>().AsNoTracking().OrderBy(row => row.Id).ToListAsync();
+        return new(factory, definitions, id,
+            new(before, JsonSerializer.Serialize(before), JsonSerializer.Serialize(events)));
+    }
+
+    private static NodeRecurringScheduleSource NewCompletionSource(
+        CompletionFixture fixture, IRruleExpansionService expansion, ScheduleLog log)
+        => fixture.Definitions is null
+            ? new(fixture.Factory, expansion, log)
+            : new(fixture.Factory, expansion, fixture.Definitions, log);
+
+    private async Task AssertCompletionStateUnchangedAsync(CompletionFixture fixture)
+    {
+        // These fresh reads deliberately do not use the cancelled source token.
+        var factory = NewFactory();
+        var after = Assert.IsType<WorkflowInstanceRecord>(await NewStore(factory).LoadAsync(fixture.Id));
+        var before = fixture.Before.Instance;
+        Assert.Equal(fixture.Id, after.Id);
+        Assert.Equal("local", after.TenantId);
+        Assert.Equal(before.DefinitionKey, after.DefinitionKey);
+        Assert.Equal(before.DefinitionVersion, after.DefinitionVersion);
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
+        Assert.Equal(0, after.Iteration);
+        Assert.Equal(WorkflowStatus.Running, after.Status);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal(before.CreatedAt, after.CreatedAt);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        Assert.Equal(fixture.Before.InstanceJson, JsonSerializer.Serialize(after));
+        await using var fresh = await factory.CreateDbContextAsync();
+        Assert.Equal(1, await fresh.Set<WorkflowInstanceRecord>().CountAsync());
+        var events = await fresh.Set<WorkflowEventRecord>().AsNoTracking().OrderBy(row => row.Id).ToListAsync();
+        Assert.Equal(fixture.Before.EventsJson, JsonSerializer.Serialize(events));
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>().CountAsync());
+        Assert.Equal(0, await fresh.Set<JournalEntry>().CountAsync());
+    }
+
+    private static Exception? CompletionExpansionFault(string boundary)
+    {
+        if (boundary == "unsupported") return new NotSupportedException("literal unsupported expansion refusal");
+        if (boundary == "malformed") return new FormatException("literal malformed expansion refusal");
+        if (boundary is "success-due" or "success-empty") return null;
+        if (boundary != "cap") throw new InvalidOperationException("Unexpected completion fault fixture.");
+
+        var cap = Assert.Throws<global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException>(() =>
+        {
+            _ = new InMemoryRruleExpansionService().ExpandOccurrences("FREQ=DAILY",
+                new DateOnly(2023, 1, 1), new DateOnly(2026, 1, 7), 0, 0, new DateOnly(2023, 1, 1), "UTC");
+        });
+        Assert.Equal(1000, cap.CandidateLimit);
+        Assert.Equal(1001, cap.CandidatesExamined);
+        return cap;
+    }
+
+    private static Exception CompletionReadFault(string boundary)
+        => boundary switch
+        {
+            "admission" => new WorkflowAdmissionException(new WorkflowAdmissionResult
+            {
+                Violations = [new("workflow.admission.schedule_rrule_invalid", "literal refused read", "due")],
+            }),
+            "missing" => new WorkflowDefinitionNotFoundException("completion-definition", "1.0.0", "local"),
+            _ => throw new InvalidOperationException("Unexpected completion read fixture."),
+        };
+
+    private static void AssertCompletionWarning(ScheduleLog log, string instanceId, Exception expected)
+    {
+        var warning = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Same(expected, warning.Error);
+        Assert.Equal(
+            $"Workflow schedule expansion refused for instance {instanceId}; skipping this instance for this tick.",
+            warning.Message);
+        Assert.DoesNotContain("FREQ=", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("literal", warning.Message, StringComparison.Ordinal);
+    }
+
+    private sealed record CompletionExpansionCall(
+        string Rrule, DateOnly Start, DateOnly? End, int LookaheadDays, int LeadDays, DateOnly Today, string Timezone);
+
+    private sealed class CompletionBoundaryExpansion(
+        CancellationTokenSource caller, Exception? failure, bool cancel) : IRruleExpansionService
+    {
+        public int Calls { get; private set; }
+        public bool WasUncancelled { get; private set; }
+        public CompletionExpansionCall? Request { get; private set; }
+        public IReadOnlyList<DateOnly> Dates { get; private set; } = Array.Empty<DateOnly>();
+
+        public IReadOnlyList<DateOnly> ExpandOccurrences(
+            string rrule, DateOnly start, DateOnly? end, int lookaheadDays, int leadDays, DateOnly today, string timezone)
+        {
+            Calls++;
+            WasUncancelled = !caller.IsCancellationRequested;
+            Request = new(rrule, start, end, lookaheadDays, leadDays, today, timezone);
+            // The real strict producer computes first. Only this test seam places cancellation.
+            Dates = new InMemoryRruleExpansionService()
+                .ExpandOccurrences(rrule, start, end, lookaheadDays, leadDays, today, timezone);
+            if (cancel) caller.Cancel();
+            if (failure is not null) throw failure;
+            return Dates;
+        }
+    }
+
+    private static void AssertCompletionExpansion(CompletionBoundaryExpansion expansion, string rule, bool empty)
+    {
+        Assert.Equal(1, expansion.Calls);
+        Assert.True(expansion.WasUncancelled);
+        var request = Assert.IsType<CompletionExpansionCall>(expansion.Request);
+        Assert.Equal(rule, request.Rrule);
+        Assert.Equal(new DateOnly(2026, 1, 1), request.Start);
+        Assert.Equal<DateOnly?>(new DateOnly(2026, 1, 7), request.End);
+        Assert.Equal(0, request.LookaheadDays);
+        Assert.Equal(0, request.LeadDays);
+        Assert.Equal(new DateOnly(2026, 1, 1), request.Today);
+        Assert.Equal("UTC", request.Timezone);
+        if (empty) Assert.Empty(expansion.Dates);
+        else Assert.Equal(new DateOnly[] { new(2026, 1, 1) }, expansion.Dates);
+    }
+
+    private sealed class CompletionDefinitionReadBoundary(
+        CancellationTokenSource caller, Exception failure, bool cancel) : IWorkflowDefinitionExecutionStore
+    {
+        public int ExactReads { get; private set; }
+        public int CurrentReads { get; private set; }
+        public bool WasUncancelled { get; private set; }
+        public DefinitionCoordinates Coordinates { get; private set; }
+        public CancellationToken CallerToken { get; private set; }
+
+        public ValueTask<WorkflowDefinitionRecord?> GetAdmittedCurrentPublishedAsync(
+            DefinitionAddress address, CancellationToken ct = default)
+        {
+            CurrentReads++;
+            throw new InvalidOperationException("Unexpected current-publication lookup in completion fixture.");
+        }
+
+        public ValueTask<WorkflowDefinitionRecord> GetAdmittedAsync(
+            DefinitionCoordinates coordinates, CancellationToken ct = default)
+        {
+            ExactReads++;
+            WasUncancelled = !caller.IsCancellationRequested;
+            Coordinates = coordinates;
+            CallerToken = ct;
+            if (cancel) caller.Cancel();
+            throw failure;
+        }
+    }
+
+    private static void AssertCompletionRead(
+        CompletionDefinitionReadBoundary definitions, CancellationToken callerToken)
+    {
+        Assert.Equal(1, definitions.ExactReads);
+        Assert.Equal(0, definitions.CurrentReads);
+        Assert.True(definitions.WasUncancelled);
+        Assert.Equal(new DefinitionCoordinates(LocalTenantId, "completion-definition", "1.0.0"),
+            definitions.Coordinates);
+        Assert.Equal(callerToken, definitions.CallerToken);
+    }
+
+
     private static async Task<EntityStoreWorkflowDefinitionStore> NewStoredInadmissibleScheduleAsync(DateTimeOffset at)
     {
         var clock = new FixedClock(at);

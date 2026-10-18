@@ -129,6 +129,7 @@ public sealed class NodeRecurringScheduleSource : IWorkflowScheduleSource
             }
         }
 
+        ct.ThrowIfCancellationRequested();
         return triggers;
     }
 
