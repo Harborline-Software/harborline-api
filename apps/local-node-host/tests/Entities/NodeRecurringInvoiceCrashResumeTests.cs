@@ -133,7 +133,7 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         Assert.Equal(failure switch
         {
             "cap" => "RecurrenceRule exceeds the supported expansion limit for the requested range.",
-            "malformed" => "RecurrenceRule contains a malformed value.",
+            "malformed" => "RecurrenceRule has an invalid INTERVAL value.",
             _ => "RecurrenceRule contains an unsupported component.",
         }, result.Error);
         Assert.InRange(result.Error!.Length, 1, 160);
@@ -163,7 +163,7 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         var bad = new[]
         {
             (Id: new RecurringInvoiceScheduleId("00000000-0000-0000-0000-0000000000e1"),
-                Rule: "FREQ=DAILY;INTERVAL=0", Lookahead: 2, Detail: "RecurrenceRule contains a malformed value."),
+                Rule: "FREQ=DAILY;INTERVAL=0", Lookahead: 2, Detail: "RecurrenceRule has an invalid INTERVAL value."),
             (Id: new RecurringInvoiceScheduleId("00000000-0000-0000-0000-0000000000e2"),
                 Rule: "FREQ=DAILY;EXDATE=20260106", Lookahead: 2, Detail: "RecurrenceRule contains an unsupported component."),
             (Id: new RecurringInvoiceScheduleId("00000000-0000-0000-0000-0000000000e3"),
@@ -362,6 +362,108 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
         {
             Calls++;
             throw failure;
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "RRULE FREQ 'HOURLY' is not supported.", "RecurrenceRule has an unsupported FREQ value.")]
+    [InlineData(true, "RRULE component 'COUNT' value 'x' is invalid.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "RRULE component 'COUNT' value 'x' is not a positive integer. trailing", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "unanchored INTERVAL bad value", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "rrule component 'COUNT' value 'x' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "RRULE component 'COUNT' value 'x' value 'BYDAY' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "RRULE component 'COUNT' value '' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "RRULE FREQ 'HOURLY' is not supported.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(false, "RRULE component 'COUNT' value 'x' is not a positive integer.", "RecurrenceRule contains an unsupported component.")]
+    public async Task Recurrence_message_mapping_requires_the_exact_type_and_complete_pinned_template(
+        bool malformed, string message, string expectedDetail)
+    {
+        Exception failure = malformed ? new FormatException(message) : new NotSupportedException(message);
+        await AssertMappedRecurrenceFailureAsync(failure, expectedDetail);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Exception_subclass_message_getters_are_never_read_for_create_or_generation(bool malformed)
+    {
+        if (malformed)
+        {
+            var failure = new HostileRecurrenceFormatException();
+            await AssertMappedRecurrenceFailureAsync(failure, "RecurrenceRule contains a malformed value.",
+                () => failure.MessageReads);
+        }
+        else
+        {
+            var failure = new HostileRecurrenceNotSupportedException();
+            await AssertMappedRecurrenceFailureAsync(failure, "RecurrenceRule contains an unsupported component.",
+                () => failure.MessageReads);
+        }
+    }
+
+    private async Task AssertMappedRecurrenceFailureAsync(
+        Exception failure, string expectedDetail, Func<int>? messageReads = null)
+    {
+        var expansion = new DiagnosticRecurrenceExpansion(failure);
+        var service = ServiceWithScheduleFactory(_factory, expansion);
+        var create = await Assert.ThrowsAsync<RecurringInvoiceRecurrenceValidationException>(
+            () => CreateValidCandidateAsync(service));
+        Assert.Equal(expectedDetail, create.SafeDetail);
+        Assert.Equal(expectedDetail, create.Message);
+        Assert.InRange(create.SafeDetail.Length, 1, 160);
+        Assert.All(create.SafeDetail, character => Assert.False(char.IsControl(character)));
+        Assert.Equal(1, expansion.Calls);
+        if (messageReads is not null) Assert.Equal(0, messageReads());
+        await AssertUnknownExpansionLeftSeedUnchangedAsync();
+
+        var generate = await service.GenerateDueInvoicesAsync(ScheduleId, OccurrenceDate, Authority);
+        Assert.Equal(ScheduleGenerationOutcome.Failed, generate.Outcome);
+        Assert.Empty(generate.Invoices);
+        Assert.Equal(expectedDetail, generate.Error);
+        Assert.InRange(generate.Error!.Length, 1, 160);
+        Assert.All(generate.Error!, character => Assert.False(char.IsControl(character)));
+        Assert.Equal(2, expansion.Calls);
+        if (messageReads is not null) Assert.Equal(0, messageReads());
+        await AssertUnknownExpansionLeftSeedUnchangedAsync();
+    }
+
+    private sealed class DiagnosticRecurrenceExpansion(Exception failure) : IRruleExpansionService
+    {
+        public int Calls { get; private set; }
+
+        public IReadOnlyList<DateOnly> ExpandOccurrences(string rrule, DateOnly start, DateOnly? end,
+            int lookaheadDays, int leadDays, DateOnly today, string timezone)
+        {
+            Calls++;
+            throw failure;
+        }
+    }
+
+    private sealed class HostileRecurrenceFormatException : FormatException
+    {
+        public int MessageReads { get; private set; }
+
+        public override string Message
+        {
+            get
+            {
+                MessageReads++;
+                throw new InvalidOperationException("The custom diagnostic getter must not run.");
+            }
+        }
+    }
+
+    private sealed class HostileRecurrenceNotSupportedException : NotSupportedException
+    {
+        public int MessageReads { get; private set; }
+
+        public override string Message
+        {
+            get
+            {
+                MessageReads++;
+                throw new InvalidOperationException("The custom diagnostic getter must not run.");
+            }
         }
     }
 

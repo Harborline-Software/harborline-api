@@ -188,13 +188,66 @@ public sealed class NodeEfRecurringInvoiceService : IRecurringInvoiceService
         if (refusal is not null) throw new RecurringInvoiceRecurrenceValidationException(refusal);
     }
 
-    private static string RecurrenceRefusalDetail(Exception error) => error switch
+    private static string RecurrenceRefusalDetail(Exception error)
     {
-        global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException =>
-            "RecurrenceRule exceeds the supported expansion limit for the requested range.",
-        FormatException => "RecurrenceRule contains a malformed value.",
-        _ => "RecurrenceRule contains an unsupported component.",
-    };
+        if (error is global::Harborline.Foundation.Scheduling.RruleExpansionCapExceededException)
+            return "RecurrenceRule exceeds the supported expansion limit for the requested range.";
+
+        var malformed = error is FormatException;
+        var generic = malformed
+            ? "RecurrenceRule contains a malformed value."
+            : "RecurrenceRule contains an unsupported component.";
+        // Q22: custom exception subclasses must not supply an executable Message getter.
+        if (error.GetType() != typeof(FormatException) && error.GetType() != typeof(NotSupportedException))
+            return generic;
+
+        var message = error.Message;
+        if (message.Length > 512) return generic;
+
+        // Exact templates from the pinned Platform producer; variable text is never returned.
+        if (malformed)
+        {
+            if (MatchesRecurrenceMessage(message, "RRULE component 'INTERVAL' value '", "' is not a positive integer."))
+                return "RecurrenceRule has an invalid INTERVAL value.";
+            if (MatchesRecurrenceMessage(message, "RRULE component 'COUNT' value '", "' is not a positive integer."))
+                return "RecurrenceRule has an invalid COUNT value.";
+            if (MatchesRecurrenceMessage(message, "RRULE component 'BYMONTHDAY' value '", "' is not an integer in 1..28."))
+                return "RecurrenceRule has an invalid BYMONTHDAY value.";
+            if (MatchesRecurrenceMessage(message, "RRULE component 'BYMONTH' value '", "' is not an integer in 1..12."))
+                return "RecurrenceRule has an invalid BYMONTH value.";
+            if (MatchesRecurrenceMessage(message, "RRULE component 'UNTIL' value '", "' is not a YYYYMMDD or YYYYMMDDTHHMMSSZ date."))
+                return "RecurrenceRule has an invalid UNTIL value.";
+            if (MatchesRecurrenceMessage(message, "RRULE component 'BYDAY' entry '", "' is not one of the seven weekday codes.")
+                || MatchesRecurrenceMessage(message, "RRULE component 'BYDAY' entry '", "' ordinal is not in -5..-1 or 1..5."))
+                return "RecurrenceRule has an invalid BYDAY value.";
+            if (MatchesRecurrenceMessage(message, "RRULE missing FREQ= component: '", "'."))
+                return "RecurrenceRule is missing its FREQ part.";
+        }
+        else
+        {
+            if (MatchesRecurrenceMessage(message, "RRULE FREQ '",
+                    "' is not supported. Supported: DAILY / WEEKLY / MONTHLY / YEARLY.")
+                || MatchesRecurrenceMessage(message, "RRULE FREQ '", "' is not supported."))
+                return "RecurrenceRule has an unsupported FREQ value.";
+            if (string.Equals(message, "RRULE component 'BYMONTHDAY' is not applicable with FREQ=WEEKLY.",
+                    StringComparison.Ordinal))
+                return "RecurrenceRule BYMONTHDAY is not supported with WEEKLY.";
+        }
+        return generic;
+    }
+
+    private static bool MatchesRecurrenceMessage(string message, string prefix, string suffix)
+    {
+        if (message.Length <= prefix.Length + suffix.Length
+            || !message.StartsWith(prefix, StringComparison.Ordinal)
+            || !message.EndsWith(suffix, StringComparison.Ordinal))
+            return false;
+
+        var value = message.AsSpan(prefix.Length, message.Length - prefix.Length - suffix.Length);
+        foreach (var character in value)
+            if (character == '\'' || char.IsControl(character)) return false;
+        return true;
+    }
 
     /// <inheritdoc />
     public async Task PauseScheduleAsync(
