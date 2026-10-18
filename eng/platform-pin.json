@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "4fd108c10aadd5fcec7f22c3834568a982b16b92",
-  "recordedAt": "2026-10-18 (M11: platform main commit 4fd108c1, the merge of platform PR 317 (T-1091: the owned Layout decoder recognises a missing binding_kind discriminator structurally at every LayoutBlock.Binding position and refuses it as layout.definition.body_invalid; builder-definitions interface revision 23). It consumes every platform PR merged since 5ec3cf53: 306 (T-575 content-integrity telemetry privacy), 307 (T-616 field runtime during Records writes, builder-definitions revision 21), 308 (T-688 Form publication impact assessment, forms-engine revision 18, layout-runtime revision 10), 309 (T-616 bound field cardinality in compiled Records schemas), 310 (T-616-F1 blank journal metadata), 311 (DES-0014 error-contract pilot, builder-definitions revision 22), 312 (T486 views missing-head refusal, entity-views revision 7), 313 and 318 (T493 succession hop counts and taxonomy tests), 315 (T606 booking duration) and 317. Consumer source preparation only; the complete exact-pin feed, clean restore/build, package-byte provenance and integration validation remain required.)",
+  "commit": "8f78be3bdad498e1b20a4a6c1e0237bfa62a5e5a",
+  "recordedAt": "2026-10-18 (M11: exact platform PR 326 merge commit 8f78be3b, builder-definitions interface revision 24. The Layout decoder detects a missing binding_kind discriminator at every actual LayoutBlock.Binding object while preserving escaped exact discriminator names and refusing empty binding objects. Includes intervening platform PRs 320 (taxonomy LastHop), 322 (stored run attempt snapshots), 316 (spinner reduced motion), 319 (shared scheduling tooling), 324 (RetryProfile isolation) and 325 (DeliveryChannels canonical inbox). Consumer source preparation only; complete exact-pin feed, clean restore/build, package-byte provenance and integration qualification remain required.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
@@ -10,7 +10,8 @@
     "Live producer integration must preserve owned exposure, foreign body metadata and dependency pins; authenticated producer baseline ownership and installed-owner admission remain distinct. No host Records writes or Class behavior enabled.",
     "Consume builder-definitions revision 19 exposedDefinitions (Goal 3 P1) so the Records install gate reads a cross-package pin's version and digest from the exact pinned producer's signed entry (Goal 3 P3). The host still composes no Records gate (G-HOST), and no Class exposure is produced.",
     "Consume T-1034's Layout decode refusal code (layout.definition.body_invalid) so the API's Layout admission carries Platform's own code, pointer and target for undecodable entries.",
-    "Consume T-1091's structural missing-binding_kind refusal (owner ruling Q9, 2026-10-18) so API #429's final consumer can prove a Layout binding without binding_kind is refused as layout.definition.body_invalid instead of escaping as 500."
+    "Consume T-1091's structural missing-binding_kind refusal (owner ruling Q9, 2026-10-18) so API #429's final consumer can prove a Layout binding without binding_kind is refused as layout.definition.body_invalid instead of escaping as 500.",
+    "Consume Q16 Layout binding object admission from platform PR 326 at its actual merge commit so API #429 can preserve Platform refusal code, pointer and target while accepting escaped exact binding_kind names. Producer identities and all36 assembly pairs remain unchanged; host enablement and owner holds remain in force."
   ],
   "producers": {
     "Harborline.Blocks.ActivityTimeline": "Harborline.Blocks.ActivityTimeline.dll",
