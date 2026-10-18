@@ -61,6 +61,41 @@ test('only pack recipe exports under _shared packs count as binary inputs', () =
   }
 })
 
+test('the local-node-host README is an exact documentation input', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'apps/local-node-host/README.md'}])
+  assert.deepEqual(plan.changes, [{path: 'apps/local-node-host/README.md', status: 'M', kind: 'documentation'}])
+  assert.equal(plan.selection, 'not-required')
+  assert.deepEqual(plan.requiredModes, [])
+  assert.equal(requireRunnableSelection(plan), null)
+  assert.equal(validateFocusedModeEvidence(plan, null, []).status, 'not-required')
+  for (const file of ['apps/other/README.md', 'apps/capability-host/README.md']) {
+    const other = classifyFocusedModes([{status: 'M', path: file}])
+    assert.equal(other.changes[0].kind, 'unknown')
+    assert.equal(other.selection, 'unsupported')
+    assert.throws(() => requireRunnableSelection(other), /unsupported-selection/)
+  }
+})
+
+test('the local-node-host README mixed with PackInstaller keeps both completed modes', () => {
+  const plan = classifyFocusedModes([
+    {status: 'M', path: 'apps/local-node-host/README.md'},
+    {status: 'M', path: 'packages/foundation-packs/Install/PackInstaller.cs'},
+  ])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.changes.map(row => row.kind).sort(), ['binary', 'documentation'])
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  const suite = requireRunnableSelection(plan)
+  assert.equal(suite.id, 'compiled-write-fences-v1')
+  assert.equal(suite.project, 'apps/local-node-host/tests/tests.csproj')
+  assert.equal(suite.filter,
+    'FullyQualifiedName~Harborline.Api.LocalNodeHost.Tests.ArchTests.WritePipelineExecutorFenceTests')
+  assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
+  for (const missing of ['coverage-off', 'coverage-on']) {
+    assert.throws(() => validateFocusedModeEvidence(plan, context,
+      evidence(plan).filter(row => row.mode !== missing)), /missing-mode/)
+  }
+})
+
 test('an explicit documentation-only delta omits only the additional early check', () => {
   const plan = classifyFocusedModes([{status: 'M', path: 'docs/guide.md'}])
   assert.deepEqual(plan.requiredModes, [])
