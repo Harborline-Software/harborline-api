@@ -1418,15 +1418,25 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         }
 
         var layoutRefusals = LayoutAdmissionRefusals(contents);
-        if (!collectRefusals && layoutRefusals.Count > 0)
+        // Undecodable bodies cannot enter reattachment or composed-body parsing, even during Check.
+        if (layoutRefusals.Count > 0 && (!collectRefusals
+            || layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)))
         {
+            var refusals = layoutRefusals;
+            if (collectRefusals)
+            {
+                var collected = earlyRefusals.Concat(contractRefusals).ToList();
+                collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
+                refusals = collected;
+            }
+
             var refused = HardRefusal(
-                manifest.Key, manifest.Version, layoutRefusals[0].Code, revocationStale,
-                signerB64, epoch, scope, refusals: layoutRefusals,
+                manifest.Key, manifest.Version, refusals[0].Code, revocationStale,
+                signerB64, epoch, scope, refusals: refusals,
                 destinationClassifications: destinationClassifications);
             return refused with
             {
-                Preview = refused.Preview with { RefusalCodes = layoutRefusals.Select(refusal => refusal.Code).Distinct().ToList() },
+                Preview = refused.Preview with { RefusalCodes = refusals.Select(refusal => refusal.Code).Distinct().ToList() },
             };
         }
 
@@ -1752,19 +1762,36 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
 
     private IReadOnlyList<PackInstallRefusal> LayoutAdmissionRefusals(IReadOnlyList<PackContentItem> contents)
     {
-        var entries = contents.Where(item => item.Kind == PackContentKind.Layout)
-            .Select(item => new LayoutDefinitionPackageEntry(item.Key, item.Version,
-                PlatformPackageContent.PresentJson(item.CanonicalBytes.Span)));
+        var entries = new List<LayoutDefinitionPackageEntry>();
+        var refusals = new List<PackInstallRefusal>();
+        foreach (var item in contents.Where(item => item.Kind == PackContentKind.Layout))
+        {
+            PlatformPackageContent content;
+            try
+            {
+                content = PlatformPackageContent.PresentJson(item.CanonicalBytes.Span);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                refusals.Add(new PackInstallRefusal(
+                    LayoutDefinitionCodes.BodyInvalid, "", $"{item.Key}@{item.Version}"));
+                continue;
+            }
+
+            entries.Add(new LayoutDefinitionPackageEntry(item.Key, item.Version, content));
+        }
+
         try
         {
             LayoutPackHostAdmission.Admit(entries, _layoutCapabilities, _layoutRegisters);
-            return Array.Empty<PackInstallRefusal>();
         }
         catch (DefinitionRefusalException refused)
         {
-            return refused.Refusals.Select(refusal => new PackInstallRefusal(
-                refusal.Code, refusal.Pointer, refusal.Target)).ToList();
+            refusals.AddRange(refused.Refusals.Select(refusal => new PackInstallRefusal(
+                refusal.Code, refusal.Pointer, refusal.Target)));
         }
+
+        return refusals;
     }
 
     private List<PackInstallRefusal> UnsupportedCascadeDefaultsRefusals(IReadOnlyList<PackContentItem> contents)
