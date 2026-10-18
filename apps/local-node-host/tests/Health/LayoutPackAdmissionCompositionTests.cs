@@ -14,7 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
-/// <summary>Default shipping-host Layout capability admission and historical Draft state preservation.</summary>
+/// <summary>Default shipping-host Layout capability admission and historical Layout state preservation.</summary>
 public sealed partial class ComposedHostBootSmokeTests
 {
     [Fact]
@@ -29,6 +29,10 @@ public sealed partial class ComposedHostBootSmokeTests
     public async Task Program_Composition_MissingLayoutBindingKindRefusesAndPreservesHistoricalDraftState()
         => await AssertDefaultLayoutPackRefusalAsync(legacyScenario: "upgrade", missingBindingKind: true);
 
+    [Fact]
+    public async Task Program_Composition_LayoutRefusalPreservesHistoricalActiveState()
+        => await AssertDefaultLayoutPackRefusalAsync(legacyScenario: "upgrade", historicalActive: true);
+
     [Theory]
     [InlineData("upgrade")]
     [InlineData("reimport")]
@@ -37,7 +41,7 @@ public sealed partial class ComposedHostBootSmokeTests
         => await AssertDefaultLayoutPackRefusalAsync(legacyScenario);
 
     private static async Task AssertDefaultLayoutPackRefusalAsync(string? legacyScenario,
-        bool emptyRequirements = false, bool missingBindingKind = false)
+        bool emptyRequirements = false, bool missingBindingKind = false, bool historicalActive = false)
     {
         const string rootSeedHex =
             "4646464646464646464646464646464646464646464646464646464646464646";
@@ -62,9 +66,10 @@ public sealed partial class ComposedHostBootSmokeTests
             if (legacyScenario is not null)
             {
                 await first.StopAsync();
-                SeedHistoricalDraftLayout(factory, tenant, rootSeedHex);
+                SeedHistoricalLayout(factory, tenant, rootSeedHex, historicalActive);
                 restarted = ComposedHost.Start(
-                    "historical Draft Layout preservation", webClient: false, llmProxy: false,
+                    historicalActive ? "historical Active Layout preservation" : "historical Draft Layout preservation",
+                    webClient: false, llmProxy: false,
                     schedulingDogfood: false, multiTeam: false, environment: "Production",
                     rootSeedHex: rootSeedHex, dataDirectoryOverride: first.DataDirectory);
                 restartedClient = LayoutAdmissionFounderClient(await restarted.AwaitReadinessAsync());
@@ -103,7 +108,8 @@ public sealed partial class ComposedHostBootSmokeTests
                 key = packKey, version, name = "Layout capability refusal", description = "Default host admission",
                 scopeTier = "Vertical", contents, dependencies = Array.Empty<object>(),
             }, deadline);
-            var baseline = await ReadLayoutAdmissionStateAsync(factory, tenant, client, legacyScenario is not null, deadline);
+            var baseline = await ReadLayoutAdmissionStateAsync(factory, tenant, client,
+                legacyScenario is not null, deadline, historicalActive);
 
             foreach (var route in new[]
                 { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
@@ -128,7 +134,8 @@ public sealed partial class ComposedHostBootSmokeTests
                     Assert.Equal("Refused", result.GetProperty("verdict").GetString());
                 AssertLayoutAdmissionRefusal(result, version, emptyRequirements, missingBindingKind);
                 Assert.Equal(baseline,
-                    await ReadLayoutAdmissionStateAsync(factory, tenant, client, legacyScenario is not null, deadline));
+                    await ReadLayoutAdmissionStateAsync(factory, tenant, client,
+                        legacyScenario is not null, deadline, historicalActive));
             }
         }
         finally
@@ -246,8 +253,8 @@ public sealed partial class ComposedHostBootSmokeTests
                         JsonSerializer.SerializeToElement("Historical Layout declaration")), [])],
                 [], [], [], null, [])));
 
-    private static void SeedHistoricalDraftLayout(IDbContextFactory<NodeLocalPacksDbContext> factory,
-        string tenant, string rootSeedHex)
+    private static void SeedHistoricalLayout(IDbContextFactory<NodeLocalPacksDbContext> factory,
+        string tenant, string rootSeedHex, bool historicalActive)
     {
         using var signer = new NodePrincipalSigner(Convert.FromHexString(rootSeedHex));
         var floors = new Dictionary<string, int>(StringComparer.Ordinal) { ["scoring"] = 3 };
@@ -262,11 +269,18 @@ public sealed partial class ComposedHostBootSmokeTests
                 LayoutAdmissionDefinitionJson("1.0.0", tenant))],
             floors, new DateTimeOffset(2026, 10, 1, 0, 0, 0, TimeSpan.Zero), signer.Signer.IssuerId,
             1, Harborline.Api.Foundation.Packs.Trust.TrustScope.OwnRoster, []);
-        new DurablePackInstallStore(factory).Commit(new(
-            new Harborline.Foundation.Assets.Common.TenantId(tenant), pack,
+        var tenantId = new Harborline.Foundation.Assets.Common.TenantId(tenant);
+        var store = new DurablePackInstallStore(factory);
+        store.Commit(new(
+            tenantId, pack,
             new Harborline.Api.Foundation.Packs.Install.PackInstallWatermark(pack.PackKey, "1.0.0", floors),
             [new Harborline.Api.Foundation.Packs.Install.PackTenantOverride("layout-admission.layout",
                 System.Text.Json.Nodes.JsonNode.Parse("""{"intent":"Observe"}""")!)]));
+        if (historicalActive)
+        {
+            store.Activate(tenantId, pack.PackKey, "1.0.0");
+            Assert.Equal("1.0.0", store.GetActive(tenantId, "layout-admission.historical-layout")?.Version);
+        }
     }
 
     private static void AssertLayoutAdmissionRefusal(JsonElement result, string version,
@@ -290,7 +304,7 @@ public sealed partial class ComposedHostBootSmokeTests
 
     private static async Task<LayoutAdmissionPreservedState> ReadLayoutAdmissionStateAsync(
         IDbContextFactory<NodeLocalPacksDbContext> factory, string tenant, HttpClient client,
-        bool historicalDraft, CancellationToken deadline)
+        bool historicalLayout, CancellationToken deadline, bool historicalActive = false)
     {
         await using var db = await factory.CreateDbContextAsync(deadline);
         var versions = await db.InstalledVersions.AsNoTracking().Where(row => row.Tenant == tenant)
@@ -322,11 +336,11 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.NotEmpty(prepared);
         Assert.Contains(admissions, row => row.PackId == "layout-admission.navigation" && row.Projected);
         Assert.DoesNotContain(admissions, row => !row.Projected);
-        if (historicalDraft)
+        if (historicalLayout)
         {
             var legacy = Assert.Single(versions, row => row.PackKey == "layout-admission.historical-layout");
             Assert.Equal("1.0.0", legacy.Version);
-            Assert.Equal(0, legacy.Lifecycle);
+            Assert.Equal(historicalActive ? 1 : 0, legacy.Lifecycle);
             var payload = JsonSerializer.Deserialize<Harborline.Api.Foundation.Packs.Install.InstalledPack>(legacy.PayloadJson);
             Assert.NotNull(payload);
             var layout = Assert.Single(payload.SeedItems, item => item.Key == "layout-admission.layout");
@@ -339,6 +353,16 @@ public sealed partial class ComposedHostBootSmokeTests
             Assert.Equal("1.0.0", watermark.Version);
             using var floorJson = JsonDocument.Parse(watermark.FloorsJson);
             Assert.Equal(3, floorJson.RootElement.GetProperty("scoring").GetInt32());
+            if (historicalActive)
+            {
+                var active = new DurablePackInstallStore(factory).GetActive(
+                    new Harborline.Foundation.Assets.Common.TenantId(tenant), "layout-admission.historical-layout");
+                Assert.NotNull(active);
+                Assert.Equal("1.0.0", active.Version);
+                Assert.Equal(1, (int)active.Lifecycle);
+                Assert.Contains(admissions, row => row.PackId == "layout-admission.historical-layout"
+                    && row.PackVersion == "1.0.0" && row.Projected);
+            }
         }
         using var navigation = await client.GetAsync(PackNavigationRoutes.NavigationRoute, deadline);
         Assert.Equal(HttpStatusCode.OK, navigation.StatusCode);
