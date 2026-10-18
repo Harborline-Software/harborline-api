@@ -196,6 +196,11 @@ public sealed class NodeRecurringScheduleSource : IWorkflowScheduleSource
         {
             return true; // typed handlers need not have a declarative definition record.
         }
+        catch (WorkflowAdmissionException ex)
+        {
+            LogExpansionRefusal(instance.Id, ex);
+            return false;
+        }
 
         var definition = WorkflowDefinitionWireMapper.ToModel(
             record.Authored, record.Tenant, record.Key, record.Version);

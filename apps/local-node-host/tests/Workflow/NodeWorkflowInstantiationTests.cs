@@ -391,6 +391,166 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
             .CountAsync(row => row.InstanceId == "recurring-generation:SCHED-BLANK-HEALTHY"));
     }
 
+    [Fact]
+    public async Task Stored_definition_admission_refusal_skips_only_that_instance_and_returns_the_healthy_schedule()
+    {
+        var factory = NewFactory();
+        var store = NewStore(factory);
+        var anchor = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        var definitions = await NewStoredInadmissibleScheduleAsync(anchor);
+        await CreateWaitingInstanceAsync(store, "definition-refused", "stored-admission-refusal", anchor, null);
+        await SeedScheduleAsync(factory, "SCHED-HEALTHY", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 1, 1), 250m);
+        Assert.Equal(1, await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId, at));
+        var before = (await store.LoadAsync("definition-refused"))!;
+        long eventsBefore;
+        await using (var context = await factory.CreateDbContextAsync())
+        {
+            eventsBefore = await context.Set<WorkflowEventRecord>()
+                .LongCountAsync(row => row.InstanceId == "definition-refused");
+            Assert.Equal(0, await context.Set<WorkflowStepIdempotencyRecord>()
+                .CountAsync(row => row.InstanceId == "definition-refused"));
+        }
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), definitions, log);
+
+        var due = await source.GetDueTriggersAsync(at);
+
+        var healthy = Assert.Single(due);
+        Assert.Equal(WorkflowTriggerKind.Schedule, healthy.Kind);
+        Assert.Equal("recurring-generation:SCHED-HEALTHY", healthy.InstanceId);
+        Assert.Equal("generate@2026-01-01", healthy.Step);
+        var refusal = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, refusal.Level);
+        var admission = Assert.IsType<WorkflowAdmissionException>(refusal.Error);
+        Assert.Equal("workflow.admission.schedule_rrule_invalid", Assert.Single(admission.Result.Violations).Code);
+        Assert.Contains("definition-refused", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("EXDATE", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("FREQ=DAILY", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("WorkflowDefinition refused at admission", refusal.Message, StringComparison.Ordinal);
+
+        var reopenedFactory = NewFactory();
+        var after = (await NewStore(reopenedFactory).LoadAsync("definition-refused"))!;
+        Assert.Equal(WorkflowStatus.Running, after.Status);
+        Assert.Equal("waiting", after.CurrentStep);
+        Assert.Equal(before.CurrentStep, after.CurrentStep);
+        Assert.Equal(before.StateJson, after.StateJson);
+        Assert.Equal("1.0.0", after.DefinitionVersion);
+        Assert.Equal(anchor, after.CreatedAt);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        await using var fresh = await reopenedFactory.CreateDbContextAsync();
+        Assert.Equal(0, await fresh.Set<WorkflowStepIdempotencyRecord>()
+            .CountAsync(row => row.InstanceId == "definition-refused"));
+        Assert.Equal(eventsBefore, await fresh.Set<WorkflowEventRecord>()
+            .LongCountAsync(row => row.InstanceId == "definition-refused"));
+        Assert.Equal(0, await CountJournalEntriesAsync(reopenedFactory));
+    }
+
+    [Fact]
+    public async Task Stored_definition_read_cancellation_propagates_from_the_actual_read_boundary()
+    {
+        var factory = NewFactory();
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        await CreateWaitingInstanceAsync(NewStore(factory), "cancelled-definition-read", "cancelled-definition-read", at, null);
+        using var cancellation = new CancellationTokenSource();
+        var expected = new OperationCanceledException("literal definition read cancellation", cancellation.Token);
+        var definitions = new BoundaryDefinitionFailure(expected, cancellation.Cancel);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), definitions, log);
+        Assert.False(cancellation.IsCancellationRequested);
+
+        var actual = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => source.GetDueTriggersAsync(at, cancellation.Token));
+
+        Assert.Same(expected, actual);
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(cancellation.Token, actual.CancellationToken);
+        Assert.Equal(cancellation.Token, definitions.CallerToken);
+        Assert.Equal(1, definitions.ExactReads);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public async Task Stored_definition_read_base_invalid_operation_is_not_an_admission_refusal()
+    {
+        var factory = NewFactory();
+        var at = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+        await CreateWaitingInstanceAsync(NewStore(factory), "operational-definition-read", "operational-definition-read", at, null);
+        var expected = new InvalidOperationException("literal operational definition read failure");
+        var definitions = new BoundaryDefinitionFailure(expected);
+        var log = new ScheduleLog();
+        var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), definitions, log);
+
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => source.GetDueTriggersAsync(at));
+
+        Assert.Same(expected, actual);
+        Assert.Equal(1, definitions.ExactReads);
+        Assert.Empty(log.Entries);
+    }
+
+    private static async Task<EntityStoreWorkflowDefinitionStore> NewStoredInadmissibleScheduleAsync(DateTimeOffset at)
+    {
+        var clock = new FixedClock(at);
+        var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), clock);
+        var definitions = new EntityStoreWorkflowDefinitionStore(new InMemoryEntityStoreReader(entities), entities,
+            new WorkflowAdmissionValidator(), clock);
+        var lifecycle = TestAuthorization.WorkflowLifecycle(definitions, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
+        using var authored = JsonDocument.Parse("""
+            {
+              "tenant": "local", "key": "stored-admission-refusal", "version": "1.0.0", "initialState": "waiting",
+              "states": [{"id": "waiting", "kind": "Normal"}, {"id": "done", "kind": "Terminal"}],
+              "triggers": [{"id": "due", "kind": "Schedule", "rrule": "FREQ=MONTHLY;BYMONTHDAY=1"}],
+              "transitions": [{"id": "advance", "from": "waiting", "on": "due", "to": "done"}],
+              "actions": [], "guards": []
+            }
+            """);
+        await lifecycle.RegisterAndPublishAsync(authored.RootElement, TestAuthorization.Write(LocalTenantId, at: at));
+        var coordinates = new DefinitionCoordinates(LocalTenantId, "stored-admission-refusal", "1.0.0");
+        Assert.Equal(WorkflowDefinitionStatus.Published, (await definitions.GetAdmittedAsync(coordinates)).Status);
+        var rows = new List<Entity>();
+        await foreach (var row in entities.QueryAsync(new EntityQuery(
+            Tenant: global::Harborline.Api.Foundation.MultiTenancy.TenantSelection.Of(LocalTenantId),
+            BodyContains: """{"kind":"workflow-definition","key":"stored-admission-refusal","status":"Published"}""")))
+        {
+            rows.Add(row);
+        }
+        var stored = Assert.Single(rows);
+        var historicalBody = global::System.Text.Json.Nodes.JsonNode.Parse(stored.Body.RootElement.GetRawText())!;
+        historicalBody["authored"]!["triggers"]![0]!["rrule"] = "FREQ=DAILY;EXDATE=20260106";
+        using var historical = JsonDocument.Parse(historicalBody.ToJsonString());
+        // Deliberately reconstruct a stored revision that predates strict recurrence admission.
+        await ((IEntityMutationStore)entities).UpdateAsync(stored.Id, historical,
+            new UpdateOptions(new ActorId("node:historical-workflow-fixture"), stored.CurrentVersion, at));
+        var retained = await definitions.GetAsync(coordinates);
+        Assert.Equal(WorkflowDefinitionStatus.Published, retained.Status);
+        Assert.Equal("FREQ=DAILY;EXDATE=20260106",
+            retained.Authored.GetProperty("triggers")[0].GetProperty("rrule").GetString());
+        var refusal = await Assert.ThrowsAsync<WorkflowAdmissionException>(
+            async () => await definitions.GetAdmittedAsync(coordinates));
+        Assert.Equal("workflow.admission.schedule_rrule_invalid", Assert.Single(refusal.Result.Violations).Code);
+        return definitions;
+    }
+
+    private sealed class BoundaryDefinitionFailure(Exception failure, Action? beforeFailure = null)
+        : IWorkflowDefinitionExecutionStore
+    {
+        public int ExactReads { get; private set; }
+        public CancellationToken CallerToken { get; private set; }
+
+        public ValueTask<WorkflowDefinitionRecord?> GetAdmittedCurrentPublishedAsync(
+            DefinitionAddress address, CancellationToken ct = default)
+            => throw new InvalidOperationException("Unexpected current-publication lookup.");
+
+        public ValueTask<WorkflowDefinitionRecord> GetAdmittedAsync(
+            DefinitionCoordinates coordinates, CancellationToken ct = default)
+        {
+            ExactReads++;
+            CallerToken = ct;
+            beforeFailure?.Invoke();
+            throw failure;
+        }
+    }
+
     private static WorkflowScheduleDaemon NewRecurringDaemon(
         IDbContextFactory<LocalNodeDbContext> factory, IWorkflowStore store,
         IWorkflowScheduleSource source, DateTimeOffset at)
