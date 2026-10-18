@@ -52,6 +52,84 @@ public sealed class PackRefusalCodeAndPointerFenceTests
     }
 
     [Fact]
+    public void Strict_dispatch_resolves_the_real_layout_projection_before_receiver_inference()
+    {
+        var documents = ProductionDocuments().ToArray();
+        var installer = documents.Single(document => document.Path.Replace('\\', '/')
+            .EndsWith("/Install/PackInstaller.cs", StringComparison.Ordinal));
+        var method = installer.Root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(candidate => candidate.Identifier.ValueText == "LayoutAdmissionRefusals");
+        var code = method.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+            .Single(member => member.Name.Identifier.ValueText == "Code");
+        var resolution = ResolveCode(code, installer, documents, "actual Layout caught projection");
+        AssertStrictLayoutProjectionValues(resolution);
+    }
+
+    [Theory]
+    [InlineData("invocation-local")]
+    [InlineData("catch-variable")]
+    [InlineData("known-producer")]
+    public void Strict_caught_projection_rejects_disjoint_receiver_collisions(string collision)
+    {
+        var (document, code, documents) = StrictDispatchCollisionProbe(collision, "UnrelatedException");
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+            () => ResolveCode(code, document, documents, "strict collision probe"));
+        Assert.Contains("Untrusted caught Refusals producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("invocation-local")]
+    [InlineData("catch-variable")]
+    [InlineData("known-producer")]
+    public void Strict_caught_projection_preserves_valid_provenance_despite_disjoint_collisions(string collision)
+    {
+        var (document, code, documents) = StrictDispatchCollisionProbe(collision, "DefinitionRefusalException");
+        var resolution = ResolveCode(code, document, documents, "strict collision probe");
+        AssertStrictLayoutProjectionValues(resolution);
+    }
+
+    private static void AssertStrictLayoutProjectionValues(CodeResolution resolution)
+    {
+        Assert.Contains("layout.definition.body_invalid", resolution.Values);
+        Assert.Contains("definition.contract.out_of_window", resolution.Values);
+        Assert.DoesNotContain("pack.install.refused.unsupported_content_kind.standards_catalog", resolution.Values);
+    }
+
+    private static (SourceDocument Document, ExpressionSyntax Code, SourceDocument[] Documents) StrictDispatchCollisionProbe(
+        string collision, string exceptionType)
+    {
+        var sibling = collision switch
+        {
+            "invocation-local" => "{ var refusal = System.Array.Empty<object>(); _ = refusal; }",
+            "catch-variable" => "try { } catch (System.Exception refusal) { _ = refusal; }",
+            "known-producer" => "{ var refusal = MakeKnown(); _ = refusal; }",
+            _ => throw new ArgumentOutOfRangeException(nameof(collision)),
+        };
+        const string members = "static Harborline.Api.LocalNodeHost.Data.PackProjection.TemplateProjectionResult MakeKnown()"
+            + " => throw new System.InvalidOperationException();";
+        var declaration = exceptionType == "UnrelatedException" ? """
+            class UnrelatedException : System.Exception
+            {
+                public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; }
+                    = [new DefinitionRefusal("layout.definition.foo", "")];
+            }
+            """ : "";
+        var (document, code) = DefinitionRefusalProjectionProbe(exceptionType, declaration,
+            beforeTry: sibling, members: members);
+        var receiver = Assert.IsType<MemberAccessExpressionSyntax>(code).Expression;
+        var legacyCollision = collision switch
+        {
+            "invocation-local" => IsReceiverFromInvocation(receiver),
+            "catch-variable" => IsCaughtExceptionReceiver(receiver),
+            "known-producer" => IsKnownProducerReceiver(receiver,
+                KnownCodeProducers.Single(producer => producer.Type == "TemplateProjectionResult"), document),
+            _ => false,
+        };
+        Assert.True(legacyCollision, "The disjoint sibling must exercise the legacy receiver inference collision.");
+        return (document, code, ProductionDocuments().Append(document).ToArray());
+    }
+
+    [Fact]
     public void Indexed_refusal_list_resolves_through_the_real_route_and_installer()
     {
         var documents = ProductionDocuments().ToArray();
@@ -717,6 +795,10 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         int dynamicHops)
     {
         receiver = Unwrap(receiver);
+        if (TryResolveCaughtDefinitionRefusalProjection(receiver, document, documents, site, out var definitionResolution))
+            return definitionResolution;
+        if (TryResolveLocalRefusalListProjection(receiver, document, documents, site, dynamicHops, out var listResolution))
+            return listResolution;
         if (TryWorkflowViolationValues(receiver, out var workflowValues))
             return workflowValues
                 .Select(CodeResolution.For)
@@ -727,10 +809,6 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             return new CodeResolution(DeclaredCodeValues().ToArray(), false);
         if (IsReceiverFromInvocation(receiver))
             return new CodeResolution(DeclaredCodeValues().ToArray(), false);
-        if (TryResolveCaughtDefinitionRefusalProjection(receiver, document, documents, site, out var definitionResolution))
-            return definitionResolution;
-        if (TryResolveLocalRefusalListProjection(receiver, document, documents, site, dynamicHops, out var listResolution))
-            return listResolution;
         var producerTypes = ProducerTypes(receiver, document, documents)
             .Where(type => !site.EndsWith($" ({type})", StringComparison.Ordinal))
             .ToArray();
@@ -782,7 +860,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             string? dedupTarget = null)
         {
             expression = Unwrap(expression);
-            var key = $"{document.Path}:{expression.SpanStart}:{observation}";
+            var key = $"{document.Path}:{expression.SpanStart}:{expression.Span.End}:{observation}";
             if (depth > 32 || !_active.Add(key))
                 throw Invalid("cycle or collection-depth limit", expression);
             try
