@@ -68,7 +68,7 @@ test('the local-node-host README is an exact documentation input', () => {
   assert.deepEqual(plan.requiredModes, [])
   assert.equal(requireRunnableSelection(plan), null)
   assert.equal(validateFocusedModeEvidence(plan, null, []).status, 'not-required')
-  for (const file of ['apps/other/README.md', 'apps/capability-host/README.md']) {
+  for (const file of ['apps/other/README.md', 'apps/capability-host/README.md', 'apps/local-node-host/tests/README.md']) {
     const other = classifyFocusedModes([{status: 'M', path: file}])
     assert.equal(other.changes[0].kind, 'unknown')
     assert.equal(other.selection, 'unsupported')

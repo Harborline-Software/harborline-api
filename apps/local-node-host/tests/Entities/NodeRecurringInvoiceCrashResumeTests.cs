@@ -375,6 +375,11 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
     [InlineData(true, "RRULE component 'COUNT' value '' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
     [InlineData(true, "RRULE FREQ 'HOURLY' is not supported.", "RecurrenceRule contains a malformed value.")]
     [InlineData(false, "RRULE component 'COUNT' value 'x' is not a positive integer.", "RecurrenceRule contains an unsupported component.")]
+    // Leading text before the producer's prefix. The first row is the one an unanchored (Contains) prefix test
+    // would map: its prefix-length span is the single space before the shared closing/opening quote. In the
+    // second row that span includes the prefix's own quote, so it stays generic whether or not the prefix is anchored.
+    [InlineData(true, "x RRULE component 'COUNT' value ' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "x RRULE component 'COUNT' value 'x' is not a positive integer.", "RecurrenceRule contains a malformed value.")]
     public async Task Recurrence_message_mapping_requires_the_exact_type_and_complete_pinned_template(
         bool malformed, string message, string expectedDetail)
     {

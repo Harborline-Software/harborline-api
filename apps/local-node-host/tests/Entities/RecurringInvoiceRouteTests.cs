@@ -261,6 +261,43 @@ public sealed class RecurringInvoiceRouteTests : IAsyncLifetime
         Assert.Null(stored.LastGeneratedAtUtc);
     }
 
+    // A run of letters with no '=' leaves FREQ unset, so the pinned producer throws a plain FormatException
+    // "RRULE missing FREQ= component: '<rule>'." (32 + rule length + 2 characters). The value has no quote or
+    // control character, so it matches the missing-FREQ template, and only the 512-character message bound decides:
+    // 478 letters is a 512-character message (mapped), 479 is 513 and 600 is 634 (both fixed generic text).
+    [Theory]
+    [InlineData(478, "RecurrenceRule is missing its FREQ part.")]
+    [InlineData(479, "RecurrenceRule contains a malformed value.")]
+    [InlineData(600, "RecurrenceRule contains a malformed value.")]
+    public async Task An_oversized_producer_message_matching_a_template_returns_the_fixed_generic_detail(
+        int ruleLength, string expectedDetail)
+    {
+        var rule = new string('x', ruleLength);
+        var body = ScheduleBody();
+        body["recurrenceRule"] = rule;
+        body["startsOn"] = "2026-01-01";
+        body["endsOn"] = null;
+        body["lookaheadHorizonDays"] = 2;
+
+        var created = await _client.PostAsJsonAsync(Route, body);
+        Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+        var refusal = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", refusal.GetProperty("error").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, refusal.GetProperty("detail").GetString()!);
+        await using (var afterCreate = await _factory.CreateDbContextAsync())
+            Assert.Equal(0, await afterCreate.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        await AssertNoInvoiceOrJournalWritesAsync();
+
+        var id = await SeedStoredRecurrenceAsync(rule, 2);
+        var generated = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-01" });
+        Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
+        var result = await generated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Failed", result.GetProperty("outcome").GetString());
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        AssertSafeRecurrenceDetail(expectedDetail, result.GetProperty("error").GetString()!);
+        await AssertNoInvoiceOrJournalWritesAsync();
+    }
+
     private static void AssertSafeRecurrenceDetail(string expected, string actual)
     {
         Assert.Equal(expected, actual);
