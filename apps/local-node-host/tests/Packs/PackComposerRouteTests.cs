@@ -569,6 +569,262 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         Assert.Equal(1, fixture.Signer.Calls);
     }
 
+    [Theory]
+    [InlineData("null-entry", false)]
+    [InlineData("null-entry", true)]
+    [InlineData("null-later-entry", false)]
+    [InlineData("null-later-entry", true)]
+    [InlineData("null-new-key", false)]
+    [InlineData("null-new-key", true)]
+    [InlineData("blank-new-key", false)]
+    [InlineData("blank-new-key", true)]
+    [InlineData("unqualified-new-key", false)]
+    [InlineData("unqualified-new-key", true)]
+    [InlineData("empty-new-segment", false)]
+    [InlineData("empty-new-segment", true)]
+    [InlineData("missing-new-content", false)]
+    [InlineData("missing-new-content", true)]
+    [InlineData("case-only-missing-new-content", false)]
+    [InlineData("case-only-missing-new-content", true)]
+    [InlineData("null-old-key", false)]
+    [InlineData("null-old-key", true)]
+    [InlineData("blank-old-key", false)]
+    [InlineData("blank-old-key", true)]
+    [InlineData("duplicate-new-key", false)]
+    [InlineData("duplicate-new-key", true)]
+    [InlineData("duplicate-old-key", false)]
+    [InlineData("duplicate-old-key", true)]
+    [InlineData("duplicate-both-keys", false)]
+    [InlineData("duplicate-both-keys", true)]
+    public async Task Malformed_rename_entries_are_refused_before_signing_in_both_branches(
+        string scenario, bool validateOnly)
+    {
+        await using var fixture = await RenameRouteFixture.StartAsync(TestPackGate.AllowAll());
+        var body = MalformedRenameExportBody(scenario);
+        var expected = ExpectedRenameFindings(scenario);
+
+        using var response = await fixture.Client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + (validateOnly ? "?validateOnly=true" : ""), body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.NotEqual("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
+        using var refusal = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (validateOnly) Assert.False(refusal.RootElement.GetProperty("valid").GetBoolean());
+        Assert.Equal(expected, refusal.RootElement.GetProperty("codes").EnumerateArray()
+            .Select(finding => (finding.GetProperty("code").GetString()!, finding.GetProperty("target").GetString()!))
+            .ToArray());
+        Assert.Equal(0, fixture.Signer.Calls);
+
+        PackExportRequest observed;
+        if (validateOnly)
+        {
+            observed = Assert.Single(fixture.Exporter.Validated);
+            Assert.Empty(fixture.Exporter.Exported);
+        }
+        else
+        {
+            observed = Assert.Single(fixture.Exporter.Exported);
+            Assert.Empty(fixture.Exporter.Validated);
+        }
+
+        // The same actually bound request also exercises the real exporter outcome contract.
+        var direct = await fixture.Exporter.ExportAsync(observed, fixture.Signer);
+        Assert.False(direct.Succeeded);
+        Assert.Null(direct.File);
+        Assert.Null(direct.FileBytes);
+        Assert.Equal(expected, direct.Validation.Errors.Select(error => (error.Code, error.Target!)).ToArray());
+        Assert.Equal(0, fixture.Signer.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Rename_findings_accumulate_with_actual_content_pii_findings(bool validateOnly)
+    {
+        await using var fixture = await RenameRouteFixture.StartAsync(TestPackGate.AllowAll());
+        var body = MalformedRenameExportBody("null-entry");
+        body["contents"]![0]!["content"]!["submittedValues"] = new JsonObject { ["amount"] = 5 };
+
+        using var response = await fixture.Client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + (validateOnly ? "?validateOnly=true" : ""), body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var refusal = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var findings = refusal.RootElement.GetProperty("codes").EnumerateArray().ToArray();
+        Assert.Contains(findings, finding =>
+            finding.GetProperty("code").GetString() == "pack.validation.content.pii.instance_data"
+            && finding.GetProperty("target").GetString() == "acme.intake-form:$.submittedValues");
+        Assert.Contains(findings, finding =>
+            finding.GetProperty("code").GetString() == "pack.validation.content.key.missing"
+            && finding.GetProperty("target").GetString() == "renamedFrom/0");
+        Assert.True(Array.FindIndex(findings, finding =>
+                finding.GetProperty("code").GetString() == "pack.validation.content.pii.instance_data")
+            < Array.FindIndex(findings, finding =>
+                finding.GetProperty("code").GetString() == "pack.validation.content.key.missing"));
+        Assert.Equal(0, fixture.Signer.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Nonblank_legacy_old_keys_preserve_surrounding_spaces_without_qualification(bool validateOnly)
+    {
+        await using var fixture = await RenameRouteFixture.StartAsync(TestPackGate.AllowAll());
+        var body = RenameExportBody();
+        body["renamedFrom"]![0]!["oldKey"] = " intake-form ";
+
+        using var response = await fixture.Client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + (validateOnly ? "?validateOnly=true" : ""), body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        if (validateOnly)
+        {
+            using var validation = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.True(validation.RootElement.GetProperty("valid").GetBoolean());
+            Assert.Empty(validation.RootElement.GetProperty("codes").EnumerateArray());
+            Assert.Equal(" intake-form ", Assert.Single(fixture.Exporter.Validated).RenamedFrom![0].OldKey);
+            Assert.Empty(fixture.Exporter.Exported);
+            Assert.Equal(0, fixture.Signer.Calls);
+        }
+        else
+        {
+            var verified = fixture.Verifier.Verify(await response.Content.ReadAsByteArrayAsync(), fixture.Trust);
+            Assert.Equal("Verified", verified.Verdict.ToString());
+            Assert.NotNull(verified.Manifest);
+            Assert.NotNull(verified.Manifest.RenamedFrom);
+            Assert.Collection(verified.Manifest.RenamedFrom,
+                first =>
+                {
+                    Assert.Equal("acme.intake-form", first.NewKey);
+                    Assert.Equal(" intake-form ", first.OldKey);
+                },
+                second =>
+                {
+                    Assert.Equal("acme.follow-up", second.NewKey);
+                    Assert.Equal("follow-up", second.OldKey);
+                });
+            Assert.Equal(1, fixture.Signer.Calls);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Distinct_key_case_is_preserved_by_ordinal_rename_validation(bool validateOnly)
+    {
+        await using var fixture = await RenameRouteFixture.StartAsync(TestPackGate.AllowAll());
+        var body = RenameExportBody();
+        body["contents"]![1]!["key"] = "acme.Intake-form";
+        body["renamedFrom"]![1]!["newKey"] = "acme.Intake-form";
+        body["renamedFrom"]![0]!["oldKey"] = "Form";
+        body["renamedFrom"]![1]!["oldKey"] = "form";
+
+        using var response = await fixture.Client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + (validateOnly ? "?validateOnly=true" : ""), body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        IReadOnlyList<PackContentRename>? map;
+        if (validateOnly)
+        {
+            using var validation = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.True(validation.RootElement.GetProperty("valid").GetBoolean());
+            Assert.Empty(validation.RootElement.GetProperty("codes").EnumerateArray());
+            map = Assert.Single(fixture.Exporter.Validated).RenamedFrom;
+            Assert.Equal(0, fixture.Signer.Calls);
+        }
+        else
+        {
+            var verified = fixture.Verifier.Verify(await response.Content.ReadAsByteArrayAsync(), fixture.Trust);
+            Assert.Equal("Verified", verified.Verdict.ToString());
+            Assert.NotNull(verified.Manifest);
+            map = verified.Manifest.RenamedFrom;
+            Assert.Equal(1, fixture.Signer.Calls);
+        }
+
+        Assert.NotNull(map);
+        Assert.Collection(map,
+            first =>
+            {
+                Assert.Equal("acme.intake-form", first.NewKey);
+                Assert.Equal("Form", first.OldKey);
+            },
+            second =>
+            {
+                Assert.Equal("acme.Intake-form", second.NewKey);
+                Assert.Equal("form", second.OldKey);
+            });
+    }
+
+    private static JsonObject MalformedRenameExportBody(string scenario)
+    {
+        var body = RenameExportBody();
+        var map = body["renamedFrom"]!.AsArray();
+        switch (scenario)
+        {
+            case "null-entry":
+                map.Clear();
+                map.Add((JsonNode?)null);
+                break;
+            case "null-later-entry":
+                map[1] = null;
+                break;
+            case "null-new-key":
+                map[0]!["newKey"] = null;
+                break;
+            case "blank-new-key":
+                map[0]!["newKey"] = " ";
+                break;
+            case "unqualified-new-key":
+                map[0]!["newKey"] = "intake-form";
+                break;
+            case "empty-new-segment":
+                map[0]!["newKey"] = "acme..intake-form";
+                break;
+            case "missing-new-content":
+                map[0]!["newKey"] = "acme.not-exported";
+                break;
+            case "case-only-missing-new-content":
+                map[0]!["newKey"] = "acme.Intake-form";
+                break;
+            case "null-old-key":
+                map[0]!["oldKey"] = null;
+                break;
+            case "blank-old-key":
+                map[0]!["oldKey"] = " ";
+                break;
+            case "duplicate-new-key":
+                map[1]!["newKey"] = "acme.intake-form";
+                break;
+            case "duplicate-old-key":
+                map[1]!["oldKey"] = "intake-form";
+                break;
+            case "duplicate-both-keys":
+                map[1]!["newKey"] = "acme.intake-form";
+                map[1]!["oldKey"] = "intake-form";
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(scenario));
+        }
+        return body;
+    }
+
+    private static (string Code, string Target)[] ExpectedRenameFindings(string scenario) => scenario switch
+    {
+        "null-entry" or "null-new-key" or "blank-new-key" or "null-old-key" or "blank-old-key" =>
+            [("pack.validation.content.key.missing", "renamedFrom/0")],
+        "null-later-entry" => [("pack.validation.content.key.missing", "renamedFrom/1")],
+        "unqualified-new-key" or "empty-new-segment" =>
+        [
+            ("pack.validation.content.key.unqualified", "renamedFrom/0"),
+            ("pack.validation.content.item.missing", "renamedFrom/0"),
+        ],
+        "missing-new-content" or "case-only-missing-new-content" =>
+            [("pack.validation.content.item.missing", "renamedFrom/0")],
+        "duplicate-new-key" or "duplicate-old-key" or "duplicate-both-keys" =>
+            [("pack.validation.content.key.duplicate", "renamedFrom/1")],
+        _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
+    };
+
     private static JsonObject RenameExportBody() => JsonSerializer.SerializeToNode(new
     {
         key = "acme.inspections",
