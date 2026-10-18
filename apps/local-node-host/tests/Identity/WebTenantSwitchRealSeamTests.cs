@@ -226,7 +226,7 @@ public sealed class WebTenantSwitchRealSeamTests
 
         public async Task CompleteAsync(string phase, LogoutWorkerDeadline deadline)
         {
-            _completionDeadline ??= deadline;
+            _completionDeadline = deadline;
             var completion = Task.WhenAll(_exit, _output, _error);
             ObserveFault(completion);
             var first = Task.WhenAny(completion, _pumpFailure.Task);
@@ -282,7 +282,7 @@ public sealed class WebTenantSwitchRealSeamTests
 
         public async Task<string?> CleanupAsync()
         {
-            _completionDeadline ??= StartupDeadline;
+            _completionDeadline = new LogoutWorkerDeadline();
             var failures = new List<string>();
             var stop = Task.Run(KillIfRunning);
             try
