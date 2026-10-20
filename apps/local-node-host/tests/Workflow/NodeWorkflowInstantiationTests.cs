@@ -177,6 +177,132 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData("ar-SA", "th-TH")]
+    [InlineData("th-TH", "ar-SA")]
+    public async Task Stored_ISO_dates_drive_real_recurring_effects_and_replay_identically_under_non_Gregorian_cultures(
+        string cultureName, string replayCultureName)
+    {
+        var priorCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            var culture = new CultureInfo(cultureName, useUserOverride: false);
+            culture.DateTimeFormat.Calendar = cultureName == "ar-SA" ? new UmAlQuraCalendar() : new ThaiBuddhistCalendar();
+            Assert.False(culture.DateTimeFormat.Calendar is GregorianCalendar);
+            Assert.NotEqual("2026-01-05", new DateOnly(2026, 1, 5).ToString("yyyy-MM-dd", culture));
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            var factory = NewFactory();
+            var store = NewStore(factory);
+            var createdAt = new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var firstAt = new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero);
+            var laterAt = new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero);
+            const string id = "recurring-generation:SCHED-ISO-CULTURE";
+            await SeedScheduleAsync(factory, "SCHED-ISO-CULTURE", "FREQ=DAILY", new DateOnly(2023, 1, 1), 250m);
+            Assert.Equal(1, await NewInstantiation(store, factory).SyncRecurringGenerationProcessesAsync(LocalTenantId, createdAt));
+            var seeded = (await store.LoadAsync(id))!;
+            using (var state = JsonDocument.Parse(seeded.StateJson))
+            {
+                Assert.Equal("2023-01-01", state.RootElement.GetProperty("startsOn").GetString());
+                Assert.Equal("FREQ=DAILY", state.RootElement.GetProperty("rrule").GetString());
+                Assert.Equal("UTC", state.RootElement.GetProperty("timezone").GetString());
+                Assert.Equal("SCHED-ISO-CULTURE", state.RootElement.GetProperty("scheduleId").GetString());
+                Assert.Equal(250m, state.RootElement.GetProperty("amount").GetDecimal());
+            }
+            // A real durable position move, not a fabricated Jan5 effect or receipt. Its old
+            // DTSTART exceeds the strict producer cap unless the ISO cursor is read correctly.
+            await store.AdvanceAsync(new WorkflowStepKey(id, 0, "generate@2023-01-01"), null, "{}", "Advanced", "{}",
+                "generate@2026-01-05", WorkflowStatus.Running, firstAt);
+            Assert.Equal(0, await CountJournalEntriesAsync(factory));
+            var log = new ScheduleLog();
+            var ledgerTargets = new List<string>();
+            WorkflowScheduleDaemon Daemon(IDbContextFactory<LocalNodeDbContext> currentFactory,
+                IWorkflowStore currentStore, IWorkflowScheduleSource source, DateTimeOffset at)
+                => new(source, new WorkflowTriggerDispatcher(currentStore, new[] { RecurringHandler(currentFactory) }),
+                    new FixedClock(at), NullLogger<WorkflowScheduleDaemon>.Instance,
+                    authorizationGate: TestAuthorization.Gate(true, request =>
+                    {
+                        if (request.Target.RecordKind == "journal-entry") ledgerTargets.Add(request.Target.RecordId);
+                    }), store: currentStore);
+
+            CultureInfo.CurrentCulture = culture;
+            var source = new NodeRecurringScheduleSource(factory, new InMemoryRruleExpansionService(), log);
+            var first = Assert.Single(await source.GetDueTriggersAsync(firstAt));
+            Assert.Equal(id, first.InstanceId);
+            Assert.Equal("generate@2026-01-05", first.Step);
+            await Daemon(factory, store, source, firstAt).TickAsync();
+            Assert.Equal(1, await CountJournalEntriesAsync(factory));
+            // Literal golden identity from the independently evaluated SHA-256/RFC-bit occurrence
+            // contract, never from the production formatter or a value returned by the first run.
+            Assert.Equal(new[] { "JE-f831879958dc50a39874d687d1c07219" }, ledgerTargets);
+            ledgerTargets.Clear();
+            await Daemon(factory, store, source, firstAt).TickAsync();
+            Assert.Equal(1, await CountJournalEntriesAsync(factory));
+            Assert.Equal(new[] { "JE-f831879958dc50a39874d687d1c07219" }, ledgerTargets);
+
+            var reopenedFactory = NewFactory();
+            var reopenedStore = NewStore(reopenedFactory);
+            var reopenedSource = new NodeRecurringScheduleSource(reopenedFactory, new InMemoryRruleExpansionService(), log);
+            Assert.Equal(new[] { "generate@2026-01-05", "generate@2026-01-06", "generate@2026-01-07" },
+                (await reopenedSource.GetDueTriggersAsync(laterAt)).Select(row => row.Step));
+            ledgerTargets.Clear();
+            await Daemon(reopenedFactory, reopenedStore, reopenedSource, laterAt).TickAsync();
+            Assert.Equal(3, await CountJournalEntriesAsync(reopenedFactory));
+            Assert.Equal(new[] { "JE-f831879958dc50a39874d687d1c07219", "JE-9a512e01d8f15785aa8756374d912176", "JE-8980426d04e65f8c9cfa5cd27d1e36d6" }, ledgerTargets);
+
+            foreach (var replayCulture in new[] { cultureName, replayCultureName })
+            {
+                var replay = new CultureInfo(replayCulture, useUserOverride: false);
+                replay.DateTimeFormat.Calendar = replayCulture == "ar-SA" ? new UmAlQuraCalendar() : new ThaiBuddhistCalendar();
+                CultureInfo.CurrentCulture = replay;
+                Assert.False(CultureInfo.CurrentCulture.DateTimeFormat.Calendar is GregorianCalendar);
+                var freshFactory = NewFactory();
+                var freshStore = NewStore(freshFactory);
+                var freshSource = new NodeRecurringScheduleSource(freshFactory, new InMemoryRruleExpansionService(), log);
+                Assert.Equal("generate@2026-01-07", Assert.Single(await freshSource.GetDueTriggersAsync(laterAt)).Step);
+                ledgerTargets.Clear();
+                await Daemon(freshFactory, freshStore, freshSource, laterAt).TickAsync();
+                Assert.Equal(new[] { "JE-8980426d04e65f8c9cfa5cd27d1e36d6" }, ledgerTargets);
+                var retained = (await freshStore.LoadAsync(id))!;
+                Assert.Equal("generate@2026-01-07", retained.CurrentStep);
+                Assert.Equal(seeded.StateJson, retained.StateJson);
+                Assert.Equal("v1", retained.DefinitionVersion);
+                Assert.Equal(WorkflowStatus.Running, retained.Status);
+                Assert.Equal(0, retained.Iteration);
+                Assert.Equal(createdAt, retained.CreatedAt);
+                Assert.Equal(laterAt, retained.UpdatedAt);
+                await using var context = await freshFactory.CreateDbContextAsync();
+                var entries = await context.Set<JournalEntry>().OrderBy(row => row.EntryDate).ToArrayAsync();
+                Assert.Equal(new DateOnly[] { new(2026, 1, 5), new(2026, 1, 6), new(2026, 1, 7) }, entries.Select(row => row.EntryDate));
+                Assert.Equal(new[] { "JE-f831879958dc50a39874d687d1c07219", "JE-9a512e01d8f15785aa8756374d912176", "JE-8980426d04e65f8c9cfa5cd27d1e36d6" }, entries.Select(row => row.Id.Value));
+                Assert.Equal(new[] { "recurring:SCHED-ISO-CULTURE:2026-01-05", "recurring:SCHED-ISO-CULTURE:2026-01-06", "recurring:SCHED-ISO-CULTURE:2026-01-07" }, entries.Select(row => row.SourceReference));
+                Assert.All(entries, row =>
+                {
+                    Assert.Equal(LocalTenantId, row.TenantId);
+                    Assert.Equal(JournalEntryStatus.Posted, row.Status);
+                    Assert.Equal(250m, row.Lines.Sum(line => line.Debit));
+                    Assert.Equal(250m, row.Lines.Sum(line => line.Credit));
+                });
+                Assert.Equal(new[] { "generate@2023-01-01", "generate@2026-01-05", "generate@2026-01-06", "generate@2026-01-07" },
+                    await context.Set<WorkflowStepIdempotencyRecord>().Where(row => row.InstanceId == id)
+                        .OrderBy(row => row.Step).Select(row => row.Step).ToArrayAsync());
+                var events = await context.Set<WorkflowEventRecord>().Where(row => row.InstanceId == id && row.EventType == "OccurrenceGenerated")
+                    .OrderBy(row => row.Step).ToArrayAsync();
+                Assert.Equal(new[] { "generate@2026-01-05", "generate@2026-01-06", "generate@2026-01-07" }, events.Select(row => row.Step));
+                Assert.Equal(new[] { "2026-01-05", "2026-01-06", "2026-01-07" }, events.Select(row =>
+                {
+                    using var data = JsonDocument.Parse(row.DataJson);
+                    Assert.True(data.RootElement.GetProperty("generated").GetBoolean());
+                    return data.RootElement.GetProperty("occurrenceDate").GetString();
+                }));
+                Assert.Empty(log.Entries);
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = priorCulture;
+        }
+    }
+
+    [Theory]
     [InlineData("FREQ=DAILY", "2026-01-05", "2026-01-07", true)]
     [InlineData("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO", "2026-01-05", "2026-01-14", true)]
     [InlineData("FREQ=DAILY;COUNT=3", "2026-01-05", "2026-01-07", false)]
