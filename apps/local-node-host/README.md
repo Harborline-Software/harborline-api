@@ -52,10 +52,12 @@ Preview and Check report `Refused` with HTTP 200. Install reports HTTP 422 with
 watermarks, active configuration pointers and projections.
 
 This admission policy does not retroactively quarantine already-installed Layout
-declarations. The default-host preservation tests cover historical Draft Layout;
-they do not prove preservation of a previously Active Layout configuration.
-Stable refusal of every malformed Layout body is not yet guaranteed. An out-of-order
-`binding_kind` still escapes as `NotSupportedException`; owner decision Q16 remains pending.
+declarations. The default-host preservation tests cover historical Draft and
+previously Active Layout configurations.
+The pinned producer applies adopted Q16: `binding_kind` must be first at actual
+binding positions; missing or out-of-order tags map to the existing `body_invalid`
+refusal. This is an unsupported wire representation, not invalid JSON: JSON objects
+are unordered. The decoder's metadata-ordering option remains unchanged.
 
 ## Pairing GA gates
 
