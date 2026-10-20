@@ -151,6 +151,9 @@ public sealed class AllowListVacuityArchTests
             "an inventory of scanned type names, not an exception list",
         ["PackNavigationAdmissionCallSiteFenceTests.Allowed"] =
             "the fence already asserts SequenceEqual against the discovered call sites, both directions",
+        ["PackRefusalCodeAndPointerFenceTests.ProbeBindings"] =
+            "synthetic initialized-local declarations for provenance test snippets, not a production allow-list or scan filter; "
+            + "getter negatives remove the matching binding and explicit-local/readonly-field positive controls exercise the snippets",
         ["KernelStoreClockArchTests.Owed"] =
             "the fence already asserts the owed rows equal the discovered clocked stores, both directions",
         ["AdmittedInstantArchTests.ReviewedMints"] =
