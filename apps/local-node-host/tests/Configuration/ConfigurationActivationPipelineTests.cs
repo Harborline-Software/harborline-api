@@ -1,5 +1,6 @@
 using System.Text;
 
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -60,6 +61,34 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
              WritePipelineStage.Validate, WritePipelineStage.Commit, WritePipelineStage.React],
             _observer.Stages);
         Assert.Equal(candidate, _target.ReadEffective(Tenant).Digest);
+    }
+
+    [Fact]
+    public async Task Authorization_can_acquire_a_writer_before_activation_binds_its_atomic_unit()
+    {
+        var acquired = false;
+        var target = Target(TestPackGate.AllowAll(stage =>
+        {
+            if (stage != "authorization-snapshot-start") return;
+            using var context = _db.CreateContext();
+            var connection = (SqliteConnection)context.Database.GetDbConnection();
+            connection.DefaultTimeout = 1;
+            // Oracle: authorization's separate writer must acquire the database before activation binds.
+            using var transaction = connection.BeginTransaction(System.Data.IsolationLevel.Serializable, deferred: false);
+            acquired = true;
+        }));
+        var (request, candidate) = Prepare(target, "intent-authorization-writer");
+
+        var outcome = await ActivateAsync(target, request);
+
+        Assert.True(acquired);
+        Assert.Null(outcome.Decision.Refusal);
+        Assert.Equal(
+            [WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
+             WritePipelineStage.Validate, WritePipelineStage.Commit, WritePipelineStage.React],
+            _observer.Stages);
+        Assert.Equal(candidate, target.ReadEffective(Tenant).Digest);
+        Assert.Equal("intent-authorization-writer", Assert.Single(Outbox()).IntentId);
     }
 
     [Fact]
