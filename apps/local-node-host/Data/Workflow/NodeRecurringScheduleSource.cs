@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
@@ -150,7 +151,7 @@ public sealed class NodeRecurringScheduleSource : IWorkflowScheduleSource
         var lowerBound = schedule.Value.StartsOn;
         if (RecurringGenerationSteps.IsGenerateStep(instance.CurrentStep)
             && DateOnly.TryParseExact(instance.CurrentStep[RecurringGenerationSteps.GeneratePrefix.Length..],
-                "yyyy-MM-dd", out var currentOccurrence))
+                "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var currentOccurrence))
         {
             lowerBound = currentOccurrence;
         }
@@ -286,7 +287,7 @@ public sealed class NodeRecurringScheduleSource : IWorkflowScheduleSource
             var rrule = rruleEl.GetString()!;
             if (string.IsNullOrWhiteSpace(rrule)) return null;
             var startsOn = root.TryGetProperty("startsOn", out var s) && s.ValueKind == JsonValueKind.String
-                ? DateOnly.ParseExact(s.GetString()!, "yyyy-MM-dd")
+                ? DateOnly.ParseExact(s.GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None)
                 : DateOnly.FromDateTime(instance.CreatedAt.UtcDateTime);
             var timezone = root.TryGetProperty("timezone", out var tz) && tz.ValueKind == JsonValueKind.String
                 ? tz.GetString()!
