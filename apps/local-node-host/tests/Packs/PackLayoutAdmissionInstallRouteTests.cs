@@ -394,6 +394,153 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
         Assert.DoesNotContain("LineNumber", json, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Body_invalid_Check_collects_safe_families_without_entering_override_recovery(bool http)
+    {
+        await StartAsync();
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        using var install = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync([("acme.layout", LayoutContent("acme.layout", "2.0.0"))], "2.0.0"));
+        Assert.Equal(HttpStatusCode.OK, install.StatusCode);
+        _store.SaveOverride(tenant, "acme.layout-pack",
+            new PackTenantOverride("acme.layout", new JsonObject { ["intent"] = "Observe" }));
+        var beforeInstalled = JsonSerializer.Serialize(_store.ListInstalled(tenant));
+        var beforeWatermark = JsonSerializer.Serialize(_store.GetWatermark(tenant, "acme.layout-pack"));
+        var beforeOverrides = JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.layout-pack"));
+        var bytes = await ReplaceBodiesAsync(await ExportAsync(LayoutContent()), ("acme.layout", "null"));
+        var codec = new PackFileCodec();
+        var file = Assert.IsType<PackFile>(codec.TryDecode(bytes));
+        var envelope = Assert.IsType<SignedOperation<PackSignatureSubject>>(file.Envelope);
+        var manifest = envelope.Payload.Manifest with
+        {
+            Dependencies = [new("acme.missing", "2.0.0")],
+            CapabilityRequirements = ["acme.unavailable"],
+            ContentReferences = [new("acme.layout", PackContentKind.Layout, "acme.missing", "acme.missing-layout",
+                PackContentKind.Layout, Harborline.Api.Foundation.Packs.Graph.PackFeatureEdgeRelation.ParentOf)],
+        };
+        bytes = codec.Encode(file with { Envelope = await new Ed25519Signer(_key).SignAsync(
+            envelope.Payload with { Manifest = manifest }, envelope.IssuedAt, Guid.NewGuid()) });
+        Assert.Equal(PackVerdict.Verified, new PackVerifier(new Ed25519Verifier(), codec).Verify(bytes, _trust).Verdict);
+        // The literal content pointer is pinned by PackConformanceCorpusTests' install corpus.
+        PackInstallRefusal[] expected =
+        [
+            new("layout.definition.body_invalid", "", "acme.layout@1.0.0"),
+            new("pack.install.refused.missing_platform_capability", "/"),
+            new("pack.install.refused.unmet_content_reference", "/contents/0/contentBase64"),
+            new("pack.install.refused.unmet_dependency", "/dependencies/0"),
+            new("pack.install.refused.downgrade", "/"),
+        ];
+        try
+        {
+            if (http)
+            {
+                using var response = await PostBytesAsync(PackInstallRoutes.CheckRoute, bytes);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                var json = await response.Content.ReadAsStringAsync();
+                AssertNoBodyDetails(json);
+                using var document = JsonDocument.Parse(json);
+                AssertDtoRefusals(document.RootElement, expected);
+                Assert.Equal(1, document.RootElement.GetProperty("unmetContentReferences").GetArrayLength());
+                Assert.Equal(1, document.RootElement.GetProperty("unmetDependencies").GetArrayLength());
+                Assert.Equal(1, document.RootElement.GetProperty("watermarkHits").GetArrayLength());
+            }
+            else
+            {
+                var check = _installer.Check(bytes, Context());
+                AssertRefusals(check, expected);
+                Assert.Equal("acme.unavailable", Assert.Single(check.UnmetPlatformRequirements).Capability);
+                Assert.Equal("acme.missing-layout", Assert.Single(check.UnmetContentReferences).ToContentKey);
+                Assert.Equal(new PackUnmetDependency("acme.missing", "2.0.0", null), Assert.Single(check.UnmetDependencies));
+                Assert.Equal(PackWatermarkHitKind.VersionDowngrade, Assert.Single(check.WatermarkHits).Kind);
+            }
+        }
+        finally
+        {
+            Assert.Equal(beforeInstalled, JsonSerializer.Serialize(_store.ListInstalled(tenant)));
+            Assert.Equal(beforeWatermark, JsonSerializer.Serialize(_store.GetWatermark(tenant, "acme.layout-pack")));
+            Assert.Equal(beforeOverrides, JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.layout-pack")));
+        }
+    }
+
+    // Oracle: Check collects safe manifest diagnostics even when Layout decoding is barred;
+    // Preview and Install retain the literal body-invalid fail-fast contract.
+    [Theory]
+    [InlineData(false, "acme.missing", "2.0.0", null, false)]
+    [InlineData(true, "acme.missing", "2.0.0", null, false)]
+    [InlineData(false, "harborline.platform", "2.0.0", "1.0.0", false)]
+    [InlineData(true, "harborline.platform", "2.0.0", "1.0.0", false)]
+    [InlineData(false, "harborline.platform", "invalid-pin", "1.0.0", true)]
+    [InlineData(true, "harborline.platform", "invalid-pin", "1.0.0", true)]
+    [InlineData(false, "harborline.platform", "1.0.0", "1.0.0", false)]
+    [InlineData(true, "harborline.platform", "1.0.0", "1.0.0", false)]
+    [InlineData(false, "acme.layout-pack", "2.0.0", null, false)]
+    [InlineData(true, "acme.layout-pack", "2.0.0", null, false)]
+    public async Task Body_invalid_Check_collects_safe_dependencies_without_changing_fail_fast_routes(
+        bool http, string dependencyKey, string pin, string? installedVersion, bool malformed)
+    {
+        await StartAsync();
+        InstallPlatformSeed();
+        var bytes = await ReplaceBodiesAsync(await ExportAsync(LayoutContent()), ("acme.layout", "null"));
+        var codec = new PackFileCodec();
+        var file = Assert.IsType<PackFile>(codec.TryDecode(bytes));
+        var envelope = Assert.IsType<SignedOperation<PackSignatureSubject>>(file.Envelope);
+        var manifest = envelope.Payload.Manifest with { Dependencies = [new(dependencyKey, pin)] };
+        var signature = await new Ed25519Signer(_key).SignAsync(
+            envelope.Payload with { Manifest = manifest }, envelope.IssuedAt, Guid.NewGuid());
+        bytes = codec.Encode(file with { Envelope = signature });
+        Assert.Equal(PackVerdict.Verified, new PackVerifier(new Ed25519Verifier(), codec).Verify(bytes, _trust).Verdict);
+        var bodyInvalid = new PackInstallRefusal("layout.definition.body_invalid", "", "acme.layout@1.0.0");
+        var unmet = dependencyKey != "acme.layout-pack" && (pin != "1.0.0");
+        var expected = unmet ? new[] { bodyInvalid, new PackInstallRefusal(malformed
+            ? "pack.install.refused.malformed_dependency_pin" : "pack.install.refused.unmet_dependency", "/dependencies/0") }
+            : [bodyInvalid];
+        if (!http)
+        {
+            AssertRefusals(_installer.Preview(bytes, Context()), bodyInvalid);
+            AssertNoWrites();
+            var check = _installer.Check(bytes, Context());
+            AssertNoWrites();
+            AssertRefusals(check, expected);
+            if (unmet)
+                Assert.Equal(new PackUnmetDependency(dependencyKey, pin, installedVersion, malformed), Assert.Single(check.UnmetDependencies));
+            else
+                Assert.Empty(check.UnmetDependencies);
+        }
+        else
+        {
+            // Exercise all transport statuses and no-write assertions before the collection oracle.
+            foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.InstallRoute, PackInstallRoutes.CheckRoute })
+            {
+                using var response = await PostBytesAsync(route, bytes);
+                Assert.Equal(route == PackInstallRoutes.InstallRoute ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+                var json = await response.Content.ReadAsStringAsync();
+                AssertNoBodyDetails(json);
+                AssertNoWrites();
+                using var document = JsonDocument.Parse(json);
+                var body = document.RootElement;
+                AssertDtoRefusals(body, route == PackInstallRoutes.CheckRoute ? expected : [bodyInvalid]);
+                if (route == PackInstallRoutes.InstallRoute)
+                    Assert.False(body.GetProperty("installed").GetBoolean());
+                if (route == PackInstallRoutes.CheckRoute)
+                {
+                    var dependencies = body.GetProperty("unmetDependencies");
+                    Assert.Equal(unmet ? 1 : 0, dependencies.GetArrayLength());
+                    if (unmet)
+                    {
+                        var dependency = dependencies[0];
+                        Assert.Equal(dependencyKey, dependency.GetProperty("dependencyKey").GetString());
+                        Assert.Equal(pin, dependency.GetProperty("pinnedVersion").GetString());
+                        Assert.Equal(installedVersion, dependency.GetProperty("installedVersion").GetString());
+                        Assert.Equal(malformed, dependency.GetProperty("malformedPin").GetBoolean());
+                    }
+                }
+            }
+        }
+        AssertNoWrites();
+    }
+
     // Preview and check exist only once the node has an installed pack (ticket 176 s4a), so a test that
     // posts to them first seeds the platform pack, as the host's boot preload does. That seed is the only
     // installed state such a test starts with, and AssertNoWrites then requires it to be left exactly as is.

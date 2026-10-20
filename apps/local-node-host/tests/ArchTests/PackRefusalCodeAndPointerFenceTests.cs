@@ -545,6 +545,63 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Layout_entries_getter_cannot_establish_refusal_provenance() => AssertGetterRejected("entries");
+
+    [Fact]
+    public void Layout_capabilities_getter_cannot_establish_refusal_provenance() => AssertGetterRejected("capabilities");
+
+    [Fact]
+    public void Layout_registers_getter_cannot_establish_refusal_provenance() => AssertGetterRejected("registers");
+
+    private static void AssertGetterRejected(string name)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException",
+            members: (name == "entries" ? "System.Collections.Generic.IEnumerable<LayoutDefinitionPackageEntry>"
+                : name == "capabilities" ? "System.Collections.Generic.IReadOnlyDictionary<string, string>" : "LayoutHostRegisters")
+                + " " + name + " => throw new DefinitionRefusalException(DefinitionAdmissionPhase.Install, [new DefinitionRefusal(\"layout.unpublished_probe\", \"\")]);",
+            bindings: string.Join(" ", ProbeBindings.Where(binding => !binding.Contains(" " + name + " =", StringComparison.Ordinal))));
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Materialized_local_shadowing_a_property_establishes_layout_provenance()
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException",
+            members: "object entries => throw new System.Exception();");
+        Assert.Contains("layout.definition.body_invalid", ResolveCode(code, document, [document], "probe").Values);
+    }
+
+    [Fact]
+    public void Direct_readonly_fields_establish_layout_provenance()
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException",
+            tryBody: "LayoutPackHostAdmission.Admit(entries, _layoutCapabilities, _layoutRegisters);",
+            bindings: ProbeBindings[0], members: "readonly System.Collections.Generic.IReadOnlyDictionary<string, string> _layoutCapabilities; readonly LayoutHostRegisters _layoutRegisters;");
+        Assert.Contains("layout.definition.body_invalid", ResolveCode(code, document, [document], "probe").Values);
+    }
+
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("var entries = new object(); var entries = new object();", "")]
+    [InlineData("object entries;", "")]
+    [InlineData("", "object entries")]
+    public void Unresolved_ambiguous_and_unsupported_layout_argument_bindings_are_rejected(string bindings, string parameters)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", parameters: parameters,
+            bindings: bindings + " " + string.Join(" ", ProbeBindings.Skip(1)));
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+        Assert.Contains("Layout refusal producer", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static readonly string[] ProbeBindings =
+    [
+        "var entries = new System.Collections.Generic.List<LayoutDefinitionPackageEntry>();",
+        "var capabilities = new System.Collections.Generic.Dictionary<string, string>();",
+        "var registers = new LayoutHostRegisters(LayoutBlockKindRegistry.Platform, FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released);",
+    ];
+
     private static (SourceDocument Document, ExpressionSyntax Code) DefinitionRefusalProjectionProbe(
         string exceptionType,
         string declaration = "",
@@ -552,10 +609,12 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         string tryBody = "LayoutPackHostAdmission.Admit(entries, capabilities, registers);",
         string beforeTry = "",
         string parameters = "",
-        string members = "")
+        string members = "",
+        string? bindings = null)
     {
+        bindings ??= string.Join(" ", ProbeBindings);
         var root = CSharpSyntaxTree.ParseText(imports + declaration + " class Probe { " + members + " void Project("
-            + parameters + ") { " + beforeTry + " try { " + tryBody + " } catch ("
+            + parameters + ") { " + bindings + " " + beforeTry + " try { " + tryBody + " } catch ("
             + exceptionType + " refused) { _ = refused.Refusals.Select(refusal => new PackInstallRefusal(refusal.Code, \"\", refusal.Target)); } } }").GetRoot();
         var code = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
             .Single(member => member.Name.Identifier.ValueText == "Code");
@@ -1410,6 +1469,54 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             => new($"Untrusted refusal-list flow at {site}: {reason}: {expression}.");
     }
 
+    // An identifier can still evaluate a getter inside the protected try. Only lexical block
+    // locals already initialized outside that try, or direct readonly fields, establish provenance.
+    private static bool IsBoundLayoutAdmissionArgument(IdentifierNameSyntax argument)
+    {
+        var name = argument.Identifier.ValueText;
+        var callable = argument.Ancestors().FirstOrDefault(node => node is BaseMethodDeclarationSyntax
+            or LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax);
+        if (callable is not BaseMethodDeclarationSyntax) return false;
+        if (callable.DescendantNodes().Any(node => node switch
+            {
+                VariableDeclaratorSyntax variable => variable.Identifier.ValueText == name
+                    && variable.Parent?.Parent is not LocalDeclarationStatementSyntax,
+                ParameterSyntax parameter => parameter.Identifier.ValueText == name,
+                ForEachStatementSyntax loop => loop.Identifier.ValueText == name,
+                CatchDeclarationSyntax caught => caught.Identifier.ValueText == name,
+                SingleVariableDesignationSyntax designation => designation.Identifier.ValueText == name,
+                FromClauseSyntax from => from.Identifier.ValueText == name,
+                LetClauseSyntax let => let.Identifier.ValueText == name,
+                JoinClauseSyntax join => join.Identifier.ValueText == name,
+                JoinIntoClauseSyntax into => into.Identifier.ValueText == name,
+                QueryContinuationSyntax continuation => continuation.Identifier.ValueText == name,
+                LocalFunctionStatementSyntax function => function.Identifier.ValueText == name,
+                _ => false,
+            })) return false;
+
+        foreach (var block in argument.Ancestors().OfType<BlockSyntax>())
+        {
+            var locals = block.Statements.OfType<LocalDeclarationStatementSyntax>()
+                .SelectMany(statement => statement.Declaration.Variables)
+                .Where(variable => variable.Identifier.ValueText == name).ToArray();
+            if (locals.Length > 0)
+                return locals.Length == 1 && locals[0].Initializer is not null
+                    && locals[0].Span.End < argument.SpanStart
+                    && !locals[0].Ancestors().OfType<TryStatementSyntax>()
+                        .Any(owner => owner.Block.Span.Contains(argument.Span));
+            if (block.Parent == callable) break;
+        }
+
+        var ownerType = argument.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+        if (ownerType is null) return false;
+        var fields = ownerType.Members.OfType<FieldDeclarationSyntax>()
+            .SelectMany(field => field.Declaration.Variables.Select(variable => (Field: field, Variable: variable)))
+            .Where(binding => binding.Variable.Identifier.ValueText == name).ToArray();
+        return fields.Length == 1 && fields[0].Field.Modifiers.Any(SyntaxKind.ReadOnlyKeyword)
+            && !ownerType.Members.OfType<PropertyDeclarationSyntax>().Any(property => property.Identifier.ValueText == name)
+            && !ownerType.Members.OfType<EventDeclarationSyntax>().Any(@event => @event.Identifier.ValueText == name);
+    }
+
     private static bool TryResolveCaughtDefinitionRefusalProjection(
         ExpressionSyntax receiver,
         SourceDocument document,
@@ -1498,7 +1605,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             });
         if (!trustedProducer || producerShadowed || valueShadowed || producerCall.ArgumentList.Arguments.Count != 3
             || producerCall.ArgumentList.Arguments.Any(parameter => parameter.NameColon is not null
-                || parameter.RefKindKeyword.RawKind != 0 || parameter.Expression is not IdentifierNameSyntax))
+                || parameter.RefKindKeyword.RawKind != 0 || parameter.Expression is not IdentifierNameSyntax identifierArgument
+                || !IsBoundLayoutAdmissionArgument(identifierArgument)))
             throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
 
         var admit = producerType.GetMethod(nameof(LayoutPackHostAdmission.Admit),

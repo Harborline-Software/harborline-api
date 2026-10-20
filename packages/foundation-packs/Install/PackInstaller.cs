@@ -1422,21 +1422,73 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         if (layoutRefusals.Count > 0 && (!collectRefusals
             || layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)))
         {
-            var layoutAdmissionRefusals = layoutRefusals;
-            if (collectRefusals)
+            if (!collectRefusals)
             {
-                var collected = earlyRefusals.Concat(contractRefusals).ToList();
-                collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
-                layoutAdmissionRefusals = collected;
+                var failFast = HardRefusal(manifest.Key, manifest.Version, layoutRefusals[0].Code,
+                    revocationStale, signerB64, epoch, scope, refusals: layoutRefusals,
+                    destinationClassifications: destinationClassifications);
+                return failFast with
+                {
+                    Preview = failFast.Preview with { RefusalCodes = layoutRefusals.Select(refusal => refusal.Code).Distinct().ToList() },
+                };
             }
 
+            // Check can inspect verified manifest and installed metadata without decoding any body.
+            // Keep this barrier ahead of floors, reattachment, composed admission and all mutations.
+            var safeInstalled = bound?.Installed ?? _store.ListInstalled(context.Tenant);
+            var safeWatermark = bound is not null && string.Equals(bound.PackKey, manifest.Key, StringComparison.Ordinal)
+                ? bound.Watermark : _store.GetWatermark(context.Tenant, manifest.Key);
+            var safeRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, [], _platform);
+            var safeReferences = DetectUnmetContentReferences(safeInstalled, manifest, contents);
+            var safeDependencies = DetectUnmetDependencies(safeInstalled, manifest);
+            var safeWatermarkHits = new List<PackWatermarkHit>();
+            if (safeWatermark is not null && PackVersion.IsDowngrade(safeWatermark.Version, manifest.Version))
+                safeWatermarkHits.Add(new PackWatermarkHit(PackWatermarkHitKind.VersionDowngrade,
+                    $"version {manifest.Version} is below the installed watermark {safeWatermark.Version}"));
+
+            var collected = earlyRefusals.Concat(contractRefusals).ToList();
+            collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
+            foreach (var requirement in safeRequirements)
+            {
+                var code = requirement.Failure == PackPlatformRequirementFailure.MissingCapability
+                    ? PackInstallCodes.RefusedMissingPlatformCapability : PackInstallCodes.RefusedPlatformVersionFloor;
+                if (!collected.Contains(new PackInstallRefusal(code, "/")))
+                    collected.Add(new PackInstallRefusal(
+                        requirement.Failure == PackPlatformRequirementFailure.MissingCapability
+                            ? PackInstallCodes.RefusedMissingPlatformCapability : PackInstallCodes.RefusedPlatformVersionFloor, "/"));
+            }
+            foreach (var reference in safeReferences)
+            {
+                var pointer = ContentPointer(contents, reference.FromContentKey);
+                if (!collected.Contains(new PackInstallRefusal(PackInstallCodes.RefusedUnmetContentReference, pointer)))
+                    collected.Add(new PackInstallRefusal(PackInstallCodes.RefusedUnmetContentReference, pointer));
+            }
+            foreach (var dependency in safeDependencies)
+            {
+                var code = dependency.MalformedPin ? PackInstallCodes.RefusedMalformedDependencyPin : PackInstallCodes.RefusedUnmetDependency;
+                var pointer = DependencyPointer(manifest, dependency);
+                if (!collected.Contains(new PackInstallRefusal(code, pointer)))
+                    collected.Add(new PackInstallRefusal(
+                        dependency.MalformedPin ? PackInstallCodes.RefusedMalformedDependencyPin : PackInstallCodes.RefusedUnmetDependency,
+                        pointer));
+            }
+            if (safeWatermarkHits.Count > 0 && !collected.Contains(new PackInstallRefusal(PackInstallCodes.RefusedDowngrade, "/")))
+                collected.Add(new PackInstallRefusal(PackInstallCodes.RefusedDowngrade, "/"));
+            var layoutAdmissionRefusals = collected;
             var refused = HardRefusal(
                 manifest.Key, manifest.Version, layoutAdmissionRefusals[0].Code, revocationStale,
                 signerB64, epoch, scope, refusals: layoutAdmissionRefusals,
                 destinationClassifications: destinationClassifications);
             return refused with
             {
-                Preview = refused.Preview with { RefusalCodes = layoutAdmissionRefusals.Select(refusal => refusal.Code).Distinct().ToList() },
+                Preview = refused.Preview with
+                {
+                    RefusalCodes = layoutAdmissionRefusals.Select(refusal => refusal.Code).Distinct().ToList(),
+                    UnmetPlatformRequirements = safeRequirements,
+                    UnmetContentReferences = safeReferences,
+                    UnmetDependencies = safeDependencies,
+                    WatermarkHits = safeWatermarkHits,
+                },
             };
         }
 
