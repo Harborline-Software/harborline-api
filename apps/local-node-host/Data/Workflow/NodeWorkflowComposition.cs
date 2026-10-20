@@ -158,6 +158,7 @@ public static class NodeWorkflowComposition
     public static IServiceCollection AddNodeWorkflowHandlers(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.AddLogging();
 
         // RRULE expansion engine (foundation-scheduling, in-memory; idempotent TryAdd) — shared with the
         // recurring-invoice composition.
@@ -199,9 +200,10 @@ public static class NodeWorkflowComposition
             var factory = sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
             var rrule = sp.GetRequiredService<IRruleExpansionService>();
             var definitions = sp.GetService<IWorkflowDefinitionExecutionStore>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<NodeRecurringScheduleSource>>();
             return definitions is null
-                ? new NodeRecurringScheduleSource(factory, rrule)
-                : new NodeRecurringScheduleSource(factory, rrule, definitions);
+                ? new NodeRecurringScheduleSource(factory, rrule, logger)
+                : new NodeRecurringScheduleSource(factory, rrule, definitions, logger);
         });
 
         // The instantiation surface (ADR 0135 v1) — CREATES Process instances from real domain events / rows

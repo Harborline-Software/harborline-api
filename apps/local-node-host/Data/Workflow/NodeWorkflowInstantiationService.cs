@@ -325,8 +325,8 @@ public sealed class NodeWorkflowInstantiationService
             TenantId = tenantId.Value,
             DefinitionKey = RecurringGenerationSteps.DefinitionKey,
             DefinitionVersion = "v1",
-            // Start parked-ready on the schedule's first occurrence step; the daemon's source re-derives the
-            // due generate@{date} steps from the RRULE, so the start step is informational.
+            // The initial generate step is the inclusive cursor lower bound for due occurrences.
+            // Stored startsOn remains the original RRULE anchor for COUNT and phase.
             CurrentStep = RecurringGenerationSteps.GenerateStep(schedule.StartsOn),
             Status = WorkflowStatus.Running,
             StateJson = state,

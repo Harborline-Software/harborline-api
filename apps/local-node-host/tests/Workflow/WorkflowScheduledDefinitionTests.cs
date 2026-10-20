@@ -118,7 +118,7 @@ public sealed class WorkflowScheduledDefinitionTests
                 CurrentStep = "waiting",
                 Status = WorkflowStatus.Running,
                 StateJson = "{}",
-            });
+            }, clock.UtcNow);
 
             clock.UtcNow = clock.UtcNow.AddDays(1);
             var source = new NodeRecurringScheduleSource(
@@ -171,7 +171,7 @@ public sealed class WorkflowScheduledDefinitionTests
                 CurrentStep = "waiting",
                 Status = WorkflowStatus.Running,
                 StateJson = "{}",
-            });
+            }, clock.UtcNow);
             clock.UtcNow = clock.UtcNow.AddDays(1);
 
             await Assert.ThrowsAsync<AuthorizationDeniedException>(() => daemon.TickAsync());

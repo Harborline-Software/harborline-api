@@ -170,7 +170,7 @@ public sealed class RecurringGenerationHandler : IWorkflowStepHandler
     private static DateOnly ParseOccurrence(string generateStep)
     {
         var datePart = generateStep[RecurringGenerationSteps.GeneratePrefix.Length..];
-        if (!DateOnly.TryParseExact(datePart, "yyyy-MM-dd", out var occurrence))
+        if (!DateOnly.TryParseExact(datePart, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var occurrence))
         {
             throw new InvalidOperationException(
                 $"Recurring generate step '{generateStep}' does not carry a yyyy-MM-dd occurrence date.");

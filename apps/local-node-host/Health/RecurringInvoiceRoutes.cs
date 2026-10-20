@@ -156,21 +156,28 @@ public static class RecurringInvoiceRoutes
                 TaxCodeId:       l.TaxCodeId,
                 PropertyId:      l.PropertyId)).ToList();
 
-            var schedule = await recurring.CreateScheduleAsync(
-                tenantId:             LocalTenantId,
-                chartId:              new ChartOfAccountsId(body.ChartId),
-                customerId:           new PartyId(body.CustomerId),
-                arAccountId:          new GLAccountId(body.ArAccountId),
-                recurrenceRule:       body.RecurrenceRule,
-                startsOn:             body.StartsOn,
-                timezone:             body.Timezone,
-                lineTemplates:        lineTemplates,
-                endsOn:               body.EndsOn,
-                lookaheadHorizonDays: body.LookaheadHorizonDays ?? 90,
-                generateLeadDays:     body.GenerateLeadDays ?? 0,
-                cancellationToken:    ct).ConfigureAwait(false);
+            try
+            {
+                var schedule = await recurring.CreateScheduleAsync(
+                    tenantId:             LocalTenantId,
+                    chartId:              new ChartOfAccountsId(body.ChartId),
+                    customerId:           new PartyId(body.CustomerId),
+                    arAccountId:          new GLAccountId(body.ArAccountId),
+                    recurrenceRule:       body.RecurrenceRule,
+                    startsOn:             body.StartsOn,
+                    timezone:             body.Timezone,
+                    lineTemplates:        lineTemplates,
+                    endsOn:               body.EndsOn,
+                    lookaheadHorizonDays: body.LookaheadHorizonDays ?? 90,
+                    generateLeadDays:     body.GenerateLeadDays ?? 0,
+                    cancellationToken:    ct).ConfigureAwait(false);
 
-            return Results.Created($"{RouteBase}/{schedule.Id.Value}", ToDetail(schedule));
+                return Results.Created($"{RouteBase}/{schedule.Id.Value}", ToDetail(schedule));
+            }
+            catch (RecurringInvoiceRecurrenceValidationException refusal)
+            {
+                return Results.BadRequest(new { error = "validation_failed", detail = refusal.SafeDetail });
+            }
         });
     }
 
