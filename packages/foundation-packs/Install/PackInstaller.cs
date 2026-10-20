@@ -1958,7 +1958,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     /// existing installed claims (excluding any prior version of the candidate's own key — that is an
     /// UPGRADE, handled by S-10 re-attach, not a cross-pack collision) PLUS the candidate's own claim.
     /// </summary>
-    private IReadOnlyList<PackCrossPackCollision> DetectCandidateCollisions(
+    private List<PackCrossPackCollision> DetectCandidateCollisions(
         TenantId tenant, IReadOnlyList<InstalledPack> installed, PackManifest manifest,
         IReadOnlyList<PackContentItem> contents, IReadOnlyDictionary<string, string>? keyOwnership = null)
     {
