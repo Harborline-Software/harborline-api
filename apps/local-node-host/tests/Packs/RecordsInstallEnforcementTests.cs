@@ -39,8 +39,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// Oracles: install codes and content pointers are literals from the installer's existing admission refusal shape
 /// (<c>pack.install.refused.admission</c>, <c>/contents/{index}/contentBase64</c> plus the gate's body pointer); Records
 /// codes and body pointers are literals from the Platform install gate contract at Platform
-/// 2c7bef291c6f5adc6d4a7a68885bb7627f20d68c (RecordTypeDefinitionStore.InstallEdges), unchanged at the API's current
-/// Platform pin c3df8c33b8de2812c8a72f5ec40e2df73c656062. Bodies and the pin digest are the
+/// 2c7bef291c6f5adc6d4a7a68885bb7627f20d68c (RecordTypeDefinitionStore.InstallEdges), unchanged at Platform
+/// c3df8c33b8de2812c8a72f5ec40e2df73c656062 and at the current pin 5ec3cf53. Bodies and the pin digest are the
 /// literals of <see cref="RecordsInstallClosureGateTests"/>. The Released case reuses
 /// <see cref="ReleasedPackAtomicFixture"/> unchanged and composes its own gated engine beside the fixture's.
 /// Goal 3 P3: a producer's signed exposed-definition entries reach the gate through the install engine. The P3 cases use

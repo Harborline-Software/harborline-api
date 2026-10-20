@@ -202,8 +202,6 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
         ConfigurationActivationOutcome outcome;
         using (var transaction = new PackProjectionTransaction(cancellationToken))
         {
-            transaction.Enlist(_packs);
-            transaction.Enlist(this);
             using var context = CreateContext();
             try
             {
@@ -283,6 +281,10 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
 
         protected override ValueTask<ActivationBound?> BindAsync(CancellationToken ct)
         {
+            // Authorization reconciles through its own SQLite writer before activation takes the durable lease.
+            transaction.Enlist(target._packs);
+            transaction.Enlist(target);
+            target._unit!.Join(context);
             var current = target.ReadCurrent(context, authority.Tenant);
             var reused = context.EvidenceOutbox.AsNoTracking().FirstOrDefault(row =>
                 row.Tenant == authority.Tenant.Value && row.IntentId == request.EvidenceIntent.Id);
