@@ -3,6 +3,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+
+using Harborline.Api.Foundation.Packs.Dcp;
+using Harborline.Api.Foundation.Packs.DependencyInjection;
+using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Model;
 
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.LocalNodeHost.Data;
@@ -51,6 +57,8 @@ public sealed partial class ComposedHostBootSmokeTests
         using var firstClient = LayoutAdmissionFounderClient(await first.AwaitReadinessAsync());
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
+        services.AddPackComposerExportVerify();
         services.AddSqlCipherLocalNodeDbContext(Convert.FromHexString(rootSeedHex),
             Path.Combine(first.DataDirectory, "local-node.db"), new SqlCipherKeyDerivation(), pooling: false);
         await using var provider = services.BuildServiceProvider();
@@ -93,21 +101,19 @@ public sealed partial class ComposedHostBootSmokeTests
                 Assert.False(definition.GetProperty("blocks")[0].GetProperty("binding")
                     .TryGetProperty("binding_kind", out _));
             }
-            var contents = new List<object>
+            var contents = new List<PackContentSource>
             {
-                new { key = "layout-admission.layout", kind = "Layout", version, content = definition },
+                new("layout-admission.layout", PackContentKind.Layout, version,
+                    JsonNode.Parse(definition.GetRawText())!),
             };
             if (legacyScenario == "mixed")
-                contents.Add(new { key = "layout-admission.mixed-navigation", kind = "NavWorkspaceConfig", version,
-                    content = new { seedWorkspaces = new[]
+                contents.Add(new("layout-admission.mixed-navigation", PackContentKind.NavWorkspaceConfig, version,
+                    JsonSerializer.SerializeToNode(new { seedWorkspaces = new[]
                     {
                         new { id = "layout-admission-refused-workspace", labelKey = "workspaces.layout-admission-refused" },
-                    } } });
-            var bytes = await ExportLayoutAdmissionPackAsync(client, new
-            {
-                key = packKey, version, name = "Layout capability refusal", description = "Default host admission",
-                scopeTier = "Vertical", contents, dependencies = Array.Empty<object>(),
-            }, deadline);
+                    } })!));
+            var bytes = await BuildLayoutAdmissionPackAsync(provider.GetRequiredService<IPackExporter>(),
+                rootSeedHex, packKey, version, contents, deadline);
             var baseline = await ReadLayoutAdmissionStateAsync(factory, tenant, client,
                 legacyScenario is not null, deadline, historicalActive);
 
@@ -157,6 +163,25 @@ public sealed partial class ComposedHostBootSmokeTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", "composed-host-smoke-token");
         return client;
+    }
+
+    private static async Task<byte[]> BuildLayoutAdmissionPackAsync(IPackExporter exporter, string rootSeedHex,
+        string packKey, string version, IReadOnlyList<PackContentSource> contents, CancellationToken deadline)
+    {
+        // Layout's signed envelope requires tenant metadata. The HTTP composer correctly refuses
+        // tenant-named JSON fields, so prepare the artifact with the production exporter instead.
+        // Preview/check/install below still use the real shipping host and its own-roster verifier.
+        using var signer = new NodePrincipalSigner(Convert.FromHexString(rootSeedHex));
+        var request = new PackExportRequest(packKey, version, "Layout capability refusal", "Default host admission",
+            PackScopeTier.Vertical, contents, Array.Empty<PackDependencyRef>(), Array.Empty<string>(),
+            PackComposerRoutes.OwnRosterEpoch,
+            Dcp: DomainComplianceProfile.General(signer.Signer.IssuerId.ToBase64Url()));
+        var outcome = await exporter.ExportAsync(request, signer.Signer, deadline);
+        Assert.True(outcome.Validation.IsValid,
+            string.Join(", ", outcome.Validation.Errors.Select(error => $"{error.Code}:{error.Target}")));
+        Assert.True(outcome.Succeeded);
+        Assert.NotNull(outcome.FileBytes);
+        return outcome.FileBytes;
     }
 
     private static async Task<byte[]> ExportLayoutAdmissionPackAsync(HttpClient client, object request, CancellationToken deadline)
