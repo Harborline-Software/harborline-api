@@ -6,29 +6,26 @@ namespace Harborline.Api.Foundation.Scheduling;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Fleet bounded RRULE subset</b> — this contract mirrors the
-/// ui-react <c>expandRecurrence</c> function in
-/// <c>SchedulerRecurrence.ts</c> exactly so the same RRULE configured
-/// in the Scheduler UI expands to the same occurrence set on the
-/// backend. Cross-tier consistency is a binding requirement per
-/// council-verdict-net-arch-2026-06-12T2213Z §C-2.
+/// <b>Strict shared RRULE producer.</b> This API facade delegates to the pinned Platform
+/// <c>Harborline.Foundation.Scheduling</c> implementation. The producer defines the supported
+/// RFC 5545 subset; this facade does not retain a separate parser or claim exact equivalence
+/// to a UI implementation.
 /// </para>
 /// <para>
-/// <b>Supported subset:</b>
-/// <list type="bullet">
-///   <item><description><c>FREQ</c> — DAILY | WEEKLY | MONTHLY | YEARLY</description></item>
-///   <item><description><c>INTERVAL=N</c> — positive integer (default 1)</description></item>
-///   <item><description><c>COUNT=N</c> or <c>UNTIL=YYYYMMDD</c> (mutually exclusive; UNTIL wins when both present)</description></item>
-///   <item><description><c>BYDAY</c> — weekday list e.g. <c>MO,WE,FR</c>; with monthly ordinal e.g. <c>1MO</c> (first Monday), <c>-1FR</c> (last Friday)</description></item>
-///   <item><description><c>BYMONTHDAY</c> — calendar day 1–28 (capped at 28 to avoid month-end ambiguity across February and 30-day months)</description></item>
-///   <item><description><c>BYMONTH</c> — month number 1–12</description></item>
-///   <item><description>Hard occurrence cap: 1 000 occurrences per call to prevent runaway expansion</description></item>
-/// </list>
+/// The shared subset includes DAILY/WEEKLY/MONTHLY/YEARLY frequency and supported INTERVAL,
+/// COUNT/UNTIL and BY* selectors. Combination applicability, value bounds and the complete-or-refusal
+/// occurrence limit belong to that producer, not to copied API parsing rules.
 /// </para>
 /// <para>
 /// Unsupported RRULE components (EXDATE, BYWEEKNO, BYYEARDAY, etc.)
-/// are silently ignored in v1. The Ical.Net-backed follow-on hand-off
-/// will replace this implementation with full RFC 5545 support.
+/// are refused by the shared Platform producer so an authored restriction cannot be silently discarded.
+/// Malformed values of supported parts are refused rather than defaulted or dropped.
+/// </para>
+/// <para>
+/// The result is complete or an exception is propagated. When the requested range would exceed the
+/// producer's 1 000-occurrence limit, it throws
+/// <see cref="Harborline.Foundation.Scheduling.RruleExpansionCapExceededException"/> instead of returning
+/// an indistinguishable partial list. The producer's exception and its range metadata are preserved.
 /// </para>
 /// </remarks>
 public interface IRruleExpansionService
@@ -61,21 +58,25 @@ public interface IRruleExpansionService
     /// </param>
     /// <param name="timezone">
     /// IANA timezone id for the schedule owner (e.g. <c>America/Los_Angeles</c>).
-    /// V1 treats all dates as naive (no timezone conversion); the
-    /// parameter is accepted now so callers are timezone-aware at the
-    /// call site and the Ical.Net follow-on can use it without a
-    /// signature change.
+    /// The pinned producer accepts this coordinate without timezone conversion; this facade
+    /// forwards it unchanged and introduces no timezone policy.
     /// </param>
     /// <returns>
     /// Occurrences in ascending date order, filtered by
     /// <paramref name="leadDays"/> and bounded by <paramref name="end"/>
-    /// (or <c>today + lookaheadDays</c>). Never exceeds 1 000 items.
+    /// (or <c>today + lookaheadDays</c>). Never exceeds 1 000 items and never returns a capped partial result.
     /// </returns>
     /// <exception cref="FormatException">
-    /// Thrown when <paramref name="rrule"/> is missing a <c>FREQ=</c> component.
+    /// Thrown when <paramref name="rrule"/> is missing a <c>FREQ=</c> component or a supported part is malformed.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="rrule"/> is null or whitespace.
+    /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// Thrown for a component or combination outside the producer's supported subset.
+    /// </exception>
+    /// <exception cref="Harborline.Foundation.Scheduling.RruleExpansionCapExceededException">
+    /// Thrown when the producer cannot return a complete expansion within its occurrence limit.
     /// </exception>
     IReadOnlyList<DateOnly> ExpandOccurrences(
         string rrule,

@@ -104,6 +104,230 @@ public sealed class RecurringInvoiceRouteTests : IAsyncLifetime
         catch { /* best-effort temp cleanup */ }
     }
 
+    [Theory]
+    [InlineData("FREQ=DAILY;INTERVAL=0", 2, "RecurrenceRule has an invalid INTERVAL value.")]
+    [InlineData("FREQ=DAILY;EXDATE=20260106", 2, "RecurrenceRule contains an unsupported component.")]
+    [InlineData("FREQ=DAILY", 1000, "RecurrenceRule exceeds the supported expansion limit for the requested range.")]
+    public async Task Create_validates_recurrence_before_an_active_schedule_is_saved(string rule, int lookahead, string expectedDetail)
+    {
+        var body = ScheduleBody();
+        body["recurrenceRule"] = rule;
+        body["startsOn"] = "2026-01-01";
+        body["endsOn"] = null;
+        body["lookaheadHorizonDays"] = lookahead;
+
+        var response = await _client.PostAsJsonAsync(Route, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", refusal.GetProperty("error").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, refusal.GetProperty("detail").GetString()!);
+        await using var context = await _factory.CreateDbContextAsync();
+        Assert.Equal(0, await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        await AssertNoInvoiceOrJournalWritesAsync();
+    }
+
+    [Theory]
+    [InlineData("FREQ=DAILY;INTERVAL=0", 2, "RecurrenceRule has an invalid INTERVAL value.")]
+    [InlineData("FREQ=DAILY;EXDATE=20260106", 2, "RecurrenceRule contains an unsupported component.")]
+    [InlineData("FREQ=DAILY", 1000, "RecurrenceRule exceeds the supported expansion limit for the requested range.")]
+    public async Task Generate_returns_existing_failed_outcome_for_a_stored_recurrence_refusal(string rule, int lookahead, string expectedDetail)
+    {
+        var id = await SeedStoredRecurrenceAsync(rule, lookahead);
+
+        var response = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-01" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Failed", result.GetProperty("outcome").GetString());
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        Assert.Equal(0, result.GetProperty("newlyGeneratedCount").GetInt32());
+        AssertSafeRecurrenceDetail(expectedDetail, result.GetProperty("error").GetString()!);
+        await AssertNoInvoiceOrJournalWritesAsync();
+        await using var context = await _factory.CreateDbContextAsync();
+        var stored = await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal(rule, stored.RecurrenceRule);
+        Assert.Equal(RecurringScheduleStatus.Active, stored.Status);
+        Assert.Empty(stored.GeneratedInvoices);
+        Assert.Null(stored.LastGeneratedAtUtc);
+    }
+
+    [Fact]
+    public async Task A_complete_empty_expansion_is_valid_at_create_and_generate()
+    {
+        var body = ScheduleBody();
+        body["recurrenceRule"] = "FREQ=MONTHLY;BYMONTHDAY=1";
+        body["startsOn"] = "2026-01-02";
+        body["endsOn"] = "2026-01-02";
+        body["lookaheadHorizonDays"] = 0;
+
+        var created = await _client.PostAsJsonAsync(Route, body);
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var detail = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Active", detail.GetProperty("status").GetString());
+        var id = detail.GetProperty("scheduleId").GetString();
+        var generated = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-02" });
+        Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
+        var result = await generated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Generated", result.GetProperty("outcome").GetString());
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        await AssertNoInvoiceOrJournalWritesAsync();
+        await using var context = await _factory.CreateDbContextAsync();
+        var stored = await context.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal("FREQ=MONTHLY;BYMONTHDAY=1", stored.RecurrenceRule);
+        Assert.Equal(RecurringScheduleStatus.Active, stored.Status);
+        Assert.Empty(stored.GeneratedInvoices);
+        Assert.Null(stored.LastGeneratedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false, "RecurrenceRule contains a malformed value.")]
+    [InlineData(true, "RecurrenceRule contains an unsupported component.")]
+    public async Task Recurrence_diagnostics_are_bounded_fixed_text_not_rule_or_stack(bool unsupported, string expectedDetail)
+    {
+        var untrusted = "DO-NOT-ECHO\r\n" + new string('x', 4096);
+        var rule = unsupported ? "FREQ=DAILY;" + untrusted + "=1" : "FREQ=DAILY;INTERVAL=" + untrusted;
+        var body = ScheduleBody();
+        body["recurrenceRule"] = rule;
+        var created = await _client.PostAsJsonAsync(Route, body);
+        Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+        var refusal = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", refusal.GetProperty("error").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, refusal.GetProperty("detail").GetString()!);
+
+        var id = await SeedStoredRecurrenceAsync(rule, 2);
+        var generated = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-01" });
+        Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
+        var result = await generated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Failed", result.GetProperty("outcome").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, result.GetProperty("error").GetString()!);
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        await AssertNoInvoiceOrJournalWritesAsync();
+    }
+
+    [Theory]
+    [InlineData("FREQ=DAILY;INTERVAL=0", "RecurrenceRule has an invalid INTERVAL value.")]
+    [InlineData("FREQ=DAILY;COUNT=0", "RecurrenceRule has an invalid COUNT value.")]
+    [InlineData("FREQ=DAILY;UNTIL=bad", "RecurrenceRule has an invalid UNTIL value.")]
+    [InlineData("FREQ=MONTHLY;BYDAY=XX", "RecurrenceRule has an invalid BYDAY value.")]
+    [InlineData("FREQ=MONTHLY;BYDAY=6MO", "RecurrenceRule has an invalid BYDAY value.")]
+    [InlineData("FREQ=MONTHLY;BYMONTHDAY=29", "RecurrenceRule has an invalid BYMONTHDAY value.")]
+    [InlineData("FREQ=YEARLY;BYMONTH=13", "RecurrenceRule has an invalid BYMONTH value.")]
+    [InlineData("COUNT=2", "RecurrenceRule is missing its FREQ part.")]
+    [InlineData("FREQ=HOURLY", "RecurrenceRule has an unsupported FREQ value.")]
+    [InlineData("FREQ=WEEKLY;BYMONTHDAY=1", "RecurrenceRule BYMONTHDAY is not supported with WEEKLY.")]
+    [InlineData("FREQ=DAILY;COUNT=INTERVAL", "RecurrenceRule has an invalid COUNT value.")]
+    [InlineData("FREQ=DAILY;UNTIL=BYDAY", "RecurrenceRule has an invalid UNTIL value.")]
+    [InlineData("FREQ=DAILY;BYDAY=COUNT", "RecurrenceRule has an invalid BYDAY value.")]
+    [InlineData("FREQ=BYDAY", "RecurrenceRule has an unsupported FREQ value.")]
+    [InlineData("FREQ=DAILY;X-COUNT=1", "RecurrenceRule contains an unsupported component.")]
+    [InlineData("FREQ=DAILY;EXDATE=20260106", "RecurrenceRule contains an unsupported component.")]
+    [InlineData("FREQ=DAILY;COUNT=DO-NOT-ECHO'INTERVAL", "RecurrenceRule contains a malformed value.")]
+    [InlineData("FREQ=DAILY;COUNT=DO-NOT-ECHO\r\nINTERVAL", "RecurrenceRule contains a malformed value.")]
+    public async Task Recurrence_part_details_use_pinned_templates_without_selecting_words_from_values(
+        string rule, string expectedDetail)
+    {
+        var body = ScheduleBody();
+        body["recurrenceRule"] = rule;
+        body["startsOn"] = "2026-01-01";
+        body["endsOn"] = null;
+        body["lookaheadHorizonDays"] = 2;
+
+        var created = await _client.PostAsJsonAsync(Route, body);
+        Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+        var refusal = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", refusal.GetProperty("error").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, refusal.GetProperty("detail").GetString()!);
+        await using (var afterCreate = await _factory.CreateDbContextAsync())
+            Assert.Equal(0, await afterCreate.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        await AssertNoInvoiceOrJournalWritesAsync();
+
+        var id = await SeedStoredRecurrenceAsync(rule, 2);
+        var generated = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-01" });
+        Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
+        var result = await generated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Failed", result.GetProperty("outcome").GetString());
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        Assert.Equal(0, result.GetProperty("newlyGeneratedCount").GetInt32());
+        AssertSafeRecurrenceDetail(expectedDetail, result.GetProperty("error").GetString()!);
+        await AssertNoInvoiceOrJournalWritesAsync();
+        await using var storedRead = await _factory.CreateDbContextAsync();
+        Assert.Equal(1, await storedRead.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        var stored = await storedRead.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().AsNoTracking().SingleAsync();
+        Assert.Equal(rule, stored.RecurrenceRule);
+        Assert.Equal(RecurringScheduleStatus.Active, stored.Status);
+        Assert.Empty(stored.GeneratedInvoices);
+        Assert.Null(stored.LastGeneratedAtUtc);
+    }
+
+    // A run of letters with no '=' leaves FREQ unset, so the pinned producer throws a plain FormatException
+    // "RRULE missing FREQ= component: '<rule>'." (32 + rule length + 2 characters). The value has no quote or
+    // control character, so it matches the missing-FREQ template, and only the 512-character message bound decides:
+    // 478 letters is a 512-character message (mapped), 479 is 513 and 600 is 634 (both fixed generic text).
+    [Theory]
+    [InlineData(478, "RecurrenceRule is missing its FREQ part.")]
+    [InlineData(479, "RecurrenceRule contains a malformed value.")]
+    [InlineData(600, "RecurrenceRule contains a malformed value.")]
+    public async Task An_oversized_producer_message_matching_a_template_returns_the_fixed_generic_detail(
+        int ruleLength, string expectedDetail)
+    {
+        var rule = new string('x', ruleLength);
+        var body = ScheduleBody();
+        body["recurrenceRule"] = rule;
+        body["startsOn"] = "2026-01-01";
+        body["endsOn"] = null;
+        body["lookaheadHorizonDays"] = 2;
+
+        var created = await _client.PostAsJsonAsync(Route, body);
+        Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+        var refusal = await created.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", refusal.GetProperty("error").GetString());
+        AssertSafeRecurrenceDetail(expectedDetail, refusal.GetProperty("detail").GetString()!);
+        await using (var afterCreate = await _factory.CreateDbContextAsync())
+            Assert.Equal(0, await afterCreate.Set<RecurringInvoiceSchedule>().IgnoreQueryFilters().CountAsync());
+        await AssertNoInvoiceOrJournalWritesAsync();
+
+        var id = await SeedStoredRecurrenceAsync(rule, 2);
+        var generated = await _client.PostAsJsonAsync($"{Route}/{id}/generate", new { asOf = "2026-01-01" });
+        Assert.Equal(HttpStatusCode.OK, generated.StatusCode);
+        var result = await generated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Failed", result.GetProperty("outcome").GetString());
+        Assert.Equal(0, result.GetProperty("invoices").GetArrayLength());
+        AssertSafeRecurrenceDetail(expectedDetail, result.GetProperty("error").GetString()!);
+        await AssertNoInvoiceOrJournalWritesAsync();
+    }
+
+    private static void AssertSafeRecurrenceDetail(string expected, string actual)
+    {
+        Assert.Equal(expected, actual);
+        Assert.InRange(actual.Length, 1, 160);
+        Assert.DoesNotContain("DO-NOT-ECHO", actual);
+        Assert.DoesNotContain("Exception", actual);
+        Assert.All(actual, character => Assert.False(char.IsControl(character)));
+    }
+
+    private async Task<string> SeedStoredRecurrenceAsync(string rule, int lookahead)
+    {
+        var id = new RecurringInvoiceScheduleId("00000000-0000-0000-0000-0000000000d1");
+        var schedule = RecurringInvoiceSchedule.Create(
+            LocalTenantId, new ChartOfAccountsId("CH-1"), new Harborline.Api.Blocks.People.Foundation.Models.PartyId("customer-1"),
+            new GLAccountId("1100"), rule, new DateOnly(2026, 1, 1), "UTC",
+            new[] { new RecurringInvoiceLineTemplate("Stored recurrence", 1m, 250m, new GLAccountId("4000")) },
+            endsOn: null, lookaheadHorizonDays: lookahead, generateLeadDays: 0, id: id);
+        await using var context = await _factory.CreateDbContextAsync();
+        context.Set<RecurringInvoiceSchedule>().Add(schedule);
+        await context.SaveChangesAsync();
+        return id.Value;
+    }
+
+    private async Task AssertNoInvoiceOrJournalWritesAsync()
+    {
+        await using var context = await _factory.CreateDbContextAsync();
+        Assert.Equal(0, await context.Set<Invoice>().IgnoreQueryFilters().CountAsync());
+        Assert.Equal(0, await context.Set<JournalEntry>().IgnoreQueryFilters().CountAsync());
+    }
+
     [Theory(DisplayName = "Recurring create: a client-supplied schedule id is refused 400 with no write, and omission mints a server id (T-974)")]
     [InlineData("id")]
     [InlineData("scheduleId")]

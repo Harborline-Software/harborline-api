@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -161,7 +163,7 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
     {
         if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
             && trigger.Step.StartsWith(RecurringGenerationSteps.GeneratePrefix, StringComparison.Ordinal)
-            && DateOnly.TryParseExact(trigger.Step[RecurringGenerationSteps.GeneratePrefix.Length..], "yyyy-MM-dd", out var occurrence))
+            && DateOnly.TryParseExact(trigger.Step[RecurringGenerationSteps.GeneratePrefix.Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var occurrence))
             return NodeRecurringGenerationContext.JournalEntryIdFor(instance, occurrence).Value;
         return NodeLedgerPostingEffect.JournalEntryIdFor(instance).Value;
     }

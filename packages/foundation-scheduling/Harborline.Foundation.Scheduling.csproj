@@ -3,12 +3,10 @@
     <PackageId>Harborline.Api.Foundation.Scheduling</PackageId>
     <AssemblyName>Harborline.Api.Foundation.Scheduling</AssemblyName>
     <RootNamespace>Harborline.Api.Foundation.Scheduling</RootNamespace>
-    <Description>RFC 5545 RRULE expansion service for Harborline. Provides IRruleExpansionService
-    (and InMemoryRruleExpansionService implementing the fleet's bounded RRULE subset:
-    FREQ daily/weekly/monthly/yearly, INTERVAL, COUNT/UNTIL, BYDAY with monthly ordinals,
-    BYMONTHDAY 1-28, BYMONTH, 1000-occurrence cap) shared across work-orders maintenance
-    schedules, AR recurring invoices, and future AP recurring bills. Extracted from
-    blocks-work-orders per council-verdict-net-arch-2026-06-12T2213Z (Track C C-4).</Description>
+    <Description>API recurrence facade over the pinned Harborline.Foundation.Scheduling strict
+    RFC 5545 subset producer. Preserves IRruleExpansionService and the in-memory implementation name,
+    forwarding complete expansions or the producer's refusal and cap metadata. Shared across
+    work-orders maintenance schedules, AR recurring invoices, and future AP recurring bills.</Description>
     <PackageTags>scheduling;rrule;recurrence;foundation;harborline</PackageTags>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -31,10 +29,11 @@
          unnecessary via transitive availability through foundation. Per fleet-conventions
          "NU1510 — keep the PackageRef, suppress the warning". -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Harborline.Foundation.Scheduling" />
   </ItemGroup>
   <ItemGroup>
-    <!-- foundation-scheduling is facade-independent: references only foundation (TenantId etc.)
-         + DI abstractions + BCL. Must NOT reference foundation-authorization,
+    <!-- The API facade references the shared Platform scheduling producer, API foundation
+         (TenantId etc.), DI abstractions and BCL. Must NOT reference foundation-authorization,
          blocks-financial-*, or blocks-work-orders. Same acyclic discipline as
          foundation-authorization.csproj (the landed precedent). -->
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

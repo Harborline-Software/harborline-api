@@ -130,3 +130,22 @@ the host is usable only for in-process scenarios and integration tests.
 - Anchor shell → Wave 3.3 (`accelerators/anchor/`)
 - Example / seed plugins → not this wave; empty plugin set is the expected
   boot state. The kernel logs `Loaded 0 plugin(s)` and moves on.
+
+## Recurring-invoice development data
+
+Recurring invoices use the shared strict recurrence producer. New schedules are validated before an
+Active schedule is saved. A malformed, unsupported or incomplete expansion is refused; the node does
+not silently fall back to the old parser or return a partial series. An empty, complete occurrence
+list is valid. Validation of one bounded window does not guarantee that every future generation
+window will fit the producer's expansion limit.
+
+This is an explicitly accepted pre-release semantic clean break. Existing developer stores containing
+rules accepted by the former parser may require deliberate reinitialization with valid development
+data. There is no legacy fallback or migration for this change. The application does not automatically
+delete or reset developer data. Preserve any needed data before choosing to reinitialize a development
+store through the normal development process.
+
+A recognized expansion refusal on a stored schedule returns the existing Failed generation outcome
+without writing invoices, journal entries or that schedule's generation cursor. Other healthy schedules
+can continue in a bulk run. Recurrence diagnostics are fixed, bounded text; cancellation, boundary
+authority and infrastructure failures are not reclassified as recurrence failures.
