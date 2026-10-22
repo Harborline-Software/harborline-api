@@ -1,5 +1,6 @@
 # pnpm audit overrides (ADR-0086 clause 5), transitive via minimatch; each names its advisory.
 overrides:
+  vite: 8.3.5 # GHSA-587h-7wmj-h5pm; patched bundled launch-editor.
   "source-map-js@>=1.0.0 <1.2.2": "1.2.2" # GHSA-68fv-2mgg-jv7q
   "brace-expansion@>=4.0.0 <5.0.12": ">=5.0.12" # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr
   "qs@>=6.11.1 <6.15.2": "6.15.2" # GHSA-q8mj-m7cp-5q26
