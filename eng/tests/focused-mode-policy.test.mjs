@@ -96,6 +96,60 @@ test('the local-node-host README mixed with PackInstaller keeps both completed m
   }
 })
 
+test('the kernel-crdt README is an exact documentation input', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'packages/kernel-crdt/README.md'}])
+  assert.deepEqual(plan.changes, [{path: 'packages/kernel-crdt/README.md', status: 'M', kind: 'documentation'}])
+  assert.equal(plan.selection, 'not-required')
+  assert.deepEqual(plan.requiredModes, [])
+  assert.equal(requireRunnableSelection(plan), null)
+  assert.equal(validateFocusedModeEvidence(plan, null, []).status, 'not-required')
+  for (const file of [
+    'packages/other/README.md', 'packages/kernel-crdt-other/README.md',
+    'packages/kernel-crdt/tests/README.md', 'packages/kernel-crdt/README.md.bak',
+    'packages/kernel-crdt/README.mdx', 'packages/kernel-crdt/Readme.md',
+  ]) {
+    const other = classifyFocusedModes([{status: 'M', path: file}])
+    assert.equal(other.changes[0].kind, 'unknown', file)
+    assert.equal(other.selection, 'unsupported', file)
+    assert.deepEqual(other.requiredModes, ['coverage-off', 'coverage-on'], file)
+    assert.throws(() => requireRunnableSelection(other), /unsupported-selection/, file)
+    assert.throws(() => validateFocusedModeEvidence(other, null, []), /unsupported-selection/, file)
+  }
+})
+
+test('the kernel-crdt README mixed with PackInstaller keeps both completed modes', () => {
+  const plan = classifyFocusedModes([
+    {status: 'M', path: 'packages/kernel-crdt/README.md'},
+    {status: 'M', path: 'packages/foundation-packs/Install/PackInstaller.cs'},
+  ])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.changes.map(row => row.kind).sort(), ['binary', 'documentation'])
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).id, 'compiled-write-fences-v1')
+  assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
+  assert.throws(() => validateFocusedModeEvidence(plan, null, evidence(plan)), /invalid-context/)
+  for (const missing of ['coverage-off', 'coverage-on']) {
+    assert.throws(() => validateFocusedModeEvidence(plan, context,
+      evidence(plan).filter(row => row.mode !== missing)), /missing-mode/)
+  }
+})
+
+test('a runtime rename to the kernel-crdt README keeps both completed modes', () => {
+  const plan = classifyFocusedModes(parseChangedFiles('R100\0packages/kernel-crdt/Backends/YDotNetCrdtEngine.cs\0packages/kernel-crdt/README.md\0'))
+  assert.deepEqual(plan.changes, [
+    {path: 'packages/kernel-crdt/Backends/YDotNetCrdtEngine.cs', status: 'R100', kind: 'binary'},
+    {path: 'packages/kernel-crdt/README.md', status: 'R100', kind: 'documentation'},
+  ])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).id, 'compiled-write-fences-v1')
+  assert.equal(validateFocusedModeEvidence(plan, context, evidence(plan)).status, 'passed')
+  for (const missing of ['coverage-off', 'coverage-on']) {
+    assert.throws(() => validateFocusedModeEvidence(plan, context,
+      evidence(plan).filter(row => row.mode !== missing)), /missing-mode/)
+  }
+})
+
 test('an explicit documentation-only delta omits only the additional early check', () => {
   const plan = classifyFocusedModes([{status: 'M', path: 'docs/guide.md'}])
   assert.deepEqual(plan.requiredModes, [])

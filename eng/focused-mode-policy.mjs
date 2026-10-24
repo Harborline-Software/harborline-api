@@ -24,6 +24,7 @@ function category(file) {
   if (!safePath(file)) return 'unknown'
   if (/^(README|CONTRIBUTING|AGENTS|CI-PIPELINE)\.md$/.test(file)
     || file === 'apps/local-node-host/README.md'
+    || file === 'packages/kernel-crdt/README.md'
     || /^(docs|adrs|designs)\/.*\.md$/.test(file)) return 'documentation'
   if (/coverage|\.runsettings$/i.test(file)) return 'coverage'
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
