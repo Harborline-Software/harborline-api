@@ -40,7 +40,6 @@ See [`SPIKE-OUTCOME.md`](SPIKE-OUTCOME.md) for the full investigation.
 | `Backends/YDotNetCrdtEngine.cs` | Default production backend — wraps YDotNet 0.6.0 (Yjs/yrs). |
 | `Backends/StubCrdtEngine.cs` | Test-only fake (heavily flagged; never a production fallback). |
 | `DependencyInjection/ServiceCollectionExtensions.cs` | `AddHarborlineCrdtEngine()` / `AddHarborlineCrdtEngineYDotNet()` / `AddHarborlineCrdtEngineStub()`. |
-| `tests/` | xUnit + FsCheck property-based harness — runs against both backends. |
 | `SPIKE-OUTCOME.md` | Full 2026-04-22 spike write-up. |
 
 ## Using it
@@ -63,12 +62,11 @@ var snapshot = doc.ToSnapshot();          // send to peer via federation layer
 await using var peer = engine.OpenDocument("note/2026-04-22/lunch", snapshot);
 ```
 
-See `tests/CrdtTextTests.cs` for the full convergence exchange pattern (two peers,
-concurrent edits, delta exchange, assert identical `Value`). See
-`tests/YDotNetCrdtEngineTests.cs` for property-based convergence + idempotence
-coverage against the real Yjs/yrs backend (exercises concurrent-insert RGA
-tiebreak, map LWW, array fractional positions — things the stub's total-order
-replay cannot honestly test).
+See [ContactCrdtConvergenceTests.cs](../../apps/local-node-host/tests/Entities/ContactCrdtConvergenceTests.cs)
+for map convergence and
+[CommsCrdtConvergenceTests.cs](../../apps/local-node-host/tests/Entities/CommsCrdtConvergenceTests.cs)
+for append-log convergence. Both suites use the real `YDotNetCrdtEngine` and
+exchange deltas between two in-process replicas.
 
 ## Backend selection
 
