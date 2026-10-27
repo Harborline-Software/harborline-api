@@ -479,12 +479,15 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
             ObserveFault(disposal);
             try { await disposal.WaitAsync(Remaining(cleanup, 30)); }
             catch (Exception exception) { cleanupFailure += "\nDisposal: " + exception; }
-            if (failure is not null) failure.Data["T1047.child"] = Diagnostics();
-            if (cleanupFailure is not null)
+            if (failure is not null)
             {
-                if (failure is not null) failure.Data["T1047.cleanup"] = cleanupFailure;
-                else throw new InvalidOperationException(cleanupFailure);
+                failure.Data["T1047.child"] = Diagnostics();
+                if (cleanupFailure is not null) failure.Data["T1047.cleanup"] = cleanupFailure;
+                throw new InvalidOperationException(
+                    $"{failure.Message}\n{Diagnostics()}" + (cleanupFailure is null ? "" : $"\ncleanup:\n{cleanupFailure}"),
+                    failure);
             }
+            if (cleanupFailure is not null) throw new InvalidOperationException(cleanupFailure);
         }
 
         string Diagnostics() => $"PID={pid}; directory={settings.Directory}; confirmed closure={closed}\n" +
