@@ -69,6 +69,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     private string _dir = null!;
     private bool _retainDirectory;
     private IDbContextFactory<LocalNodeDbContext> _factory = null!;
+    private string _databasePath = null!;
 
     public async Task InitializeAsync()
     {
@@ -102,6 +103,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         await using (var ctx = await _factory.CreateDbContextAsync())
         {
             await ctx.Database.EnsureCreatedAsync();
+            await ctx.Database.OpenConnectionAsync();
+            try { _databasePath = Path.GetFullPath(ctx.Database.GetDbConnection().DataSource); }
+            finally { await ctx.Database.CloseConnectionAsync(); }
         }
 
         // The desktop plane; a request carrying X-Test-Party is a selected-session member instead.
@@ -405,15 +409,15 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
             ObserveFault(readReady);
             var ready = JsonSerializer.Deserialize<Ready>(await readReady.WaitAsync(Remaining(startup, 120)))
                 ?? throw new InvalidOperationException("Missing bank child readiness.");
+            Console.WriteLine($"T1047 readiness {JsonSerializer.Serialize(ready)}; parent database={_databasePath}");
             Assert.Equal(settings.Nonce, ready.Nonce);
-            Assert.Equal(Path.Combine(settings.Directory, "bank-idem.db"), ready.Database);
+            Assert.Equal(_databasePath, ready.Database);
             Assert.Equal(pid, ready.Pid);
             Assert.Equal("between-inserts", ready.Phase);
             Assert.True(
                 ready is { First: InsertTable.Account, Next: InsertTable.Key, Accounts: 1, Keys: 0 } or
                     { First: InsertTable.Key, Next: InsertTable.Account, Accounts: 0, Keys: 1 },
                 "Readiness must prove one physical row and an opposite pending INSERT.");
-            Console.WriteLine($"T1047 readiness {JsonSerializer.Serialize(ready)}");
 
             var finishing = Stopwatch.StartNew();
             if (outcome == ChildOutcome.KilledBetweenInserts)
