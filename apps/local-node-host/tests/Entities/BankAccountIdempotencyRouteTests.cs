@@ -1,6 +1,8 @@
 using System.Data.Common;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
@@ -65,7 +67,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private string _dir = null!;
+    private bool _retainDirectory;
     private IDbContextFactory<LocalNodeDbContext> _factory = null!;
+    private string _databasePath = null!;
 
     public async Task InitializeAsync()
     {
@@ -99,6 +103,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         await using (var ctx = await _factory.CreateDbContextAsync())
         {
             await ctx.Database.EnsureCreatedAsync();
+            await ctx.Database.OpenConnectionAsync();
+            try { _databasePath = Path.GetFullPath(ctx.Database.GetDbConnection().DataSource); }
+            finally { await ctx.Database.CloseConnectionAsync(); }
         }
 
         // The desktop plane; a request carrying X-Test-Party is a selected-session member instead.
@@ -133,11 +140,21 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        _client?.Dispose();
-        await _app.StopAsync();
-        await _app.DisposeAsync();
+        await StopHostAsync();
+        if (_retainDirectory) return;
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }
         catch { /* best-effort temp cleanup */ }
+    }
+
+    private async Task StopHostAsync()
+    {
+        _client?.Dispose();
+        _client = null!;
+        var app = _app;
+        _app = null!;
+        if (app is null) return;
+        try { await app.StopAsync(); }
+        finally { await app.DisposeAsync(); }
     }
 
     [Fact(DisplayName = "T-1047: a keyed create retried after a restart replays the first 201 byte-identical; one account, one key")]
@@ -222,13 +239,13 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Single(await KeysAsync());
     }
 
-    [Fact(DisplayName = "T-1047: a crash at the account's insert leaves neither the key nor the account, and a retry creates it once")]
+    [Fact(DisplayName = "T-1047: an exception at the account's insert rolls back the key and account, and a retry creates it once")]
     public async Task CrashAtCommit_LeavesNeither_AndARetrySucceedsOnce()
     {
         _hooks.FailAccountInsert = true;
-        var crashed = await PostAsync("bank-key-6", "Ops Checking");
+        var failed = await PostAsync("bank-key-6", "Ops Checking");
 
-        Assert.Equal(HttpStatusCode.InternalServerError, crashed.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         Assert.Empty(await AccountsAsync());
         Assert.Empty(await KeysAsync());
 
@@ -241,6 +258,252 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Equal(retry.Headers.Location, again.Headers.Location);
         Assert.Single(await AccountsAsync());
         Assert.Single(await KeysAsync());
+    }
+
+    [Fact(DisplayName = "T-1047: killing the HTTP writer between physical inserts leaves neither row; retry and replay create one account")]
+    public async Task ProcessLossBetweenInserts_RetryCreatesExactlyOnce()
+    {
+        await StopHostAsync();
+        await RunChildAsync(ChildOutcome.KilledBetweenInserts);
+        await StartHostAsync();
+        Assert.Empty(await AccountsAsync());
+        Assert.Empty(await KeysAsync());
+
+        using var retry = await PostAsync("bank-process-loss", "Ops Checking");
+        using var replay = await PostAsync("bank-process-loss", "Ops Checking");
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        Assert.Equal(await retry.Content.ReadAsStringAsync(), await replay.Content.ReadAsStringAsync());
+        Assert.Equal(retry.Headers.Location, replay.Headers.Location);
+        await AssertSingleCreatedPairAsync(retry);
+    }
+
+    [Fact(DisplayName = "T-1047: the same child completes both physical inserts and HTTP 201; a fresh host replays its durable response")]
+    public async Task BetweenInsertControl_CompletesBothRows()
+    {
+        await StopHostAsync();
+        await RunChildAsync(ChildOutcome.Completed);
+        await StartHostAsync();
+        Assert.Single(await AccountsAsync());
+        var committed = Assert.Single(await KeysAsync());
+        using var replay = await PostAsync("bank-process-loss", "Ops Checking");
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.Deserialize<JsonElement>(committed.Response),
+            JsonSerializer.Deserialize<JsonElement>(await replay.Content.ReadAsStringAsync())));
+        await AssertSingleCreatedPairAsync(replay);
+    }
+
+    private async Task AssertSingleCreatedPairAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var account = Assert.Single(await AccountsAsync());
+        var key = Assert.Single(await KeysAsync());
+        Assert.Equal("Ops Checking", account.DisplayName);
+        Assert.Equal("7e570000-0000-0000-0000-0000000000aa", account.TenantId.Value);
+        Assert.Equal("7e570000-0000-0000-0000-0000000000aa", key.TenantId);
+        Assert.Equal("desktop-operator-under-test", key.Principal);
+        Assert.Equal("bank-process-loss", key.Key);
+        Assert.Equal(account.Id.Value, key.AccountId);
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.Deserialize<JsonElement>(key.Response),
+            JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync())));
+        Assert.Equal($"/api/local-node/bank-accounts/{account.Id.Value}", response.Headers.Location!.OriginalString);
+    }
+
+    private const string ChildSettingsVariable = "HARBORLINE_T1047_BANK_CHILD";
+    private const int ChildFailureExit = 71;
+    private const int ChildDeadlineExit = 72;
+    private enum ChildOutcome { KilledBetweenInserts, Completed }
+    private enum InsertTable { Account, Key }
+    private sealed record ChildSettings(string Directory, string Nonce, ChildOutcome Outcome);
+    private sealed record Ready(string Nonce, string Database, int Pid, string Phase,
+        InsertTable First, InsertTable Next, long Accounts, long Keys, bool HasTransaction);
+
+    [ModuleInitializer]
+    internal static void StartBankChildIfSelected()
+    {
+        var selected = Environment.GetEnvironmentVariable(ChildSettingsVariable);
+        if (selected is null) return;
+        // Return from module initialization before the worker awaits HTTP callbacks in this assembly.
+        new Thread(() =>
+        {
+            using var watchdog = new Timer(_ => Environment.Exit(ChildDeadlineExit), null,
+                TimeSpan.FromSeconds(300), Timeout.InfiniteTimeSpan);
+            try
+            {
+                var settings = JsonSerializer.Deserialize<ChildSettings>(selected)
+                    ?? throw new InvalidOperationException("Missing bank child settings.");
+                if (!Path.IsPathFullyQualified(settings.Directory) ||
+                    !string.Equals(settings.Directory, Path.GetFullPath(settings.Directory), StringComparison.Ordinal) ||
+                    !File.Exists(Path.Combine(settings.Directory, "bank-idem.db")) ||
+                    !Guid.TryParseExact(settings.Nonce, "N", out _) || !Enum.IsDefined(settings.Outcome))
+                    throw new InvalidOperationException("Invalid bank child settings.");
+                RunRequestInChildAsync(settings).GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+                Environment.Exit(ChildFailureExit);
+            }
+        }) { IsBackground = false }.Start();
+    }
+
+    private static async Task RunRequestInChildAsync(ChildSettings settings)
+    {
+        var fixture = new BankAccountIdempotencyRouteTests { _dir = settings.Directory };
+        fixture._hooks.BetweenInserts = new BetweenInsertBarrier(settings);
+        await fixture.StartHostAsync();
+        fixture._client.Timeout = Timeout.InfiniteTimeSpan;
+        using var response = await fixture.PostAsync("bank-process-loss", "Ops Checking");
+        Assert.Equal(ChildOutcome.Completed, settings.Outcome);
+        await fixture.AssertSingleCreatedPairAsync(response);
+        await fixture.StopHostAsync();
+    }
+
+    private async Task RunChildAsync(ChildOutcome outcome)
+    {
+        var settings = new ChildSettings(Path.GetFullPath(_dir), Guid.NewGuid().ToString("N"), outcome);
+        var readyPath = Path.Combine(settings.Directory, "bank-child-ready.json");
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        start.ArgumentList.Add(typeof(BankAccountIdempotencyRouteTests).Assembly.Location);
+        start.Environment.Remove("HARBORLINE_T1048H_NARROWING_CHILD_DIRECTORY");
+        start.Environment.Remove("HARBORLINE_T1048_MEMBERSHIP_CHILD_DIRECTORY");
+        start.Environment.Remove("HARBORLINE_T1048G_ERASURE_CHILD_DB");
+        start.Environment.Remove("HARBORLINE_LOGOUT_PROCESS_TEST_DIRECTORY");
+        start.Environment.Remove("HARBORLINE_LOGOUT_PROCESS_TEST_PHASE");
+        start.Environment[ChildSettingsVariable] = JsonSerializer.Serialize(settings);
+        var process = new Process { StartInfo = start };
+        var stopReaders = new CancellationTokenSource();
+        Task<string>? output = null;
+        Task<string>? error = null;
+        Task? completion = null;
+        Task? kill = null;
+        var started = false;
+        var closed = false;
+        var pid = 0;
+        Exception? failure = null;
+        var startup = Stopwatch.StartNew();
+        try
+        {
+            started = process.Start();
+            if (!started) throw new InvalidOperationException("Could not start the bank child.");
+            _retainDirectory = true;
+            pid = process.Id;
+            output = process.StandardOutput.ReadToEndAsync(stopReaders.Token);
+            error = process.StandardError.ReadToEndAsync(stopReaders.Token);
+            ObserveFault(output);
+            ObserveFault(error);
+            var exit = process.WaitForExitAsync(stopReaders.Token);
+            ObserveFault(exit);
+            completion = Task.WhenAll(exit, output, error);
+            ObserveFault(completion);
+            while (!File.Exists(readyPath))
+            {
+                if (output.IsFaulted) await output;
+                if (error.IsFaulted) await error;
+                if (process.HasExited && !File.Exists(readyPath))
+                    throw new InvalidOperationException("Bank child exited before reaching the physical INSERT gap.");
+                await Task.Delay(TimeSpan.FromMilliseconds(25)).WaitAsync(Remaining(startup, 120));
+            }
+
+            var readReady = File.ReadAllTextAsync(readyPath);
+            ObserveFault(readReady);
+            var ready = JsonSerializer.Deserialize<Ready>(await readReady.WaitAsync(Remaining(startup, 120)))
+                ?? throw new InvalidOperationException("Missing bank child readiness.");
+            Console.WriteLine($"T1047 readiness {JsonSerializer.Serialize(ready)}; parent database={_databasePath}");
+            Assert.Equal(settings.Nonce, ready.Nonce);
+            Assert.Equal(_databasePath, ready.Database);
+            Assert.Equal(pid, ready.Pid);
+            Assert.Equal("between-inserts", ready.Phase);
+            Assert.True(
+                ready is { First: InsertTable.Account, Next: InsertTable.Key, Accounts: 1, Keys: 0 } or
+                    { First: InsertTable.Key, Next: InsertTable.Account, Accounts: 0, Keys: 1 },
+                "Readiness must prove one physical row and an opposite pending INSERT.");
+
+            var finishing = Stopwatch.StartNew();
+            if (outcome == ChildOutcome.KilledBetweenInserts)
+            {
+                Assert.False(process.HasExited, "The child must remain alive at the physical INSERT gap until the parent kills it.");
+                kill = Task.Run(() => process.Kill(entireProcessTree: true));
+                ObserveFault(kill);
+                await kill.WaitAsync(Remaining(finishing, 30));
+            }
+            await completion.WaitAsync(Remaining(finishing, 30));
+            closed = true;
+            Console.WriteLine($"T1047 child PID={pid}; outcome={outcome}; exit={process.ExitCode}; both pipes drained\n{output.Result}\n{error.Result}");
+            if (outcome == ChildOutcome.Completed) Assert.Equal(0, process.ExitCode);
+            else
+            {
+                Assert.NotEqual(0, process.ExitCode);
+                Assert.NotEqual(ChildFailureExit, process.ExitCode);
+                Assert.NotEqual(ChildDeadlineExit, process.ExitCode);
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+            exception.Data["T1047.child"] = Diagnostics();
+            throw;
+        }
+        finally
+        {
+            var cleanup = Stopwatch.StartNew();
+            string? cleanupFailure = null;
+            if (started && !closed)
+            {
+                try
+                {
+                    // Reuse a pending kill so neither another kill nor disposal races its Process handle.
+                    kill ??= Task.Run(() => { if (!process.HasExited) process.Kill(entireProcessTree: true); });
+                    ObserveFault(kill);
+                    await kill.WaitAsync(Remaining(cleanup, 30));
+                    if (completion is null) throw new InvalidOperationException("Child output drains were not established.");
+                    await completion.WaitAsync(Remaining(cleanup, 30));
+                    closed = true;
+                }
+                catch (Exception exception) { cleanupFailure = exception + "\n" + Diagnostics(); }
+            }
+            _retainDirectory = started && !closed;
+            var disposal = (kill ?? Task.CompletedTask).ContinueWith(_ =>
+            {
+                try { stopReaders.Cancel(); }
+                finally
+                {
+                    try { process.Dispose(); }
+                    finally { stopReaders.Dispose(); }
+                }
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            ObserveFault(disposal);
+            try { await disposal.WaitAsync(Remaining(cleanup, 30)); }
+            catch (Exception exception) { cleanupFailure += "\nDisposal: " + exception; }
+            if (failure is not null)
+            {
+                failure.Data["T1047.child"] = Diagnostics();
+                if (cleanupFailure is not null) failure.Data["T1047.cleanup"] = cleanupFailure;
+                throw new InvalidOperationException(
+                    $"{failure.Message}\n{Diagnostics()}" + (cleanupFailure is null ? "" : $"\ncleanup:\n{cleanupFailure}"),
+                    failure);
+            }
+            if (cleanupFailure is not null) throw new InvalidOperationException(cleanupFailure);
+        }
+
+        string Diagnostics() => $"PID={pid}; directory={settings.Directory}; confirmed closure={closed}\n" +
+            $"stdout:\n{(output?.IsCompletedSuccessfully == true ? output.Result : "<incomplete>")}\n" +
+            $"stderr:\n{(error?.IsCompletedSuccessfully == true ? error.Result : "<incomplete>")}";
+
+        static TimeSpan Remaining(Stopwatch clock, int seconds)
+        {
+            var remaining = TimeSpan.FromSeconds(seconds) - clock.Elapsed;
+            if (remaining <= TimeSpan.Zero) throw new TimeoutException($"Bank child exceeded its {seconds}-second stage budget.");
+            return remaining;
+        }
+
+        static void ObserveFault(Task task) => _ = task.ContinueWith(completed => { _ = completed.Exception; },
+            CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     [Fact(DisplayName = "T-1047: a key is remembered for 24 hours; one second before it replays, at 24 hours it creates a new account")]
@@ -328,9 +591,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
 
     private async Task RestartHostAsync()
     {
-        _client.Dispose();
-        await _app.StopAsync();
-        await _app.DisposeAsync();
+        await StopHostAsync();
         await StartHostAsync();
     }
 
@@ -419,8 +680,51 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         sessionCorrelationId: "session-" + canonicalParty,
         coordinationCorrelationId: "coordination-" + canonicalParty);
 
-    /// <summary>Command-level hooks on the real store: a gate before the key insert, a signal after a key lookup,
-    /// and an injected fault on the account insert.</summary>
+    private sealed class BetweenInsertBarrier(ChildSettings settings)
+    {
+        private InsertTable? _first;
+
+        public async Task BeforeAsync(DbCommand command)
+        {
+            const string accountInsert = "INSERT INTO \"bank_accounts\"";
+            const string keyInsert = "INSERT INTO \"bank_account_create_keys\"";
+            var accountAt = command.CommandText.IndexOf(accountInsert, StringComparison.Ordinal);
+            var keyAt = command.CommandText.IndexOf(keyInsert, StringComparison.Ordinal);
+            if (accountAt < 0 && keyAt < 0) return;
+            if ((accountAt >= 0 && keyAt >= 0) ||
+                (accountAt >= 0 && command.CommandText.IndexOf(accountInsert, accountAt + accountInsert.Length, StringComparison.Ordinal) >= 0) ||
+                (keyAt >= 0 && command.CommandText.IndexOf(keyInsert, keyAt + keyInsert.Length, StringComparison.Ordinal) >= 0))
+                throw new InvalidOperationException("Batched participant INSERTs cannot prove a between-inserts gap.");
+            var next = accountAt >= 0 ? InsertTable.Account : InsertTable.Key;
+            if (_first == next) throw new InvalidOperationException("Repeated participant INSERT cannot establish the opposite-table gap.");
+
+            var connection = command.Connection ?? throw new InvalidOperationException("INSERT has no connection.");
+            await using var count = connection.CreateCommand();
+            count.Transaction = command.Transaction;
+            count.CommandText = "SELECT COUNT(*) FROM \"bank_accounts\"";
+            var accounts = (long)(await count.ExecuteScalarAsync())!;
+            count.CommandText = "SELECT COUNT(*) FROM \"bank_account_create_keys\"";
+            var keys = (long)(await count.ExecuteScalarAsync())!;
+            if (_first is null)
+            {
+                Assert.Equal(0L, accounts);
+                Assert.Equal(0L, keys);
+                _first = next;
+                return;
+            }
+
+            Assert.Equal(_first == InsertTable.Account ? 1L : 0L, accounts);
+            Assert.Equal(_first == InsertTable.Key ? 1L : 0L, keys);
+            var ready = new Ready(settings.Nonce, Path.GetFullPath(connection.DataSource), Environment.ProcessId,
+                "between-inserts", _first.Value, next, accounts, keys, command.Transaction is not null);
+            var path = Path.Combine(settings.Directory, "bank-child-ready.json");
+            await File.WriteAllTextAsync(path + ".tmp", JsonSerializer.Serialize(ready));
+            File.Move(path + ".tmp", path);
+            if (settings.Outcome == ChildOutcome.KilledBetweenInserts)
+                await new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task;
+        }
+    }
+
     private sealed class CommitHooks : DbCommandInterceptor
     {
         private Func<Task>? _beforeKeyInsert;
@@ -429,6 +733,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         public Func<Task>? BeforeKeyInsert { set => _beforeKeyInsert = value; }
 
         public volatile bool FailAccountInsert;
+        public BetweenInsertBarrier? BetweenInserts { get; set; }
 
         public Task ArmNextKeyLookup()
         {
@@ -465,8 +770,17 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
 
         private async Task BeforeAsync(DbCommand command)
         {
+            if (BetweenInserts is { } barrier)
+            {
+                try { await barrier.BeforeAsync(command); }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine(exception);
+                    throw;
+                }
+            }
             if (FailAccountInsert && command.CommandText.Contains("INSERT INTO \"bank_accounts\"", StringComparison.Ordinal))
-                throw new InvalidOperationException("Injected crash at the bank account's commit.");
+                throw new InvalidOperationException("Injected exception before the bank account insert.");
             if (command.CommandText.Contains("INSERT INTO \"bank_account_create_keys\"", StringComparison.Ordinal) &&
                 Interlocked.Exchange(ref _beforeKeyInsert, null) is { } gate)
             {
