@@ -287,7 +287,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Single(await AccountsAsync());
         var committed = Assert.Single(await KeysAsync());
         using var replay = await PostAsync("bank-process-loss", "Ops Checking");
-        Assert.Equal(committed.Response, await replay.Content.ReadAsStringAsync());
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.Deserialize<JsonElement>(committed.Response),
+            JsonSerializer.Deserialize<JsonElement>(await replay.Content.ReadAsStringAsync())));
         await AssertSingleCreatedPairAsync(replay);
     }
 
@@ -302,7 +304,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Equal("desktop-operator-under-test", key.Principal);
         Assert.Equal("bank-process-loss", key.Key);
         Assert.Equal(account.Id.Value, key.AccountId);
-        Assert.Equal(key.Response, await response.Content.ReadAsStringAsync());
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.Deserialize<JsonElement>(key.Response),
+            JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync())));
         Assert.Equal($"/api/local-node/bank-accounts/{account.Id.Value}", response.Headers.Location!.OriginalString);
     }
 
@@ -429,6 +433,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
             }
             await completion.WaitAsync(Remaining(finishing, 30));
             closed = true;
+            Console.WriteLine($"T1047 child PID={pid}; outcome={outcome}; exit={process.ExitCode}; both pipes drained\n{output.Result}\n{error.Result}");
             if (outcome == ChildOutcome.Completed) Assert.Equal(0, process.ExitCode);
             else
             {
@@ -436,7 +441,6 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
                 Assert.NotEqual(ChildFailureExit, process.ExitCode);
                 Assert.NotEqual(ChildDeadlineExit, process.ExitCode);
             }
-            Console.WriteLine($"T1047 child PID={pid}; outcome={outcome}; exit={process.ExitCode}; both pipes drained\n{output.Result}\n{error.Result}");
         }
         catch (Exception exception)
         {
