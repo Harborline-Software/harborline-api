@@ -1,3 +1,8 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Kernel.Runtime;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Threading.Tasks;
 
@@ -102,6 +107,11 @@ public static class NodeFormsComposition
             Func<IServiceProvider, IHierarchyCompositeUnitOfWork>>? configureWriters = null)
     {
         ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton(provider => new NodeDefinitionArchiveWriter(
+            provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(),
+            provider.GetRequiredService<AuthorizationGate>(),
+            provider.GetRequiredService<NodeAuditOutbox>(),
+            provider.GetService<IWritePipelineObserver>()));
 
         // Form writes are authorization decisions with durable audit evidence. Keep the dependency
         // explicit at the composition boundary: the shipping host supplies it through

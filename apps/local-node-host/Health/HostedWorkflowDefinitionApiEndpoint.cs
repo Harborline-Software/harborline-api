@@ -1,3 +1,4 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,7 @@ public sealed class HostedWorkflowDefinitionApiEndpoint : IHostedService
     private readonly SharedHostedWebApp _sharedApp;
     private readonly AuthorizedWorkflowDefinitionLifecycle _store;
     private readonly TimeProvider _timeProvider;
+    private readonly NodeDefinitionArchiveWriter _archives;
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly ILogger<HostedWorkflowDefinitionApiEndpoint> _logger;
 
@@ -35,13 +37,15 @@ public sealed class HostedWorkflowDefinitionApiEndpoint : IHostedService
         AuthorizedWorkflowDefinitionLifecycle store,
         IActiveTeamAccessor activeTeam,
         ILogger<HostedWorkflowDefinitionApiEndpoint> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        NodeDefinitionArchiveWriter archives)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _archives = archives ?? throw new ArgumentNullException(nameof(archives));
         _sharedApp = sharedApp;
         _store = store;
         _activeTeam = activeTeam;
@@ -56,7 +60,7 @@ public sealed class HostedWorkflowDefinitionApiEndpoint : IHostedService
             app.MapDeviceReachableProductDataGroup(),
             _store,
             _activeTeam,
-            _timeProvider));
+            _timeProvider, _archives));
 
         _logger.LogInformation(
             "WF-KEY node-local workflow-definition authoring API registered — GET/PUT {Base}[/{{key}}]. " +

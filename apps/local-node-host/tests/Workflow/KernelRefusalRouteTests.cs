@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -52,6 +54,7 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         builder.Services.AddTestAuthorizationGate();
         builder.Services.AddEntityStoreWorkflowDefinitionStore(_ => entities);
+        builder.Services.AddTestDefinitionArchives();
         _app = builder.Build();
         _listener = new SharedHostedWebApp(
             _app, Options.Create(new LocalNodeOptions { HealthPort = 0 }),
@@ -67,7 +70,8 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
             });
             WorkflowDefinitionRoutes.Map(
                 routes.MapDeviceReachableProductDataGroup(),
-                _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>(), activeTeam, _clock);
+                _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>(), activeTeam, _clock,
+                _app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
         });
         await _listener.StartAsync(CancellationToken.None);
         await _app.StartAsync();

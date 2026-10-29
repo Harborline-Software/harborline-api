@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
@@ -73,6 +75,7 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
         builder.Services.AddTestAuthorizationGate();
         builder.Services.AddEntityStoreWorkflowDefinitionStore(_ => entityStore);
 
+        builder.Services.AddTestDefinitionArchives();
         _app = builder.Build();
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
 
@@ -85,7 +88,8 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
             _app.MapDeviceReachableProductDataGroup(),
             _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>(),
             _activeTeam,
-            TimeProvider.System);
+            TimeProvider.System,
+            _app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
 
         await _app.StartAsync();
 

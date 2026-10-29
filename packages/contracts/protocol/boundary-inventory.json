@@ -1671,6 +1671,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}/{(archived ? \"archive\" : \"unarchive\")}\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/{(archived ? \"archive\" : \"unarchive\")}\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}/restore\"",
       "kind": "local-node-http",
       "method": "POST",
@@ -2188,6 +2196,14 @@
       "method": "POST",
       "routeExpression": "LoginPath",
       "source": "apps/local-node-host/Health/WebSession/WebSessionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WorkflowDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/{(archived ? \"archive\" : \"unarchive\")}\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{key}}/{(archived ? \"archive\" : \"unarchive\")}\"",
+      "source": "apps/local-node-host/Health/WorkflowDefinitionRoutes.cs",
       "status": "deferred"
     },
     {
