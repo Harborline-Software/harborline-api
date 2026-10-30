@@ -1,8 +1,9 @@
 # Nightly failure alert. A scheduled run on main that fails, times out or is cancelled opens one issue per
 # workflow, labelled nightly-failure, and each later failing night adds a comment with its failed steps.
-# The next scheduled run that passes comments and closes the issue. Skipped runs (a paused or unqualified
-# route) change nothing. Before this, a nightly could fail for weeks with no one told: app's stryker nightly
-# failed every night from 2026-10-02 to 2026-10-29.
+# The next scheduled run that passes comments and closes the issue. Skipped runs change nothing, and so do
+# runs where a paused or unqualified route ran only its routing jobs (those still conclude success).
+# Before this, a nightly could fail for weeks with no one told: app's stryker nightly failed every night
+# from 2026-10-02 to 2026-10-29.
 name: nightly-alert
 
 on:
@@ -46,6 +47,14 @@ jobs:
             --jq '.[] | select(.title == $ENV.TITLE) | .number' | head -n 1)
 
           if [ "$CONCLUSION" = success ]; then
+            # A paused or unqualified route still concludes success, with every real job skipped. That proves
+            # nothing, so it neither closes nor opens an issue.
+            ran=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '
+              [.jobs[] | select(.conclusion == "success" and .name != "workload-route" and .name != "builder-plan")] | length')
+            if [ "$ran" = 0 ]; then
+              echo "$WORKFLOW concluded success with only routing jobs run; nothing changed" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             if [ -n "$issue" ]; then
               gh issue comment "$issue" --body "Passed on the run started $RUN_STARTED ($RUN_URL). Closing."
               gh issue close "$issue" --reason completed
