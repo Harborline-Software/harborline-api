@@ -60,13 +60,6 @@ jobs:
       # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
       VSTEST_CONNECTION_TIMEOUT: '300'
     steps:
-      - name: Git Bash on PATH for the service account
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
-
       - uses: actions/checkout@v7
         with:
           clean: true
@@ -77,6 +70,16 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           global-json-file: global.json
+
+      - name: Git Bash on PATH for the service account
+        # After setup-dotnet: dotnet-install runs tar from PATH, and Git's usr\bin tar reads the
+        # C: in the SDK archive path as a remote host.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24

@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
@@ -179,16 +180,157 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
     {
         await using var host = await Host.StartAsync();
         using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { } });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        AssertRecordRequest(Assert.Single(host.Requests));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertValidationWire(body, "entity.validation.body_invalid", "/title");
+        await AssertNoRefusedWriteAsync(host);
+        AssertRefusalReceipt(host, body, Assert.Single(await host.RowsAsync()), "entity.validation.body_invalid");
+    }
+
+    [Theory]
+    [InlineData("unknown", "entity.validation.schema_unknown")]
+    [InlineData("rule", "entity.validation.rule_refused")]
+    [InlineData("unavailable", "entity.validation.rules_unavailable")]
+    public async Task Keyed_record_validator_refusals_keep_actual_code_root_and_receipt(string condition, string code)
+    {
+        RuleDefinition[] rules = condition == "unknown" ? [] : [RecordRule(condition == "rule"
+            ? """{">":[{"var":"rent"},0]}"""
+            : """{"no-such-operator":[{"var":"rent"}]}""")];
+        await using var host = await Host.StartAsync(rules: rules, unknownSchema: condition == "unknown");
+
+        using var response = await host.PostAsync(new
+        {
+            type = "bound-type", displayName = "Private submitted label", values = new { title = "Private submitted value", rent = 0 },
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertValidationWire(body, code, "");
+        Assert.DoesNotContain("Private submitted", body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("hidden-rule", body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("records.unavailable-hidden-schema", body.GetRawText(), StringComparison.Ordinal);
+        await AssertNoRefusedWriteAsync(host);
+        AssertRefusalReceipt(host, body, Assert.Single(await host.RowsAsync()), code);
+    }
+
+    [Fact]
+    public async Task Keyed_record_rule_admits_a_satisfying_record_with_the_real_receipt()
+    {
+        await using var host = await Host.StartAsync(rules: [RecordRule("""{">":[{"var":"rent"},0]}""")]);
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { title = "Note", rent = 1200 } });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var request = Assert.Single(host.Requests);
+        AssertRecordRequest(request);
+        Assert.Equal(request.Target.RecordId, body.GetProperty("id").GetString());
+        var stored = await host.Services.GetRequiredService<IEntityStore>().GetAsync(
+            new EntityId("record", "asset-registry", request.Target.RecordId));
+        Assert.NotNull(stored);
+        Assert.Equal(1200, stored.Body.RootElement.GetProperty("rent").GetInt32());
+        Assert.NotNull(await host.Registry.GetByIdAsync(Tenant, new RegistryEntityId(request.Target.RecordId)));
         Assert.Equal(1, host.Clock.Reads);
         Assert.Equal(1, host.Validator.Calls);
-        Assert.Equal(new[] { WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
-            WritePipelineStage.Validate }, host.Stages);
-        Assert.Empty(host.Mutations.ReceivedCalls());
-        Assert.Empty(host.RegistryWrites.ReceivedCalls());
-        Assert.Empty(host.Trail.AcceptedDecisions);
-        Assert.DoesNotContain(await host.RowsAsync(), row => row.EventType.Value == "RecordWritten");
+        AssertStages(host.Stages);
+        Assert.Equal(request, Assert.Single(host.Trail.AcceptedDecisions).Request);
+        var row = Assert.Single(await host.RowsAsync());
+        Assert.Equal("RecordWritten", row.EventType.Value);
+        Assert.Equal(row.AuditId, body.GetProperty("auditId").GetGuid());
+    }
+
+    [Theory]
+    [InlineData("""{"type":"object","not":{"type":"object"}}""", "{}", "")]
+    [InlineData("""{"type":"object","properties":{"title":{"type":"string"}}}""", """{"title":37}""", "/title")]
+    [InlineData("""{"type":"object","properties":{"owner":{"type":"object","properties":{"name":{"type":"string"}}}}}""", """{"owner":{"name":37}}""", "/owner/name")]
+    [InlineData("""{"type":"object","properties":{"lines":{"type":"array","items":{"type":"string"}}}}""", """{"lines":[37]}""", "/lines/0")]
+    [InlineData("""{"type":"object","properties":{"a/b~c":{"type":"string"}}}""", """{"a/b~c":37}""", "/a~1b~0c")]
+    [InlineData("""{"type":"object","properties":{"":{"type":"string"}}}""", """{"":37}""", "/")]
+    public async Task Schema_refusal_preserves_the_actual_values_document_location(string schema, string values, string pointer)
+    {
+        await using var host = await Host.StartAsync(schemaText: schema);
+        using var document = JsonDocument.Parse(values);
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = document.RootElement });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        AssertValidationWire(await response.Content.ReadFromJsonAsync<JsonElement>(), "entity.validation.body_invalid", pointer);
+        await AssertNoRefusedWriteAsync(host);
+    }
+
+    [Fact]
+    public async Task Every_actual_schema_location_gets_an_individual_refusal()
+    {
+        await using var host = await Host.StartAsync(schemaText:
+            """{"type":"object","properties":{"title":{"type":"string"},"other":{"type":"string"}}}""");
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { title = 37, other = 42 } });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        AssertValidationWire(await response.Content.ReadFromJsonAsync<JsonElement>(), "entity.validation.body_invalid", "/other", "/title");
+        await AssertNoRefusedWriteAsync(host);
+    }
+
+    [Theory]
+    [InlineData(RefusalAuditMode.Absent)]
+    [InlineData(RefusalAuditMode.Failed)]
+    public async Task Missing_or_failed_refusal_sink_does_not_fabricate_a_receipt(RefusalAuditMode auditMode)
+    {
+        await using var host = await Host.StartAsync(auditMode: auditMode);
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { title = 37 } });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertValidationWire(body, "entity.validation.body_invalid", "/title");
+        Assert.False(body.TryGetProperty("auditId", out _));
+        await AssertNoRefusedWriteAsync(host);
+        Assert.Empty(await host.RowsAsync());
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("absent")]
+    [InlineData("null-member")]
+    public async Task Missing_producer_locations_fail_closed_without_a_default_root(string condition)
+    {
+        await using var host = await Host.StartAsync(auditMode: RefusalAuditMode.Absent);
+        host.Validator.Failure = new EntityValidationException("private-exception-sentinel",
+            "entity.validation.body_invalid", condition switch { "absent" => null!, "null-member" => [null!], _ => [] });
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { title = "Note" } });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+        await AssertNoRefusedWriteAsync(host);
+        Assert.Empty(await host.RowsAsync());
+    }
+
+    [Fact]
+    public async Task Registry_index_failure_preserves_the_committed_record_and_real_receipt()
+    {
+        await using var host = await Host.StartAsync();
+        host.FailRegistryIndex = true;
+
+        using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { title = "Note" } });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("registry_index_failed", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("stage", out _));
+        var request = Assert.Single(host.Requests);
+        AssertRecordRequest(request);
+        Assert.Equal(request.Target.RecordId, body.GetProperty("id").GetString());
+        Assert.Equal("record:asset-registry/" + request.Target.RecordId, body.GetProperty("canonicalRecordId").GetString());
+        Assert.NotNull(await host.Services.GetRequiredService<IEntityStore>().GetAsync(
+            new EntityId("record", "asset-registry", request.Target.RecordId)));
+        Assert.Null(await host.Registry.GetByIdAsync(Tenant, new RegistryEntityId(request.Target.RecordId)));
+        AssertStages(host.Stages);
+        Assert.Equal(request, Assert.Single(host.Trail.AcceptedDecisions).Request);
+        var row = Assert.Single(await host.RowsAsync());
+        Assert.Equal("RecordWritten", row.EventType.Value);
+        Assert.Equal(row.AuditId, body.GetProperty("auditId").GetGuid());
+        Assert.DoesNotContain("private-index-sentinel", body.GetRawText(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -377,6 +519,55 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
     private static readonly TenantId Tenant = new("10840000-0000-0000-0000-000000000001");
     private static CreateOptions Options(string id) => new("record", "asset-registry", id, new ActorId("selected-party"), Tenant, ExplicitLocalPart: id);
 
+    private static RuleDefinition RecordRule(string expression) => new(
+        new DefinitionEnvelope<string, string, TenantId, string?>("hidden-rule", "1.0.0", Tenant, CascadeLayer.Tenant, null, [], Contract: null),
+        RuleTier.JsonLogic, RuleScope.Schema, string.Empty, expression, RuleActionKind.Validate);
+
+    private static void AssertValidationWire(JsonElement body, string code, params string[] pointers)
+    {
+        Assert.Equal("validate", body.GetProperty("stage").GetString());
+        Assert.Equal(body.TryGetProperty("auditId", out _) ? new[] { "auditId", "refusals", "stage" } : new[] { "refusals", "stage" },
+            body.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
+        var refusals = body.GetProperty("refusals").EnumerateArray().ToArray();
+        Assert.NotEmpty(refusals);
+        Assert.All(refusals, refusal =>
+        {
+            Assert.Equal(new[] { "code", "pointer" }, refusal.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
+            Assert.Equal(code, refusal.GetProperty("code").GetString());
+        });
+        Assert.Equal(pointers, refusals.Select(refusal => refusal.GetProperty("pointer").GetString()).OrderBy(pointer => pointer, StringComparer.Ordinal));
+    }
+
+    private static async Task AssertNoRefusedWriteAsync(Host host)
+    {
+        var request = Assert.Single(host.Requests);
+        AssertRecordRequest(request);
+        Assert.Equal(1, host.Clock.Reads);
+        Assert.Equal(1, host.Validator.Calls);
+        Assert.Equal(new[] { WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
+            WritePipelineStage.Validate }, host.Stages);
+        Assert.Empty(host.Mutations.ReceivedCalls());
+        Assert.Empty(host.RegistryWrites.ReceivedCalls());
+        Assert.Empty(host.Trail.AcceptedDecisions);
+        Assert.Null(await host.Services.GetRequiredService<IEntityStore>().GetAsync(new EntityId("record", "asset-registry", request.Target.RecordId)));
+        Assert.Null(await host.Registry.GetByIdAsync(Tenant, new RegistryEntityId(request.Target.RecordId)));
+        Assert.DoesNotContain(await host.RowsAsync(), row => row.EventType.Value == "RecordWritten");
+    }
+
+    private static void AssertRefusalReceipt(Host host, JsonElement body, AuditRecord row, string code)
+    {
+        Assert.Equal("AuthorizationRefused", row.EventType.Value);
+        Assert.Equal(code, row.Payload.Payload.Body["code"]);
+        Assert.Equal("records:write", row.Payload.Payload.Body["permission"]);
+        Assert.Equal(Tenant, row.TenantId);
+        Assert.Equal("selected-principal", row.Actor!.Value.Value);
+        Assert.Equal(Assert.Single(host.Requests).At, row.OccurredAt);
+        Assert.NotEqual(Guid.Empty, row.AuditId);
+        Assert.Equal(row.AuditId, body.GetProperty("auditId").GetGuid());
+    }
+
+    public enum RefusalAuditMode { Recorded, Absent, Failed }
+
     private static void AssertRecordRequest(AuthorizationGateRequest request)
     {
         Assert.Equal("records:write", request.Act.Operation.Value);
@@ -403,6 +594,7 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
         private ServiceProvider _teamServices = null!;
         private readonly HashSet<Guid> _seedRows = [];
         public bool AllowWrite { get; set; } = true;
+        public bool FailRegistryIndex { get; set; }
         public EntityId? ReturnedId { get; set; }
         public List<AuthorizationGateRequest> Requests { get; } = [];
         public List<WritePipelineStage> Stages { get; } = [];
@@ -419,7 +611,9 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
         public NodeEntityWriter Writer => Services.GetRequiredService<NodeEntityWriter>();
         public void OnStage(WritePipelineStage stage) => Stages.Add(stage);
 
-        public static async Task<Host> StartAsync(bool noWriter = false, bool publishForm = true)
+        public static async Task<Host> StartAsync(bool noWriter = false, bool publishForm = true,
+            string? schemaText = null, RuleDefinition[]? rules = null, bool unknownSchema = false,
+            RefusalAuditMode auditMode = RefusalAuditMode.Recorded)
         {
             var host = new Host();
             var grantScopes = new List<ScopeExpression> { ScopeExpression.Parse("/") };
@@ -446,9 +640,18 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
                     host.Mutations.CreateAsync(Arg.Any<ValidatedRecordBody>(), Arg.Any<CreateOptions>(), Arg.Any<CancellationToken>())
                         .Returns(call => host.ReturnedId is { } returnedId ? Task.FromResult(returnedId)
                             : realMutations.CreateAsync(call.Arg<ValidatedRecordBody>(), call.Arg<CreateOptions>(), call.Arg<CancellationToken>()));
-                    host.Validator = new CountingValidator(sp.GetRequiredService<CompiledSchemaEntityValidator>());
+                    host.Validator = new CountingValidator(sp.GetRequiredKeyedService<IEntityValidator>(CompiledSchemaEntityValidator.RecordWriteKey));
+                    var refusals = auditMode == RefusalAuditMode.Absent ? null : sp.GetRequiredService<AuthorizationRefusalAudit>();
+                    if (auditMode == RefusalAuditMode.Failed)
+                    {
+                        var failedTrail = Substitute.For<IAuditTrail>();
+                        failedTrail.AppendAsync(Arg.Any<AuditRecord>(), Arg.Any<CancellationToken>())
+                            .Returns(_ => ValueTask.FromException(new InvalidOperationException("private-audit-sentinel")));
+                        refusals = new AuthorizationRefusalAudit(failedTrail, sp.GetRequiredService<IOperationSigner>(),
+                            sp.GetRequiredService<ILogger<AuthorizationRefusalAudit>>());
+                    }
                     return new NodeEntityWriter(null!, host.Mutations, host.Validator, gate,
-                        sp.GetRequiredService<AuthorizationRefusalAudit>(), sp.GetRequiredService<AuthorizedActAudit>(), host);
+                        refusals, sp.GetRequiredService<AuthorizedActAudit>(), host);
                 }));
             builder.Services.AddAuthorizedActAudit();
             builder.Services.AddAuthorizationRefusalAudit();
@@ -458,11 +661,12 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
             host._app = builder.Build();
             var realTypes = host.Services.GetRequiredService<IEntityTypeRegistry>();
             host.Registry = host.Services.GetRequiredService<IRegistryEntityRepository>();
-            host.Schema = (await host.Services.GetRequiredService<ISchemaRegistry>().RegisterAsync(
-                """{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}""")).Id;
+            host.Schema = unknownSchema ? new SchemaId("records.unavailable-hidden-schema")
+                : (await host.Services.GetRequiredService<ISchemaRegistry>().RegisterAsync(schemaText ??
+                    """{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}""")).Id;
             var form = new FormDefinition(new FormDefinitionId("create-order.capture"), new SemanticVersion(1, 0, 0),
                 FormDefinitionStatus.Draft, Tenant, IdentityRef.System, host.Schema,
-                new HarborlineOverlay(new Dictionary<string, FieldOverlay>(), [], [], InternationalizedText.FromInvariant("Create")),
+                new HarborlineOverlay(new Dictionary<string, FieldOverlay>(), [], rules ?? [], InternationalizedText.FromInvariant("Create")),
                 null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
             var realForms = host.Services.GetRequiredService<IFormDefinitionStore>();
             await realForms.RegisterAsync(form);
@@ -483,7 +687,9 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
             host.Forms.GetAsync(Arg.Any<DefinitionCoordinates>(), Arg.Any<CancellationToken>())
                 .Returns(call => realForms.GetAsync(call.Arg<DefinitionCoordinates>(), call.Arg<CancellationToken>()));
             host.RegistryWrites.UpsertAsync(Arg.Any<RegistryEntity>(), Arg.Any<Instant>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(call => host.Registry.UpsertAsync(call.Arg<RegistryEntity>(), call.Arg<Instant>(), call.Arg<string?>(), call.Arg<CancellationToken>()));
+                .Returns(call => host.FailRegistryIndex
+                    ? Task.FromException(new InvalidOperationException("private-index-sentinel"))
+                    : host.Registry.UpsertAsync(call.Arg<RegistryEntity>(), call.Arg<Instant>(), call.Arg<string?>(), call.Arg<CancellationToken>()));
             host._teamServices = new ServiceCollection().BuildServiceProvider();
             var active = new ActiveTeam(new TeamContext(new TeamId(Guid.Parse(Tenant.Value)), "Create", host._teamServices, TimeProvider.System));
             AuthorizationDenialTranslation.Use(host._app);
@@ -538,10 +744,11 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
     private sealed class CountingValidator(IEntityValidator inner) : IEntityValidator
     {
         public int Calls { get; private set; }
+        public EntityValidationException? Failure { get; set; }
         public Task ValidateAsync(SchemaId schema, JsonDocument body, CancellationToken ct = default)
         { Calls++; return inner.ValidateAsync(schema, body, ct); }
         public Task ValidateRecordAsync(SchemaId schema, JsonDocument body, TenantId tenant, EntityBinding? binding, DateTimeOffset at, CancellationToken ct = default)
-        { Calls++; return inner.ValidateRecordAsync(schema, body, tenant, binding, at, ct); }
+        { Calls++; return Failure is { } failure ? Task.FromException(failure) : inner.ValidateRecordAsync(schema, body, tenant, binding, at, ct); }
     }
     private sealed class CapturingTrail(InMemoryAuditTrail inner) : IAuthorizedAuditTrail
     {

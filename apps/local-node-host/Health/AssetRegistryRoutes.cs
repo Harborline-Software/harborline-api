@@ -449,8 +449,11 @@ public static class AssetRegistryRoutes
                 }
                 catch (EntityValidationException ex)
                 {
-                    return Results.UnprocessableEntity(
-                        new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers, ex.AuditId));
+                    if (ex.Pointers is not { Count: > 0 } || ex.Pointers.Any(pointer => pointer is null))
+                        return Results.StatusCode(StatusCodes.Status500InternalServerError);
+                    return Results.Conflict(new RecordValidationWire("validate",
+                        ex.Pointers.Select(pointer => new RecordValidationRefusalWire(ex.ReasonCode, pointer)).ToArray(),
+                        ex.AuditId));
                 }
                 catch (FormDefinitionNotFoundException)
                 {
@@ -1031,6 +1034,15 @@ public static class AssetRegistryRoutes
     public sealed record MoneyBody(decimal Amount, string? Currency);
 
     // ── Response DTOs (camelCase wire) ─────────────────────────────────────────────────
+    private sealed record RecordValidationWire(
+        [property: JsonPropertyName("stage")] string Stage,
+        [property: JsonPropertyName("refusals")] RecordValidationRefusalWire[] Refusals,
+        [property: JsonPropertyName("auditId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId);
+
+    private sealed record RecordValidationRefusalWire(
+        [property: JsonPropertyName("code")] string Code,
+        [property: JsonPropertyName("pointer")] string Pointer);
+
     /// <summary>The effective type catalog.</summary>
     public sealed record TypeListResponse(TypeWire[] Types);
     /// <summary>An entity type (seed or tenant row), with its composable traits + discipline set.</summary>

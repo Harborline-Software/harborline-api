@@ -115,7 +115,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
                 services.AddSingleton(sp => new NodeEntityWriter(
                     null!,
                     entityMutations(sp),
-                    sp.GetRequiredService<CompiledSchemaEntityValidator>(),
+                    sp.GetRequiredKeyedService<IEntityValidator>(CompiledSchemaEntityValidator.RecordWriteKey),
                     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
                     sp.GetService<AuthorizationRefusalAudit>(),
                     sp.GetService<AuthorizedActAudit>())));
@@ -410,7 +410,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
             ActiveTeamTenantContext.ProjectTenantId(TeamA), Operator, auditId, AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
         Assert.Equal(AuthorizationTraceAvailability.Available, trace.Availability);
         var facts = trace.Steps.SelectMany(step => step.Facts).ToArray();
-        Assert.Contains($"act:{TeamRolePermissions.RecordsWrite}@/records/{receipt.GetProperty("id").GetString()}", facts);
+        Assert.Contains($"act:records:write@/records/{receipt.GetProperty("id").GetString()}", facts);
         Assert.Contains("verdict:allowed", facts);
 
         var detail = await _client.GetFromJsonAsync<JsonElement>(
@@ -434,9 +434,25 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
             values = new { },
         });
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
         var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        Assert.Equal("validate", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("entity.validation.body_invalid", refusal.GetProperty("code").GetString());
+        Assert.Equal("/title", refusal.GetProperty("pointer").GetString());
+        Assert.False(body.TryGetProperty("code", out _));
+        Assert.False(body.TryGetProperty("detail", out _));
+        Assert.False(body.TryGetProperty("pointers", out _));
+        Assert.False(refusal.TryGetProperty("target", out _));
+        Assert.False(refusal.TryGetProperty("detail", out _));
+        var auditId = body.GetProperty("auditId").GetGuid();
+        Assert.NotEqual(Guid.Empty, auditId);
+        await using var scope = _app.Services.CreateAsyncScope();
+        var trace = await scope.ServiceProvider.GetRequiredService<AuthorizationTraceReader>().ReadAsync(
+            tenant, Operator, auditId, AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
+        Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, trace.Availability);
+        Assert.Equal("entity.validation.body_invalid", trace.Refusal!.Code);
+        Assert.Empty(trace.Steps);
         var after = await _app.Services.GetRequiredService<IRegistryEntityRepository>()
             .ListByTypeAsync(tenant, new EntityTypeId(NoteType));
         Assert.Equal(before.Count, after.Count);
