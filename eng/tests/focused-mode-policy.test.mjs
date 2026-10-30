@@ -53,6 +53,42 @@ for (const [file, kind] of [
   assert.equal(requireRunnableSelection(plan).project, 'apps/local-node-host/tests/tests.csproj')
 })
 
+for (const file of [
+  'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv',
+  'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md',
+  'packages/contracts/protocol/boundary-inventory.json',
+]) test(`executable inventory requires the existing compiled OFF/ON selector: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.deepEqual(plan.changes, [{path: file, status: 'M', kind: 'build-artifact'}])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.deepEqual(requireRunnableSelection(plan), {
+    id: 'compiled-write-fences-v1', project: 'apps/local-node-host/tests/tests.csproj',
+    filter: 'FullyQualifiedName~Harborline.Api.LocalNodeHost.Tests.ArchTests.WritePipelineExecutorFenceTests',
+    requiredTests: requiredNames,
+  })
+})
+
+test('executable inventory allowances do not admit neighboring TSV, Markdown or JSON paths', () => {
+  for (const file of [
+    'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv.bak',
+    'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-other.tsv',
+    'apps/local-node-host/tests/ArchTests/nested/hosted-web-legacy-authority-debt.tsv',
+    'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md.bak',
+    'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-other.generated.md',
+    'apps/local-node-host/tests/Identity/OtherInventory/mtw-00a-identity-inventory.generated.md',
+    'packages/contracts/protocol/boundary-inventory.json.bak',
+    'packages/contracts/protocol/boundary-inventory-other.json',
+    'packages/contracts/protocol/nested/boundary-inventory.json',
+  ]) {
+    const plan = classifyFocusedModes([{status: 'M', path: file}])
+    assert.deepEqual(plan.changes, [{path: file, status: 'M', kind: 'unknown'}])
+    assert.equal(plan.selection, 'unsupported')
+    assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+    assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
+  }
+})
+
 test('only pack recipe exports under _shared packs count as binary inputs', () => {
   for (const file of ['_shared/packs/platform/notes.json', '_shared/conformance/packs/x.export.json.bak', '_shared/other/x.export.json']) {
     const plan = classifyFocusedModes([{status: 'M', path: file}])

@@ -117,7 +117,7 @@ public sealed class RouteAudienceGraphTests
         // T-667 adds the one selected-session released-package install route, beside the offer it
         // installs, in every profile.
         // T-735 adds the device-reachable Layout denial reader in every profile.
-        int[] expectedClassifiedCounts = [240, 263, 264, 251, 274, 275];
+        int[] expectedClassifiedCounts = [244, 267, 268, 255, 278, 279];
 
         Assert.Equal(6, profiles.Length);
         // T-585 item 3, the other direction. The forward half below refuses an executable route with no

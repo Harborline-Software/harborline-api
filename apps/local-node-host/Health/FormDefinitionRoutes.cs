@@ -1,4 +1,8 @@
-﻿using System.Text;
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -55,7 +59,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <para>
 /// <b>Tenant-scoping (INV-S1).</b> Exactly as <see cref="FormsRoutes"/>: the
 /// Harborline App sends NO tenant id and NO principal in the BODY. The route resolves the
-/// tenant from the active team (<see cref="NodeTenant.Resolve"/>) and the owner
+/// tenant from the selected request or desktop active team and the owner
 /// server-side from the request's own selected-session principal (#3378), and the
 /// <see cref="IFormDefinitionStore"/> enforces the tenant boundary on every
 /// lookup/listing. A definition saved under tenant A is invisible to tenant B.
@@ -123,15 +127,32 @@ public static class FormDefinitionRoutes
         ISchemaRegistry schemaRegistry,
         IActiveTeamAccessor activeTeam,
         TimeProvider timeProvider,
+        NodeDefinitionArchiveWriter archives,
         IRestrictingDefinitionKindValidator? restrictingKinds = null,
         ICatalogue? catalogue = null,
         IFormFieldTypeCatalogue? fieldTypes = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(schemaRegistry);
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(timeProvider);
+
+        (TenantId Tenant, IResult? Refusal) ResolveRequestTenant(HttpContext http)
+        {
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return (default, Results.Unauthorized());
+            if (selected is not null)
+            {
+                var invalidCorrelation = SelectedRequestCorrelation.Bind(http);
+                if (invalidCorrelation is not null) return (default, invalidCorrelation);
+                return (selected.TenantId, null);
+            }
+            return (NodeTenant.Resolve(activeTeam), null);
+        }
         restrictingKinds ??= RestrictingDefinitionKindValidator.Shared;
         fieldTypes ??= FormFieldTypeCatalogue.Shared;
         // The definition family stays the legacy wire while its published-list read is a projection
@@ -145,7 +166,8 @@ public static class FormDefinitionRoutes
         // status marker; published rows carry latestDraftVersion when a NEWER draft exists.
         app.MapGet(RouteBase, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             var includeDrafts = IsOptIn(http.Request.Query["includeDrafts"]);
 
             var projected = await catalogue.ListAsync(tenant, PackContentKind.FormDefinition, ct)
@@ -191,16 +213,43 @@ public static class FormDefinitionRoutes
                 }
             }
 
+            if (!IsOptIn(http.Request.Query["includeArchived"]))
+            {
+                var archived = await archives.ListArchivedAsync(tenant, DefinitionKind.Forms, ct).ConfigureAwait(false);
+                summaries.RemoveAll(summary => archived.Contains(summary.FormId));
+            }
             return Results.Ok(summaries);
         });
+
+        foreach (var archived in new[] { true, false })
+        {
+            app.MapPost($"{RouteBase}/{{formId}}/{(archived ? "archive" : "unarchive")}", async (
+                string formId, HttpContext http, CancellationToken ct) =>
+            {
+                var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+                if (tenantRefusal is not null) return tenantRefusal;
+                var authority = RequestAuthorization.Authority(http, tenant, timeProvider);
+                try
+                {
+                    var found = await archives.SetFormArchivedAsync(store, formId, archived, authority, ct).ConfigureAwait(false);
+                    if (found is null) return Results.NotFound(new { code = "form_definition.not_found", detail = new { formId } });
+                    return Results.NoContent();
+                }
+                catch (AuthorizationDeniedException denial)
+                {
+                    return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
+                }
+            });
+        }
 
         // GET /api/local-node/forms/definitions/{formId} — load the authoring view: the current
         // published head, or (ticket 156 review — draft discoverability) the latest DRAFT,
         // clearly marked, when no published head exists (a draft-only first save must stay
         // loadable without knowing its minted version).
-        app.MapGet($"{RouteBase}/{{formId}}", async (string formId, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/{{formId}}", async (string formId, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             var def = await store
                 .GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId), ct)
                 .ConfigureAwait(false);
@@ -235,7 +284,8 @@ public static class FormDefinitionRoutes
             // Ticket 151 stage-one gate: authoring (register + publish) a definition is a permissioned
             // act — forms:author — decided BEFORE any schema synthesis or persistence. A draft save
             // is still authoring, so the gate covers it too.
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             // T-650: ONE kernel-clock read for the whole act. The guard already read it to date its
             // decision, so the revision is stamped with that SAME admitted instant instead of a second
             // read that the act never decided on (ADR 0081, DES-0029 ck-9).
@@ -248,10 +298,7 @@ public static class FormDefinitionRoutes
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var authority = new AuthorizationWriteContext(
-                new ActorId(NodeCallerParty.Resolve(http).Value),
-                tenant,
-                admitted);
+            var authority = RequestAuthorization.Authority(http, tenant, admitted);
             var decision = await store.DecideAsync(id.Value, authority, ct).ConfigureAwait(false);
 
             SaveFormDefinitionRequest? request;
@@ -485,9 +532,10 @@ public static class FormDefinitionRoutes
         // (F-22, item 7). Every retained revision (ALL statuses), newest-first, enriched with
         // status + author + the restore-provenance link. Surfaces the immutable history the store
         // already keeps (each PUT mints a revision) — no new storage, no new store method.
-        app.MapGet($"{RouteBase}/{{formId}}/versions", async (string formId, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/{{formId}}/versions", async (string formId, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             var id = new FormDefinitionId(formId);
             var revisions = new List<FormVersionSummaryDto>();
             await foreach (var def in store.ListByTenantAsync(tenant, ct).ConfigureAwait(false))
@@ -506,9 +554,10 @@ public static class FormDefinitionRoutes
         // GET /api/local-node/forms/definitions/{formId}/versions/{version} — view ONE revision
         // read-only (F-22). Serves ANY status incl. an unpublished DRAFT, so a restored draft can
         // be loaded into the builder (GET-by-id only returns the current published head).
-        app.MapGet($"{RouteBase}/{{formId}}/versions/{{version}}", async (string formId, string version, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/{{formId}}/versions/{{version}}", async (string formId, string version, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             SemanticVersion parsed;
             try
             {
@@ -543,7 +592,8 @@ public static class FormDefinitionRoutes
             CancellationToken ct) =>
         {
             // Ticket 151: restore REGISTERS a new draft revision — the same authoring permission gates it.
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
             // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
             var now = default(DateTimeOffset);
@@ -555,10 +605,7 @@ public static class FormDefinitionRoutes
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var authority = new AuthorizationWriteContext(
-                new ActorId(NodeCallerParty.Resolve(http).Value),
-                tenant,
-                admitted);
+            var authority = RequestAuthorization.Authority(http, tenant, admitted);
             var decision = await store.DecideAsync(id.Value, authority, ct).ConfigureAwait(false);
 
             RestoreVersionRequest? request;

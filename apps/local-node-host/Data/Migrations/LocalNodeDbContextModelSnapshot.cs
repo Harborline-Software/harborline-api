@@ -15,12 +15,21 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261003000000_AddFormSubmitProjectionDefinition";
+    public override string LastMigrationId => "20261029000000_AddDefinitionArchiveMarks";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Definitions.DefinitionArchiveMark", b =>
+            {
+                b.Property<string>("TenantId").HasColumnType("TEXT");
+                b.Property<int>("Kind").HasColumnType("INTEGER");
+                b.Property<string>("DefinitionKey").HasColumnType("TEXT");
+                b.HasKey("TenantId", "Kind", "DefinitionKey");
+                b.ToTable("definition_archive_marks");
+            });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Banking.Models.BankAccount", b =>
             {

@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -83,6 +85,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             operation => _holdsCatalogueRead || operation != Permission.CatalogueRead));
         builder.Services.AddAuthorizationRefusalAudit();
 
+        builder.Services.AddTestDefinitionArchives();
         _app = builder.Build();
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
         _tenantA = NodeTenant.Resolve(_activeTeam);
@@ -149,7 +152,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             definitions,
             _app.Services.GetRequiredService<ISchemaRegistry>(),
             _activeTeam,
-            TimeProvider.System);
+            TimeProvider.System,
+            _app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();

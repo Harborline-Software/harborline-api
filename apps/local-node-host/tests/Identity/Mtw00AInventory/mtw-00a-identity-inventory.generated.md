@@ -173,7 +173,7 @@ owner-count: 98
 - apps/local-node-host/Health/DocumentRoutes.cs	11	0
 - apps/local-node-host/Health/DocumentTemplateRoutes.cs	6	0
 - apps/local-node-host/Health/EntityRoutes.cs	3	0
-- apps/local-node-host/Health/FormDefinitionRoutes.cs	7	0
+- apps/local-node-host/Health/FormDefinitionRoutes.cs	2	0
 - apps/local-node-host/Health/FormDraftRoutes.cs	2	0
 - apps/local-node-host/Health/FormsRoutes.cs	3	0
 - apps/local-node-host/Health/HostedAdmissionApiEndpoint.cs	2	0
@@ -248,7 +248,7 @@ owner-count: 98
 - apps/local-node-host/Health/WebSession/HostedEffectivePermissionsApiEndpoint.cs	1	0
 - apps/local-node-host/Health/WebSession/NodeWebSessionAuthority.cs	3	0
 - apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs	3	0
-- apps/local-node-host/Health/WorkflowDefinitionRoutes.cs	4	0
+- apps/local-node-host/Health/WorkflowDefinitionRoutes.cs	2	0
 - apps/local-node-host/Health/WorkflowRunReportRoutes.cs	3	0
 
 ## category-6-legacy-v1-migration-sources

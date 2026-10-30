@@ -22,6 +22,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "harborline.local-node.audit",
         "harborline.local-node.audit-outbox",
         "harborline.local-node.bank-account-create-keys",
+        "harborline.local-node.definition-archives",
         "harborline.local-node.form-submit-outbox",
         "harborline.local-node.home-epoch",
         "harborline.local-node.layout-denial-outbox",
@@ -49,6 +50,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20261002162649_SpatialFramesMapAuditOutbox",
         "20261002221104_AddBankAccountCreateKeys",
         "20261003000000_AddFormSubmitProjectionDefinition",
+        "20261029000000_AddDefinitionArchiveMarks",
     ];
 
     [Fact]
