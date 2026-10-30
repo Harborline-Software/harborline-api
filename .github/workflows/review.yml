@@ -63,9 +63,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The PR controls everything in this checkout. Claude Code would load project and local settings (hooks) and
+      # project MCP servers from it, and those run commands with this job's API key and token whatever the prompt
+      # says. Remove them before the reviewer starts; it reviews the diff through git and gh, not the working tree's
+      # configuration.
+      - name: Drop PR-controlled Claude configuration
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          rm -rf .claude .mcp.json CLAUDE.local.md
+          find . -path ./.git -prune -o \( -name .claude -o -name .mcp.json \) -print0 | xargs -0 rm -rf
+
       - name: Review the diff
         id: review
         if: steps.scope.outputs.run == 'true'
+        # Shadow mode: an API error or the turn limit must not turn the check red. Record the verdict sees no result
+        # and records NONE. Enforced, the failure stands.
+        continue-on-error: ${{ vars.REVIEW_ENFORCE != 'true' }}
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
