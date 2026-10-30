@@ -76,7 +76,7 @@ jobs:
       - name: Review the diff
         id: review
         if: steps.scope.outputs.run == 'true'
-        # Shadow mode: an API error or the turn limit must not turn the check red. Record the verdict sees no result
+        # Shadow mode: an API error or the turn limit must not turn the check red. the Record the verdict step sees no result
         # and records NONE. Enforced, the failure stands.
         continue-on-error: ${{ vars.REVIEW_ENFORCE != 'true' }}
         uses: anthropics/claude-code-action@v1
@@ -87,6 +87,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           claude_args: >-
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Read,Glob,Grep"
+            --disallowedTools "Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch"
             --max-turns 40
           prompt: |
             You are the independent reviewer for pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}.
