@@ -116,7 +116,7 @@ jobs:
           if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
             text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE")
           fi
-          verdict=$(printf '%s\n' "$text" | grep -oE '^VERDICT: (PASS|BLOCK|ESCALATE)$' | tail -n 1 | cut -d' ' -f2)
+          verdict=$(printf '%s\n' "$text" | grep -oE '^VERDICT: (PASS|BLOCK|ESCALATE)$' | tail -n 1 | cut -d' ' -f2 || true)
           verdict=${verdict:-NONE}
           mode=$([ "$ENFORCE" = true ] && echo enforced || echo shadow)
           {
