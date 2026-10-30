@@ -34,7 +34,11 @@ function category(file) {
   if (/\.(csproj|props|targets|sln|slnx)$/.test(file) || /^artifacts\//.test(file)
     || /^eng\//.test(file) || /^\.github\//.test(file)
     // Exact input of DurableWriteClassificationArchTests, not a general TSV allowance.
-    || file === 'apps/local-node-host/tests/ArchTests/durable-write-classification.tsv') return 'build-artifact'
+    || file === 'apps/local-node-host/tests/ArchTests/durable-write-classification.tsv'
+    // Exact inputs of the other executable inventory fences, not format-wide allowances.
+    || file === 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'
+    || file === 'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md'
+    || file === 'packages/contracts/protocol/boundary-inventory.json') return 'build-artifact'
   if (/\.cs$/.test(file) && /validat/i.test(file)) return 'validation'
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
   if (/\.(cs|dll|exe|pdb|nupkg|so|dylib|bin)$/.test(file)) return 'binary'
