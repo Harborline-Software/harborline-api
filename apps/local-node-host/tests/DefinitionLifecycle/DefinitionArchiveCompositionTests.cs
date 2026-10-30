@@ -335,8 +335,8 @@ public sealed class DefinitionArchiveCompositionTests(ITestOutputHelper output)
                     $"Archive child failure: pid={child.Id}, mode={(archive ? "archive" : "unarchive")}, " +
                     $"exit={(child.HasExited ? child.ExitCode.ToString() : "<still running>")}\n" +
                     $"cleanup/readback: {cleanupFailure?.ToString() ?? "completed"}\n" +
-                    $"stdout:\n{(stdout.IsCompletedSuccessfully ? stdout.Result : "<incomplete or faulted>")}\n" +
-                    $"stderr:\n{(stderr.IsCompletedSuccessfully ? stderr.Result : "<incomplete or faulted>")}";
+                    $"stdout:\n{(stdout.IsCompletedSuccessfully ? await stdout : "<incomplete or faulted>")}\n" +
+                    $"stderr:\n{(stderr.IsCompletedSuccessfully ? await stderr : "<incomplete or faulted>")}";
                 failure.Data["T305ArchiveChildDiagnostics"] = diagnostics;
                 output.WriteLine(diagnostics);
             }
