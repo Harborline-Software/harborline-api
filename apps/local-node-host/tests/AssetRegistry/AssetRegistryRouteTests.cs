@@ -447,7 +447,8 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.False(refusal.TryGetProperty("detail", out _));
         var auditId = body.GetProperty("auditId").GetGuid();
         Assert.NotEqual(Guid.Empty, auditId);
-        var trace = await _app.Services.GetRequiredService<AuthorizationTraceReader>().ReadAsync(
+        await using var scope = _app.Services.CreateAsyncScope();
+        var trace = await scope.ServiceProvider.GetRequiredService<AuthorizationTraceReader>().ReadAsync(
             tenant, Operator, auditId, AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow));
         Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, trace.Availability);
         Assert.Equal("entity.validation.body_invalid", trace.Refusal!.Code);
