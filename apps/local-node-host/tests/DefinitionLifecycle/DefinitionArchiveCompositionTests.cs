@@ -74,7 +74,7 @@ public sealed class DefinitionArchiveCompositionTests
         if (!archive) await writer.SetWorkflowArchivedAsync(definitions.Workflows, "same", true, ArchiveDefinitions.Authority());
         await database.ExecuteAsync("CREATE TRIGGER archive_delivery_fault BEFORE INSERT ON search_audit_trail BEGIN SELECT RAISE(ABORT, 'archive delivery failure'); END;");
         Assert.NotNull(await writer.SetWorkflowArchivedAsync(definitions.Workflows, "same", archive, ArchiveDefinitions.Authority()));
-        var owed = Assert.Single((await database.OutboxRowsAsync()).Where(row => row.PublishedAtUnixMs is null));
+        var owed = Assert.Single(await database.OutboxRowsAsync(), row => row.PublishedAtUnixMs is null);
         Assert.Equal(eventType, owed.EventType);
         Assert.Equal("archive-actor", owed.Actor);
         Assert.Equal("aaaaaaaa-0305-0000-0000-000000000001", owed.TenantId);
@@ -91,7 +91,7 @@ public sealed class DefinitionArchiveCompositionTests
             Assert.Equal(archive ? 1 : 0, await db.Set<DefinitionArchiveMark>().CountAsync());
         Assert.Equal(1, await reopened.Outbox.DrainAsync());
         Assert.Equal(0, await reopened.Outbox.DrainAsync());
-        var delivered = Assert.Single((await reopened.AuditsAsync()).Where(record => record.EventType.Value == eventType));
+        var delivered = Assert.Single(await reopened.AuditsAsync(), record => record.EventType.Value == eventType);
         Assert.Equal(Guid.Parse(owed.AuditId), delivered.AuditId);
         Assert.Equal(new ActorId("archive-actor"), delivered.Actor);
         Assert.NotNull(delivered.AuthoritySnapshot);
@@ -180,19 +180,19 @@ public sealed class DefinitionArchiveCompositionTests
         using var provider = services.BuildServiceProvider();
         var writer = provider.GetRequiredService<NodeDefinitionArchiveWriter>();
         Assert.Same(writer, provider.GetRequiredService<NodeDefinitionArchiveWriter>());
-        Assert.Single(services.Where(item => item.ServiceType == typeof(NodeDefinitionArchiveWriter)));
+        Assert.Single(services, item => item.ServiceType == typeof(NodeDefinitionArchiveWriter));
         foreach (var type in new[] { typeof(HostedFormsApiEndpoint), typeof(HostedWorkflowDefinitionApiEndpoint) })
         {
-            var parameter = Assert.Single(type.GetConstructors().Single().GetParameters()
-                .Where(item => item.ParameterType == typeof(NodeDefinitionArchiveWriter)));
+            var parameter = Assert.Single(type.GetConstructors().Single().GetParameters(),
+                item => item.ParameterType == typeof(NodeDefinitionArchiveWriter));
             Assert.False(parameter.IsOptional);
         }
         var missing = new ServiceCollection();
         missing.AddTestAuthorizationGate();
         missing.AddTestNodeForms();
         var archiveOnly = new ServiceCollection();
-        ((IServiceCollection)archiveOnly).Add(Assert.Single(missing.Where(
-            item => item.ServiceType == typeof(NodeDefinitionArchiveWriter))));
+        ((IServiceCollection)archiveOnly).Add(Assert.Single(missing,
+            item => item.ServiceType == typeof(NodeDefinitionArchiveWriter)));
         using var incomplete = archiveOnly.BuildServiceProvider(new ServiceProviderOptions
         {
             ValidateOnBuild = true,
@@ -278,7 +278,7 @@ public sealed class DefinitionArchiveCompositionTests
                 Assert.True(DateTime.UtcNow < deadline, "Archive child did not commit within 120 seconds.");
                 await Task.Delay(50);
             }
-            var owed = Assert.Single((await database.OutboxRowsAsync()).Where(row => row.PublishedAtUnixMs is null));
+            var owed = Assert.Single(await database.OutboxRowsAsync(), row => row.PublishedAtUnixMs is null);
             Assert.Equal(eventType, owed.EventType);
             await using (var db = database.Main.CreateDbContext())
                 Assert.Equal(archive ? 1 : 0, await db.Set<DefinitionArchiveMark>().CountAsync());
@@ -300,7 +300,7 @@ public sealed class DefinitionArchiveCompositionTests
                 }
             }
             finally { await daemon.StopAsync(CancellationToken.None); }
-            var delivered = Assert.Single((await reopened.AuditsAsync()).Where(record => record.EventType.Value == eventType));
+            var delivered = Assert.Single(await reopened.AuditsAsync(), record => record.EventType.Value == eventType);
             Assert.Equal(Guid.Parse(owed.AuditId), delivered.AuditId);
             Assert.Equal(new ActorId("archive-actor"), delivered.Actor);
             Assert.Equal(new TenantId("aaaaaaaa-0305-0000-0000-000000000001"), delivered.TenantId);
@@ -312,7 +312,7 @@ public sealed class DefinitionArchiveCompositionTests
             Assert.NotNull(delivered.AuthoritySnapshot);
             using var second = new DefinitionArchiveDatabase(database.DirectoryPath, migrate: false);
             Assert.Equal(0, await second.Outbox.DrainAsync());
-            Assert.Single((await second.AuditsAsync()).Where(record => record.EventType.Value == eventType));
+            Assert.Single(await second.AuditsAsync(), record => record.EventType.Value == eventType);
         }
         finally
         {
