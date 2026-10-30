@@ -37,6 +37,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          ENFORCE: ${{ vars.REVIEW_ENFORCE }}
         run: |
           reason=''
           if [ "$EVENT" = merge_group ]; then reason='the queued commit was reviewed on its PR head'
@@ -44,6 +45,10 @@ jobs:
           elif [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then reason='fork code is not reviewed with secrets'
           elif [ "$AUTHOR" = 'dependabot[bot]' ]; then reason='Dependabot updates go through dependabot-automerge and the gate'
           elif [ "$HAS_KEY" != true ]; then reason='the ANTHROPIC_API_KEY secret is not set'
+          fi
+          if [ "$reason" = 'the ANTHROPIC_API_KEY secret is not set' ] && [ "$ENFORCE" = true ]; then
+            echo "::error::REVIEW_ENFORCE is true but the ANTHROPIC_API_KEY secret is not set, so no review can run"
+            exit 1
           fi
           if [ -n "$reason" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
