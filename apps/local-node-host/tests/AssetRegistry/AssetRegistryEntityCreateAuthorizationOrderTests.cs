@@ -182,7 +182,7 @@ public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
         using var response = await host.PostAsync(new { type = "bound-type", displayName = "Note", values = new { } });
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        AssertValidationWire(body, "entity.validation.body_invalid", "");
+        AssertValidationWire(body, "entity.validation.body_invalid", "/title");
         await AssertNoRefusedWriteAsync(host);
         AssertRefusalReceipt(host, body, Assert.Single(await host.RowsAsync()), "entity.validation.body_invalid");
     }

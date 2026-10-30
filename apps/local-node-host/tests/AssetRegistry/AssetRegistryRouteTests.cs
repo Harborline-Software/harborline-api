@@ -439,7 +439,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Equal("validate", body.GetProperty("stage").GetString());
         var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
         Assert.Equal("entity.validation.body_invalid", refusal.GetProperty("code").GetString());
-        Assert.Equal(string.Empty, refusal.GetProperty("pointer").GetString());
+        Assert.Equal("/title", refusal.GetProperty("pointer").GetString());
         Assert.False(body.TryGetProperty("code", out _));
         Assert.False(body.TryGetProperty("detail", out _));
         Assert.False(body.TryGetProperty("pointers", out _));
