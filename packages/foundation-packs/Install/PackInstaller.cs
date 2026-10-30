@@ -186,6 +186,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     {
         private ClaimedPackCoordinates claimed = null!;
         private AuthorizationDecision decision = null!;
+        private PackInstallCommitResult? committedResult;
 
         protected override ValueTask AuthorizeAsync(CancellationToken ct)
         {
@@ -251,6 +252,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             var transaction = mutation.Transaction! with
             {
                 Audit = new PackCommitAudit(AuditEntries(mutation.Plan, brokeGlass), decision),
+                UnchangedAudit = new PackCommitAudit([new PackInstallAuditEntry(
+                    context.Tenant, PackInstallAuditAction.Unchanged, preview.PackKey, preview.Version,
+                    context.Now, mutation.Plan.SignerKeyId, mutation.Plan.Epoch, Detail: null,
+                    ActingPrincipal: context.Principal)], decision),
             };
             return ValueTask.FromResult(new InstallSealed(mutation.Plan, transaction, brokeGlass));
         }
@@ -258,9 +263,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         /// <summary>ATOMIC apply (S-7): the seed layer, watermark and re-attached overrides commit all-or-nothing.</summary>
         protected override async ValueTask CommitAsync(InstallSealed validated, CancellationToken ct)
         {
-            foreach (var entry in validated.Transaction.Audit!.Entries)
+            foreach (var entry in validated.Transaction.Audit!.Entries.Concat(validated.Transaction.UnchangedAudit!.Entries))
                 await installer._audit.PrepareAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
-            try { installer._mutations.Commit(validated.Transaction); }
+            try { committedResult = installer._mutations.Commit(validated.Transaction); }
             catch (Exception exception) when (exception is PackInstallWatermarkChangedException or PackInstallStateChangedException)
             {
                 throw new Refused(AuditRefusal(validated.Plan with
@@ -273,6 +278,25 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                     },
                 }));
             }
+            var result = committedResult ?? throw new InvalidOperationException("The atomic store returned no disposition.");
+            if (result.Disposition is PackInstallCommitDisposition.Conflict or PackInstallCommitDisposition.Unknown)
+            {
+                if (result.SelectedAudit is not null)
+                    throw new InvalidOperationException("A refused atomic install cannot select a success audit.");
+                throw new Refused(AuditRefusal(validated.Plan with
+                {
+                    Preview = HardRefusal(validated.Plan.Preview.PackKey, validated.Plan.Preview.Version,
+                        result.Disposition == PackInstallCommitDisposition.Conflict
+                            ? PackInstallCodes.RefusedSameVersionConflict : PackInstallCodes.RefusedSameVersionIdentityUnknown,
+                        validated.Plan.Preview.RevocationStale).Preview,
+                }));
+            }
+            if (result.Disposition is not (PackInstallCommitDisposition.Written or PackInstallCommitDisposition.Unchanged))
+                throw new InvalidOperationException("The atomic store returned an unknown disposition.");
+            var expected = result.Disposition == PackInstallCommitDisposition.Unchanged
+                ? validated.Transaction.UnchangedAudit : validated.Transaction.Audit;
+            if (!ReferenceEquals(result.SelectedAudit, expected) || result.SelectedAudit is null)
+                throw new InvalidOperationException("The atomic store returned an unprepared audit selection.");
         }
 
         protected override async ValueTask<PackInstallOutcome> ReactAsync(InstallSealed validated, CancellationToken ct)
@@ -281,7 +305,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             var preview = plan.Preview;
             // The same entry instances the commit carried: a store that staged them is delivering them already.
             // A joined install is not durable yet, so its entries are delivered only after the caller's commit.
-            var entries = validated.Transaction.Audit!.Entries;
+            var result = committedResult ?? throw new InvalidOperationException("The atomic install has not committed.");
+            var entries = result.SelectedAudit!.Entries;
             if (joined is not null)
                 joined.AfterCommit(async () =>
                 {
@@ -293,8 +318,16 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                     await installer._audit.AppendAuthorizedAsync(entry, decision, ct).ConfigureAwait(false);
 
             return new PackInstallOutcome(
-                true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview,
-                validated.BrokeGlass, decision);
+                true, result.Disposition == PackInstallCommitDisposition.Unchanged ? PackInstallAuditAction.Unchanged : plan.SuccessAction,
+                preview.PackKey, preview.Version, Array.Empty<string>(),
+                result.Disposition == PackInstallCommitDisposition.Unchanged
+                    ? preview with
+                    {
+                        Verdict = PackInstallVerdict.AlreadyInstalled, IsUpgrade = false, PriorVersion = preview.Version,
+                        RefusalCodes = [], Refusals = [], WatermarkHits = [], NewSeedKeys = [], Conflicts = [],
+                    }
+                    : preview,
+                result.Disposition != PackInstallCommitDisposition.Unchanged && validated.BrokeGlass, decision);
         }
 
         /// <summary>The break-glass ceremony is a DISTINCT, loud entry (S-8), recorded first.</summary>
@@ -505,8 +538,30 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        Join(transaction);
-        return RunAsync(new Installation(this, packBytes, context, transaction), cancellationToken);
+        ArgumentNullException.ThrowIfNull(transaction);
+        transaction.BeginJoinedInstall();
+        try { Join(transaction); }
+        catch (Exception exception)
+        {
+            transaction.MarkFailed(exception);
+            throw;
+        }
+        return InstallJoinedAsync();
+
+        async Task<PackInstallOutcome> InstallJoinedAsync()
+        {
+            try
+            {
+                var outcome = await RunAsync(new Installation(this, packBytes, context, transaction), cancellationToken).ConfigureAwait(false);
+                if (!outcome.Installed) transaction.MarkFailed();
+                return outcome;
+            }
+            catch (Exception exception)
+            {
+                transaction.MarkFailed(exception);
+                throw;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -1537,6 +1592,50 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         // Install's bind stage has already read the installed versions and this key's watermark.
         var bindsThisKey = bound is not null && string.Equals(bound.PackKey, manifest.Key, StringComparison.Ordinal);
         var installed = bound?.Installed ?? _store.ListInstalled(context.Tenant);
+        var occupied = installed.FirstOrDefault(pack => string.Equals(pack.PackKey, manifest.Key, StringComparison.Ordinal)
+            && string.Equals(pack.Version, manifest.Version, StringComparison.Ordinal));
+        if (occupied is not null)
+        {
+            var candidate = BuildInstalledPack(manifest, contents, PackSafetyFloors.ExtractFloors(contents),
+                signerKeyId!.Value, epoch!.Value, scope!.Value, context.Now);
+            var classification = PackInstallArtifactIdentity.Compare(occupied, candidate);
+            if (collectRefusals)
+            {
+                var collected = new List<PackInstallRefusal>(earlyRefusals);
+                collected.AddRange(contractRefusals);
+                collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
+                collected.AddRange(platformRefusals);
+                if (classification != PackInstallCommitDisposition.Unchanged)
+                    collected.Add(new PackInstallRefusal(classification == PackInstallCommitDisposition.Conflict
+                        ? PackInstallCodes.RefusedSameVersionConflict : PackInstallCodes.RefusedSameVersionIdentityUnknown, "/"));
+                if (collected.Count > 0)
+                {
+                    var refused = HardRefusal(manifest.Key, manifest.Version, collected[0].Code,
+                        revocationStale, signerB64, epoch, scope, unmetRequirements, collected,
+                        destinationClassifications: destinationClassifications);
+                    return refused with
+                    {
+                        Preview = refused.Preview with { RefusalCodes = collected.Select(refusal => refusal.Code).Distinct().ToList() },
+                    };
+                }
+            }
+            if (classification != PackInstallCommitDisposition.Unchanged)
+                return HardRefusal(manifest.Key, manifest.Version,
+                    classification == PackInstallCommitDisposition.Conflict
+                        ? PackInstallCodes.RefusedSameVersionConflict : PackInstallCodes.RefusedSameVersionIdentityUnknown,
+                    revocationStale, signerB64, epoch, scope);
+            var preserved = HardRefusal(manifest.Key, manifest.Version, string.Empty, revocationStale, signerB64, epoch, scope).Preview with
+            {
+                Verdict = PackInstallVerdict.AlreadyInstalled,
+                RefusalCodes = [],
+                Refusals = [],
+                PriorVersion = occupied.Version,
+            };
+            return new InstallPlan(preserved, signerKeyId, epoch, new PackReattachPlan([], []), candidate,
+                bindsThisKey ? bound!.Watermark ?? new PackInstallWatermark(manifest.Key, manifest.Version, candidate.SafetyFloors)
+                    : _store.GetWatermark(context.Tenant, manifest.Key) ?? new PackInstallWatermark(manifest.Key, manifest.Version, candidate.SafetyFloors),
+                PackInstallAuditAction.Unchanged);
+        }
         var prior = installed.FirstOrDefault(pack => pack.PackKey == manifest.Key && pack.Lifecycle == PackLifecycleState.Active)
             ?? LatestInstalled(installed, manifest.Key);
         var watermark = bindsThisKey ? bound!.Watermark : _store.GetWatermark(context.Tenant, manifest.Key);
@@ -2254,7 +2353,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             manifest.CapabilityRequirements,
             manifest.Exposes,
             manifest.InterfaceVersion,
-            manifest.ExposedDefinitions);
+            manifest.ExposedDefinitions)
+        {
+            ArtifactIdentity = PackInstallArtifactIdentity.Create(signerKeyId, new PackSignatureSubject(manifest, epoch)),
+        };
     }
 
     private static PackInstallWatermark AdvanceWatermark(
@@ -2294,7 +2396,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     private async ValueTask<InstallPlan> AdmitRecordsAsync(InstallPlan plan, TenantId tenant,
         IReadOnlyList<InstalledPack> installed, CancellationToken ct)
     {
-        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.Refused)
+        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict is PackInstallVerdict.Refused or PackInstallVerdict.AlreadyInstalled)
             return plan;
         var seeds = plan.NewInstalledPack.SeedItems;
         var admission = await RecordsInstallClosureGate.AdmitAsync(tenant, seeds, plan.NewInstalledPack.Dependencies,
@@ -2327,7 +2429,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     /// </summary>
     private InstallPlan RecordsNotEvaluated(InstallPlan plan, bool collectRefusals)
     {
-        if (RecordsAdmission is null || plan.NewInstalledPack is null
+        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.AlreadyInstalled
             || (!collectRefusals && plan.Preview.Verdict == PackInstallVerdict.Refused))
             return plan;
         var seeds = plan.NewInstalledPack.SeedItems;
