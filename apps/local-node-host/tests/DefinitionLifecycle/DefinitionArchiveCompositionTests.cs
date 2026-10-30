@@ -31,10 +31,11 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 
-public sealed class DefinitionArchiveCompositionTests
+public sealed class DefinitionArchiveCompositionTests(ITestOutputHelper output)
 {
     internal const string ChildDirectoryVariable = "HARBORLINE_T305_ARCHIVE_CHILD_DIRECTORY";
     internal const string ChildStateVariable = "HARBORLINE_T305_ARCHIVE_CHILD_STATE";
@@ -269,12 +270,14 @@ public sealed class DefinitionArchiveCompositionTests
         using var child = Process.Start(start) ?? throw new InvalidOperationException("Archive child did not start.");
         var stdout = child.StandardOutput.ReadToEndAsync();
         var stderr = child.StandardError.ReadToEndAsync();
+        var cleanupAttempted = false;
         try
         {
+            output.WriteLine($"Archive child started: pid={child.Id}, mode={(archive ? "archive" : "unarchive")}");
             var deadline = DateTime.UtcNow.AddSeconds(120);
             while (!File.Exists(ready))
             {
-                if (child.HasExited) Assert.Fail("Archive child exited before commit: " + await stdout + await stderr);
+                if (child.HasExited) Assert.Fail("Archive child exited before commit.");
                 Assert.True(DateTime.UtcNow < deadline, "Archive child did not commit within 120 seconds.");
                 await Task.Delay(50);
             }
@@ -314,9 +317,35 @@ public sealed class DefinitionArchiveCompositionTests
             Assert.Equal(0, await second.Outbox.DrainAsync());
             Assert.Single(await second.AuditsAsync(), record => record.EventType.Value == eventType);
         }
+        catch (Exception failure)
+        {
+            cleanupAttempted = true;
+            Exception? cleanupFailure = null;
+            using var exit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try
+            {
+                if (!child.HasExited) child.Kill(entireProcessTree: true);
+                await child.WaitForExitAsync(exit.Token);
+                await Task.WhenAll(stdout, stderr).WaitAsync(exit.Token);
+            }
+            catch (Exception secondary) { cleanupFailure = secondary; }
+            try
+            {
+                var diagnostics =
+                    $"Archive child failure: pid={child.Id}, mode={(archive ? "archive" : "unarchive")}, " +
+                    $"exit={(child.HasExited ? child.ExitCode.ToString() : "<still running>")}\n" +
+                    $"cleanup/readback: {cleanupFailure?.ToString() ?? "completed"}\n" +
+                    $"stdout:\n{(stdout.IsCompletedSuccessfully ? stdout.Result : "<incomplete or faulted>")}\n" +
+                    $"stderr:\n{(stderr.IsCompletedSuccessfully ? stderr.Result : "<incomplete or faulted>")}";
+                failure.Data["T305ArchiveChildDiagnostics"] = diagnostics;
+                output.WriteLine(diagnostics);
+            }
+            catch (Exception secondary) { failure.Data["T305ArchiveChildOutputFailure"] = secondary; }
+            throw;
+        }
         finally
         {
-            if (!child.HasExited)
+            if (!cleanupAttempted && !child.HasExited)
             {
                 child.Kill(entireProcessTree: true);
                 using var exit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -327,26 +356,47 @@ public sealed class DefinitionArchiveCompositionTests
 
     internal static async Task RunChildAsync(string directory)
     {
+        TraceChild("database-open-before");
         using var database = new DefinitionArchiveDatabase(directory, migrate: false);
+        TraceChild("database-open-after");
         using var definitions = new ArchiveDefinitions();
+        TraceChild("seed-before");
         await definitions.SeedAsync("same", ArchiveDefinitions.TenantA);
+        TraceChild("seed-after");
         var archive = Environment.GetEnvironmentVariable(ChildStateVariable) == "archive";
         if (!archive)
         {
-            using var setup = database.Writer(TestRouteGate.AllowAll());
+            TraceChild("prearchive-before");
+            using var setup = database.Writer(TestRouteGate.AllowAll(), new TracePrearchiveStages());
             await setup.SetFormArchivedAsync(definitions.Forms, "same", true, ArchiveDefinitions.Authority());
+            TraceChild("prearchive-after");
         }
+        TraceChild("target-before");
         using var writer = database.Writer(TestRouteGate.AllowAll(), new StopBeforeReact(Path.Combine(directory, "ready")));
         await writer.SetFormArchivedAsync(definitions.Forms, "same", archive, ArchiveDefinitions.Authority());
         throw new InvalidOperationException("Archive child returned without stopping after commit.");
+    }
+
+    internal static void TraceChild(string stage)
+    {
+        Console.Error.WriteLine($"[T305-archive-child] pid={Environment.ProcessId}, " +
+            $"mode={Environment.GetEnvironmentVariable(ChildStateVariable)}, stage={stage}");
+        Console.Error.Flush();
+    }
+
+    private sealed class TracePrearchiveStages : IWritePipelineObserver
+    {
+        public void OnStage(WritePipelineStage stage) => TraceChild("prearchive-" + stage);
     }
 
     private sealed class StopBeforeReact(string ready) : IWritePipelineObserver
     {
         public void OnStage(WritePipelineStage stage)
         {
+            TraceChild("target-" + stage);
             if (stage != WritePipelineStage.React) return;
             File.WriteAllText(ready, "archive commit completed; react has not run");
+            TraceChild("ready-written");
             Thread.Sleep(TimeSpan.FromMinutes(5));
             Environment.Exit(4);
         }
@@ -360,7 +410,11 @@ internal static class DefinitionArchiveChild
     {
         var directory = Environment.GetEnvironmentVariable(DefinitionArchiveCompositionTests.ChildDirectoryVariable);
         if (string.IsNullOrEmpty(directory)) return;
-        try { DefinitionArchiveCompositionTests.RunChildAsync(directory).GetAwaiter().GetResult(); }
+        try
+        {
+            DefinitionArchiveCompositionTests.TraceChild("bootstrap-enter");
+            DefinitionArchiveCompositionTests.RunChildAsync(directory).GetAwaiter().GetResult();
+        }
         catch (Exception exception)
         {
             Console.Error.WriteLine(exception);
