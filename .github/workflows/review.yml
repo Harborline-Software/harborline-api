@@ -129,7 +129,9 @@ jobs:
           if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
             text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE")
           fi
-          verdict=$(printf '%s\n' "$text" | grep -oE '^VERDICT: (PASS|BLOCK|ESCALATE)$' | tail -n 1 | cut -d' ' -f2 || true)
+          # Only the final non-empty line counts, so a verdict quoted from the PR earlier in the reply is ignored.
+          last=$(printf '%s\n' "$text" | sed '/^[[:space:]]*$/d' | tail -n 1)
+          verdict=$(printf '%s\n' "$last" | sed -nE 's/^VERDICT: (PASS|BLOCK|ESCALATE)$/\1/p')
           verdict=${verdict:-NONE}
           mode=$([ "$ENFORCE" = true ] && echo enforced || echo shadow)
           {

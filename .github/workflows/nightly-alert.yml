@@ -12,7 +12,8 @@ on:
     types: [completed]
 
 concurrency:
-  group: nightly-alert-${{ github.event.workflow_run.name }}
+  # Keyed by event too, so a pull-request run finishing cannot replace a pending nightly alert.
+  group: nightly-alert-${{ github.event.workflow_run.name }}-${{ github.event.workflow_run.event }}
   cancel-in-progress: false
 
 permissions:
@@ -22,7 +23,6 @@ permissions:
 jobs:
   alert:
     if: >-
-      vars.ACTIONS_ENABLED == 'true' &&
       github.event.workflow_run.event == 'schedule' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion != 'skipped'
@@ -36,6 +36,7 @@ jobs:
           WORKFLOW: ${{ github.event.workflow_run.name }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_STARTED: ${{ github.event.workflow_run.run_started_at }}
@@ -53,6 +54,13 @@ jobs:
               [.jobs[] | select(.conclusion == "success" and .name != "workload-route" and .name != "builder-plan")] | length')
             if [ "$ran" = 0 ]; then
               echo "$WORKFLOW concluded success with only routing jobs run; nothing changed" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # A rerun of an older night that now passes must not close an issue a newer night opened.
+            latest=$(gh api "repos/$GH_REPO/actions/workflows/$WORKFLOW_ID/runs?event=schedule&branch=main&per_page=1" \
+              --jq '.workflow_runs[0].id')
+            if [ "$latest" != "$RUN_ID" ]; then
+              echo "$WORKFLOW passed on an older scheduled run; newest is $latest, so the issue is left as it is" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             if [ -n "$issue" ]; then
