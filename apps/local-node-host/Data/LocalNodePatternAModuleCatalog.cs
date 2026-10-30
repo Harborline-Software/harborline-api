@@ -1,3 +1,4 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
 using System.Collections.Immutable;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -141,6 +142,7 @@ internal static class LocalNodePatternAModuleCatalog
             Describe<DocsEntityModule>(),
             Describe<AuditEventEntityModule>(),
             Describe<AuditOutboxEntityModule>(),
+            Describe<DefinitionArchiveEntityModule>(),
             Describe<FormSubmitOutboxEntityModule>(),
             Describe<LayoutDenialOutboxEntityModule>(),
             Describe<HomeEpochEntityModule>(),

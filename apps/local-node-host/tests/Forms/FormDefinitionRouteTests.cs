@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
@@ -95,6 +97,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestNodeForms();
 
+        builder.Services.AddTestDefinitionArchives();
         _app = builder.Build();
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
 
@@ -109,6 +112,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<ISchemaRegistry>(),
             _activeTeam,
             TimeProvider.System,
+            _app.Services.GetRequiredService<NodeDefinitionArchiveWriter>(),
             fieldTypes: _fieldTypes);
 
         FormsRoutes.Map(
