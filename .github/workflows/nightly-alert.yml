@@ -1,0 +1,88 @@
+# Nightly failure alert. A scheduled run on main that fails, times out or is cancelled opens one issue per
+# workflow, labelled nightly-failure, and each later failing night adds a comment with its failed steps.
+# The next scheduled run that passes comments and closes the issue. Skipped runs change nothing, and so do
+# runs where a paused or unqualified route ran only its routing jobs (those still conclude success).
+# Before this, a nightly could fail for weeks with no one told: app's stryker nightly failed every night
+# from 2026-10-02 to 2026-10-29.
+name: nightly-alert
+
+on:
+  workflow_run:
+    workflows: [mutation, strykerjs, verify]
+    types: [completed]
+
+concurrency:
+  # Keyed by event too, so a pull-request run finishing cannot replace a pending nightly alert.
+  group: nightly-alert-${{ github.event.workflow_run.name }}-${{ github.event.workflow_run.event }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  alert:
+    if: >-
+      github.event.workflow_run.event == 'schedule' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open, update or close the workflow's nightly-failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_STARTED: ${{ github.event.workflow_run.run_started_at }}
+        run: |
+          set -euo pipefail
+          export TITLE="Nightly failing: $WORKFLOW"
+          label=nightly-failure
+          issue=$(gh issue list --label "$label" --state open --limit 100 --json number,title \
+            --jq '.[] | select(.title == $ENV.TITLE) | .number' | head -n 1)
+
+          if [ "$CONCLUSION" = success ]; then
+            # A paused or unqualified route still concludes success, with every real job skipped. That proves
+            # nothing, so it neither closes nor opens an issue.
+            ran=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '
+              [.jobs[] | select(.conclusion == "success" and .name != "workload-route" and .name != "builder-plan")] | length')
+            if [ "$ran" = 0 ]; then
+              echo "$WORKFLOW concluded success with only routing jobs run; nothing changed" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # A rerun of an older night that now passes must not close an issue a newer night opened.
+            latest=$(gh api "repos/$GH_REPO/actions/workflows/$WORKFLOW_ID/runs?event=schedule&branch=main&per_page=1" \
+              --jq '.workflow_runs[0].id')
+            if [ "$latest" != "$RUN_ID" ]; then
+              echo "$WORKFLOW passed on an older scheduled run; newest is $latest, so the issue is left as it is" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ -n "$issue" ]; then
+              gh issue comment "$issue" --body "Passed on the run started $RUN_STARTED ($RUN_URL). Closing."
+              gh issue close "$issue" --reason completed
+            fi
+            echo "$WORKFLOW passed; open issue: ${issue:-none}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          failed=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '
+            .jobs[] | select(.conclusion != "success" and .conclusion != "skipped") |
+            "- `\(.name)` \(.conclusion) at `\([.steps[]? | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")][0].name // "no failed step recorded")`"')
+          night=$(printf '%s\n\n%s\n\nCommit `%s`. Run: %s' \
+            "**$CONCLUSION** on the run started $RUN_STARTED." "${failed:-No failed job was recorded.}" "$RUN_SHA" "$RUN_URL")
+
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$night"
+          else
+            gh label create "$label" --color B60205 --force \
+              --description "A scheduled workflow on main is failing"
+            body=$(printf 'The scheduled `%s` run on main did not pass. Each failing night adds a comment; the next passing night closes this issue.\n\n%s' "$WORKFLOW" "$night")
+            issue=$(gh issue create --title "$TITLE" --label "$label" --body "$body" | sed 's#.*/##')
+          fi
+          echo "$WORKFLOW $CONCLUSION; issue #$issue" >> "$GITHUB_STEP_SUMMARY"
