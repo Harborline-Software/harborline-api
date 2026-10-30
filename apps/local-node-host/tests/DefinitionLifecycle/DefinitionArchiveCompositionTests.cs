@@ -257,6 +257,26 @@ public sealed class DefinitionArchiveCompositionTests(ITestOutputHelper output)
     public async Task KilledProcess_AfterCommit_FreshStartupDrainsExactlyOnce(bool archive, string eventType)
     {
         using var database = new DefinitionArchiveDatabase();
+        if (!archive)
+        {
+            using var definitions = new ArchiveDefinitions();
+            await definitions.SeedAsync("same", ArchiveDefinitions.TenantA);
+            using var setup = database.Writer(TestRouteGate.AllowAll());
+            Assert.NotNull(await setup.SetFormArchivedAsync(definitions.Forms, "same", true, ArchiveDefinitions.Authority()));
+            await using (var db = database.Main.CreateDbContext())
+            {
+                var mark = Assert.Single(await db.Set<DefinitionArchiveMark>().AsNoTracking().ToListAsync());
+                Assert.Equal(ArchiveDefinitions.TenantA.Value, mark.TenantId);
+                Assert.Equal(DefinitionKind.Forms, mark.Kind);
+                Assert.Equal("same", mark.DefinitionKey);
+            }
+            var setupAudit = Assert.Single(await database.OutboxRowsAsync());
+            Assert.Equal("DefinitionArchived", setupAudit.EventType);
+            Assert.NotNull(setupAudit.PublishedAtUnixMs);
+            var delivered = Assert.Single(await database.AuditsAsync());
+            Assert.Equal("DefinitionArchived", delivered.EventType.Value);
+            Assert.Equal(Guid.Parse(setupAudit.AuditId), delivered.AuditId);
+        }
         var ready = Path.Combine(database.DirectoryPath, "ready");
         var start = new ProcessStartInfo
         {
@@ -364,13 +384,6 @@ public sealed class DefinitionArchiveCompositionTests(ITestOutputHelper output)
         await definitions.SeedAsync("same", ArchiveDefinitions.TenantA);
         TraceChild("seed-after");
         var archive = Environment.GetEnvironmentVariable(ChildStateVariable) == "archive";
-        if (!archive)
-        {
-            TraceChild("prearchive-before");
-            using var setup = database.Writer(TestRouteGate.AllowAll(), new TracePrearchiveStages());
-            await setup.SetFormArchivedAsync(definitions.Forms, "same", true, ArchiveDefinitions.Authority());
-            TraceChild("prearchive-after");
-        }
         TraceChild("target-before");
         using var writer = database.Writer(TestRouteGate.AllowAll(), new StopBeforeReact(Path.Combine(directory, "ready")));
         await writer.SetFormArchivedAsync(definitions.Forms, "same", archive, ArchiveDefinitions.Authority());
@@ -382,11 +395,6 @@ public sealed class DefinitionArchiveCompositionTests(ITestOutputHelper output)
         Console.Error.WriteLine($"[T305-archive-child] pid={Environment.ProcessId}, " +
             $"mode={Environment.GetEnvironmentVariable(ChildStateVariable)}, stage={stage}");
         Console.Error.Flush();
-    }
-
-    private sealed class TracePrearchiveStages : IWritePipelineObserver
-    {
-        public void OnStage(WritePipelineStage stage) => TraceChild("prearchive-" + stage);
     }
 
     private sealed class StopBeforeReact(string ready) : IWritePipelineObserver
