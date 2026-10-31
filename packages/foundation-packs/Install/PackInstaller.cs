@@ -1601,8 +1601,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             var classification = PackInstallArtifactIdentity.Compare(occupied, candidate);
             if (collectRefusals)
             {
-                var collected = new List<PackInstallRefusal>(earlyRefusals);
-                collected.AddRange(contractRefusals);
+                var collected = earlyRefusals.Concat(contractRefusals).ToList();
                 collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
                 collected.AddRange(platformRefusals);
                 if (classification != PackInstallCommitDisposition.Unchanged)
@@ -1721,8 +1720,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         IReadOnlyList<PackInstallRefusal> refusals;
         if (collectRefusals)
         {
-            var collected = new List<PackInstallRefusal>(earlyRefusals);
-            collected.AddRange(contractRefusals);
+            var collected = earlyRefusals.Concat(contractRefusals).ToList();
             collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
             collected.AddRange(platformRefusals);
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
