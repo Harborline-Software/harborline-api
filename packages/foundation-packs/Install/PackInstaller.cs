@@ -1550,15 +1550,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         }
 
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);
-        var platformRefusals = unmetRequirements
-            .Select(requirement => new PackInstallRefusal(
+        var platformRefusals = new List<PackInstallRefusal>();
+        foreach (var requirement in unmetRequirements)
+            platformRefusals.Add(new PackInstallRefusal(
                 requirement.Failure == PackPlatformRequirementFailure.MissingCapability
                     ? PackInstallCodes.RefusedMissingPlatformCapability
                     : PackInstallCodes.RefusedPlatformVersionFloor,
                 string.Equals(requirement.DeclaredBy, manifest.Key, StringComparison.Ordinal)
                     ? "/"
-                    : ContentPointer(contents, requirement.DeclaredBy)))
-            .ToList();
+                    : ContentPointer(contents, requirement.DeclaredBy)));
         if (!collectRefusals && unmetRequirements.Count > 0 && unmetRequirements[0].Failure == PackPlatformRequirementFailure.MissingCapability)
         {
             return HardRefusal(
