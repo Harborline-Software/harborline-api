@@ -1472,6 +1472,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                 destinationClassifications: destinationClassifications);
         }
 
+        earlyRefusals.AddRange(contractRefusals);
+
         var layoutRefusals = LayoutAdmissionRefusals(contents);
         // Undecodable bodies cannot enter reattachment or composed-body parsing, even during Check.
         if (layoutRefusals.Count > 0 && (!collectRefusals
@@ -1501,7 +1503,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                 safeWatermarkHits.Add(new PackWatermarkHit(PackWatermarkHitKind.VersionDowngrade,
                     $"version {manifest.Version} is below the installed watermark {safeWatermark.Version}"));
 
-            var collected = earlyRefusals.Concat(contractRefusals).ToList();
+            var collected = earlyRefusals.ToList();
             collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
             foreach (var requirement in safeRequirements)
             {
@@ -1601,7 +1603,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             var classification = PackInstallArtifactIdentity.Compare(occupied, candidate);
             if (collectRefusals)
             {
-                var collected = earlyRefusals.Concat(contractRefusals).ToList();
+                var collected = earlyRefusals.ToList();
                 collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
                 collected.AddRange(platformRefusals);
                 if (classification != PackInstallCommitDisposition.Unchanged)
@@ -1720,7 +1722,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         IReadOnlyList<PackInstallRefusal> refusals;
         if (collectRefusals)
         {
-            var collected = earlyRefusals.Concat(contractRefusals).ToList();
+            var collected = earlyRefusals.ToList();
             collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
             collected.AddRange(platformRefusals);
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
