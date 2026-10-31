@@ -21,6 +21,7 @@ using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Harborline.Api.LocalNodeHost.Tests.Search;
 
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 
@@ -29,13 +30,14 @@ namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 /// production composition as <see cref="ReleasedPackAtomicInstallTests"/>: the route's status, the overlays and the
 /// absent releasing-pack rows are read back from a restart of the encrypted database.
 /// </summary>
-public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
+public sealed class ReleasedPackAtomicInstallRouteTests(ITestOutputHelper output) : IAsyncLifetime
 {
     private ReleasedPackAtomicFixture _fixture = null!;
     private WebApplication _app = null!;
     private HttpClient _client = null!;
-    private readonly CapturingLogger _log = new();
+    private readonly CapturingLogger _log = new(output);
     private readonly ConcurrentQueue<Exception> _escaped = new();
+    private readonly TaskCompletionSource _requestFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public async Task InitializeAsync()
     {
@@ -55,6 +57,7 @@ public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
         {
             try { await next(http); }
             catch (Exception exception) { _escaped.Enqueue(exception); throw; }
+            finally { _requestFinished.TrySetResult(); }
         });
         ConfigurationProposalRoutes.Map(_app, _fixture.Proposals, _fixture.ActiveTeam, TestPackGate.AllowAll(),
             new FrozenClock(ReleasedPackAtomicFixture.Frozen), _log, _fixture.Releases);
@@ -288,7 +291,8 @@ public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
             _ => null,
         };
         if (primary is not null) _fixture.Audit.BeforePrepare = (_, _) => throw primary;
-        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { }).WaitAsync(TimeSpan.FromSeconds(30));
+        using var requestTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { }, requestTimeout.Token);
         var raw = await response.Content.ReadAsStringAsync();
         AssertNoExceptionText(raw, "route cleanup secret", "route primary secret", "route cancellation secret");
         if (primary is not null)
@@ -317,6 +321,61 @@ public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
             Assert.DoesNotContain("deferred-refusal-record-failed", warning.Message, StringComparison.Ordinal);
         }
         else Assert.DoesNotContain(_log.Entries, item => item.Level == LogLevel.Warning);
+        if (kind == "Written" && !mixed)
+        {
+            var stages = _log.Stages.ToArray();
+            Assert.Equal(new[]
+            {
+                "authorization-enter", "authorization-exit", "offer-read", "signature-verification", "conversion",
+                "installed-state-read", "dependency-reads", "export", "activation-barrier-enter",
+                "activation-barrier-acquired", "durable-enlistment", "drift-check", "install", "activate",
+                "commit", "cleanup", "reactions", "reactions-complete", "install-exit", "response",
+            }, stages.Select(stage => Assert.IsType<string>(stage.Single(field => field.Key == "Stage").Value)));
+            double previous = 0;
+            foreach (var stage in stages)
+            {
+                Assert.Equal(new[] { "Stage", "ElapsedMilliseconds", "{OriginalFormat}" }, stage.Select(field => field.Key));
+                var elapsed = Assert.IsType<double>(stage.Single(field => field.Key == "ElapsedMilliseconds").Value);
+                Assert.True(double.IsFinite(elapsed) && elapsed >= previous);
+                previous = elapsed;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Client_cancellation_reaches_install_and_releases_the_write_transaction()
+    {
+        _fixture.SeedOwnPrior();
+        var digest = await _fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", [ReleasedPackAtomicFixture.OwnNote]));
+        var before = await _fixture.DurableStateAsync();
+        var preparing = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var requestCancellation = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _fixture.Audit.BeforePrepare = async (_, token) =>
+        {
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
+            preparing.TrySetResult(token);
+            await Task.Delay(Timeout.InfiniteTimeSpan, stop.Token);
+        };
+        var pending = _client.PostAsJsonAsync(InstallRoute(digest), new { }, requestCancellation.Token);
+        try
+        {
+            var serverToken = await preparing.Task.WaitAsync(deadline.Token);
+            Assert.True(serverToken.CanBeCanceled);
+            requestCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { using var response = await pending; });
+            await _requestFinished.Task.WaitAsync(deadline.Token);
+            Assert.True(serverToken.IsCancellationRequested);
+            Assert.IsAssignableFrom<OperationCanceledException>(Assert.Single(_escaped));
+            Assert.Equal(before, await _fixture.DurableStateAsync());
+            Assert.Contains(_log.Entries, entry => entry.Message.Contains("stage cleanup elapsed", StringComparison.Ordinal));
+            Assert.Contains(_log.Entries, entry => entry.Message.Contains("stage install-exit elapsed", StringComparison.Ordinal));
+        }
+        finally
+        {
+            requestCancellation.Cancel();
+            deadline.Cancel();
+        }
     }
 
     [Fact]
@@ -328,9 +387,11 @@ public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
         _fixture.Audit.BeforePrepare = (_, _) => throw denial;
         _fixture.Installer.OnJoined = transaction => transaction.Finally(() => throw new IOException("cleanup secret"));
         _log.ThrowOnWarning = true;
+        _log.ThrowOnStage = true;
         using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Same(denial, Assert.Single(_escaped));
+        Assert.True(_log.StageCalls > 0);
         AssertNoExceptionText(await response.Content.ReadAsStringAsync(), "cleanup secret", "failed host sink");
     }
 
@@ -351,16 +412,26 @@ public sealed class ReleasedPackAtomicInstallRouteTests : IAsyncLifetime
 
     private sealed record LogEntry(LogLevel Level, string Message, Exception? Exception);
 
-    private sealed class CapturingLogger : ILogger
+    private sealed class CapturingLogger(ITestOutputHelper output) : ILogger
     {
         public ConcurrentQueue<LogEntry> Entries { get; } = new();
+        internal ConcurrentQueue<IReadOnlyList<KeyValuePair<string, object?>>> Stages { get; } = new();
         internal bool ThrowOnWarning { get; set; }
+        internal bool ThrowOnStage { get; set; }
+        internal int StageCalls { get; private set; }
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
+            if (eventId.Name == "ReleasedInstallStage")
+            {
+                StageCalls++;
+                if (ThrowOnStage) throw new IOException("failed stage sink");
+                if (state is IReadOnlyList<KeyValuePair<string, object?>> fields) Stages.Enqueue(fields.ToArray());
+                output.WriteLine(formatter(state, exception));
+            }
             if (ThrowOnWarning && logLevel == LogLevel.Warning) throw new IOException("failed host sink");
             Entries.Enqueue(new LogEntry(logLevel, formatter(state, exception), exception));
         }

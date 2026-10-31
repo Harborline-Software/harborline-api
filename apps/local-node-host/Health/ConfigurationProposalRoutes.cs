@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -232,12 +233,20 @@ internal static class ConfigurationProposalRoutes
             {
                 if (string.IsNullOrWhiteSpace(digest))
                     return Results.BadRequest(new { error = "digest is required." });
+                var started = Stopwatch.GetTimestamp();
+                var capture = new ReleasedInstallDiagnosticCapture
+                {
+                    StageObserver = stage => logger.LogInformation(new EventId(1098, "ReleasedInstallStage"),
+                        "Configuration INSTALL RELEASE stage {Stage} elapsed {ElapsedMilliseconds} ms",
+                        stage, Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+                };
+                capture.ObserveStage("authorization-enter");
                 var tenant = Tenant();
                 var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Operate, ct).ConfigureAwait(false);
+                capture.ObserveStage("authorization-exit");
                 if (refusal is not null) return refusal;
                 // ck-2 S8: no ownership choice. A released package never takes over another package's
                 // definition (ADR 0028, K8); an edit that only narrows one is carried as its overlay.
-                var capture = new ReleasedInstallDiagnosticCapture();
                 ReleasedPackInstallOutcome outcome;
                 try
                 {
@@ -245,6 +254,7 @@ internal static class ConfigurationProposalRoutes
                 }
                 catch (Exception)
                 {
+                    capture.ObserveStage("request-failed");
                     try
                     {
                         if (capture.Report is { } failedReport && logger.IsEnabled(LogLevel.Warning)
@@ -297,6 +307,7 @@ internal static class ConfigurationProposalRoutes
                 {
                     // A failed diagnostic sink cannot change the already determined transaction outcome.
                 }
+                capture.ObserveStage("response");
                 return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
     }
