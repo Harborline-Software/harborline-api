@@ -8,6 +8,9 @@
 # The merge group passes at once, because the queued commit was reviewed on its PR head.
 #
 # Agents push as the owner, so GitHub cannot count an agent's approval. This check is the second key instead.
+#
+# The reviewer signs in with the org secret CLAUDE_CODE_OAUTH_TOKEN, a token from the owner's Claude subscription
+# (made once with `claude setup-token`), so reviews count against that subscription and need no paid API key.
 name: review
 
 on:
@@ -36,7 +39,7 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
-          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
           ENFORCE: ${{ vars.REVIEW_ENFORCE }}
         run: |
           reason=''
@@ -44,10 +47,10 @@ jobs:
           elif [ "$DRAFT" = true ]; then reason='draft PRs are reviewed once they are ready'
           elif [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then reason='fork code is not reviewed with secrets'
           elif [ "$AUTHOR" = 'dependabot[bot]' ]; then reason='Dependabot updates go through dependabot-automerge and the gate'
-          elif [ "$HAS_KEY" != true ]; then reason='the ANTHROPIC_API_KEY secret is not set'
+          elif [ "$HAS_TOKEN" != true ]; then reason='the CLAUDE_CODE_OAUTH_TOKEN secret is not set'
           fi
-          if [ "$reason" = 'the ANTHROPIC_API_KEY secret is not set' ] && [ "$ENFORCE" = true ]; then
-            echo "::error::REVIEW_ENFORCE is true but the ANTHROPIC_API_KEY secret is not set, so no review can run"
+          if [ "$reason" = 'the CLAUDE_CODE_OAUTH_TOKEN secret is not set' ] && [ "$ENFORCE" = true ]; then
+            echo "::error::REVIEW_ENFORCE is true but the CLAUDE_CODE_OAUTH_TOKEN secret is not set, so no review can run"
             exit 1
           fi
           if [ -n "$reason" ]; then
@@ -64,7 +67,7 @@ jobs:
           persist-credentials: false
 
       # The PR controls everything in this checkout. Claude Code would load project and local settings (hooks) and
-      # project MCP servers from it, and those run commands with this job's API key and token whatever the prompt
+      # project MCP servers from it, and those run commands with this job's Claude and GitHub tokens whatever the prompt
       # says. Remove them before the reviewer starts; it reviews the diff through git and gh, not the working tree's
       # configuration.
       - name: Drop PR-controlled Claude configuration
@@ -76,14 +79,14 @@ jobs:
       - name: Review the diff
         id: review
         if: steps.scope.outputs.run == 'true'
-        # Shadow mode: an API error or the turn limit must not turn the check red. the Record the verdict step sees no result
+        # Shadow mode: an API error or the turn limit must not turn the check red. The Record the verdict step sees no result
         # and records NONE. Enforced, the failure stands.
         continue-on-error: ${{ vars.REVIEW_ENFORCE != 'true' }}
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           claude_args: >-
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Read,Glob,Grep"
