@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -232,12 +233,53 @@ internal static class ConfigurationProposalRoutes
             {
                 if (string.IsNullOrWhiteSpace(digest))
                     return Results.BadRequest(new { error = "digest is required." });
+                var started = Stopwatch.GetTimestamp();
+                var capture = new ReleasedInstallDiagnosticCapture
+                {
+                    StageObserver = stage => logger.LogInformation(new EventId(1098, "ReleasedInstallStage"),
+                        "Configuration INSTALL RELEASE stage {Stage} elapsed {ElapsedMilliseconds} ms",
+                        stage, Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+                };
+                capture.ObserveStage("authorization-enter");
                 var tenant = Tenant();
                 var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Operate, ct).ConfigureAwait(false);
+                capture.ObserveStage("authorization-exit");
                 if (refusal is not null) return refusal;
                 // ck-2 S8: no ownership choice. A released package never takes over another package's
                 // definition (ADR 0028, K8); an edit that only narrows one is carried as its overlay.
-                var outcome = await releases.InstallAsync(tenant, digest, authority, ct).ConfigureAwait(false);
+                ReleasedPackInstallOutcome outcome;
+                try
+                {
+                    outcome = await releases.InstallWithDiagnosticsAsync(tenant, digest, authority, capture, ct).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    capture.ObserveStage("request-failed");
+                    try
+                    {
+                        if (capture.Report is { } failedReport && logger.IsEnabled(LogLevel.Warning)
+                            && (failedReport.Failures.Count != 0 || failedReport.BoundaryFailures.Count != 0))
+                        {
+                            var secondary = new AggregateException(failedReport.Failures.Where(item => item.Error is not null)
+                                .Select(item => item.Error!).Concat(failedReport.BoundaryFailures));
+                            logger.LogWarning(secondary, "Configuration INSTALL RELEASE secondary diagnostics: {Diagnostics}",
+                                string.Join(";", failedReport.Failures.Select(item => $"{item.Kind}: {item.Error?.Message}")
+                                    .Concat(failedReport.BoundaryFailures.Select(item => $"Boundary: {item.Message}"))));
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // A failed host log must not replace the original typed request error.
+                    }
+                    throw;
+                }
+                var report = capture.Report;
+                var diagnosticCode = !outcome.Succeeded && report?.Failures.Any(item =>
+                    item.Kind == Harborline.Api.Foundation.Definitions.PackProjectionDiagnosticKind.DeferredRefusalRecord) == true
+                    ? DeferredRefusalRecordFailed
+                    : outcome.Succeeded && report?.Committed == true && report.Failures.Any(item =>
+                        item.Kind == Harborline.Api.Foundation.Definitions.PackProjectionDiagnosticKind.CommitReaction)
+                        ? PostCommitReactionFailed : null;
                 var dto = new InstalledReleaseDto(
                     !outcome.Succeeded ? "refused" : outcome.Installed ? "installed" : "narrowed", tenant.Value,
                     outcome.ReleasedDigest, outcome.PackKey, outcome.Version,
@@ -245,17 +287,27 @@ internal static class ConfigurationProposalRoutes
                     outcome.Narrowed ?? [],
                     // Tickets 092/094: exception text never reaches the wire. The body names which reaction failed by
                     // a stable code; only the host log carries the failure itself.
-                    outcome.Diagnostics is null ? null
-                        : outcome.Succeeded ? PostCommitReactionFailed : DeferredRefusalRecordFailed);
+                    diagnosticCode);
                 if (logger.IsEnabled(LogLevel.Information))
                     logger.LogInformation("Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Pack}@{Version}",
                         tenant, LogText.Of(digest), dto.Status, LogText.Of(dto.PackKey), LogText.Of(dto.Version));
                 // A failed reaction never changes the status, but it must not be silent: the body carries its code
                 // and the host log carries the failure.
-                if (outcome.Diagnostics is not null && logger.IsEnabled(LogLevel.Warning))
-                    logger.LogWarning(outcome.DiagnosticsException,
-                        "Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Code}: {Diagnostics}",
-                        tenant, LogText.Of(digest), dto.Status, dto.Diagnostics, outcome.Diagnostics);
+                try
+                {
+                    if (report is not null && (report.Failures.Count != 0 || report.BoundaryFailures.Count != 0)
+                        && logger.IsEnabled(LogLevel.Warning))
+                        logger.LogWarning(outcome.DiagnosticsException,
+                            "Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Code}: {Diagnostics}",
+                            tenant, LogText.Of(digest), dto.Status, dto.Diagnostics,
+                            outcome.Diagnostics ?? string.Join(";", report.Failures.Select(item => $"{item.Kind}: {item.Error?.Message}")
+                                .Concat(report.BoundaryFailures.Select(item => $"Boundary: {item.Message}"))));
+                }
+                catch (Exception)
+                {
+                    // A failed diagnostic sink cannot change the already determined transaction outcome.
+                }
+                capture.ObserveStage("response");
                 return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
     }

@@ -137,8 +137,6 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
         _client.DefaultRequestHeaders.Add("X-Test-Desktop", "1");
-
-        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
     }
 
     public async Task DisposeAsync()
@@ -166,6 +164,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public void LandedRecordsProducerTypesAreConsumedFromPinnedPackage()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         // The real codec reads the literal canonical body and writes it back byte-identically.
         RecordTypeDocument document = RecordTypeDefinitionJson.Deserialize(Encoding.UTF8.GetBytes(AssetClassJson));
         Assert.Equal(("tenant-a", "eam", "eam-core"),
@@ -226,9 +226,6 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
         const string proposalId = "proposal-274-owned";
         const string alphaBody = """{"title":"Alpha","envelope":{"requires":[{"capability":"acme.finance@1"}],"exposes":{"interface_version":3}}}""";
         const string zetaBody = """{"title":"Zeta","envelope":{"exposes":{"interface_version":3}}}""";
-        // This control's provider: acme.finance 1.0.0 advertises interface 1 and exposes forms/invoice, whose own
-        // envelope declares that interface. It replaces this test's initial seed of the same version before the
-        // baseline is read, so the closure still pins acme.finance at 1.0.0.
         const string providerInvoice = """{"id":"forms/invoice","pack":"acme.finance","envelope":{"exposes":{"interface_version":1}}}""";
         var provider = new InstalledPack(FinanceKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft,
             [new PackSeedItem("forms/invoice", PackContentKind.FormDefinition, "1", providerInvoice,
@@ -333,6 +330,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public async Task RealMixedReleaseExposesOnlyCanonicalOwnedDefinitions()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         const string proposalId = "proposal-274-mixed";
         const string noteBody = """{"title":"Tenant note","envelope":{"exposes":{"interface_version":3}}}""";
         var baseline = _proposals.ReadEffective(_tenant);
@@ -407,6 +406,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public async Task BaselineForeignDefinitionCannotGainExposureByForgedOwnClaim()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         const string proposalId = "proposal-274-forged-claim";
         const string noteBody = """{"title":"Tenant note","envelope":{"exposes":{"interface_version":3}}}""";
         const string claimedBody = """{"id":"forms/invoice","envelope":{"exposes":{"interface_version":3}}}""";
@@ -464,6 +465,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public async Task SignedForgedExposureStillCannotOverrideInstalledOwnership()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         const string proposalId = "proposal-274-resigned";
         const string claimedBody = """{"id":"forms/invoice","envelope":{"exposes":{"interface_version":3}}}""";
         var baseline = _proposals.ReadEffective(_tenant);
@@ -518,6 +521,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public async Task ContradictoryCanonicalOwnAndPayloadForeignExposureRefusesSafely()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         const string proposalId = "proposal-274-contradiction";
         const string ownedSeed = """{"id":"forms/owned-note","pack":"tenant.release"}""";
         const string contradictoryBody = """{"id":"forms/owned-note","envelope":{"exposes":{"interface_version":3}}}""";
@@ -572,6 +577,8 @@ public sealed class ReleasedPackProducerExposureIntegrationTests : IAsyncLifetim
     [Fact]
     public async Task RealLegacyReleaseWithoutExposureRetainsAbsentFields()
     {
+        Seed(FinanceKey, "1.0.0", ("forms/invoice", PackContentKind.FormDefinition, FinanceInvoiceSeed));
+
         const string proposalId = "proposal-274-legacy";
         const string plainBody = """{"title":"Plain"}""";
         const string envelopedBody = """{"title":"Enveloped","envelope":{"requires":[]}}""";

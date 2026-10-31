@@ -166,6 +166,70 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.Equal(6, receipt.GetProperty("activeAfter").GetProperty("declaredDefinitions").GetArrayLength());
     }
 
+    [Fact]
+    public async Task Selected_replacement_equal_retry_preserves_installed_draft_then_activates_it()
+    {
+        await PreloadPlatformThenAccessAsync();
+        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var bytes = await ExportAsync(source with { Version = "1.1.7" });
+        var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
+            AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()),
+            PackInstallRoutes.RevocationMaxAge, Principal: TestDesktopOperator.Principal);
+        var installed = await _installer.InstallAsync(bytes, context);
+        Assert.True(installed.Installed, string.Join(",", installed.RefusalCodes));
+        var draft = Assert.IsType<InstalledPack>(_store.GetVersion(Tenant, source.Key, "1.1.7"));
+        Assert.Equal("Draft", draft.Lifecycle.ToString());
+        Assert.NotNull(draft.ArtifactIdentity);
+        Assert.Equal("1.1.6", _store.GetActive(Tenant, source.Key)!.Version);
+        var watermark = JsonSerializer.Serialize(_store.GetWatermark(Tenant, source.Key));
+        var overrides = JsonSerializer.Serialize(_store.GetOverrides(Tenant, source.Key));
+        var ownership = JsonSerializer.Serialize(_store.GetKeyOwnership(Tenant));
+        var auditBefore = _audit.Query(Tenant).Count;
+
+        var result = await ReplaceAsync(ReplacementHttp(bytes), source.Key);
+
+        Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
+        var receipt = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("replaced", receipt.GetProperty("status").GetString());
+        var install = receipt.GetProperty("draftInstall");
+        Assert.True(install.GetProperty("installed").GetBoolean());
+        Assert.Equal("Unchanged", install.GetProperty("action").GetString());
+        Assert.Equal("1.1.7", install.GetProperty("version").GetString());
+        Assert.Empty(install.GetProperty("refusalCodes").EnumerateArray());
+        var activation = receipt.GetProperty("activation");
+        Assert.True(activation.GetProperty("attempted").GetBoolean());
+        Assert.True(activation.GetProperty("activated").GetBoolean());
+        Assert.True(activation.GetProperty("projected").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, activation.GetProperty("error").ValueKind);
+        Assert.Equal(JsonValueKind.Null, activation.GetProperty("refusal").ValueKind);
+        Assert.Equal("1.1.6", receipt.GetProperty("activeBefore").GetProperty("version").GetString());
+        Assert.Equal("1.1.7", receipt.GetProperty("activeAfter").GetProperty("version").GetString());
+        Assert.Equal(6, receipt.GetProperty("activeAfter").GetProperty("declaredDefinitions").GetArrayLength());
+
+        var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, source.Key));
+        Assert.Equal("1.1.7", active.Version);
+        Assert.Equal("Active", _store.GetVersion(Tenant, source.Key, "1.1.7")!.Lifecycle.ToString());
+        Assert.Equal("Superseded", _store.GetVersion(Tenant, source.Key, "1.1.6")!.Lifecycle.ToString());
+        Assert.Equal(new[] { "1.1.6", "1.1.7" }, _store.ListInstalled(Tenant)
+            .Where(pack => pack.PackKey == source.Key).Select(pack => pack.Version).Order(StringComparer.Ordinal));
+        Assert.Equal(JsonSerializer.Serialize(draft with { Lifecycle = PackLifecycleState.Active }), JsonSerializer.Serialize(active));
+        Assert.Equal(watermark, JsonSerializer.Serialize(_store.GetWatermark(Tenant, source.Key)));
+        Assert.Equal(overrides, JsonSerializer.Serialize(_store.GetOverrides(Tenant, source.Key)));
+        Assert.Equal(ownership, JsonSerializer.Serialize(_store.GetKeyOwnership(Tenant)));
+
+        var audit = _audit.Query(Tenant).Skip(auditBefore).ToArray();
+        Assert.Equal(new[] { "Unchanged", "Activated" }, audit.Select(entry => entry.Action.ToString()));
+        Assert.All(audit, entry =>
+        {
+            Assert.Equal(source.Key, entry.PackKey);
+            Assert.Equal("1.1.7", entry.Version);
+            Assert.Equal("replacement-admin", entry.ActingPrincipal);
+            Assert.False(entry.PreDecision);
+        });
+        Assert.Null(audit[0].Detail);
+        Assert.Equal("pack.install.activated", audit[1].Detail);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

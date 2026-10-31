@@ -80,11 +80,33 @@ public static class PackProjectionActivationBarrier
     }
 }
 
-/// <summary>
-/// One pack projection: stage private registry copies and one uncommitted durable unit, run the
-/// existing admission/projector, then publish by releasing the barrier after the durable commit.
-/// Discarding a plan restores original references without replaying definitions or lifecycle writes.
-/// </summary>
+/// <summary>The actual operation that produced a secondary projection diagnostic.</summary>
+public enum PackProjectionDiagnosticKind
+{
+    /// <summary>A rollback callback failed; rollback completion is unconfirmed.</summary>
+    Rollback,
+    /// <summary>A participant cleanup callback failed.</summary>
+    Cleanup,
+    /// <summary>The durable resource did not confirm disposal.</summary>
+    DurableRelease,
+    /// <summary>The activation lease did not confirm disposal.</summary>
+    LeaseRelease,
+    /// <summary>An eligible deferred refusal record actually failed.</summary>
+    DeferredRefusalRecord,
+    /// <summary>An eligible observer of an actual commit failed.</summary>
+    CommitReaction,
+    /// <summary>Unconfirmed resource release retired callbacks without running them.</summary>
+    DeliverySuppressed,
+}
+
+/// <summary>A tagged exact secondary exception, or a delivery suppression with no fabricated exception.</summary>
+public sealed record PackProjectionDiagnostic(PackProjectionDiagnosticKind Kind, Exception? Error);
+
+/// <summary>An immutable snapshot after the first reaction, independent of accepted or staged outcomes.</summary>
+public sealed record PackProjectionDiagnostics(
+    bool Committed, bool ResourceReleaseConfirmed, IReadOnlyList<PackProjectionDiagnostic> Failures);
+
+/// <summary>One owner stages, commits or discards, releases, then reacts to a projection.</summary>
 public sealed class PackProjectionTransaction : IDisposable
 {
     private readonly IDisposable lease;
@@ -93,97 +115,196 @@ public sealed class PackProjectionTransaction : IDisposable
     private readonly List<Action> cleanup = [];
     private readonly List<Func<Task>> reactions = [];
     private readonly List<Func<Task>> released = [];
+    private readonly List<PackProjectionDiagnostic> failures = [];
     private IPackProjectionDurableUnit? durable;
     private bool committed;
     private bool disposed;
     private bool reacted;
+    private bool protectedCleanup;
+    private bool failed;
+    private bool resourceReleaseConfirmed;
+    private Exception? failureCause;
     private Exception? postCommitCleanupFailure;
 
-    /// <summary>Begins an isolated projection. All registry readers participate in the same barrier.</summary>
+    /// <summary>Begins an isolated projection behind the shared activation barrier.</summary>
     public PackProjectionTransaction(CancellationToken cancellationToken = default)
         => lease = PackProjectionActivationBarrier.Write(cancellationToken);
 
-    /// <summary>Requires transaction support for each configured runtime or durable store.</summary>
-    public void Enlist(object? participant)
+    /// <summary>The first completed reaction snapshot; later no-op reactions retain it.</summary>
+    public PackProjectionDiagnostics? Diagnostics { get; private set; }
+
+    /// <summary>Opts a live joined attempt into complete owner cleanup before any participant enlistment.</summary>
+    public void BeginJoinedInstall()
     {
-        if (participant is null) return;
-        if (participant is not IPackProjectionParticipant supported)
-            throw new InvalidOperationException($"Projection store '{participant.GetType().FullName}' cannot stage atomically.");
-        supported.StageProjection(this);
+        RequireActive();
+        protectedCleanup = true;
     }
 
-    /// <summary>
-    /// Stages a store once. Prepare must allocate every clone before replacing any reference, and
-    /// return a rollback consisting only of reference assignments (no callbacks or persistence).
-    /// </summary>
-    public void Stage(object participant, Func<Action> prepare)
+    /// <summary>Irreversibly prevents Commit and enables complete cleanup; performs no cleanup itself.</summary>
+    public void MarkFailed(Exception? cause = null)
+    {
+        RequireLive();
+        if (!failed) failureCause = cause;
+        failed = true;
+        protectedCleanup = true;
+    }
+
+    private void RequireLive()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (committed) throw new InvalidOperationException("The projection has already committed.");
-        if (participants.Add(participant)) rollback.Add(prepare());
     }
 
-    /// <summary>Joins the one durable unit; a second database transaction is refused.</summary>
+    private void RequireActive()
+    {
+        RequireLive();
+        if (failed) throw new InvalidOperationException("The projection contains a failed joined install and cannot commit or stage more work.", failureCause);
+    }
+
+    /// <summary>Enlists a supported participant only while active.</summary>
+    public void Enlist(object? participant)
+    {
+        RequireActive();
+        if (participant is null) return;
+        try
+        {
+            if (participant is not IPackProjectionParticipant supported)
+                throw new InvalidOperationException($"Projection store '{participant.GetType().FullName}' cannot stage atomically.");
+            supported.StageProjection(this);
+        }
+        catch (Exception exception)
+        {
+            if (protectedCleanup) MarkFailed(exception);
+            throw;
+        }
+    }
+
+    /// <summary>Stages one private reference copy, retaining its rollback until owner disposal.</summary>
+    public void Stage(object participant, Func<Action> prepare)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(prepare);
+        RequireActive();
+        try { if (participants.Add(participant)) rollback.Add(prepare()); }
+        catch (Exception exception)
+        {
+            if (protectedCleanup) MarkFailed(exception);
+            throw;
+        }
+    }
+
+    /// <summary>Joins one durable unit while active.</summary>
     public T Durable<T>(Func<T> create) where T : class, IPackProjectionDurableUnit
     {
-        if (durable is null) durable = create();
-        return durable as T ?? throw new InvalidOperationException("Projection participants must share one durable transaction.");
+        ArgumentNullException.ThrowIfNull(create);
+        RequireActive();
+        try
+        {
+            if (durable is null) durable = create();
+            return durable as T ?? throw new InvalidOperationException("Projection participants must share one durable transaction.");
+        }
+        catch (Exception exception)
+        {
+            if (protectedCleanup) MarkFailed(exception);
+            throw;
+        }
     }
 
-    /// <summary>Resets a participant's private transaction handle on either outcome; reference assignments only.</summary>
-    public void Finally(Action release) => cleanup.Add(release);
+    /// <summary>Registers owed cleanup even after failure, before disposal.</summary>
+    public void Finally(Action release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        ObjectDisposedException.ThrowIf(disposed, this);
+        cleanup.Add(release);
+    }
 
-    /// <summary>Defers observers until the committed projection is visible and the write lease is released.</summary>
-    public void AfterCommit(Func<Task> reaction) => reactions.Add(reaction);
+    /// <summary>Defers success observers until actual Commit and confirmed resource release.</summary>
+    public void AfterCommit(Func<Task> reaction)
+    {
+        ArgumentNullException.ThrowIfNull(reaction);
+        RequireActive();
+        reactions.Add(reaction);
+    }
 
-    /// <summary>
-    /// Defers an outcome-independent record (a refusal audit) until the lease and durable unit are released,
-    /// whether or not the projection committed. It is never staged with, or evidence for, the projection.
-    /// </summary>
-    public void AfterRelease(Func<Task> record) => released.Add(record);
+    /// <summary>Registers a refusal record after either outcome and confirmed release.</summary>
+    public void AfterRelease(Func<Task> record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ObjectDisposedException.ThrowIf(disposed, this);
+        released.Add(record);
+    }
 
-    /// <summary>Runs deferred records, then observers of a commit, outside the lease; never reverses a durable success.</summary>
+    /// <summary>Runs eligible callbacks once; uncertain release retires them without delivery or retry.</summary>
     public async Task<AggregateException?> ReactAsync()
     {
         if (!disposed) throw new InvalidOperationException("Release the projection lease before notifying observers.");
         if (reacted) return null;
         reacted = true;
-        var failures = new List<Exception>();
-        if (postCommitCleanupFailure is not null) failures.Add(postCommitCleanupFailure);
-        foreach (var record in released) await CollectAsync(record, failures).ConfigureAwait(false);
-        if (committed)
-            foreach (var reaction in reactions) await CollectAsync(reaction, failures).ConfigureAwait(false);
-        return failures.Count == 0 ? null : committed
-            ? new AggregateException("Projection committed; post-commit notification or cleanup failed.", failures)
-            : new AggregateException("Projection discarded; a deferred refusal record failed.", failures);
+        if (postCommitCleanupFailure is not null)
+            Add(PackProjectionDiagnosticKind.Cleanup, postCommitCleanupFailure);
+        if (resourceReleaseConfirmed)
+        {
+            foreach (var record in released)
+                await CollectAsync(record, PackProjectionDiagnosticKind.DeferredRefusalRecord).ConfigureAwait(false);
+            if (committed)
+                foreach (var reaction in reactions)
+                    await CollectAsync(reaction, PackProjectionDiagnosticKind.CommitReaction).ConfigureAwait(false);
+        }
+        else if (released.Count != 0 || reactions.Count != 0)
+            failures.Add(new(PackProjectionDiagnosticKind.DeliverySuppressed, null));
+        released.Clear();
+        reactions.Clear();
+        Diagnostics = new PackProjectionDiagnostics(committed, resourceReleaseConfirmed,
+            Array.AsReadOnly(failures.ToArray()));
+        var errors = failures.Where(item => item.Error is not null).Select(item => item.Error!).ToArray();
+        return errors.Length == 0 ? null : new AggregateException(
+            committed ? "Projection committed; post-commit notification or cleanup failed." : "Projection discarded; secondary work failed.", errors);
     }
 
-    private static async Task CollectAsync(Func<Task> reaction, List<Exception> failures)
+    private void Add(PackProjectionDiagnosticKind kind, Exception error)
     {
-        // The async boundary captures synchronous delegate throws as well as asynchronous faults.
-        // SuppressThrowing only controls the await: every fault/cancellation is collected below.
-        var pending = InvokeReactionAsync(reaction);
-        await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        if (pending.Exception is { } failure) failures.AddRange(failure.InnerExceptions);
-        else if (pending.IsCanceled) failures.Add(new TaskCanceledException(pending));
+        if (!ReferenceEquals(error, failureCause)) failures.Add(new(kind, error));
     }
 
-    private static async Task InvokeReactionAsync(Func<Task> reaction) => await reaction().ConfigureAwait(false);
+    private async Task CollectAsync(Func<Task> reaction, PackProjectionDiagnosticKind kind)
+    {
+        try { await reaction().ConfigureAwait(false); }
+        catch (Exception exception) { Add(kind, exception); }
+    }
 
-    /// <summary>Commits durable state before exposing the prepared registry references.</summary>
+    /// <summary>Commits once; a failed durable call poisons every later Commit.</summary>
     public void Commit()
     {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (committed) throw new InvalidOperationException("The projection has already committed.");
-        durable?.Commit();
-        committed = true;
+        RequireActive();
+        try
+        {
+            durable?.Commit();
+            committed = true;
+        }
+        catch (Exception exception)
+        {
+            MarkFailed(exception);
+            throw;
+        }
     }
 
-    /// <summary>Discards staged state, or releases the successfully committed projection to readers.</summary>
+    /// <summary>Only the owner restores references and attempts durable and lease release.</summary>
     public void Dispose()
     {
         if (disposed) return;
         disposed = true;
+        if (protectedCleanup)
+        {
+            if (!committed)
+                for (var index = rollback.Count - 1; index >= 0; index--)
+                    Attempt(rollback[index], PackProjectionDiagnosticKind.Rollback);
+            for (var index = cleanup.Count - 1; index >= 0; index--)
+                Attempt(cleanup[index], PackProjectionDiagnosticKind.Cleanup);
+            var durableReleased = durable is null || Attempt(durable.Dispose, PackProjectionDiagnosticKind.DurableRelease);
+            var leaseReleased = Attempt(lease.Dispose, PackProjectionDiagnosticKind.LeaseRelease);
+            resourceReleaseConfirmed = durableReleased && leaseReleased;
+            return;
+        }
         try
         {
             if (!committed)
@@ -191,18 +312,25 @@ public sealed class PackProjectionTransaction : IDisposable
         }
         finally
         {
+            var durableReleased = durable is null;
             try
             {
                 for (var index = cleanup.Count - 1; index >= 0; index--) cleanup[index]();
                 durable?.Dispose();
+                durableReleased = true;
             }
-            catch (Exception exception) when (committed)
+            catch (Exception exception) when (committed) { postCommitCleanupFailure = exception; }
+            finally
             {
-                // The durable commit cannot be undone. Report cleanup diagnostically after publication;
-                // never turn a successful commit into a false refusal or attempt reference rollback.
-                postCommitCleanupFailure = exception;
+                lease.Dispose();
+                resourceReleaseConfirmed = durableReleased;
             }
-            finally { lease.Dispose(); }
         }
+    }
+
+    private bool Attempt(Action action, PackProjectionDiagnosticKind kind)
+    {
+        try { action(); return true; }
+        catch (Exception exception) { Add(kind, exception); return false; }
     }
 }

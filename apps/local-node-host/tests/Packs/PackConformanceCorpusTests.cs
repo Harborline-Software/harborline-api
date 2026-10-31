@@ -98,6 +98,19 @@ public sealed class PackConformanceCorpusTests
             var exported = await ExportAsync(exporter, testCase.PackPath, keyPair);
             if (testCase.ActivationSetup is { } setup)
             {
+                using var activationServices = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
+                var activationStore = new InMemoryPackInstallStore();
+                PlatformPackTestPreload.Activate(activationStore, Tenant);
+                var activationInstaller = new PackInstaller(
+                    new PackVerifier(new Ed25519Verifier(), codec),
+                    activationStore,
+                    new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
+                    new InMemoryPackInstallAudit(),
+                    Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
+                var activationProjector = PackProjectionTestFixture.Create(
+                    activationStore, activationServices.GetRequiredService<IEntityTypeRegistry>());
+                ((IPackProjectionReconciler)activationInstaller).AttachProjector(activationProjector);
+
                 var provider = await exporter.ExportAsync(new PackExportRequest(
                     setup.PackKey, "1.0.0", setup.PackKey, "T-396 corpus provider", PackScopeTier.Horizontal,
                     [new PackContentSource(setup.ContentKey, PackContentKind.FormDefinition, "1.0.0",
@@ -106,12 +119,12 @@ public sealed class PackConformanceCorpusTests
                     Dcp: DomainComplianceProfile.General("conformance-corpus"),
                     Exposes: setup.Exposes, InterfaceVersion: setup.InterfaceVersion), new Ed25519Signer(keyPair));
                 Assert.True(provider.Succeeded, string.Join(",", provider.Validation.Errors.Select(error => error.Code)));
-                var providerInstalled = await installer.InstallAsync(provider.FileBytes!, context);
+                var providerInstalled = await activationInstaller.InstallAsync(provider.FileBytes!, context);
                 Assert.True(providerInstalled.Installed, string.Join(",", providerInstalled.RefusalCodes));
-                Assert.True(installer.Activate(Tenant, providerInstalled.PackKey, providerInstalled.Version, Now, "conformance-corpus").Activated);
-                var consumerInstalled = await installer.InstallAsync(exported, context);
+                Assert.True(activationInstaller.Activate(Tenant, providerInstalled.PackKey, providerInstalled.Version, Now, "conformance-corpus").Activated);
+                var consumerInstalled = await activationInstaller.InstallAsync(exported, context);
                 Assert.True(consumerInstalled.Installed, $"Must-refuse activation pack '{testCase.PackPath}' did not install.");
-                var activation = installer.Activate(Tenant, consumerInstalled.PackKey, consumerInstalled.Version, Now, "conformance-corpus");
+                var activation = activationInstaller.Activate(Tenant, consumerInstalled.PackKey, consumerInstalled.Version, Now, "conformance-corpus");
                 Assert.False(activation.Activated, $"Must-refuse activation pack '{testCase.PackPath}' activated.");
                 Assert.Equal(testCase.ExpectedReason, activation.Error);
                 AssertExpectedRefusal(testCase, Assert.IsType<PackInstallRefusal>(activation.Refusal));
