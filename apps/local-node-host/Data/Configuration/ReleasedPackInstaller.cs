@@ -56,7 +56,7 @@ public sealed record ReleasedPackInstallOutcome(bool Installed, string ReleasedD
     public ReleasedInstallDiagnosticReport? DiagnosticReport { get; init; }
 }
 
-/// <summary>A caller-owned, one-invocation diagnostic carrier; it holds no signed audit alternatives.</summary>
+/// <summary>A caller-owned, one-invocation diagnostic capture; it holds no signed audit alternatives.</summary>
 public sealed class ReleasedInstallDiagnosticCapture
 {
     private int claimed;

@@ -397,7 +397,7 @@ public sealed class PackSameVersionRetryTests(ITestOutputHelper output)
     [InlineData(true, true, false)]
     [InlineData(false, false, true)]
     [InlineData(true, false, true)]
-    public async Task Independent_store_contenders_select_actual_equal_conflict_or_absent_after_rollback(
+    public async Task Independent_store_writers_select_actual_equal_conflict_or_absent_after_rollback(
         bool reverseWinner, bool different, bool rollbackWinner)
     {
         using var keys = KeyPair.Generate();
@@ -419,9 +419,9 @@ public sealed class PackSameVersionRetryTests(ITestOutputHelper output)
         var firstPlan = await PrepareAsync(first, artifactA, keys, audit);
         var secondPlan = await PrepareAsync(second, artifactB, keys, audit);
         var winner = reverseWinner ? second : first;
-        var contender = reverseWinner ? first : second;
+        var otherStore = reverseWinner ? first : second;
         var winnerPlan = reverseWinner ? secondPlan : firstPlan;
-        var contenderPlan = reverseWinner ? firstPlan : secondPlan;
+        var otherPlan = reverseWinner ? firstPlan : secondPlan;
         var attempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var transaction = new PackProjectionTransaction();
         transaction.BeginJoinedInstall();
@@ -436,7 +436,7 @@ public sealed class PackSameVersionRetryTests(ITestOutputHelper output)
             pending = Task.Run(async () =>
             {
                 attempted.TrySetResult();
-                var result = contender.Commit(contenderPlan);
+                var result = otherStore.Commit(otherPlan);
                 await AppendSelectedAsync(result, audit);
                 return result;
             });
@@ -454,17 +454,17 @@ public sealed class PackSameVersionRetryTests(ITestOutputHelper output)
         var actual = await pending.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.Equal(rollbackWinner ? "Written" : different ? "Conflict" : "Unchanged", actual.Disposition.ToString());
         if (!rollbackWinner && different) Assert.Null(actual.SelectedAudit);
-        else Assert.Same(rollbackWinner ? contenderPlan.Audit : contenderPlan.UnchangedAudit, actual.SelectedAudit);
+        else Assert.Same(rollbackWinner ? otherPlan.Audit : otherPlan.UnchangedAudit, actual.SelectedAudit);
         await using var reopened = origin.Reopen();
         var read = new DurablePackInstallStore(reopened.Store.PacksFactory);
         Assert.Equal("1.0.0", read.GetVersion(Tenant, PackKey, "1.0.0")!.Version);
-        Assert.Equal(rollbackWinner ? contenderPlan.InstalledPack.ArtifactIdentity : winnerPlan.InstalledPack.ArtifactIdentity,
+        Assert.Equal(rollbackWinner ? otherPlan.InstalledPack.ArtifactIdentity : winnerPlan.InstalledPack.ArtifactIdentity,
             read.GetVersion(Tenant, PackKey, "1.0.0")!.ArtifactIdentity);
         Assert.Single(read.ListInstalled(Tenant), item => item.PackKey == PackKey);
         if (!rollbackWinner)
             Assert.Equal(committedWinnerBusiness, await DurableSnapshotAsync(origin, includeAudit: false));
         Assert.Equal(rollbackWinner || different ? new[] { "Installed" } : new[] { "Installed", "Unchanged" }, await OutboxActionsAsync(reopened));
-        output.WriteLine("Contender start proves attempted overlap only; it does not measure native SQLite waiting.");
+        output.WriteLine("Writer start proves attempted overlap only; it does not measure native SQLite waiting.");
     }
 
     [Theory]
