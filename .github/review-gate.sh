@@ -10,13 +10,25 @@ set -euo pipefail
 PR=$1
 REPO=${GITHUB_REPOSITORY:?}
 CONTEXT=review-gate
-RISKY=${RISKY_PATHS:-'^\.github/'}
+# Changes that also need a clean Codex security review: CI and its scripts, and the pinned SDK and tool versions.
+RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
 pr=$(gh api "repos/$REPO/pulls/$PR")
 [ "$(jq -r .state <<<"$pr")" = open ] || { echo "PR $PR is not open"; exit 0; }
 [ "$(jq -r .draft <<<"$pr")" = false ] || { echo "PR $PR is a draft"; exit 0; }
 HEAD=$(jq -r .head.sha <<<"$pr")
+
+# If anything below fails, mark the gate as errored rather than leave an older status (maybe a success) standing.
+posted=false
+on_exit() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "${DRY_RUN:-}" != 1 ] && ! $posted; then
+    gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=error -f context="$CONTEXT" \
+      -f description="review-gate could not finish; see the run" -f target_url="$RUN_URL" >/dev/null || true
+  fi
+}
+trap on_exit EXIT
 OWNER=${REPO%%/*}; NAME=${REPO#*/}
 
 passes=(); blockers=()
@@ -104,6 +116,7 @@ desc=${desc:0:140}
 echo "PR $PR head $HEAD: $state: $desc (claude=$claude_state codex=$codex_code/$codex_security coderabbit=${rabbit:-none} risky=$risky)"
 if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
-if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then echo "review-gate unchanged"; exit 0; fi
+if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; exit 0; fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
+posted=true
