@@ -48,10 +48,12 @@ esac
 escalated=false; [[ $claude_desc == *ESCALATE* ]] && escalated=true
 
 # Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;.
-codex=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
-  --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .body' \
-  | grep -o 'codex-review-state:v1 [^>]*-->' | tail -n 1 \
-  | sed -E 's/^codex-review-state:v1 //; s/ -->$//; s/&#123;/{/g; s/&#125;/}/g; s/&quot;/"/g' || true)
+# Each listing is read in full before it is searched, so a failed request stops the script (and the gate reads
+# as errored) instead of looking like a reviewer that never ran.
+codex_bodies=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
+  --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .body')
+codex=$( { grep -o 'codex-review-state:v1 [^>]*-->' <<<"$codex_bodies" || true; } | tail -n 1 \
+  | sed -E 's/^codex-review-state:v1 //; s/ -->$//; s/&#123;/{/g; s/&#125;/}/g; s/&quot;/"/g')
 codex_code=none; codex_security=none
 if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
   # clean: finished on this head with no findings; dirty: finished on this head with unresolved findings.
@@ -66,9 +68,9 @@ fi
 [ "$codex_code" = clean ] && [ "$codex_security" = clean ] && passes+=("Codex")
 
 # CodeRabbit: its latest review on this head. APPROVED passes; CHANGES_REQUESTED blocks.
-rabbit=$(gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  --jq ".[] | select(.user.login == \"coderabbitai[bot]\" and .commit_id == \"$HEAD\") | .state" \
-  | grep -E '^(APPROVED|CHANGES_REQUESTED|DISMISSED)$' | tail -n 1 || true)
+rabbit_states=$(gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --paginate \
+  --jq ".[] | select(.user.login == \"coderabbitai[bot]\" and .commit_id == \"$HEAD\") | .state")
+rabbit=$( { grep -E '^(APPROVED|CHANGES_REQUESTED|DISMISSED)$' <<<"$rabbit_states" || true; } | tail -n 1)
 case $rabbit in
   APPROVED) passes+=("CodeRabbit") ;;
   CHANGES_REQUESTED) blockers+=("CodeRabbit requested changes") ;;
@@ -86,16 +88,24 @@ if [ "${NO_GRAPHQL:-}" != 1 ]; then
         }
       } } }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
         | select((.isResolved | not) and (.isOutdated | not))
-        | select(.comments.nodes[0].author.login | test("^(coderabbitai|chatgpt-codex-connector|github-actions)"))] | length' \
+        | select((.comments.nodes[0].author.login // "") | test("^(coderabbitai|chatgpt-codex-connector|github-actions)"))] | length' \
     | awk '{ n += $1 } END { print n + 0 }')
   [ "$open_threads" -gt 0 ] && blockers+=("$open_threads open review thread(s)")
 fi
 
+# The status sits on the head commit, so two open PRs with the same head would overwrite each other's gate.
+shared=$(gh api "repos/$REPO/commits/$HEAD/pulls?per_page=100" --paginate \
+  --jq "[.[] | select(.state == \"open\" and .head.sha == \"$HEAD\" and .number != $PR)] | length" \
+  | awk '{ n += $1 } END { print n + 0 }')
+[ "$shared" -gt 0 ] && blockers+=("$shared other open PR(s) share this head; open one PR per head commit")
+
 # A risky change also needs Codex's security review, clean on this head, whatever else passed.
 risky=$escalated
 # Read the whole listing first: grep -q on a pipe can exit early, and with pipefail the broken pipe would read as
-# "no match". A failed listing stops the script, so the gate keeps its last status rather than passing.
-if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename'); then
+# "no match". A failed listing stops the script, so the gate reads as errored rather than passing.
+# A renamed file counts by both its old and new path, so moving a workflow out of .github/ is still risky.
+if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
+               --jq '.[] | .filename, (.previous_filename // empty)'); then
   echo "::error::could not list the PR's changed files" >&2; exit 1
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi

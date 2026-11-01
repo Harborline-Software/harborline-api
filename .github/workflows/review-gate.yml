@@ -33,7 +33,13 @@ on:
         type: number
 
 concurrency:
-  group: ${{ github.event_name == 'schedule' && 'review-gate-sweep' || format('review-gate-{0}', github.event.pull_request.number || github.event.issue.number || inputs.pr) }}
+  # A comment the gate ignores gets a group of its own, so its skipped run can't cancel or replace a real one.
+  group: >-
+    ${{ github.event_name == 'schedule' && 'review-gate-sweep' ||
+        (github.event_name == 'issue_comment' && !(github.event.issue.pull_request &&
+          contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login))) &&
+          format('review-gate-skip-{0}', github.run_id) ||
+        format('review-gate-{0}', github.event.pull_request.number || github.event.issue.number || inputs.pr) }}
   cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 permissions:
