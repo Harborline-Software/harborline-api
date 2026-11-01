@@ -4,6 +4,9 @@
 #
 # Keep it current: a PR that gives a job a write token, or adds a script to such a job, adds the script here.
 # This file is under .github/, so changing it is itself risky.
+#
+# Not covered: these jobs also build and test the product itself (dotnet, pnpm, cargo), so product code,
+# manifests and dependencies run with the token too. Scoping the write token to the publish step is what closes that.
 
 # packages.yml (packages: write, every job), with eng/verify-packages.sh and what it runs
 tooling/harborline-contract-codegen/
@@ -84,3 +87,12 @@ eng/verify-eslint-canary.sh
 eng/verify-packages.sh
 eng/verify-preflight.mjs
 eng/verify-receipt.mjs
+
+# Also run by eng/verify-boundaries.sh (multi-line node --test, dotnet run) and eng/tests/verify-lane.test.sh (evals eng/verify.sh)
+eng/test-isolation/
+eng/tests/platform-feed-consumer-launch.test.mjs
+eng/tests/platform-feed-credential-boundary.test.mjs
+eng/tests/platform-feed-crash-diagnostics.test.mjs
+eng/tests/platform-feed-pid1-probe.test.mjs
+eng/tests/platform-feed-qualification.test.mjs
+eng/verify.sh
