@@ -395,6 +395,69 @@ public sealed class ReleasedPackAtomicInstallRouteTests(ITestOutputHelper output
         AssertNoExceptionText(await response.Content.ReadAsStringAsync(), "cleanup secret", "failed host sink");
     }
 
+    [Fact]
+    public async Task Postcommit_warning_sink_failure_preserves_the_committed_success()
+    {
+        _fixture.SeedOwnPrior();
+        _fixture.Audit.FailAppend = entry => entry.Action == PackInstallAuditAction.Activated
+            ? new InvalidOperationException("injected activation audit failure")
+            : null;
+        _fixture.Projector.ObserverFailure = new InvalidOperationException("injected projection observer failure");
+        var digest = await _fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0",
+            [ReleasedPackAtomicFixture.OwnNote, ReleasedPackAtomicFixture.WithoutContactTitle, ReleasedPackAtomicFixture.WithoutNoteDefault],
+            (ReleasedPackAtomicFixture.Defaults, "1.0.0")));
+        _log.ThrowOnWarning = true;
+
+        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+
+        var raw = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(raw);
+        var body = document.RootElement;
+        Assert.True(response.StatusCode == HttpStatusCode.OK, raw);
+        Assert.Equal("installed", body.GetProperty("status").GetString());
+        Assert.Equal((ReleasedPackAtomicFixture.ReleaseKey, "1.1.0"),
+            (body.GetProperty("packKey").GetString(), body.GetProperty("version").GetString()));
+        Assert.Empty(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("post-commit-reaction-failed", body.GetProperty("diagnostics").GetString());
+        AssertNoExceptionText(raw, "injected activation audit failure", "injected projection observer failure", "failed host sink");
+        Assert.True(_log.WarningCalls > 0);
+        Assert.DoesNotContain(_log.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Empty(_escaped);
+        await using var restart = SearchTestStore.Reopen(_fixture.Harness.Store);
+        Assert.Equal("1.1.0", new DurablePackInstallStore(restart.PacksFactory)
+            .GetActive(_fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey)!.Version);
+    }
+
+    [Fact]
+    public async Task Deferred_refusal_warning_sink_failure_preserves_the_refusal_and_durable_state()
+    {
+        _fixture.SeedOwnPrior();
+        _fixture.Audit.FailAppend = entry => entry.Action == PackInstallAuditAction.Refused
+            ? new InvalidOperationException("injected refusal record failure")
+            : null;
+        var digest = await _fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0",
+            [ReleasedPackAtomicFixture.OwnNote, ReleasedPackAtomicFixture.WithoutContactTitle, ReleasedPackAtomicFixture.WithoutPackageCeiling],
+            (ReleasedPackAtomicFixture.Defaults, "1.0.0")));
+        var durable = await _fixture.DurableStateAsync();
+        _log.ThrowOnWarning = true;
+
+        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+
+        var raw = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(raw);
+        var body = document.RootElement;
+        Assert.True(response.StatusCode == HttpStatusCode.UnprocessableEntity, raw);
+        Assert.Equal("refused", body.GetProperty("status").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("configuration-release-foreign-definition", refusal.GetProperty("code").GetString());
+        Assert.Equal("deferred-refusal-record-failed", body.GetProperty("diagnostics").GetString());
+        AssertNoExceptionText(raw, "injected refusal record failure", "failed host sink");
+        Assert.True(_log.WarningCalls > 0);
+        Assert.DoesNotContain(_log.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Empty(_escaped);
+        Assert.Equal(durable, await _fixture.DurableStateAsync());
+    }
+
     /// <summary>Neither the injected failure messages nor the transaction's aggregate wording reach the wire.</summary>
     private static void AssertNoExceptionText(string raw, params string[] injected)
     {
@@ -419,6 +482,7 @@ public sealed class ReleasedPackAtomicInstallRouteTests(ITestOutputHelper output
         internal bool ThrowOnWarning { get; set; }
         internal bool ThrowOnStage { get; set; }
         internal int StageCalls { get; private set; }
+        internal int WarningCalls { get; private set; }
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(
@@ -432,7 +496,11 @@ public sealed class ReleasedPackAtomicInstallRouteTests(ITestOutputHelper output
                 if (state is IReadOnlyList<KeyValuePair<string, object?>> fields) Stages.Enqueue(fields.ToArray());
                 output.WriteLine(formatter(state, exception));
             }
-            if (ThrowOnWarning && logLevel == LogLevel.Warning) throw new IOException("failed host sink");
+            if (logLevel == LogLevel.Warning)
+            {
+                WarningCalls++;
+                if (ThrowOnWarning) throw new IOException("failed host sink");
+            }
             Entries.Enqueue(new LogEntry(logLevel, formatter(state, exception), exception));
         }
     }
