@@ -158,9 +158,17 @@ if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
 if [ -r "$RISKY_LIST" ]; then
-  listed=$(awk 'NR == FNR { sub(/#.*/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if ($0 != "") want[$0] = 1; next }
-    { for (w in want) if ($0 == w || (w ~ /\/$/ && index($0, w) == 1)) { print; exit } }' "$RISKY_LIST" - <<<"$files")
-  if [ -n "$listed" ]; then risky=true; fi
+  # The entries go in through the environment, so a list with no entries can't make awk read the PR's files as the
+  # list. A list that exists but names nothing fails closed: every PR needs the security review until it's fixed.
+  want=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$RISKY_LIST" | grep -v '^$' || true)
+  if [ -z "$want" ]; then
+    echo "::warning::$RISKY_LIST lists no paths; treating every PR as risky"
+    risky=true
+  elif WANT=$want awk 'BEGIN { n = split(ENVIRON["WANT"], w, "\n") }
+      { for (i = 1; i <= n; i++) if ($0 == w[i] || (w[i] ~ /\/$/ && index($0, w[i]) == 1)) { found = 1; exit } }
+      END { exit !found }' <<<"$files"; then
+    risky=true
+  fi
 else
   echo "::warning::no $RISKY_LIST on the base branch; only the built-in risky paths apply"
 fi
