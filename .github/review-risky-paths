@@ -1,0 +1,23 @@
+# Scripts that a job holding a write token runs, and the files those scripts import or call. A change to any of
+# them also needs a clean Codex security review (PROC-0001, "Review policy, 2026-11-01"). review-gate reads this
+# file from the base branch. One path per line; a path ending in / covers a folder.
+#
+# Keep it current: a PR that gives a job a write token, or adds a script to such a job, adds the script here.
+# This file is under .github/, so changing it is itself risky.
+#
+# Not covered: these jobs also build and test the product itself (dotnet, pnpm, cargo), so product code,
+# manifests and dependencies run with the token too. Scoping the write token to the publish step is what closes that.
+
+# packages.yml (packages: write, every job) runs eng/verify-packages.sh, which runs eng/verify-boundaries.sh and
+# eng/verify.sh. Those reach most of eng/ (scripts, tests, pins and baselines), so the whole folder counts.
+eng/
+tooling/harborline-contract-codegen/
+# Build-wide inputs: every project the write-token jobs build reads these, and the feeds restore pulls from.
+Directory.Build.props
+Directory.Packages.props
+Directory.Build.targets
+nuget.config
+global.json
+# MSBuild tasks and analyzers that the build-wide files load into every build.
+tooling/Harborline.Tooling.LocalizationXliff/
+packages/analyzers/

@@ -12,6 +12,9 @@ REPO=${GITHUB_REPOSITORY:?}
 CONTEXT=review-gate
 # Changes that also need a clean Codex security review: CI and its scripts, and the pinned SDK and tool versions.
 RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
+# Plus the scripts that a job holding a write token runs, listed beside this script and read from the same base
+# checkout, so a PR can't shorten the list it is judged by. One path per line; a path ending in / covers a folder.
+RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
 # Armed before the first lookup: if anything fails, mark the gate as errored rather than leave an older status
@@ -154,6 +157,21 @@ if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
   echo "::error::could not list the PR's changed files" >&2; exit 1
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
+if [ -r "$RISKY_LIST" ]; then
+  # The entries go in through the environment, so a list with no entries can't make awk read the PR's files as the
+  # list. A list that exists but names nothing fails closed: every PR needs the security review until it's fixed.
+  want=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$RISKY_LIST" | grep -v '^$' || true)
+  if [ -z "$want" ]; then
+    echo "::warning::$RISKY_LIST lists no paths; treating every PR as risky"
+    risky=true
+  elif WANT=$want awk 'BEGIN { n = split(ENVIRON["WANT"], w, "\n") }
+      { for (i = 1; i <= n; i++) if ($0 == w[i] || (w[i] ~ /\/$/ && index($0, w[i]) == 1)) { found = 1; exit } }
+      END { exit !found }' <<<"$files"; then
+    risky=true
+  fi
+else
+  echo "::warning::no $RISKY_LIST on the base branch; only the built-in risky paths apply"
+fi
 # The files endpoint lists at most 3,000 files, so a bigger PR may hide a risky path past the cutoff. Treat it as risky.
 [ "$(jq -r '.changed_files // 0' <<<"$pr")" -ge 3000 ] && risky=true
 if $risky && [ "$codex_security" != clean ]; then
