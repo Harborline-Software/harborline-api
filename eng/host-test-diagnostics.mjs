@@ -45,12 +45,27 @@ export function diagnosticReader(directory) {
   }
 }
 
-// Windows is the failed lane. Numeric IDs are the only interpolated values; no command lines are read.
+// Numeric trace-writer PIDs only; process lifetimes and SDK-tree membership are unproven.
 export function sampleCpu(pids, {platform = process.platform, execute = spawnSync} = {}) {
-  if (platform !== 'win32' || !pids.length) return {available: false, processes: []}
+  if (!['win32', 'darwin'].includes(platform) || !pids.length) return {available: false, processes: []}
   const ids = pids.filter(pid => Number.isSafeInteger(pid) && pid > 0).slice(0, 16)
   if (!ids.length) return {available: false, processes: []}
   try {
+    if (platform === 'darwin') {
+      const requested = [...new Set(ids)]
+      const result = execute('/bin/ps', ['-p', requested.join(','), '-o', 'pid=,time='],
+        {encoding: 'utf8', timeout: 3000, maxBuffer: 16384, windowsHide: true, shell: false})
+      if (result.error || result.status !== 0 || !result.stdout.trim()) return {available: false, processes: []}
+      const processes = [], seen = new Set()
+      for (const line of result.stdout.replace(/\n$/, '').split('\n')) {
+        const row = /^[ \t]*([1-9]\d*)[ \t]+(\d+):([0-5]\d)\.(\d{2})[ \t]*(?![\s\S])/.exec(line)
+        if (!row) return {available: false, processes: []}
+        const pid = Number(row[1]), cpuMs = Number(row[2]) * 60000 + Number(row[3]) * 1000 + Number(row[4]) * 10
+        if (!requested.includes(pid) || seen.has(pid) || !Number.isSafeInteger(cpuMs) || cpuMs < 0) return {available: false, processes: []}
+        seen.add(pid); processes.push({pid, cpuMs})
+      }
+      return processes.length === requested.length ? {available: true, processes} : {available: false, processes: []}
+    }
     const script = `Get-Process -Id ${ids.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { [pscustomobject]@{pid=$_.Id;cpuMs=[math]::Round($_.TotalProcessorTime.TotalMilliseconds)} } | ConvertTo-Json -Compress`
     const result = execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
       {encoding: 'utf8', timeout: 3000, maxBuffer: 16384, windowsHide: true, shell: false})
