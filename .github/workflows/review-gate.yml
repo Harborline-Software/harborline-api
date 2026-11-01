@@ -9,6 +9,7 @@
 # - pull_request_target: a new head starts out pending.
 # - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
 # - schedule: catches what sends no event this workflow can use, like a resolved thread or a CodeRabbit review.
+#   It covers fork PRs too: the script only reads the PR and sets one status on its head.
 # - workflow_dispatch: the review workflow calls it after the Claude review sets claude-review, and anyone can
 #   re-check one PR by number.
 #
@@ -67,7 +68,7 @@ jobs:
             bash .github/review-gate.sh "$PR"
           else
             for n in $(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --paginate \
-                         --jq '.[] | select(.draft | not) | select(.head.repo.full_name == .base.repo.full_name) | .number'); do
+                         --jq '.[] | select(.draft | not) | .number'); do
               bash .github/review-gate.sh "$n" || echo "::warning::review-gate failed for PR $n"
             done
           fi

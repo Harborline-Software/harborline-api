@@ -83,7 +83,9 @@ fi
 risky=$escalated
 # Read the whole listing first: grep -q on a pipe can exit early, and with pipefail the broken pipe would read as
 # "no match". A failed listing stops the script, so the gate keeps its last status rather than passing.
-files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename')
+if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename'); then
+  echo "::error::could not list the PR's changed files" >&2; exit 1
+fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
