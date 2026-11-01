@@ -23,8 +23,11 @@ passes=(); blockers=()
 
 # Claude review: the review workflow sets the claude-review status on the head it reviewed.
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
-claude=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
-  --jq '[.[] | select(.context == "claude-review")] | first // {} | "\(.state // "none")|\(.description // "")"')
+# The combined status holds only the latest status per context, so repeated review-gate posts can't push it out.
+latest=$(gh api "repos/$REPO/commits/$HEAD/status?per_page=100" --paginate --jq '.statuses[]
+  | select(.context == "claude-review" or .context == "review-gate") | "\(.context)|\(.state)|\(.description // "")"')
+claude=$(grep '^claude-review|' <<<"$latest" | head -n 1 | cut -d'|' -f2- || true)
+claude=${claude:-none|}
 claude_state=${claude%%|*}; claude_desc=${claude#*|}
 case $claude_state in
   success) passes+=("Claude") ;;
@@ -61,19 +64,27 @@ esac
 
 # Open review threads from any of the reviewers, on lines the head still has, are findings nobody settled.
 if [ "${NO_GRAPHQL:-}" != 1 ]; then
-  open_threads=$(gh api graphql -F owner="$OWNER" -F name="$NAME" -F pr="$PR" -f query='
-    query($owner: String!, $name: String!, $pr: Int!) {
+  # --paginate follows pageInfo/$endCursor, printing one count per page; awk adds them up.
+  open_threads=$(gh api graphql --paginate -F owner="$OWNER" -F name="$NAME" -F pr="$PR" -f query='
+    query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
       repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
-        reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 1) { nodes { author { login } } } } }
+        reviewThreads(first: 100, after: $endCursor) {
+          nodes { isResolved isOutdated comments(first: 1) { nodes { author { login } } } }
+          pageInfo { hasNextPage endCursor }
+        }
       } } }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
         | select((.isResolved | not) and (.isOutdated | not))
-        | select(.comments.nodes[0].author.login | test("^(coderabbitai|chatgpt-codex-connector|github-actions)"))] | length')
+        | select(.comments.nodes[0].author.login | test("^(coderabbitai|chatgpt-codex-connector|github-actions)"))] | length' \
+    | awk '{ n += $1 } END { print n + 0 }')
   [ "$open_threads" -gt 0 ] && blockers+=("$open_threads open review thread(s)")
 fi
 
 # A risky change also needs Codex's security review, clean on this head, whatever else passed.
 risky=$escalated
-if gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename' | grep -qE "$RISKY"; then risky=true; fi
+# Read the whole listing first: grep -q on a pipe can exit early, and with pipefail the broken pipe would read as
+# "no match". A failed listing stops the script, so the gate keeps its last status rather than passing.
+files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename')
+if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
@@ -90,5 +101,7 @@ desc=${desc:0:140}
 
 echo "PR $PR head $HEAD: $state: $desc (claude=$claude_state codex=$codex_code/$codex_security coderabbit=${rabbit:-none} risky=$risky)"
 if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
+# The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
+if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then echo "review-gate unchanged"; exit 0; fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
