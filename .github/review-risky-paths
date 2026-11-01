@@ -12,7 +12,9 @@
 # eng/verify.sh. Those reach most of eng/ (scripts, tests, pins and baselines), so the whole folder counts.
 eng/
 tooling/harborline-contract-codegen/
-# Build-wide inputs: every project the write-token jobs build reads these.
+# Build-wide inputs: every project the write-token jobs build reads these, and the feeds restore pulls from.
 Directory.Build.props
 Directory.Packages.props
+Directory.Build.targets
+nuget.config
 global.json
