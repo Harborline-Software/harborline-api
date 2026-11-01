@@ -137,8 +137,10 @@ if [ "${NO_GRAPHQL:-}" != 1 ]; then
 fi
 
 # The status sits on the head commit, so two open PRs with the same head would overwrite each other's gate.
-shared=$(gh api "repos/$REPO/commits/$HEAD/pulls?per_page=100" --paginate \
-  --jq "[.[] | select(.state == \"open\" and .head.sha == \"$HEAD\" and .number != $PR)] | length" \
+# This lists the repo's open PRs rather than the commit's PRs: for a commit already on the default branch, the
+# commit endpoint returns only the merged PR that introduced it, so it can miss open PRs with that head.
+shared=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --paginate \
+  --jq "[.[] | select(.head.sha == \"$HEAD\" and .number != $PR)] | length" \
   | awk '{ n += $1 } END { print n + 0 }')
 [ "$shared" -gt 0 ] && blockers+=("$shared other open PR(s) share this head; open one PR per head commit")
 
