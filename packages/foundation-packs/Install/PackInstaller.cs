@@ -1625,13 +1625,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                     classification == PackInstallCommitDisposition.Conflict
                         ? PackInstallCodes.RefusedSameVersionConflict : PackInstallCodes.RefusedSameVersionIdentityUnknown,
                     revocationStale, signerB64, epoch, scope);
-            var preserved = HardRefusal(manifest.Key, manifest.Version, string.Empty, revocationStale, signerB64, epoch, scope).Preview with
-            {
-                Verdict = PackInstallVerdict.AlreadyInstalled,
-                RefusalCodes = [],
-                Refusals = [],
-                PriorVersion = occupied.Version,
-            };
+            var preserved = new PackInstallPreview(
+                PackInstallVerdict.AlreadyInstalled, manifest.Key, manifest.Version, signerB64, epoch, scope,
+                IsUpgrade: false, PriorVersion: occupied.Version,
+                NewSeedKeys: [], Conflicts: [], WatermarkHits: [], AdmissionRefusals: [],
+                RevocationStale: revocationStale, RefusalCodes: [], CrossPackCollisions: [],
+                UnmetContentReferences: [],
+                UnmetPlatformRequirements: []);
             return new InstallPlan(preserved, signerKeyId, epoch, new PackReattachPlan([], []), candidate,
                 bindsThisKey ? bound!.Watermark ?? new PackInstallWatermark(manifest.Key, manifest.Version, candidate.SafetyFloors)
                     : _store.GetWatermark(context.Tenant, manifest.Key) ?? new PackInstallWatermark(manifest.Key, manifest.Version, candidate.SafetyFloors),
