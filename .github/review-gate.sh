@@ -18,6 +18,7 @@ pr=$(gh api "repos/$REPO/pulls/$PR")
 [ "$(jq -r .state <<<"$pr")" = open ] || { echo "PR $PR is not open"; exit 0; }
 [ "$(jq -r .draft <<<"$pr")" = false ] || { echo "PR $PR is a draft"; exit 0; }
 HEAD=$(jq -r .head.sha <<<"$pr")
+BASE_REF=$(jq -r .base.ref <<<"$pr")
 
 # If anything below fails, mark the gate as errored rather than leave an older status (maybe a success) standing.
 posted=false
@@ -51,22 +52,28 @@ claude=$( { grep '^claude-review|' <<<"$latest" || true; } | head -n 1 | cut -d'
 claude=${claude:-none|}
 claude_state=${claude%%|*}; claude_desc=${claude#*|}
 case $claude_state in
-  success) if fresh "$claude_at"; then passes+=("Claude"); else stale+=("Claude"); fi ;;
-  failure) blockers+=("Claude review: ${claude_desc:-not PASS}") ;;
+  # A pass counts only for the base it reviewed: the review records the PR's base branch in its description, so a
+  # review that finished after a retarget, or one given to another PR with the same head, doesn't count here.
+  success) if fresh "$claude_at" && [[ $claude_desc == *", base $BASE_REF)" ]]; then passes+=("Claude")
+           else stale+=("Claude"); fi ;;
+  failure) blockers+=("${claude_desc:-Claude review: not PASS}") ;;
 esac
 escalated=false; [[ $claude_desc == *ESCALATE* ]] && escalated=true
 
-# Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;.
-# Each listing is read in full before it is searched, so a failed request stops the script (and the gate reads
-# as errored) instead of looking like a reviewer that never ran.
-codex_bodies=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
-  --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .body')
-codex=$( { grep -o 'codex-review-state:v1 [^>]*-->' <<<"$codex_bodies" || true; } | tail -n 1 \
+# Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;, and a
+# table row per review with the time that review completed. The verdicts and their times are read from one copy of
+# that comment, so an edit between two reads can't pair an old verdict with a new time.
+# The listing is read in full before it is searched, so a failed request stops the script (and the gate reads as
+# errored) instead of looking like a reviewer that never ran.
+codex_comments=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
+  --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .body | @json')
+codex_body=$( { grep -F 'codex-review-state:v1' <<<"$codex_comments" || true; } | tail -n 1)
+[ -n "$codex_body" ] && codex_body=$(jq -r . <<<"$codex_body")
+codex=$( { grep -o 'codex-review-state:v1 [^>]*-->' <<<"$codex_body" || true; } | tail -n 1 \
   | sed -E 's/^codex-review-state:v1 //; s/ -->$//; s/&#123;/{/g; s/&#125;/}/g; s/&quot;/"/g')
-# Codex edits that one comment as its reviews start and finish, so its edit time dates the verdict.
-codex_at=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate --jq '.[]
-  | select(.user.login == "chatgpt-codex-connector[bot]" and (.body | contains("codex-review-state:v1"))) | .updated_at')
-codex_at=$(tail -n 1 <<<"$codex_at")
+# When each review completed, from its own row; empty if the row or its time can't be read, which counts as stale.
+codex_time() { { grep -F "**$1**" <<<"$codex_body" || true; } | head -n 1 | sed -nE 's/.*datetime="([^"]+)".*/\1/p'; }
+codex_code_at=$(codex_time "Code Review"); codex_security_at=$(codex_time "Security Review")
 codex_code=none; codex_security=none
 if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
   # clean: finished on this head with no findings; dirty: finished on this head with unresolved findings.
@@ -76,11 +83,14 @@ if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
   codex_code=$(jq -r --arg h "$HEAD" ".code_review | $judge" <<<"$codex")
   codex_security=$(jq -r --arg h "$HEAD" ".security_review | $judge" <<<"$codex")
 fi
-if ! fresh "$codex_at" && { [ "$codex_code" = clean ] || [ "$codex_security" = clean ]; }; then
-  [ "$codex_code" = clean ] && codex_code=stale
-  [ "$codex_security" = clean ] && codex_security=stale
-  stale+=("Codex")
-fi
+# Each clean verdict must have completed after the last base change on its own, so rerunning one review after a
+# retarget doesn't refresh the other.
+codex_was_stale=false
+if [ "$codex_code" = clean ] && [ -n "$rebased_at" ] && { [ -z "$codex_code_at" ] || ! fresh "$codex_code_at"; }; then
+  codex_code=stale; codex_was_stale=true; fi
+if [ "$codex_security" = clean ] && [ -n "$rebased_at" ] && { [ -z "$codex_security_at" ] || ! fresh "$codex_security_at"; }; then
+  codex_security=stale; codex_was_stale=true; fi
+$codex_was_stale && stale+=("Codex")
 [ "$codex_code" = dirty ] && blockers+=("Codex code review has open findings")
 [ "$codex_security" = dirty ] && blockers+=("Codex security review has open findings")
 [ "$codex_code" = clean ] && [ "$codex_security" = clean ] && passes+=("Codex")
@@ -137,7 +147,7 @@ if [ ${#blockers[@]} -gt 0 ]; then
   state=failure; desc="Blocked: $(IFS=';'; echo "${blockers[*]}")"
 elif [ ${#passes[@]} -eq 0 ]; then
   state=pending; desc="Waiting for one clean review from Claude, Codex or CodeRabbit"
-  [ ${#stale[@]} -gt 0 ] && desc="Waiting for a clean review since the base changed (${stale[*]} reviewed before)"
+  [ ${#stale[@]} -gt 0 ] && desc="Waiting for a clean review of the current base (${stale[*]} reviewed an earlier one)"
 elif $need_security; then
   state=pending; desc="Passed by ${passes[*]}; a risky change also needs a clean Codex security review"
 else

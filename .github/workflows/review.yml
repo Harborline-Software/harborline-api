@@ -62,9 +62,11 @@ jobs:
             DRAFT=$(jq -r .draft <<<"$pr"); HEAD_REPO=$(jq -r .head.repo.full_name <<<"$pr")
             AUTHOR=$(jq -r .user.login <<<"$pr"); HEAD_SHA=$(jq -r .head.sha <<<"$pr")
             BASE_SHA=$(jq -r .base.sha <<<"$pr")
+            BASE_REF=$(jq -r .base.ref <<<"$pr")
             echo "pr=$PR" >> "$GITHUB_OUTPUT"
             echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
             echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
           fi
           if [ "$EVENT" = merge_group ]; then reason='the queued commit was reviewed on its PR head'
           elif [ "$DRAFT" = true ] && [ "$EVENT" != workflow_dispatch ]; then reason='draft PRs are reviewed once they are ready'
@@ -164,6 +166,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.scope.outputs.pr }}
           HEAD_SHA: ${{ steps.scope.outputs.head_sha }}
+          BASE_REF: ${{ steps.scope.outputs.base_ref }}
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
           ENFORCE: ${{ vars.REVIEW_ENFORCE }}
         run: |
@@ -188,9 +191,10 @@ jobs:
           fi
           # The claude-review status on the reviewed head is what review-gate reads: success is PASS, failure is
           # BLOCK or ESCALATE, and error means no verdict, which review-gate counts as a review that did not run.
+          # The base branch in the description binds a pass to the diff it reviewed; review-gate checks it.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
           gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
-            -f description="Claude review: $verdict ($mode)" \
+            -f description="Claude review: $verdict ($mode, base $BASE_REF)" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
             || echo "::warning::could not set the claude-review status"
           gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
