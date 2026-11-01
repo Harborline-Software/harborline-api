@@ -90,6 +90,7 @@ eng/verify-receipt.mjs
 
 # Also run by eng/verify-boundaries.sh (multi-line node --test, dotnet run) and eng/tests/verify-lane.test.sh (evals eng/verify.sh)
 eng/test-isolation/
+eng/platform-feed-consumer-launch.mjs
 eng/tests/platform-feed-consumer-launch.test.mjs
 eng/tests/platform-feed-credential-boundary.test.mjs
 eng/tests/platform-feed-crash-diagnostics.test.mjs
