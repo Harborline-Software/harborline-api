@@ -112,7 +112,8 @@ rabbit_states=$(gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --paginate \
 rabbit=$( { grep -E '^(APPROVED|CHANGES_REQUESTED|DISMISSED)[|]' <<<"$rabbit_states" || true; } | tail -n 1)
 rabbit_at=${rabbit#*|}; rabbit=${rabbit%%|*}
 case $rabbit in
-  APPROVED) if fresh "$rabbit_at"; then passes+=("CodeRabbit"); else stale+=("CodeRabbit"); fi ;;
+  # submitted_at is when the review finished, not the base it read, so after a retarget it also needs a later head.
+  APPROVED) if fresh "$rabbit_at" && $head_after_rebase; then passes+=("CodeRabbit"); else stale+=("CodeRabbit"); fi ;;
   CHANGES_REQUESTED) blockers+=("CodeRabbit requested changes") ;;
 esac
 
