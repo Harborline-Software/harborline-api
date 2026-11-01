@@ -59,8 +59,10 @@ jobs:
             pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR") || { echo "::error::cannot read pull request $PR"; exit 1; }
             DRAFT=$(jq -r .draft <<<"$pr"); HEAD_REPO=$(jq -r .head.repo.full_name <<<"$pr")
             AUTHOR=$(jq -r .user.login <<<"$pr"); HEAD_SHA=$(jq -r .head.sha <<<"$pr")
+            BASE_SHA=$(jq -r .base.sha <<<"$pr")
             echo "pr=$PR" >> "$GITHUB_OUTPUT"
             echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           fi
           if [ "$EVENT" = merge_group ]; then reason='the queued commit was reviewed on its PR head'
           elif [ "$DRAFT" = true ] && [ "$EVENT" != workflow_dispatch ]; then reason='draft PRs are reviewed once they are ready'
@@ -79,12 +81,13 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The base branch, never the PR head: this job holds the Claude and GitHub tokens, so nothing the PR wrote may be
-      # checked out where a tool could load it.
+      # The PR's base commit, never the PR head: this job holds the Claude and GitHub tokens, so nothing the PR wrote may
+      # be checked out where a tool could load it. The base commit, not the default branch, so a PR into another branch
+      # is read against the code and rules it targets.
       - uses: actions/checkout@v7
         if: steps.scope.outputs.run == 'true'
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ steps.scope.outputs.base_sha }}
           fetch-depth: 0
           persist-credentials: false
 
