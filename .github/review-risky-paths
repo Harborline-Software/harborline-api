@@ -97,3 +97,6 @@ eng/tests/platform-feed-crash-diagnostics.test.mjs
 eng/tests/platform-feed-pid1-probe.test.mjs
 eng/tests/platform-feed-qualification.test.mjs
 eng/verify.sh
+# Build-wide inputs: every project the write-token jobs build reads these.
+Directory.Build.props
+Directory.Packages.props
