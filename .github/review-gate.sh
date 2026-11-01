@@ -85,10 +85,21 @@ if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
 fi
 # Each clean verdict must have completed after the last base change on its own, so rerunning one review after a
 # retarget doesn't refresh the other.
+# A review that started before a retarget can finish after it, and the summary keeps no start time. So after a base
+# change a Codex verdict counts only if the head itself was pushed after the change: then any review of it began
+# later too. The push time is when GitHub first made a check suite for the head, which no one can set.
 codex_was_stale=false
-if [ "$codex_code" = clean ] && [ -n "$rebased_at" ] && { [ -z "$codex_code_at" ] || ! fresh "$codex_code_at"; }; then
+head_after_rebase=true
+if [ -n "$rebased_at" ]; then
+  head_at=$(gh api "repos/$REPO/commits/$HEAD/check-suites?per_page=100" --paginate --jq '.check_suites[].created_at')
+  head_at=$( { sort <<<"$head_at" | grep . || true; } | head -n 1)
+  [ -n "$head_at" ] && fresh "$head_at" || head_after_rebase=false
+fi
+if [ "$codex_code" = clean ] && [ -n "$rebased_at" ] \
+   && { ! $head_after_rebase || [ -z "$codex_code_at" ] || ! fresh "$codex_code_at"; }; then
   codex_code=stale; codex_was_stale=true; fi
-if [ "$codex_security" = clean ] && [ -n "$rebased_at" ] && { [ -z "$codex_security_at" ] || ! fresh "$codex_security_at"; }; then
+if [ "$codex_security" = clean ] && [ -n "$rebased_at" ] \
+   && { ! $head_after_rebase || [ -z "$codex_security_at" ] || ! fresh "$codex_security_at"; }; then
   codex_security=stale; codex_was_stale=true; fi
 $codex_was_stale && stale+=("Codex")
 [ "$codex_code" = dirty ] && blockers+=("Codex code review has open findings")
@@ -117,7 +128,7 @@ if [ "${NO_GRAPHQL:-}" != 1 ]; then
         }
       } } }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
         | select((.isResolved | not) and (.isOutdated | not))
-        | select((.comments.nodes[0].author.login // "") | test("^(coderabbitai|chatgpt-codex-connector|github-actions)"))] | length' \
+        | select((.comments.nodes[0].author.login // "") | test("^(coderabbitai|chatgpt-codex-connector|github-actions)$"))] | length' \
     | awk '{ n += $1 } END { print n + 0 }')
   [ "$open_threads" -gt 0 ] && blockers+=("$open_threads open review thread(s)")
 fi
