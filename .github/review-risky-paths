@@ -18,3 +18,6 @@ Directory.Packages.props
 Directory.Build.targets
 nuget.config
 global.json
+# MSBuild tasks and analyzers that the build-wide files load into every build.
+tooling/Harborline.Tooling.LocalizationXliff/
+packages/analyzers/
