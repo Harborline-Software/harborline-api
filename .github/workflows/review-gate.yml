@@ -1,0 +1,111 @@
+# review-gate: sets one commit status, `review-gate`, on each ready PR's head, saying whether the PR has the
+# review PROC-0001 asks for ("Review policy, 2026-11-01"): one clean pass from any of the Claude review, Codex
+# or CodeRabbit, and no blocker from any reviewer that ran. A change under .github/, or one the Claude review
+# escalates, also needs a clean Codex security review on its head; comment "@codex security review" to ask
+# for one after a push, because Codex reviews on its own only when a PR opens or is marked ready.
+#
+# The logic is .github/review-gate.sh. Every trigger here runs this file and that script from the base branch
+# or the default branch, never from the PR, so a PR cannot change its own pass rule:
+# - pull_request_target: a new head starts out pending, and a new base drops passes given before it.
+# - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
+# - pull_request_review: a submitted, edited or dismissed review (CodeRabbit's verdict lives there). GitHub runs
+#   this event with the PR's copy of this file, so that run only dispatches a check of the PR from the default
+#   branch; it evaluates nothing itself.
+# - schedule: catches what sends no event this workflow can use, like a resolved thread or a CodeRabbit review.
+#   It covers fork PRs too: the script only reads the PR and sets one status on its head. The sweep evaluates
+#   nothing itself; it dispatches one run per PR, so every evaluation of a PR shares that PR's group and an
+#   older snapshot can never land after a newer one.
+# - workflow_dispatch: the review workflow calls it after the Claude review sets claude-review, and anyone can
+#   re-check one PR by number.
+#
+# It sets a commit status rather than relying on its own check, because GitHub records pull_request_target
+# checks against the base branch, not the PR head. Shadow mode: nothing requires `review-gate` until the owner
+# adds it to the ruleset.
+name: review-gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to check
+        required: true
+        type: number
+
+concurrency:
+  # An event the gate ignores gets a group of its own, so its skipped run can't cancel or replace a real one.
+  group: >-
+    ${{ github.event_name == 'schedule' && 'review-gate-sweep' ||
+        github.event_name == 'pull_request_review' && format('review-gate-relay-{0}', github.run_id) ||
+        ((github.event_name == 'issue_comment' && !(github.event.issue.pull_request &&
+          contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login))) ||
+         (github.event.action == 'edited' && github.event_name == 'pull_request_target' && !github.event.changes.base)) &&
+          format('review-gate-skip-{0}', github.run_id) ||
+        format('review-gate-{0}', github.event.pull_request.number || github.event.issue.number || inputs.pr) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  gate:
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' && github.event_name != 'schedule' && github.event_name != 'pull_request_review' &&
+      (github.event_name != 'pull_request_target' || github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request &&
+        contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The script from the default branch, or from the PR's base for pull_request_target. Never the PR head.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          sparse-checkout: .github/review-gate.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Set review-gate on the PR head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+          # Lets the script mark this head errored even if its first PR lookup fails.
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          bash .github/review-gate.sh "$PR"
+
+  # The sweep and review events only dispatch a run per PR; that run lands in the PR's own concurrency group.
+  dispatch:
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' || (github.event_name == 'pull_request_review' && !github.event.pull_request.draft))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Dispatch a review-gate run for each PR to check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ github.event.repository.default_branch }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          prs=$PR
+          [ -n "$prs" ] || prs=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --paginate \
+                                   --jq '.[] | select(.draft | not) | .number')
+          for n in $prs; do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/review-gate.yml/dispatches" \
+              -f ref="$REF" -f "inputs[pr]=$n" || echo "::warning::could not dispatch review-gate for PR $n"
+          done
