@@ -71,7 +71,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
-          sparse-checkout: .github/review-gate.sh
+          sparse-checkout: |
+            .github/review-gate.sh
+            .github/review-risky-paths
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Set review-gate on the PR head
