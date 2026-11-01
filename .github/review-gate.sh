@@ -31,18 +31,27 @@ on_exit() {
 trap on_exit EXIT
 OWNER=${REPO%%/*}; NAME=${REPO#*/}
 
-passes=(); blockers=()
+passes=(); blockers=(); stale=()
+
+# A pass given before the PR's base last changed reviewed another diff, so it doesn't count. Blockers still do.
+rebased_at=$(gh api "repos/$REPO/issues/$PR/events?per_page=100" --paginate \
+  --jq '.[] | select(.event == "base_ref_changed" or .event == "automatic_base_change_succeeded") | .created_at')
+rebased_at=$(sort <<<"$rebased_at" | tail -n 1)
+fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times sort as text
 
 # Claude review: the review workflow sets the claude-review status on the head it reviewed.
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
 # The combined status holds only the latest status per context, so repeated review-gate posts can't push it out.
-latest=$(gh api "repos/$REPO/commits/$HEAD/status?per_page=100" --paginate --jq '.statuses[]
-  | select(.context == "claude-review" or .context == "review-gate") | "\(.context)|\(.state)|\(.description // "")"')
-claude=$(grep '^claude-review|' <<<"$latest" | head -n 1 | cut -d'|' -f2- || true)
+statuses=$(gh api "repos/$REPO/commits/$HEAD/status?per_page=100" --paginate --jq '.statuses[]
+  | select(.context == "claude-review" or .context == "review-gate")
+  | "\(.context)|\(.state)|\(.updated_at)|\(.description // "")"')
+latest=$(cut -d'|' -f1,2,4- <<<"$statuses")
+claude_at=$(awk -F'|' '$1 == "claude-review" { print $3; exit }' <<<"$statuses")
+claude=$( { grep '^claude-review|' <<<"$latest" || true; } | head -n 1 | cut -d'|' -f2-)
 claude=${claude:-none|}
 claude_state=${claude%%|*}; claude_desc=${claude#*|}
 case $claude_state in
-  success) passes+=("Claude") ;;
+  success) if fresh "$claude_at"; then passes+=("Claude"); else stale+=("Claude"); fi ;;
   failure) blockers+=("Claude review: ${claude_desc:-not PASS}") ;;
 esac
 escalated=false; [[ $claude_desc == *ESCALATE* ]] && escalated=true
@@ -54,6 +63,10 @@ codex_bodies=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate 
   --jq '.[] | select(.user.login == "chatgpt-codex-connector[bot]") | .body')
 codex=$( { grep -o 'codex-review-state:v1 [^>]*-->' <<<"$codex_bodies" || true; } | tail -n 1 \
   | sed -E 's/^codex-review-state:v1 //; s/ -->$//; s/&#123;/{/g; s/&#125;/}/g; s/&quot;/"/g')
+# Codex edits that one comment as its reviews start and finish, so its edit time dates the verdict.
+codex_at=$(gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate --jq '.[]
+  | select(.user.login == "chatgpt-codex-connector[bot]" and (.body | contains("codex-review-state:v1"))) | .updated_at')
+codex_at=$(tail -n 1 <<<"$codex_at")
 codex_code=none; codex_security=none
 if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
   # clean: finished on this head with no findings; dirty: finished on this head with unresolved findings.
@@ -63,16 +76,22 @@ if [ -n "$codex" ] && jq -e . >/dev/null 2>&1 <<<"$codex"; then
   codex_code=$(jq -r --arg h "$HEAD" ".code_review | $judge" <<<"$codex")
   codex_security=$(jq -r --arg h "$HEAD" ".security_review | $judge" <<<"$codex")
 fi
+if ! fresh "$codex_at" && { [ "$codex_code" = clean ] || [ "$codex_security" = clean ]; }; then
+  [ "$codex_code" = clean ] && codex_code=stale
+  [ "$codex_security" = clean ] && codex_security=stale
+  stale+=("Codex")
+fi
 [ "$codex_code" = dirty ] && blockers+=("Codex code review has open findings")
 [ "$codex_security" = dirty ] && blockers+=("Codex security review has open findings")
 [ "$codex_code" = clean ] && [ "$codex_security" = clean ] && passes+=("Codex")
 
 # CodeRabbit: its latest review on this head. APPROVED passes; CHANGES_REQUESTED blocks.
 rabbit_states=$(gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --paginate \
-  --jq ".[] | select(.user.login == \"coderabbitai[bot]\" and .commit_id == \"$HEAD\") | .state")
-rabbit=$( { grep -E '^(APPROVED|CHANGES_REQUESTED|DISMISSED)$' <<<"$rabbit_states" || true; } | tail -n 1)
+  --jq ".[] | select(.user.login == \"coderabbitai[bot]\" and .commit_id == \"$HEAD\") | \"\\(.state)|\\(.submitted_at)\"")
+rabbit=$( { grep -E '^(APPROVED|CHANGES_REQUESTED|DISMISSED)[|]' <<<"$rabbit_states" || true; } | tail -n 1)
+rabbit_at=${rabbit#*|}; rabbit=${rabbit%%|*}
 case $rabbit in
-  APPROVED) passes+=("CodeRabbit") ;;
+  APPROVED) if fresh "$rabbit_at"; then passes+=("CodeRabbit"); else stale+=("CodeRabbit"); fi ;;
   CHANGES_REQUESTED) blockers+=("CodeRabbit requested changes") ;;
 esac
 
@@ -116,6 +135,7 @@ if [ ${#blockers[@]} -gt 0 ]; then
   state=failure; desc="Blocked: $(IFS=';'; echo "${blockers[*]}")"
 elif [ ${#passes[@]} -eq 0 ]; then
   state=pending; desc="Waiting for one clean review from Claude, Codex or CodeRabbit"
+  [ ${#stale[@]} -gt 0 ] && desc="Waiting for a clean review since the base changed (${stale[*]} reviewed before)"
 elif $need_security; then
   state=pending; desc="Passed by ${passes[*]}; a risky change also needs a clean Codex security review"
 else

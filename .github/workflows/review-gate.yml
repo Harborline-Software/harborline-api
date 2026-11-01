@@ -6,7 +6,7 @@
 #
 # The logic is .github/review-gate.sh. Every trigger here runs this file and that script from the base branch
 # or the default branch, never from the PR, so a PR cannot change its own pass rule:
-# - pull_request_target: a new head starts out pending.
+# - pull_request_target: a new head starts out pending, and a new base drops passes given before it.
 # - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
 # - schedule: catches what sends no event this workflow can use, like a resolved thread or a CodeRabbit review.
 #   It covers fork PRs too: the script only reads the PR and sets one status on its head.
@@ -20,7 +20,7 @@ name: review-gate
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   issue_comment:
     types: [created, edited]
   schedule:
@@ -33,11 +33,12 @@ on:
         type: number
 
 concurrency:
-  # A comment the gate ignores gets a group of its own, so its skipped run can't cancel or replace a real one.
+  # An event the gate ignores gets a group of its own, so its skipped run can't cancel or replace a real one.
   group: >-
     ${{ github.event_name == 'schedule' && 'review-gate-sweep' ||
-        (github.event_name == 'issue_comment' && !(github.event.issue.pull_request &&
-          contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login))) &&
+        ((github.event_name == 'issue_comment' && !(github.event.issue.pull_request &&
+          contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login))) ||
+         (github.event.action == 'edited' && github.event_name == 'pull_request_target' && !github.event.changes.base)) &&
           format('review-gate-skip-{0}', github.run_id) ||
         format('review-gate-{0}', github.event.pull_request.number || github.event.issue.number || inputs.pr) }}
   cancel-in-progress: ${{ github.event_name != 'schedule' }}
@@ -51,6 +52,7 @@ jobs:
   gate:
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name != 'pull_request_target' || github.event.action != 'edited' || github.event.changes.base) &&
       (github.event_name != 'issue_comment' ||
        (github.event.issue.pull_request &&
         contains(fromJSON('["chatgpt-codex-connector[bot]","coderabbitai[bot]"]'), github.event.comment.user.login)))
