@@ -236,9 +236,13 @@ internal static class ConfigurationProposalRoutes
                 var started = Stopwatch.GetTimestamp();
                 var capture = new ReleasedInstallDiagnosticCapture
                 {
-                    StageObserver = stage => logger.LogInformation(new EventId(1098, "ReleasedInstallStage"),
-                        "Configuration INSTALL RELEASE stage {Stage} elapsed {ElapsedMilliseconds} ms",
-                        stage, Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+                    StageObserver = stage =>
+                    {
+                        if (logger.IsEnabled(LogLevel.Information))
+                            logger.LogInformation(new EventId(1098, "ReleasedInstallStage"),
+                                "Configuration INSTALL RELEASE stage {Stage} elapsed {ElapsedMilliseconds} ms",
+                                stage, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                    },
                 };
                 capture.ObserveStage("authorization-enter");
                 var tenant = Tenant();
