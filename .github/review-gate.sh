@@ -128,6 +128,8 @@ if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
   echo "::error::could not list the PR's changed files" >&2; exit 1
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
+# The files endpoint lists at most 3,000 files, so a bigger PR may hide a risky path past the cutoff. Treat it as risky.
+[ "$(jq -r '.changed_files // 0' <<<"$pr")" -ge 3000 ] && risky=true
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
