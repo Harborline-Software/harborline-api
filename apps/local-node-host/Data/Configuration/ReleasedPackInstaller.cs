@@ -71,9 +71,11 @@ public sealed class ReleasedInstallDiagnosticCapture
     internal void ObserveStage(string stage)
     {
         try { StageObserver?.Invoke(stage); }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-stage-observer
         catch (Exception)
         {
         }
+        #pragma warning restore CA1031
     }
 
     internal void Claim()
@@ -369,18 +371,22 @@ public sealed class ReleasedPackInstaller
             }
             else transaction.MarkFailed();
         }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-primary-capture
         catch (Exception exception)
         {
             primary = ExceptionDispatchInfo.Capture(exception);
             transaction.MarkFailed(exception);
         }
+        #pragma warning restore CA1031
         finally
         {
             capture?.ObserveStage("cleanup");
             transaction.Dispose();
             capture?.ObserveStage("reactions");
             try { diagnostics = await transaction.ReactAsync().ConfigureAwait(false); }
+            #pragma warning disable CA1031 // reviewed-suppression: t1098-reaction-boundary
             catch (Exception exception) { boundaryFailures.Add(exception); }
+            #pragma warning restore CA1031
             capture?.ObserveStage("reactions-complete");
         }
         ReleasedInstallDiagnosticReport? report = null;
@@ -391,11 +397,13 @@ public sealed class ReleasedPackInstaller
                 facts?.ResourceReleaseConfirmed ?? false, facts?.Failures ?? [], boundaryFailures);
             capture?.Publish(report);
         }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-report-publication
         catch (Exception) when (primary is not null)
         {
             // A report publication failure must never replace the original cancellation or denial.
             primary.Throw();
         }
+        #pragma warning restore CA1031
         primary?.Throw();
         var accepted = outcome ?? throw new InvalidOperationException("The released installation produced no outcome.");
         return accepted with

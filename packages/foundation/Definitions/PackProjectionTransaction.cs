@@ -269,7 +269,9 @@ public sealed class PackProjectionTransaction : IDisposable
     private async Task CollectAsync(Func<Task> reaction, PackProjectionDiagnosticKind kind)
     {
         try { await reaction().ConfigureAwait(false); }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-callback-collection
         catch (Exception exception) { Add(kind, exception); }
+        #pragma warning restore CA1031
     }
 
     /// <summary>Commits once; a failed durable call poisons every later Commit.</summary>
@@ -331,6 +333,8 @@ public sealed class PackProjectionTransaction : IDisposable
     private bool Attempt(Action action, PackProjectionDiagnosticKind kind)
     {
         try { action(); return true; }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-cleanup-attempt
         catch (Exception exception) { Add(kind, exception); return false; }
+        #pragma warning restore CA1031
     }
 }

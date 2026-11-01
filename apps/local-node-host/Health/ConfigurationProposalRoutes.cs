@@ -271,10 +271,12 @@ internal static class ConfigurationProposalRoutes
                                     .Concat(failedReport.BoundaryFailures.Select(item => $"Boundary: {item.Message}"))));
                         }
                     }
+                    #pragma warning disable CA1031 // reviewed-suppression: t1098-request-warning
                     catch (Exception)
                     {
                         // A failed host log must not replace the original typed request error.
                     }
+                    #pragma warning restore CA1031
                     throw;
                 }
                 var report = capture.Report;
@@ -307,10 +309,12 @@ internal static class ConfigurationProposalRoutes
                             outcome.Diagnostics ?? string.Join(";", report.Failures.Select(item => $"{item.Kind}: {item.Error?.Message}")
                                 .Concat(report.BoundaryFailures.Select(item => $"Boundary: {item.Message}"))));
                 }
+                #pragma warning disable CA1031 // reviewed-suppression: t1098-outcome-warning
                 catch (Exception)
                 {
                     // A failed diagnostic sink cannot change the already determined transaction outcome.
                 }
+                #pragma warning restore CA1031
                 capture.ObserveStage("response");
                 return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
