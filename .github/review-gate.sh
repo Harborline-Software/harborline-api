@@ -14,22 +14,24 @@ CONTEXT=review-gate
 RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
-pr=$(gh api "repos/$REPO/pulls/$PR")
-[ "$(jq -r .state <<<"$pr")" = open ] || { echo "PR $PR is not open"; exit 0; }
-[ "$(jq -r .draft <<<"$pr")" = false ] || { echo "PR $PR is a draft"; exit 0; }
-HEAD=$(jq -r .head.sha <<<"$pr")
-BASE_REF=$(jq -r .base.ref <<<"$pr")
-
-# If anything below fails, mark the gate as errored rather than leave an older status (maybe a success) standing.
+# Armed before the first lookup: if anything fails, mark the gate as errored rather than leave an older status
+# (maybe a success) standing. Until the PR is read, HEAD is the head the event named, if it named one.
+HEAD=${EVENT_HEAD:-}
 posted=false
 on_exit() {
   local rc=$?
-  if [ "$rc" -ne 0 ] && [ "${DRY_RUN:-}" != 1 ] && ! $posted; then
+  if [ "$rc" -ne 0 ] && [ "${DRY_RUN:-}" != 1 ] && ! $posted && [ -n "$HEAD" ]; then
     gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=error -f context="$CONTEXT" \
       -f description="review-gate could not finish; see the run" -f target_url="$RUN_URL" >/dev/null || true
   fi
 }
 trap on_exit EXIT
+
+pr=$(gh api "repos/$REPO/pulls/$PR")
+[ "$(jq -r .state <<<"$pr")" = open ] || { echo "PR $PR is not open"; exit 0; }
+[ "$(jq -r .draft <<<"$pr")" = false ] || { echo "PR $PR is a draft"; exit 0; }
+HEAD=$(jq -r .head.sha <<<"$pr")
+BASE_REF=$(jq -r .base.ref <<<"$pr")
 OWNER=${REPO%%/*}; NAME=${REPO#*/}
 
 passes=(); blockers=(); stale=()

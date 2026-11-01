@@ -72,6 +72,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+          # Lets the script mark this head errored even if its first PR lookup fails.
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           bash .github/review-gate.sh "$PR"
