@@ -170,7 +170,10 @@ if [ -r "$RISKY_LIST" ]; then
     risky=true
   fi
 else
-  echo "::warning::no $RISKY_LIST on the base branch; only the built-in risky paths apply"
+  # The list ships in the same base commit as this script, so a missing one means the checkout didn't fetch it or
+  # someone deleted it. Fail closed rather than quietly drop the protection it adds.
+  echo "::warning::no readable $RISKY_LIST in the base checkout; treating every PR as risky"
+  risky=true
 fi
 # The files endpoint lists at most 3,000 files, so a bigger PR may hide a risky path past the cutoff. Treat it as risky.
 [ "$(jq -r '.changed_files // 0' <<<"$pr")" -ge 3000 ] && risky=true
