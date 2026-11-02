@@ -19,7 +19,8 @@ RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 # protected base, see below), so a PR can't shorten the list it is judged by. One path per line; / ends a folder.
 RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
 # Paths that need no review when a PR touches nothing else, read from the same place as the risky list. Same
-# format, plus a line starting with ! takes a path back out; the last line that matches a file decides.
+# format, plus a line starting with ! takes a path back out; the last line that matches a file decides. A PR into an
+# unprotected branch other than the default one gets no exemption at all (see below).
 EXEMPT_LIST=${EXEMPT_LIST:-$(dirname "$0")/review-exempt-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
@@ -171,6 +172,11 @@ if grep -qiE '(^|/)Directory\.(Build\.(props|targets)|Packages\.props)$' <<<"$fi
 # The base's list is read as data through the API; nothing from the base runs. A failed lookup stops the script,
 # which marks the head errored, and a protected base whose list can't be read leaves the PR risky.
 default_branch=$(jq -r .base.repo.default_branch <<<"$pr")
+# A no-review pass is only as good as the base it was judged against, and the status it sets sits on the head commit
+# whatever the base. So only the default branch and a protected base can grant one. Into any other branch, a PR could
+# be passed against a base that already carries a risky change and then be retargeted to main before the gate runs
+# again, so every PR into an unprotected branch needs a review.
+exempt_ok=true
 if [ "$BASE_REF" != "$default_branch" ]; then
   guarded=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "pull_request")] | length')
   if [ "$guarded" -gt 0 ]; then
@@ -193,7 +199,8 @@ if [ "$BASE_REF" != "$default_branch" ]; then
       EXEMPT_LIST=/dev/null/missing
     fi
   else
-    echo "risky and exempt lists: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request"
+    exempt_ok=false
+    echo "risky list: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request; no review exemption into it"
   fi
 fi
 if [ -r "$RISKY_LIST" ]; then
@@ -219,14 +226,14 @@ fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
-# Review by risk. Two kinds of PR need no review, and both are decided from the trusted lists and the PR's own record,
+# Review by risk. Into the default branch or a protected base, two kinds of PR need no review, and both are decided from the trusted lists and the PR's own record,
 # never from anything the PR says about itself. A blocker from a reviewer that ran still blocks either of them.
 needs_review=true; why=''
 changed=$(jq -r '.changed_files // 0' <<<"$pr")
 
 # 1. Every changed file, by its new and its old path, is on the exempt list, and nothing about the PR is risky.
 #    An empty PR, a missing list or one that names nothing exempts nothing.
-if ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ]; then
+if $exempt_ok && ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ]; then
   rules=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$EXEMPT_LIST" | grep -v '^$' || true)
   if [ -n "$rules" ] && RULES=$rules awk '
       BEGIN { n = split(ENVIRON["RULES"], r, "\n") }
@@ -239,7 +246,7 @@ if ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ];
       END { exit bad }' <<<"$files"; then
     needs_review=false; why="every change is on the review-exempt list"
   fi
-elif [ ! -r "$EXEMPT_LIST" ]; then
+elif $exempt_ok && [ ! -r "$EXEMPT_LIST" ]; then
   echo "::warning::no readable review-exempt list; every PR needs a review"
 fi
 
@@ -252,7 +259,7 @@ fi
 #    file on the risky list) needs a review like any other PR, and a risky one its Codex security review too.
 #    GitHub lists at most 250 of a PR's commits, so the listing must hold as many commits as the PR says it has;
 #    a PR with more commits than were listed needs a review.
-if $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
+if $exempt_ok && $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
    && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ]; then
   if ! commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
                    --jq '.[] | {a: (.author.login // ""), c: (.committer.login // ""),

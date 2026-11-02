@@ -133,10 +133,15 @@ test('a protected branch whose exempt list can\'t be read grants no exemption', 
   assert.match(g.out, /could not read the exempt list from protected base release/)
 })
 
-test('a PR into an unprotected branch is judged by main\'s lists, whatever that branch carries', () => {
-  const opts = {base: 'feature', rules: [], baseLists: {risky: 'Directory.Packages.props\n', exempt: 'src/\n'}}
-  assert.equal(runGate({...opts, files: ['docs/guide/setup.md']}).state, 'success')
+test('a PR into an unprotected branch gets no exemption and is judged by main\'s risky list', () => {
+  // Codex security finding on App #88: a pass minted against an unprotected base stays on the head after a retarget.
+  const opts = {base: 'feature', rules: [], baseLists: {risky: 'docs/guide/\n', exempt: 'src/\n'}}
+  const doc = runGate({...opts, files: ['docs/guide/setup.md']})
+  assert.equal(doc.desc, NEEDS_REVIEW, doc.out)
+  assert.match(doc.out, /risky=false/)
   assert.equal(runGate({...opts, files: ['src/App.cs']}).desc, NEEDS_REVIEW)
+  const bot = runGate({...opts, user: 'dependabot[bot]', files: ['src/App.csproj'], commits: [dependabotCommit()]})
+  assert.equal(bot.desc, NEEDS_REVIEW, bot.out)
 })
 
 test('a Dependabot patch or minor update of a file that is not risky needs no review', () => {

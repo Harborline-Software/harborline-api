@@ -1,5 +1,5 @@
 # Paths that need no review when a PR changes nothing else (PROC-0001, "Review by risk"). review-gate reads this
-# file from the base branch. One path per line; a path ending in / covers a folder; a line starting with ! takes a
+# file from the default branch, or from a protected base. A PR into any other branch always needs a review. One path per line; a path ending in / covers a folder; a line starting with ! takes a
 # path back out, and the last line that matches a file decides. Anything not listed here needs a review.
 #
 # Keep it to prose that no build, test, gate or package reads. The required checks still run on an exempt PR, so a
