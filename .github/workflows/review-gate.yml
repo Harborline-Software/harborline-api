@@ -4,9 +4,9 @@
 # escalates, also needs a clean Codex security review on its head; comment "@codex security review" to ask
 # for one after a push, because Codex reviews on its own only when a PR opens or is marked ready.
 #
-# The logic is .github/review-gate.sh. This file runs from the base branch or the default branch, and every trigger
-# checks out the script and its lists from the PR's base branch, never from the PR head, so a PR cannot change its
-# own pass rule. The PR's files and text are only data the script reads through the API:
+# The logic is .github/review-gate.sh. Every trigger checks out that script and its risky list from the default
+# branch and runs only that code, never anything from the PR's base or head, so a PR cannot change its own pass
+# rule. The PR's files and text are only data the script reads through the API:
 # - pull_request_target: a new head starts out pending, and a new base drops passes given before it.
 # - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
 # - pull_request_review: a submitted, edited or dismissed review (CodeRabbit's verdict lives there). GitHub runs
@@ -68,32 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The rules come from the PR's base branch for every event: a comment, a dispatch or the sweep reads the same
-      # rules as the PR's own events. The base is looked up by PR number through the API; nothing the PR contains
-      # picks what is checked out, and the head is never checked out.
-      - name: Find the PR's base branch
-        id: base
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-        run: |
-          set -euo pipefail
-          ref=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref)
-          git check-ref-format "refs/heads/$ref" || { echo "::error::PR $PR has an invalid base branch name"; exit 1; }
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-      # The script can't mark the head errored if it never runs, so do it here, as the script would.
-      - name: Mark review-gate errored when the base can't be found
-        if: failure() && steps.base.outcome == 'failure' && github.event.pull_request.head.sha
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD" -f state=error -f context=review-gate \
-            -f description="review-gate could not find the PR's base branch; see the run" \
-            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      # Only main's code runs here, for every event: the script and its fallback list come from the default branch,
+      # never from the PR's base or head. The script may read a protected base branch's list as data; see the script.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ steps.base.outputs.ref }}
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
             .github/review-gate.sh
             .github/review-risky-paths

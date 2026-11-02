@@ -12,8 +12,8 @@ REPO=${GITHUB_REPOSITORY:?}
 CONTEXT=review-gate
 # Changes that also need a clean Codex security review: CI and its scripts, and the pinned SDK and tool versions.
 RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
-# Plus the scripts that a job holding a write token runs, listed beside this script and read from the same base
-# checkout, so a PR can't shorten the list it is judged by. One path per line; a path ending in / covers a folder.
+# Plus the paths on the risky list, listed beside this script and read from the same default-branch checkout (or a
+# protected base, see below), so a PR can't shorten the list it is judged by. One path per line; / ends a folder.
 RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
@@ -160,6 +160,26 @@ if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
 # MSBuild imports the nearest Directory.Build.props, Directory.Build.targets and Directory.Packages.props above each
 # project, so one at any depth changes every build below it. Case-insensitive, as Windows resolves them.
 if grep -qiE '(^|/)Directory\.(Build\.(props|targets)|Packages\.props)$' <<<"$files"; then risky=true; fi
+# The risky list is the default branch's, checked out beside this script. A PR into another branch uses that branch's
+# list only when a ruleset there requires a pull request, so nobody can aim a PR at a branch carrying an edited list.
+# The base's list is read as data through the API; nothing from the base runs. A failed lookup stops the script,
+# which marks the head errored, and a protected base whose list can't be read leaves the PR risky.
+default_branch=$(jq -r .base.repo.default_branch <<<"$pr")
+if [ "$BASE_REF" != "$default_branch" ]; then
+  guarded=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "pull_request")] | length')
+  if [ "$guarded" -gt 0 ]; then
+    base_list=$(mktemp)
+    if gh api -H 'Accept: application/vnd.github.raw' \
+         "repos/$REPO/contents/.github/review-risky-paths?ref=$(jq -rn --arg r "$BASE_REF" '$r | @uri')" >"$base_list"; then
+      RISKY_LIST=$base_list; echo "risky list: from protected base $BASE_REF"
+    else
+      echo "::warning::could not read the risky list from protected base $BASE_REF; treating the PR as risky"
+      RISKY_LIST=/dev/null/missing
+    fi
+  else
+    echo "risky list: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request"
+  fi
+fi
 if [ -r "$RISKY_LIST" ]; then
   # The entries go in through the environment, so a list with no entries can't make awk read the PR's files as the
   # list. A list that exists but names nothing fails closed: every PR needs the security review until it's fixed.

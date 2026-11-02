@@ -1,6 +1,7 @@
 # Scripts and build inputs that make the packages CI publishes, and the files those scripts import or call. A
 # change to any of them also needs a clean Codex security review (PROC-0001, "Review policy, 2026-11-01").
-# review-gate reads this file from the PR's base branch. One path per line; a path ending in / covers a folder.
+# review-gate reads this file from main, or from a PR's base branch when a ruleset requires pull requests there.
+# One path per line; a path ending in / covers a folder.
 #
 # Only packages.yml's publish job holds the write token (packages: write), and it builds nothing: it pushes the
 # bytes pack-consume made and proved. Those bytes ship as they are, so what makes them is still risky even though
