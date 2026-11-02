@@ -36,7 +36,8 @@ failures=0
 # run <name> <want> VAR=value...: <want> is risky=true, risky=false or "fails".
 run() {
   local name=$1 want=$2; shift 2
-  local log="$work/$name.log" out status=0
+  runs=$((${runs:-0} + 1))
+  local log="$work/run-$runs.log" out status=0
   : >"$log"
   out=$(env PATH="$work/bin:$PATH" LOG="$log" GITHUB_REPOSITORY=o/r DRY_RUN=1 NO_GRAPHQL=1 \
           BASE=main PROTECTED=no FILES=src/App.cs "$@" bash "$gate" 1 2>&1) || status=$?
@@ -55,8 +56,34 @@ printf 'docs/\n' >"$work/edited-list"
 
 run 'main: a change under a listed path is risky' risky=true FILES="$listed"
 fetched_base_list && { echo "FAIL main: fetched a base list"; failures=$((failures + 1)); }
+# Every entry on main's list, not just the first, makes a change risky (a file inside it, for a folder entry).
+while read -r entry; do
+  case $entry in */) path=${entry}x.sh ;; *) path=$entry ;; esac
+  run "main: listed entry $entry is risky" risky=true FILES="$path"
+done < <(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$(dirname "$gate")/review-risky-paths" | grep .)
+# Owner ruling 2026-11-02: where the repo ships its product from projections/, a change there needs the security
+# review, so main's list must name it. A literal, so dropping the entry fails this case.
+if [ -d "$(dirname "$gate")/../projections" ]; then
+  run 'main: a change under projections/ is risky' risky=true FILES=projections/dotnet/foundation/x/Thing.cs
+fi
+# Where packages.yml runs npm publish with the write token, a root .npmrc can send that token to another
+# registry, so main's list must name it. A literal, so dropping the entry fails this case.
+if grep -qs 'npm publish' "$(dirname "$gate")/workflows/packages.yml"; then
+  run 'main: a root .npmrc is risky' risky=true FILES=.npmrc
+fi
+# Where packages.yml installs packages/contracts with pnpm before publish ships its npm package, the files that
+# change that install are risky: a pnpmfile hook, the workspace file's overrides and patches, and a project .npmrc.
+if grep -qs 'working-directory: packages/contracts' "$(dirname "$gate")/workflows/packages.yml"; then
+  for f in .pnpmfile.cjs .pnpmfile.mjs pnpm-workspace.yaml patches/x.patch .npmrc; do
+    run "main: packages/contracts/$f is risky" risky=true FILES="packages/contracts/$f"
+  done
+fi
 run 'main: a product change is not risky' risky=false FILES=src/App.cs
 run 'main: a nested Directory.Build.targets is risky' risky=true FILES=src/Lib/Directory.Build.targets
+run 'main: a nested Directory.Build.rsp is risky' risky=true FILES=src/Lib/Directory.Build.rsp
+for f in NuGet.Config NuGet.config nuget.config src/Lib/NuGet.Config; do
+  run "main: $f is risky in any casing and at any depth" risky=true FILES="$f"
+done
 run 'main: a lower-case nested directory.packages.props is risky' risky=true FILES=tests/x/directory.packages.props
 
 # The case the gate exists for: a PR aimed at an unprotected branch that carries an edited rules file is still
