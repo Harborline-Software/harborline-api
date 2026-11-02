@@ -1,0 +1,103 @@
+# mutation-qualification: ONE owner-dispatched run of the nightly full mutation on mac16, the route
+# workload-policy.json carries as qualified:false (harborline-control docs/workload-routing.md,
+# "Activation boundary and qualification"). The routing job cannot select an unqualified route, so
+# qualification needs its own dispatch-only path; this is it.
+#
+# It is evidence, never a gate: no schedule, no pull_request or merge_group trigger, main only, owner
+# only, no secrets, contents: read. Pair it with a `mutation` dispatch of the SAME slice at the SAME
+# commit on winbox, then compare with eng/compare-mutation-reports.mjs. Qualifying the route is a
+# separate reviewed change to workload-policy.json.
+name: mutation-qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      slice:
+        description: Host slice to mutate (a name from eng/baselines/mutation-slices.json); use the same one on winbox
+        required: true
+        default: authorization-denial
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-qualification
+  cancel-in-progress: false
+
+jobs:
+  mac16:
+    # Same admission as mini-portable-gate.yml: this repository, main, the owner, by hand.
+    if: >-
+      github.repository_id == '1360432948' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == '1328090' &&
+      github.triggering_actor == 'ctwoodwa'
+    runs-on: [self-hosted, macOS, X64, mac16]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      VSTEST_CONNECTION_TIMEOUT: '300'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          clean: true
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Check out Platform main without executing it
+        uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: main
+          fetch-depth: 0
+          path: .platform
+          persist-credentials: false
+      - name: Validate and select the recorded Platform pin
+        run: node .github/workloads/select-platform-pin.mjs
+
+      - name: Record the host this evidence came from
+        run: |
+          {
+            echo "### mac16 qualification host"
+            echo "- commit: $GITHUB_SHA"
+            echo "- slice: $SLICE"
+            echo "- runner: $RUNNER_NAME ($RUNNER_OS $RUNNER_ARCH)"
+            echo "- macOS: $(sw_vers -productVersion), CPU: $(sysctl -n machdep.cpu.brand_string)"
+            echo "- dotnet: $(dotnet --version), node: $(node --version), python: $(python --version 2>&1)"
+            echo "- Platform pin: $(git -C .platform rev-parse HEAD)"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          SLICE: ${{ inputs.slice }}
+
+      - name: Full mutation under the machine lock, isolated feed
+        run: python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
+        env:
+          HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+          NUGET_PACKAGES: ${{ runner.temp }}/mutation-nuget-${{ github.run_id }}-${{ github.run_attempt }}
+          SLICE: ${{ inputs.slice }}
+
+      - name: Mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-qualification-mac16-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          include-hidden-files: true
+          path: .stryker/*/reports/mutation-report.json

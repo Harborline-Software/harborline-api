@@ -24,3 +24,9 @@ the Python host lock and does not exclude manual or orphaned processes. Do not
 add a second Windows agent without a separately qualified exclusion mechanism.
 Only the dormant non-Windows full route uses the explicit host lock. A mac16
 operator variable cannot enable it while committed qualification is false.
+
+Qualifying mac16 (T-679): `.github/workflows/mutation-qualification.yml` is a dispatch-only,
+owner-only run of this same full mutation on `[self-hosted, macOS, X64, mac16]`, outside routing.
+Dispatch it and `mutation.yml` with the same slice at the same main commit, download both report
+artifacts, and compare them with `node eng/compare-mutation-reports.mjs <winbox-dir> <mac16-dir>`.
+A match is evidence for a separate reviewed change to `workload-policy.json`; it changes no route.
