@@ -217,6 +217,8 @@ fi
 #    from the update-type lines Dependabot writes in its commit messages. A major update, a security update with no
 #    update-type, or a bump that touches a risky path (anything under .github/, so every GitHub Actions bump, or a
 #    file on the risky list) needs a review like any other PR, and a risky one its Codex security review too.
+#    GitHub lists at most 250 of a PR's commits, so the listing must hold as many commits as the PR says it has;
+#    a PR with more commits than were listed needs a review.
 if $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
    && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ]; then
   if ! commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
@@ -225,8 +227,10 @@ if $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[
     echo "::error::could not list the PR's commits" >&2; exit 1
   fi
   others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .c != "web-flow" or .v != true)] | length' <<<"$commits")
+  listed=$(jq -s length <<<"$commits")
   types=$(jq -rs '.[].m' <<<"$commits" | sed -nE 's/^[[:space:]]*update-type:[[:space:]]*//p')
-  if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ -n "$types" ] \
+  if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ "$listed" = "$(jq -r '.commits // empty' <<<"$pr")" ] \
+     && [ -n "$types" ] \
      && ! grep -qvxE 'version-update:semver-(patch|minor)' <<<"$types"; then
     needs_review=false; why="a Dependabot patch or minor update"
   fi

@@ -52,13 +52,13 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
   commit: {message, verification: {verified: overrides.verified ?? true}},
 })
 
-function runGate({user = 'ctwoodwa', files, commits, comments, status, fail}) {
+function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, status, fail}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
     writeFileSync(join(bin, 'gh'), stub); chmodSync(join(bin, 'gh'), 0o755)
     const pr = {state: 'open', draft: false, head: {sha: 'h1', repo: {full_name: 'o/r'}}, base: {ref: 'main'},
-                user: {login: user}, changed_files: files.length}
+                user: {login: user}, changed_files: files.length, commits: commitCount}
     writeFileSync(join(fix, 'pr.json'), JSON.stringify(pr))
     writeFileSync(join(fix, 'pulls.json'), JSON.stringify([{number: 1, head: {sha: 'h1'}}]))
     writeFileSync(join(fix, 'files.json'), JSON.stringify(files.map(filename => ({filename}))))
@@ -143,6 +143,14 @@ test('an unverified, human-written, major or untyped Dependabot update means a r
   for (const [name, commits] of Object.entries(cases)) {
     assert.equal(runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits}).desc, NEEDS_REVIEW, name)
   }
+})
+
+test('a Dependabot PR with more commits than GitHub listed means a review', () => {
+  // The commits listing stops at 250; an unlisted commit could be anyone's.
+  const commits = Array.from({length: 250}, () => dependabotCommit())
+  assert.equal(runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits}).state, 'success')
+  const g = runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits, commitCount: 251})
+  assert.equal(g.desc, NEEDS_REVIEW, g.out)
 })
 
 test('a PR not opened by Dependabot gets no Dependabot exemption', () => {
