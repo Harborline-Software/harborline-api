@@ -48,9 +48,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'merge_group' && github.ref) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Least privilege: the jobs that build, test and pack run read-only. Only publish, which runs no build and pushes
+# the bytes pack-consume proved, gets packages: write.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # The app/Capability protocol is schema-first: one JSON Schema plus manifest generates the
@@ -235,6 +236,9 @@ jobs:
       vars.ACTIONS_ENABLED == 'true'
       && (startsWith(github.ref, 'refs/tags/') || inputs.publish == true)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
         with:

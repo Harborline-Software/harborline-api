@@ -1,21 +1,23 @@
-# Scripts that a job holding a write token runs, and the files those scripts import or call. A change to any of
-# them also needs a clean Codex security review (PROC-0001, "Review policy, 2026-11-01"). review-gate reads this
-# file from the base branch. One path per line; a path ending in / covers a folder.
+# Scripts and build inputs that make the packages CI publishes, and the files those scripts import or call. A
+# change to any of them also needs a clean Codex security review (PROC-0001, "Review policy, 2026-11-01").
+# review-gate reads this file from the PR's base branch. One path per line; a path ending in / covers a folder.
 #
-# Keep it current: a PR that gives a job a write token, or adds a script to such a job, adds the script here.
-# This file is under .github/, so changing it is itself risky.
+# Only packages.yml's publish job holds the write token (packages: write), and it builds nothing: it pushes the
+# bytes pack-consume made and proved. Those bytes ship as they are, so what makes them is still risky even though
+# that job runs read-only. Product code and dependencies are not listed; they no longer run with the token.
 #
-# Not covered: these jobs also build and test the product itself (dotnet, pnpm, cargo), so product code,
-# manifests and dependencies run with the token too. Scoping the write token to the publish step is what closes that.
+# Keep it current: a PR that adds a script to the packing or publishing jobs adds it here.
+# review-gate.sh itself counts Directory.Build.props, Directory.Build.targets and Directory.Packages.props at any
+# depth. This file is under .github/, so changing it is itself risky.
 
-# packages.yml (packages: write, every job) runs eng/verify-packages.sh, which runs eng/verify-boundaries.sh and
-# eng/verify.sh. Those reach most of eng/ (scripts, tests, pins and baselines), so the whole folder counts.
+# packages.yml's pack-consume runs eng/verify-packages.sh, which runs eng/verify-boundaries.sh and eng/verify.sh,
+# and publish runs eng/package-proof.py. Those reach most of eng/ (scripts, tests, pins and baselines), so the whole
+# folder counts.
 eng/
 tooling/harborline-contract-codegen/
-# Build-wide inputs: every project the write-token jobs build reads these, and the feeds restore pulls from.
-Directory.Build.props
-Directory.Packages.props
-Directory.Build.targets
+# The publish job reads its publication authority from here.
+repository.yaml
+# Build-wide inputs: the feeds restore pulls from and the pinned SDK.
 nuget.config
 global.json
 # MSBuild tasks and analyzers that the build-wide files load into every build.
