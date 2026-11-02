@@ -134,7 +134,11 @@ public sealed record InstalledPack(
     IReadOnlyList<string>? CapabilityRequirements = null,
     IReadOnlyList<string>? Exposes = null,
     int? InterfaceVersion = null,
-    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null);
+    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null)
+{
+    /// <summary>Complete versioned canonical signed-subject evidence; absent on legacy rows.</summary>
+    public string? ArtifactIdentity { get; init; }
+}
 
 /// <summary>
 /// The S-8 monotonic watermark persisted per installed pack key — the highest version ever installed and

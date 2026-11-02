@@ -44,9 +44,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Packs;
 /// <b>Synchronous interface over async EF — by design.</b> <see cref="IPackInstallStore"/> is deliberately
 /// synchronous (the installer calls it inline, and install/activate/deactivate is a LOW-frequency, human-paced
 /// operation — a handful of packs, never a hot path). Each call opens a short-lived context via the factory and runs the EF
-/// round-trip synchronously. A single process-wide lock serialises every operation so a read never observes a
-/// half-applied commit and — because it prevents concurrent SQLite connections — it also side-steps SQLite
-/// writer-lock contention. This mirrors the <see cref="Admission.DurableAdmissionTokenStore"/> single-gate model.
+/// round-trip synchronously. Each instance serializes its own contexts. Commit also takes the existing immediate
+/// SQLite unit before classification, so independent store instances serialize at the database boundary.
 /// </para>
 /// </remarks>
 public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMutationStore, IPackProjectionAdmissionStore, IPackProjectionParticipant
@@ -250,7 +249,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     }
 
     /// <inheritdoc />
-    public void Commit(PackInstallTransaction transaction)
+    public PackInstallCommitResult Commit(PackInstallTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var pack = transaction.InstalledPack;
@@ -261,12 +260,21 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = CreateContext();
-            // S-7 ATOMIC apply: the new seed layer + advanced watermark + re-attached overrides commit
-            // all-or-nothing inside ONE explicit transaction. A fault before Commit rolls the whole thing back
-            // (the durable analogue of the in-memory single reference-swap). A staged projection unit owns the
-            // transaction instead, and this write commits or rolls back with everything else it carries.
-            using var tx = ctx.Database.CurrentTransaction is null ? ctx.Database.BeginTransaction() : null;
+            using var owned = projectionUnit is null ? new PackProjectionSqliteUnit(_factory.CreateDbContext()) : null;
+            var unit = projectionUnit ?? owned!;
+            using var ctx = unit.Join(_factory.CreateDbContext());
+            var versionRow = ctx.InstalledVersions.Find(t, pack.PackKey, pack.Version);
+            var classification = transaction.ClassifyExisting(versionRow is null ? null : Materialize(versionRow));
+            if (classification is not null)
+            {
+                if (classification.Disposition == PackInstallCommitDisposition.Unchanged)
+                {
+                    StageAudit(ctx, classification.SelectedAudit);
+                    ctx.SaveChanges();
+                    owned?.Commit();
+                }
+                return classification;
+            }
 
             var observedWatermark = ctx.Watermarks.Find(t, pack.PackKey);
             transaction.RequireCurrentWatermark(observedWatermark is null ? null : new PackInstallWatermark(
@@ -280,25 +288,14 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
                 ctx.KeyOwnership.AsNoTracking().Where(row => row.Tenant == t).ToList()
                     .ToDictionary(row => row.ContentKey, row => row.OwningPackKey, StringComparer.Ordinal));
 
-            // (1) Upsert the new immutable seed-layer version row (committed in the pack's own lifecycle — Draft
-            //     at install; activation is a separate pointer flip). The payload is the FULL InstalledPack JSON.
-            var versionRow = ctx.InstalledVersions.Find(t, pack.PackKey, pack.Version);
-            if (versionRow is null)
+            ctx.InstalledVersions.Add(new PackInstalledVersionRow
             {
-                ctx.InstalledVersions.Add(new PackInstalledVersionRow
-                {
-                    Tenant = t,
-                    PackKey = pack.PackKey,
-                    Version = pack.Version,
-                    Lifecycle = (int)pack.Lifecycle,
-                    PayloadJson = payload,
-                });
-            }
-            else
-            {
-                versionRow.Lifecycle = (int)pack.Lifecycle;
-                versionRow.PayloadJson = payload;
-            }
+                Tenant = t,
+                PackKey = pack.PackKey,
+                Version = pack.Version,
+                Lifecycle = (int)pack.Lifecycle,
+                PayloadJson = payload,
+            });
 
             // (2) Upsert the S-8 monotonic watermark for the pack key.
             var wmRow = ctx.Watermarks.Find(t, pack.PackKey);
@@ -338,7 +335,8 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
             StageAudit(ctx, transaction.Audit);
             ctx.SaveChanges();
-            tx?.Commit();
+            owned?.Commit();
+            return new PackInstallCommitResult(PackInstallCommitDisposition.Written, transaction.Audit);
         }
     }
 
@@ -566,7 +564,16 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         var pack = JsonSerializer.Deserialize<InstalledPack>(row.PayloadJson, Json)
             ?? throw new InvalidOperationException(
                 $"Installed pack '{row.PackKey}@{row.Version}' payload deserialized to null.");
-        return pack with { Lifecycle = (PackLifecycleState)row.Lifecycle };
+        var coordinatesMatch = string.Equals(pack.PackKey, row.PackKey, StringComparison.Ordinal)
+            && string.Equals(pack.Version, row.Version, StringComparison.Ordinal);
+        // Columns identify the occupied tuple; mismatched payload evidence cannot establish its identity.
+        return pack with
+        {
+            PackKey = row.PackKey,
+            Version = row.Version,
+            Lifecycle = (PackLifecycleState)row.Lifecycle,
+            ArtifactIdentity = coordinatesMatch ? pack.ArtifactIdentity : null,
+        };
     }
 
     private static JsonNode ParseOverlay(string contentKey, string overlayJson)

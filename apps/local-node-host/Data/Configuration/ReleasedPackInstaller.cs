@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -7,6 +8,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Catalog.Templates;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
@@ -48,6 +50,64 @@ public sealed record ReleasedPackInstallOutcome(bool Installed, string ReleasedD
     /// <summary>The failure behind <see cref="Diagnostics"/>, for the host log only; never serialized.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public AggregateException? DiagnosticsException { get; init; }
+
+    /// <summary>Tagged owner diagnostics for in-process callers only.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ReleasedInstallDiagnosticReport? DiagnosticReport { get; init; }
+}
+
+/// <summary>A caller-owned, one-invocation diagnostic capture; it holds no signed audit alternatives.</summary>
+public sealed class ReleasedInstallDiagnosticCapture
+{
+    private int claimed;
+    private ReleasedInstallDiagnosticReport? report;
+    private readonly ReleasedInstallDiagnosticReport empty = new(false, false, [], []);
+
+    /// <summary>The immutable report published before completion or original exception propagation.</summary>
+    public ReleasedInstallDiagnosticReport? Report => Volatile.Read(ref report);
+
+    internal Action<string>? StageObserver { get; init; }
+
+    internal void ObserveStage(string stage)
+    {
+        try { StageObserver?.Invoke(stage); }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-stage-observer
+        catch (Exception)
+        {
+        }
+        #pragma warning restore CA1031
+    }
+
+    internal void Claim()
+    {
+        if (Interlocked.Exchange(ref claimed, 1) != 0)
+            throw new InvalidOperationException("A released-install diagnostic capture cannot be reused.");
+    }
+
+    internal void Publish(ReleasedInstallDiagnosticReport value) => Interlocked.CompareExchange(ref report, value, null);
+    internal void Complete() => Publish(empty);
+}
+
+/// <summary>Exact secondary faults and actual owner Commit/release facts, never a wire payload.</summary>
+public sealed class ReleasedInstallDiagnosticReport
+{
+    internal ReleasedInstallDiagnosticReport(bool committed, bool resourceReleaseConfirmed,
+        IEnumerable<PackProjectionDiagnostic> failures, IEnumerable<Exception> boundaryFailures)
+    {
+        Committed = committed;
+        ResourceReleaseConfirmed = resourceReleaseConfirmed;
+        Failures = Array.AsReadOnly(failures.ToArray());
+        BoundaryFailures = Array.AsReadOnly(boundaryFailures.ToArray());
+    }
+
+    /// <summary>True only after the outer Commit returned successfully.</summary>
+    public bool Committed { get; }
+    /// <summary>True only after every required resource release returned successfully.</summary>
+    public bool ResourceReleaseConfirmed { get; }
+    /// <summary>Ordered tagged secondaries, excluding the propagated primary.</summary>
+    public IReadOnlyList<PackProjectionDiagnostic> Failures { get; }
+    /// <summary>Unexpected reaction or report-boundary faults, without guessed callback categories.</summary>
+    public IReadOnlyList<Exception> BoundaryFailures { get; }
 }
 
 /// <summary>
@@ -108,9 +168,9 @@ public sealed class ReleasedPackInstaller
     }
 
     /// <summary>
-    /// Installs and activates one offered Released package, named by its own artifact digest. On success
-    /// the released package is an installed Active pack, which is what
-    /// <c>POST /configuration/prepare</c> resolves a candidate over.
+    /// Accepts one offered Released package by its artifact digest. A new own version is installed and activated;
+    /// an identical own version preserves its current lifecycle and projection. Independently requested foreign
+    /// narrowing remains part of the same transaction.
     /// </summary>
     /// <param name="tenant">The tenant the release belongs to.</param>
     /// <param name="releasedDigest">The Released package's own artifact digest.</param>
@@ -128,21 +188,45 @@ public sealed class ReleasedPackInstaller
     /// ownership choice on this path any more; the T-667 R1 takeover through that choice is retired.
     /// <para>
     /// The release is one write. Every refusal above is decided against one bound snapshot of the installed packs
-    /// and each narrowed owner's Active definition and overlays; the export is signed before the write lease. Then
-    /// one <see cref="PackProjectionTransaction"/> re-checks that snapshot under the lease, and the own install,
-    /// its activation and projection, and every overlay are staged into it through the installer's joined writes,
-    /// each still authorized and admitted by its own kernel stages, a later overlay over the ones staged before it.
-    /// It commits once, only when nothing refused, faulted or was cancelled; otherwise nothing it staged persists.
-    /// Success audit and observers run only after that commit and the lease release, and their failure is a
-    /// diagnostic; refusal audit runs after the release whatever the outcome.
+    /// and each narrowed owner's Active definition and overlays; the export is signed before the write lease. One
+    /// <see cref="PackProjectionTransaction"/> re-checks that snapshot under the lease and stages any new own install,
+    /// activation and projection plus independently requested foreign overlays through the authorized, admitted joined
+    /// writes. An identical own retry preserves its lifecycle and projection. The owner commits once only when nothing
+    /// refused, faulted or was cancelled; otherwise it attempts rollback and cleanup, reporting any uncertainty.
+    /// Eligible refusal audit requires confirmed durable and lease release plus the owner's ReactAsync on either
+    /// outcome; success audit and observers additionally require an actual successful Commit. Callback failures are
+    /// diagnostic. Unconfirmed resource release suppresses and retires callbacks without retry.
     /// </para>
     /// </remarks>
-    public async ValueTask<ReleasedPackInstallOutcome> InstallAsync(TenantId tenant, string releasedDigest,
+    public ValueTask<ReleasedPackInstallOutcome> InstallAsync(TenantId tenant, string releasedDigest,
         AuthorizationWriteContext authority, CancellationToken cancellationToken = default)
+        => InstallCoreAsync(tenant, releasedDigest, authority, null, cancellationToken);
+
+    /// <summary>Installs with a fresh caller-owned report, preserving original typed errors after cleanup.</summary>
+    /// <remarks>The legacy InstallAsync entry cannot expose mixed-failure secondaries when it throws.
+    /// Report allocation or a caller's logging failure does not guarantee secondary delivery.</remarks>
+    public async ValueTask<ReleasedPackInstallOutcome> InstallWithDiagnosticsAsync(
+        TenantId tenant, string releasedDigest, AuthorizationWriteContext authority,
+        ReleasedInstallDiagnosticCapture capture, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capture);
+        capture.Claim();
+        try { return await InstallCoreAsync(tenant, releasedDigest, authority, capture, cancellationToken).ConfigureAwait(false); }
+        finally
+        {
+            capture.Complete();
+            capture.ObserveStage("install-exit");
+        }
+    }
+
+    private async ValueTask<ReleasedPackInstallOutcome> InstallCoreAsync(
+        TenantId tenant, string releasedDigest, AuthorizationWriteContext authority,
+        ReleasedInstallDiagnosticCapture? capture, CancellationToken cancellationToken)
     {
         static ReleasedPackInstallOutcome Refuse(string digest, string code, string target, string message) =>
             new(false, digest, string.Empty, string.Empty, [new(code, target, message)]);
 
+        capture?.ObserveStage("offer-read");
         var offer = _proposals.Offered(tenant).FirstOrDefault(candidate => candidate.Released.Digest == releasedDigest);
         if (offer is null)
             return Refuse(releasedDigest, "configuration-release-missing", "digest",
@@ -151,11 +235,13 @@ public sealed class ReleasedPackInstaller
         // Fail closed before the document is read. Offered() re-derives the digest from the stored bytes,
         // so a tampered document offers an identity its signature does not cover and never gets this far;
         // a tampered signature fails the verifier. Either way nothing is converted, exported or installed.
+        capture?.ObserveStage("signature-verification");
         if (!ConfigurationProposalStore.VerifyOffer(offer, _verifier))
             return Refuse(offer.Released.Digest, "configuration-release-signature-invalid", "signature",
                 "The Released package's signature does not verify over the bytes it is offered with.");
 
         ReleasedPackConversionResult converted;
+        capture?.ObserveStage("conversion");
         try
         {
             converted = ReleasedPackConversion.Convert(offer.Released.Document.Span,
@@ -172,10 +258,12 @@ public sealed class ReleasedPackInstaller
 
         // The bound premises: every decision below is read after this snapshot, and the release commits only
         // if it is still the tenant's installed state under the release's write lease.
+        capture?.ObserveStage("installed-state-read");
         var installedPacks = _packs.ListInstalled(tenant);
 
         // T-982 (ck-2 S7): every pinned package must be Active at its pin or newer before anything is
         // exported, installed or narrowed, whether or not the release has content of its own to install.
+        capture?.ObserveStage("dependency-reads");
         var unmet = converted.Dependencies.Where(pin => _packs.GetActive(tenant, pin.Key) is not { } active
                 || !PackVersion.IsWellFormed(pin.Version) || PackVersion.Compare(active.Version, pin.Version) < 0)
             .Select(pin => new ReleasedPackRefusal(
@@ -201,6 +289,7 @@ public sealed class ReleasedPackInstaller
         var readsets = new Dictionary<string, PackNarrowingReadset>(StringComparer.Ordinal);
         foreach (var edit in converted.ForeignEdits)
         {
+            capture?.ObserveStage("narrowing-state-read");
             var owner = _packs.GetActive(tenant, edit.PackageKey);
             var seed = owner?.SeedItems
                 .FirstOrDefault(item => string.Equals(item.Key, edit.DefinitionKey, StringComparison.Ordinal));
@@ -227,6 +316,7 @@ public sealed class ReleasedPackInstaller
                 continue;
             }
             // Narrowing another package is an act on THAT package, so it is decided for that package.
+            capture?.ObserveStage("narrowing-authorization");
             var decision = await _gate.DecideAsync(
                 authority.Request(PackOperation.Operate, PackRouteAuthorization.PackRecordKind, edit.PackageKey),
                 cancellationToken).ConfigureAwait(false);
@@ -248,6 +338,7 @@ public sealed class ReleasedPackInstaller
         byte[]? packBytes = null;
         if (request is not null)
         {
+            capture?.ObserveStage("export");
             var exported = await _exporter.ExportAsync(request, _signer.Signer, cancellationToken).ConfigureAwait(false);
             if (!exported.Succeeded || exported.FileBytes is null)
                 return new(false, offer.Released.Digest, request.Key, request.Version,
@@ -256,33 +347,71 @@ public sealed class ReleasedPackInstaller
             packBytes = exported.FileBytes;
         }
 
-        // One transaction for the whole release, opened on this flow so every joined write below owns its lease.
-        ReleasedPackInstallOutcome outcome;
-        AggregateException? diagnostics;
+        ReleasedPackInstallOutcome? outcome = null;
+        ExceptionDispatchInfo? primary = null;
+        AggregateException? diagnostics = null;
+        var boundaryFailures = new List<Exception>();
+        capture?.ObserveStage("activation-barrier-enter");
         var transaction = new PackProjectionTransaction(cancellationToken);
+        capture?.ObserveStage("activation-barrier-acquired");
         try
         {
-            using (transaction)
+            transaction.BeginJoinedInstall();
+            capture?.ObserveStage("durable-enlistment");
+            transaction.Enlist(_installer);
+            capture?.ObserveStage("drift-check");
+            outcome = Drifted(tenant, offer.Released.Digest, releaseKey, version, installedPacks, readsets)
+                ?? await StageAsync(offer.Released.Digest, request, packBytes, narrowings, context, transaction,
+                    capture, cancellationToken).ConfigureAwait(false);
+            if (outcome.Succeeded)
             {
-                // The host supplies a read-only store facade; the installer owns the mutation participants.
-                transaction.Enlist(_installer);
-                outcome = Drifted(tenant, offer.Released.Digest, releaseKey, version, installedPacks, readsets)
-                    ?? await StageAsync(offer.Released.Digest, request, packBytes, narrowings, context, transaction,
-                        cancellationToken).ConfigureAwait(false);
-                if (outcome.Succeeded)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    transaction.Commit();
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                capture?.ObserveStage("commit");
+                transaction.Commit();
             }
+            else transaction.MarkFailed();
         }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-primary-capture
+        catch (Exception exception)
+        {
+            primary = ExceptionDispatchInfo.Capture(exception);
+            transaction.MarkFailed(exception);
+        }
+        #pragma warning restore CA1031
         finally
         {
-            // Outside the lease: deferred refusal audit always, success audit and observers only after the commit.
-            diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
+            capture?.ObserveStage("cleanup");
+            transaction.Dispose();
+            capture?.ObserveStage("reactions");
+            try { diagnostics = await transaction.ReactAsync().ConfigureAwait(false); }
+            #pragma warning disable CA1031 // reviewed-suppression: t1098-reaction-boundary
+            catch (Exception exception) { boundaryFailures.Add(exception); }
+            #pragma warning restore CA1031
+            capture?.ObserveStage("reactions-complete");
         }
-        return diagnostics is null ? outcome
-            : outcome with { Diagnostics = diagnostics.Message, DiagnosticsException = diagnostics };
+        ReleasedInstallDiagnosticReport? report = null;
+        try
+        {
+            var facts = transaction.Diagnostics;
+            report = new ReleasedInstallDiagnosticReport(facts?.Committed ?? false,
+                facts?.ResourceReleaseConfirmed ?? false, facts?.Failures ?? [], boundaryFailures);
+            capture?.Publish(report);
+        }
+        #pragma warning disable CA1031 // reviewed-suppression: t1098-report-publication
+        catch (Exception) when (primary is not null)
+        {
+            // A report publication failure must never replace the original cancellation or denial.
+            primary.Throw();
+        }
+        #pragma warning restore CA1031
+        primary?.Throw();
+        var accepted = outcome ?? throw new InvalidOperationException("The released installation produced no outcome.");
+        return accepted with
+        {
+            DiagnosticReport = report,
+            Diagnostics = diagnostics?.Message,
+            DiagnosticsException = diagnostics,
+        };
     }
 
     private static ReleasedPackRefusal Foreign(string definitionKey, string owner, string why) =>
@@ -317,17 +446,19 @@ public sealed class ReleasedPackInstaller
     /// <summary>Stages the own install and activation, then every overlay, into the release transaction.</summary>
     private async ValueTask<ReleasedPackInstallOutcome> StageAsync(string releasedDigest, PackExportRequest? request,
         byte[]? packBytes, IReadOnlyList<(ReleasedDefinitionEdit Edit, JsonNode Patch, AuthorizationDecision Decision)> narrowings,
-        PackInstallContext context, PackProjectionTransaction transaction, CancellationToken cancellationToken)
+        PackInstallContext context, PackProjectionTransaction transaction,
+        ReleasedInstallDiagnosticCapture? capture, CancellationToken cancellationToken)
     {
         var outcome = request is null
             ? new ReleasedPackInstallOutcome(false, releasedDigest, string.Empty, string.Empty, [])
-            : await InstallOwnAsync(releasedDigest, request, packBytes!, context, transaction, cancellationToken)
+            : await InstallOwnAsync(releasedDigest, request, packBytes!, context, transaction, capture, cancellationToken)
                 .ConfigureAwait(false);
         if (!outcome.Succeeded) return outcome;
 
         var narrowed = new List<string>();
         foreach (var (edit, patch, decision) in narrowings)
         {
+            capture?.ObserveStage("narrowing");
             var result = await _installer.NarrowAsync(context, edit.PackageKey, edit.DefinitionKey, patch, decision,
                 transaction, cancellationToken).ConfigureAwait(false);
             // The transaction will not commit, so nothing staged before this refusal is installed or narrowed.
@@ -345,14 +476,18 @@ public sealed class ReleasedPackInstaller
 
     private async ValueTask<ReleasedPackInstallOutcome> InstallOwnAsync(string releasedDigest,
         PackExportRequest request, byte[] packBytes, PackInstallContext context, PackProjectionTransaction transaction,
-        CancellationToken cancellationToken)
+        ReleasedInstallDiagnosticCapture? capture, CancellationToken cancellationToken)
     {
+        capture?.ObserveStage("install");
         var installed = await _installer.InstallAsync(packBytes, context, transaction, cancellationToken).ConfigureAwait(false);
+        if (installed.Installed && installed.Action == Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditAction.Unchanged)
+            return new(false, releasedDigest, installed.PackKey, installed.Version, []);
         if (!installed.Installed)
             return new(false, releasedDigest, request.Key, request.Version,
                 [.. installed.RefusalCodes.Select(code =>
                     new ReleasedPackRefusal(code, "releasedPackage", "The Released package was refused by the install engine."))]);
 
+        capture?.ObserveStage("activate");
         var activated = await _installer.ActivateAsync(context, installed.PackKey, installed.Version, transaction,
             cancellationToken).ConfigureAwait(false);
         return activated.Activated

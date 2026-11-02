@@ -16,6 +16,12 @@ public static class PackInstallCodes
     /// own detail codes carry the specifics (tamper / untrusted / epoch / unsigned).</summary>
     public const string RefusedNotVerified = "pack.install.refused.not_verified";
 
+    /// <summary>The occupied version contains a different complete signed artifact.</summary>
+    public const string RefusedSameVersionConflict = "pack.install.refused.same_version_conflict";
+
+    /// <summary>The occupied version lacks complete supported artifact identity evidence.</summary>
+    public const string RefusedSameVersionIdentityUnknown = "pack.install.refused.same_version_identity_unknown";
+
     /// <summary>A carried content item declares no kind, or a kind this node cannot classify (T-981, ADR 0028,
     /// DES-0006 §9). Refused because a node that cannot classify a kind cannot show it only permits; the
     /// pointer names the item (<c>/contents/n/kind</c>) instead of folding it into <see cref="RefusedNotVerified"/>.</summary>
@@ -259,6 +265,9 @@ public enum PackInstallVerdict
 
     /// <summary>Refused ONLY on an S-8 watermark hit — a break-glass ceremony could override it.</summary>
     RequiresBreakGlass = 3,
+
+    /// <summary>The verified artifact matches an occupied exact version; installation preserves it.</summary>
+    AlreadyInstalled = 4,
 }
 
 /// <summary>The reason a declared platform requirement is unmet.</summary>
@@ -436,12 +445,12 @@ public sealed record PackUnmetContentReference(
     Graph.PackFeatureEdgeRelation Relation);
 
 /// <summary>
-/// The outcome of an <see cref="IPackInstaller.InstallAsync(ReadOnlyMemory{byte}, PackInstallContext, CancellationToken)"/> — whether a seed layer was committed, the
+/// The outcome of an <see cref="IPackInstaller.InstallAsync(ReadOnlyMemory{byte}, PackInstallContext, CancellationToken)"/> — whether an artifact was accepted, staged or preserved, the
 /// action taken, the version, the refusal codes (on refusal), and the <see cref="Preview"/> plan (the
 /// conflict report + watermark hits) that produced it.
 /// </summary>
-/// <param name="Installed">Whether an immutable seed layer was committed (Draft).</param>
-/// <param name="Action">The audited action (Installed / Upgraded / Refused / BreakGlassOverride).</param>
+/// <param name="Installed">Whether the verified artifact was accepted, staged or preserved; this does not prove durable commit.</param>
+/// <param name="Action">The audited action (Installed / Upgraded / Unchanged / Refused / BreakGlassOverride).</param>
 /// <param name="PackKey">The pack key.</param>
 /// <param name="Version">The version installed (or the refused version).</param>
 /// <param name="RefusalCodes">Stable refusal codes when <see cref="Installed"/> is false.</param>

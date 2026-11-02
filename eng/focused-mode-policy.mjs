@@ -30,6 +30,8 @@ function category(file) {
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
     || /^(apps\/capability-host|packages\/contracts)\/pnpm-(lock|workspace)\.yaml$/.test(file)
     || file === 'packages/contracts/package.json'
+    // The Rust contracts crate's manifest and lock file, exact paths only (dependency bumps).
+    || /^packages\/contracts\/rust\/Cargo\.(lock|toml)$/.test(file)
     || /^eng\/(platform|quality)-pin\.json$/.test(file)) return 'toolchain'
   if (/\.(csproj|props|targets|sln|slnx)$/.test(file) || /^artifacts\//.test(file)
     || /^eng\//.test(file) || /^\.github\//.test(file)
