@@ -120,21 +120,21 @@ test('a blocker still blocks an exempt change', () => {
   assert.match(g.desc, /^Blocked: /)
 })
 
-test('a PR into a protected branch is judged by that branch\'s own exempt list', () => {
+test('a PR into a protected branch other than the default gets no exemption, but is judged by its risky list', () => {
+  // Codex security finding on Platform #398: a pass sits on the head commit, so one minted against one protected base
+  // would stand after a retarget to another. Only the default branch grants one.
   const protectedBase = {base: 'release', rules: [{type: 'pull_request'}],
-                         baseLists: {risky: 'Directory.Packages.props\n', exempt: 'docs/release-notes/\n'}}
+                         baseLists: {risky: 'docs/guide/\n', exempt: 'docs/release-notes/\n'}}
   const g = runGate({...protectedBase, files: ['docs/release-notes/1.2.md']})
-  assert.equal(g.state, 'success', g.out)
-  assert.match(g.out, /exempt list: from protected base release/)
-  // main's exempt list doesn't apply there.
-  assert.equal(runGate({...protectedBase, files: ['docs/guide/setup.md']}).desc, NEEDS_REVIEW)
-})
-
-test('a protected branch whose exempt list can\'t be read grants no exemption', () => {
-  const g = runGate({base: 'release', rules: [{type: 'pull_request'}], baseLists: {risky: 'Directory.Packages.props\n'},
-                     files: ['docs/guide/setup.md']})
   assert.equal(g.desc, NEEDS_REVIEW, g.out)
-  assert.match(g.out, /could not read the exempt list from protected base release/)
+  assert.match(g.out, /no review exemption: base release is not main/)
+  assert.match(g.out, /risky=false/)
+  // main's exempt list doesn't apply there either.
+  assert.equal(runGate({...protectedBase, files: ['SUPPORT.md']}).desc, NEEDS_REVIEW)
+  const bot = runGate({...protectedBase, user: 'dependabot[bot]', files: ['src/App.csproj'], commits: [dependabotCommit()]})
+  assert.equal(bot.desc, NEEDS_REVIEW, bot.out)
+  // The base's own risky list still applies.
+  assert.match(runGate({...protectedBase, files: ['docs/guide/setup.md']}).out, /risky=true/)
 })
 
 test('a PR into an unprotected branch gets no exemption and is judged by main\'s risky list', () => {

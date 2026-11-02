@@ -18,9 +18,9 @@ RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 # Plus the paths on the risky list, listed beside this script and read from the same default-branch checkout (or a
 # protected base, see below), so a PR can't shorten the list it is judged by. One path per line; / ends a folder.
 RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
-# Paths that need no review when a PR touches nothing else, read from the same place as the risky list. Same
-# format, plus a line starting with ! takes a path back out; the last line that matches a file decides. A PR into an
-# unprotected branch other than the default one gets no exemption at all (see below).
+# Paths that need no review when a PR touches nothing else, read from the same default-branch checkout. Same
+# format, plus a line starting with ! takes a path back out; the last line that matches a file decides. Only a PR into
+# the default branch can be exempt; a PR into any other branch always needs a review (see below).
 EXEMPT_LIST=${EXEMPT_LIST:-$(dirname "$0")/review-exempt-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
@@ -173,12 +173,13 @@ if grep -qiE '(^|/)Directory\.(Build\.(props|targets)|Packages\.props)$' <<<"$fi
 # The base's list is read as data through the API; nothing from the base runs. A failed lookup stops the script,
 # which marks the head errored, and a protected base whose list can't be read leaves the PR risky.
 default_branch=$(jq -r .base.repo.default_branch <<<"$pr")
-# A no-review pass is only as good as the base it was judged against, and the status it sets sits on the head commit
-# whatever the base. So only the default branch and a protected base can grant one. Into any other branch, a PR could
-# be passed against a base that already carries a risky change and then be retargeted to main before the gate runs
-# again, so every PR into an unprotected branch needs a review.
+# A no-review pass sits on the head commit whatever the base, so it would stand after a retarget until the next run
+# replaces it. So only the default branch grants one. A pass against it covers the PR's own files plus commits
+# already reviewed into the default branch; into any other branch, protected or not, every PR needs a review.
 exempt_ok=true
 if [ "$BASE_REF" != "$default_branch" ]; then
+  exempt_ok=false
+  echo "no review exemption: base $BASE_REF is not $default_branch"
   guarded=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "pull_request")] | length')
   if [ "$guarded" -gt 0 ]; then
     base_list=$(mktemp)
@@ -189,19 +190,8 @@ if [ "$BASE_REF" != "$default_branch" ]; then
       echo "::warning::could not read the risky list from protected base $BASE_REF; treating the PR as risky"
       RISKY_LIST=/dev/null/missing
     fi
-    # The review-exempt list comes from the same place, so a protected branch is judged by its own lists. One that
-    # can't be read grants no exemption: every PR into that base needs a review.
-    base_exempt=$(mktemp)
-    if gh api -H 'Accept: application/vnd.github.raw' \
-         "repos/$REPO/contents/.github/review-exempt-paths?ref=$(jq -rn --arg r "$BASE_REF" '$r | @uri')" >"$base_exempt"; then
-      EXEMPT_LIST=$base_exempt; echo "exempt list: from protected base $BASE_REF"
-    else
-      echo "::warning::could not read the exempt list from protected base $BASE_REF; every PR into it needs a review"
-      EXEMPT_LIST=/dev/null/missing
-    fi
   else
-    exempt_ok=false
-    echo "risky list: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request; no review exemption into it"
+    echo "risky list: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request"
   fi
 fi
 if [ -r "$RISKY_LIST" ]; then
@@ -227,7 +217,7 @@ fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
-# Review by risk. Into the default branch or a protected base, two kinds of PR need no review, and both are decided from the trusted lists and the PR's own record,
+# Review by risk. Into the default branch, two kinds of PR need no review, and both are decided from the trusted lists and the PR's own record,
 # never from anything the PR says about itself. A blocker from a reviewer that ran still blocks either of them.
 needs_review=true; why=''
 changed=$(jq -r '.changed_files // 0' <<<"$pr")
