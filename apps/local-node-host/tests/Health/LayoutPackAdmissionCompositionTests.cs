@@ -138,7 +138,8 @@ public sealed partial class ComposedHostBootSmokeTests
                 }
                 else
                     Assert.Equal("Refused", result.GetProperty("verdict").GetString());
-                AssertLayoutAdmissionRefusal(result, version, emptyRequirements, missingBindingKind);
+                AssertLayoutAdmissionRefusal(result, version, emptyRequirements, missingBindingKind,
+                    expectIdentityUnknown: legacyScenario == "reimport" && route == PackInstallRoutes.CheckRoute);
                 Assert.Equal(baseline,
                     await ReadLayoutAdmissionStateAsync(factory, tenant, client,
                         legacyScenario is not null, deadline, historicalActive));
@@ -309,19 +310,30 @@ public sealed partial class ComposedHostBootSmokeTests
     }
 
     private static void AssertLayoutAdmissionRefusal(JsonElement result, string version,
-        bool emptyRequirements = false, bool missingBindingKind = false)
+        bool emptyRequirements = false, bool missingBindingKind = false, bool expectIdentityUnknown = false)
     {
         var expectedCode = missingBindingKind ? "layout.definition.body_invalid"
             : emptyRequirements ? "layout.pack.capability_undeclared" : "layout.pack.capability_unsupported";
         var expectedPointer = missingBindingKind ? ""
             : emptyRequirements ? "/envelope/requires" : "/envelope/requires/0/minimum_platform_version";
-        var code = Assert.Single(result.GetProperty("refusalCodes").EnumerateArray());
-        Assert.Equal(expectedCode, code.GetString());
-        var refusal = Assert.Single(result.GetProperty("refusals").EnumerateArray());
+        var expectedCodes = expectIdentityUnknown
+            ? new[] { expectedCode, "pack.install.refused.same_version_identity_unknown" }
+            : new[] { expectedCode };
+        Assert.Equal(expectedCodes, result.GetProperty("refusalCodes").EnumerateArray()
+            .Select(code => code.GetString()));
+        var refusals = result.GetProperty("refusals").EnumerateArray().ToArray();
+        Assert.Equal(expectedCodes.Length, refusals.Length);
+        var refusal = refusals[0];
         Assert.Equal(expectedCode, refusal.GetProperty("code").GetString());
         Assert.Equal(expectedPointer, refusal.GetProperty("pointer").GetString());
         Assert.Equal(missingBindingKind ? "layout-admission.layout@2.0.0" : "layout-admission.layout@" + version,
             refusal.GetProperty("target").GetString());
+        if (expectIdentityUnknown)
+        {
+            Assert.Equal("pack.install.refused.same_version_identity_unknown",
+                refusals[1].GetProperty("code").GetString());
+            Assert.Equal("/", refusals[1].GetProperty("pointer").GetString());
+        }
     }
 
     private sealed record LayoutAdmissionPreservedState(string InstalledVersions, string Overrides, string Watermarks,
