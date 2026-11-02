@@ -2,6 +2,8 @@
 # review-gate: one commit status on a PR's head that says whether the PR has the review PROC-0001 asks for.
 # "Review policy, 2026-11-01": one clean pass from any of the Claude review, Codex or CodeRabbit, and no
 # blocker from any reviewer that ran. A risky change also needs a clean Codex security review.
+# "Review by risk": a change that touches only paths on the base branch's review-exempt list, or a Dependabot
+# patch or minor update that only Dependabot wrote, needs no review. A blocker from a reviewer that ran still blocks.
 #
 # Usage: review-gate.sh <pr-number>. Needs GH_TOKEN with statuses:write and pull-requests:read, and
 # GITHUB_REPOSITORY. DRY_RUN=1 prints the status instead of setting it. NO_GRAPHQL=1 skips the thread check.
@@ -15,6 +17,9 @@ RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 # Plus the scripts that a job holding a write token runs, listed beside this script and read from the same base
 # checkout, so a PR can't shorten the list it is judged by. One path per line; a path ending in / covers a folder.
 RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
+# Paths that need no review when a PR touches nothing else, read from the same base checkout. Same format as the
+# risky list, plus a line starting with ! takes a path back out; the last line that matches a file decides.
+EXEMPT_LIST=${EXEMPT_LIST:-$(dirname "$0")/review-exempt-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
 # Armed before the first lookup: if anything fails, mark the gate as errored rather than leave an older status
@@ -177,11 +182,55 @@ fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
+# Review by risk. Two kinds of PR need no review, and both are decided from the base branch and the PR's own record,
+# never from anything the PR says about itself. A blocker from a reviewer that ran still blocks either of them.
+needs_review=true; why=''
+changed=$(jq -r '.changed_files // 0' <<<"$pr")
+
+# 1. Every changed file, by its new and its old path, is on the exempt list, and nothing about the PR is risky.
+#    An empty PR, a missing list or one that names nothing exempts nothing.
+if ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ]; then
+  rules=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$EXEMPT_LIST" | grep -v '^$' || true)
+  if [ -n "$rules" ] && RULES=$rules awk '
+      BEGIN { n = split(ENVIRON["RULES"], r, "\n") }
+      { hit = 0
+        for (i = 1; i <= n; i++) {
+          neg = substr(r[i], 1, 1) == "!"; p = neg ? substr(r[i], 2) : r[i]
+          if ($0 == p || (p ~ /\/$/ && index($0, p) == 1)) hit = neg ? 0 : 1
+        }
+        if (!hit) { bad = 1; exit } }
+      END { exit bad }' <<<"$files"; then
+    needs_review=false; why="every change is on the review-exempt list"
+  fi
+elif [ ! -r "$EXEMPT_LIST" ]; then
+  echo "::warning::no $EXEMPT_LIST on the base branch; every PR needs a review"
+fi
+
+# 2. A Dependabot version update: the PR is Dependabot's, every commit on it is Dependabot's and verified (so no one
+#    pushed onto its branch), and every update it makes is a patch or minor one, from the update-type lines
+#    Dependabot writes in its commit messages. A major update, a security update with no update-type, or a commit
+#    anyone else wrote needs a review like any other PR.
+if $needs_review && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
+   && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ] && ! $escalated; then
+  commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
+    --jq '.[] | {a: (.author.login // ""), v: .commit.verification.verified, m: .commit.message}')
+  others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .v != true)] | length' <<<"$commits")
+  types=$(jq -rs '.[].m' <<<"$commits" | sed -nE 's/^[[:space:]]*update-type:[[:space:]]*//p')
+  if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ -n "$types" ] \
+     && ! grep -qvxE 'version-update:semver-(patch|minor)' <<<"$types"; then
+    needs_review=false; why="a Dependabot patch or minor update"
+  fi
+fi
+
 if [ ${#blockers[@]} -gt 0 ]; then
   state=failure; desc="Blocked: $(IFS=';'; echo "${blockers[*]}")"
+elif ! $needs_review; then
+  state=success; desc="No review needed: $why"
 elif [ ${#passes[@]} -eq 0 ]; then
   state=pending; desc="Waiting for one clean review from Claude, Codex or CodeRabbit"
   [ ${#stale[@]} -gt 0 ] && desc="Waiting for a clean review of the current base (${stale[*]} reviewed an earlier one)"
+  # CodeRabbit doesn't review PRs over 150 files, so only Claude or Codex can pass one.
+  [ ${#stale[@]} -eq 0 ] && [ "$changed" -gt 150 ] && desc="Waiting for a clean review from Claude or Codex (CodeRabbit skips PRs over 150 files)"
 elif $need_security; then
   state=pending; desc="Passed by ${passes[*]}; a risky change also needs a clean Codex security review"
 else
@@ -189,7 +238,7 @@ else
 fi
 desc=${desc:0:140}
 
-echo "PR $PR head $HEAD: $state: $desc (claude=$claude_state codex=$codex_code/$codex_security coderabbit=${rabbit:-none} risky=$risky)"
+echo "PR $PR head $HEAD: $state: $desc (claude=$claude_state codex=$codex_code/$codex_security coderabbit=${rabbit:-none} risky=$risky needs_review=$needs_review)"
 if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
 if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; exit 0; fi
