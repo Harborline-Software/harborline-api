@@ -47,10 +47,13 @@ run() {
 }
 fetched_base_list() { grep -q '/contents/.github/review-risky-paths' "$LAST_LOG"; }
 
-# A list that names nothing under eng/: what an edited rules file on some branch might say.
+# A path main's list covers (its first entry, or a file inside it if the entry is a folder), and an edited list that
+# leaves it out: what a rules file on some other branch might say.
+listed=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$(dirname "$gate")/review-risky-paths" | grep -m 1 .)
+case $listed in */) listed=${listed}x.sh ;; esac
 printf 'docs/\n' >"$work/edited-list"
 
-run 'main: a change under a listed path is risky' risky=true FILES=eng/verify.sh
+run 'main: a change under a listed path is risky' risky=true FILES="$listed"
 fetched_base_list && { echo "FAIL main: fetched a base list"; failures=$((failures + 1)); }
 run 'main: a product change is not risky' risky=false FILES=src/App.cs
 run 'main: a nested Directory.Build.targets is risky' risky=true FILES=src/Lib/Directory.Build.targets
@@ -59,12 +62,12 @@ run 'main: a lower-case nested directory.packages.props is risky' risky=true FIL
 # The case the gate exists for: a PR aimed at an unprotected branch that carries an edited rules file is still
 # judged by main's list, and the gate never reads that branch's list.
 run 'unprotected base with an edited list: main list applies' risky=true \
-  BASE=feature/edited-gate PROTECTED=no BASE_LIST="$work/edited-list" FILES=eng/verify.sh
+  BASE=feature/edited-gate PROTECTED=no BASE_LIST="$work/edited-list" FILES="$listed"
 fetched_base_list && { echo "FAIL unprotected base: read the base branch's list"; failures=$((failures + 1)); }
 
 # A protected base's own list does apply, and if it can't be read the PR stays risky.
 run 'protected base: its own list applies' risky=false \
-  BASE=release/1.0 PROTECTED=yes BASE_LIST="$work/edited-list" FILES=eng/verify.sh
+  BASE=release/1.0 PROTECTED=yes BASE_LIST="$work/edited-list" FILES="$listed"
 fetched_base_list || { echo "FAIL protected base: did not read the base branch's list"; failures=$((failures + 1)); }
 run 'protected base whose list cannot be read: risky' risky=true \
   BASE=release/1.0 PROTECTED=yes BASE_LIST= FILES=src/App.cs
