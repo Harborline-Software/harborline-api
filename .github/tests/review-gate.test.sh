@@ -81,6 +81,9 @@ fi
 run 'main: a product change is not risky' risky=false FILES=src/App.cs
 run 'main: a nested Directory.Build.targets is risky' risky=true FILES=src/Lib/Directory.Build.targets
 run 'main: a nested Directory.Build.rsp is risky' risky=true FILES=src/Lib/Directory.Build.rsp
+for f in NuGet.Config NuGet.config nuget.config src/Lib/NuGet.Config; do
+  run "main: $f is risky in any casing and at any depth" risky=true FILES="$f"
+done
 run 'main: a lower-case nested directory.packages.props is risky' risky=true FILES=tests/x/directory.packages.props
 
 # The case the gate exists for: a PR aimed at an unprotected branch that carries an edited rules file is still
