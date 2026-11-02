@@ -3,7 +3,8 @@
 # "Review policy, 2026-11-01": one clean pass from any of the Claude review, Codex or CodeRabbit, and no
 # blocker from any reviewer that ran. A risky change also needs a clean Codex security review.
 # "Review by risk": a change that touches only paths on the base branch's review-exempt list, or a Dependabot
-# patch or minor update that only Dependabot wrote, needs no review. A blocker from a reviewer that ran still blocks.
+# patch or minor update that only Dependabot wrote, needs no review. A blocker from a reviewer that ran still blocks,
+# and a risky change still needs its Codex security review.
 #
 # Usage: review-gate.sh <pr-number>. Needs GH_TOKEN with statuses:write and pull-requests:read, and
 # GITHUB_REPOSITORY. DRY_RUN=1 prints the status instead of setting it. NO_GRAPHQL=1 skips the thread check.
@@ -209,15 +210,21 @@ elif [ ! -r "$EXEMPT_LIST" ]; then
   echo "::warning::no $EXEMPT_LIST on the base branch; every PR needs a review"
 fi
 
-# 2. A Dependabot version update: the PR is Dependabot's, every commit on it is Dependabot's and verified (so no one
-#    pushed onto its branch), and every update it makes is a patch or minor one, from the update-type lines
-#    Dependabot writes in its commit messages. A major update, a security update with no update-type, or a commit
-#    anyone else wrote needs a review like any other PR.
-if $needs_review && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
-   && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ] && ! $escalated; then
-  commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
-    --jq '.[] | {a: (.author.login // ""), v: .commit.verification.verified, m: .commit.message}')
-  others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .v != true)] | length' <<<"$commits")
+# 2. A Dependabot version update. The PR is Dependabot's, and every commit on it was
+#    written by Dependabot and committed and signed by GitHub itself (committer web-flow, verified), which is how
+#    Dependabot's own commits look. A commit someone else pushed, even one that keeps Dependabot as its author and is
+#    signed with their own key, has another committer and needs a review. Every update must be a patch or minor one,
+#    from the update-type lines Dependabot writes in its commit messages. A major update, a security update with no
+#    update-type, or one the Claude review escalated needs a review like any other PR. A bump that touches a risky
+#    path (a package manifest, or .github/workflows/ for a GitHub Actions bump) still needs its Codex security review.
+if $needs_review && ! $escalated && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
+   && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ]; then
+  if ! commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
+                   --jq '.[] | {a: (.author.login // ""), c: (.committer.login // ""),
+                                v: (.commit.verification.verified == true), m: .commit.message}'); then
+    echo "::error::could not list the PR's commits" >&2; exit 1
+  fi
+  others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .c != "web-flow" or .v != true)] | length' <<<"$commits")
   types=$(jq -rs '.[].m' <<<"$commits" | sed -nE 's/^[[:space:]]*update-type:[[:space:]]*//p')
   if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ -n "$types" ] \
      && ! grep -qvxE 'version-update:semver-(patch|minor)' <<<"$types"; then
@@ -227,6 +234,9 @@ fi
 
 if [ ${#blockers[@]} -gt 0 ]; then
   state=failure; desc="Blocked: $(IFS=';'; echo "${blockers[*]}")"
+elif ! $needs_review && $need_security; then
+  # Skipping the ordinary review never skips the security review a risky change needs.
+  state=pending; desc="No ordinary review needed ($why), but a risky change needs a clean Codex security review"
 elif ! $needs_review; then
   state=success; desc="No review needed: $why"
 elif [ ${#passes[@]} -eq 0 ]; then
