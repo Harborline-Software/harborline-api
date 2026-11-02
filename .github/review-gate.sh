@@ -42,6 +42,7 @@ pr=$(gh api "repos/$REPO/pulls/$PR")
 [ "$(jq -r .draft <<<"$pr")" = false ] || { echo "PR $PR is a draft"; exit 0; }
 HEAD=$(jq -r .head.sha <<<"$pr")
 BASE_REF=$(jq -r .base.ref <<<"$pr")
+BASE_SHA=$(jq -r .base.sha <<<"$pr")
 OWNER=${REPO%%/*}; NAME=${REPO#*/}
 
 passes=(); blockers=(); stale=()
@@ -231,6 +232,26 @@ if $risky && [ "$codex_security" != clean ]; then
 needs_review=true; why=''
 changed=$(jq -r '.changed_files // 0' <<<"$pr")
 
+# Both exemptions are judged from one fixed snapshot: GitHub's comparison of the base and head commits read above.
+# The files were listed by PR number after the head was read, so a push in between could have swapped what was listed.
+# The comparison must list exactly the same files, or nothing is exempt. It lists at most 300 files and 250 commits,
+# so a bigger PR gets no exemption either.
+snap=''
+if $exempt_ok && ! $risky && [ "$changed" -gt 0 ] && [ "$changed" -le 300 ]; then
+  if snap=$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD"); then
+    snap_files=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<<"$snap" | sort -u)
+    if [ "$snap_files" != "$(sort -u <<<"$files")" ]; then
+      echo "::warning::the PR's files don't match the comparison of $BASE_SHA and $HEAD; no review exemption"
+      exempt_ok=false
+    fi
+  else
+    echo "::warning::could not compare $BASE_SHA and $HEAD; no review exemption"
+    exempt_ok=false
+  fi
+else
+  exempt_ok=false
+fi
+
 # 1. Every changed file, by its new and its old path, is on the exempt list, and nothing about the PR is risky.
 #    An empty PR, a missing list or one that names nothing exempts nothing.
 if $exempt_ok && ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ]; then
@@ -257,21 +278,19 @@ fi
 #    from the update-type lines Dependabot writes in its commit messages, and every commit must carry such lines. A major update, a security update with no
 #    update-type, or a bump that touches a risky path (anything under .github/, so every GitHub Actions bump, or a
 #    file on the risky list) needs a review like any other PR, and a risky one its Codex security review too.
-#    GitHub lists at most 250 of a PR's commits, so the listing must hold as many commits as the PR says it has;
-#    a PR with more commits than were listed needs a review.
+#    The commits come from the same snapshot. It lists at most 250 commits, so it must hold as many as it and the PR
+#    say there are; a PR with more commits than were listed needs a review.
 if $exempt_ok && $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[bot]' ] \
    && [ "$(jq -r .head.repo.full_name <<<"$pr")" = "$REPO" ]; then
-  if ! commits=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
-                   --jq '.[] | {a: (.author.login // ""), c: (.committer.login // ""),
-                                v: (.commit.verification.verified == true), m: .commit.message}'); then
-    echo "::error::could not list the PR's commits" >&2; exit 1
-  fi
+  commits=$(jq -c '.commits[] | {a: (.author.login // ""), c: (.committer.login // ""),
+                                    v: (.commit.verification.verified == true), m: .commit.message}' <<<"$snap")
   others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .c != "web-flow" or .v != true)] | length' <<<"$commits")
   listed=$(jq -s length <<<"$commits")
   # Every commit must carry its own update-type lines; one with none must not hide behind another's.
   untyped=$(jq -s '[.[] | select(.m | split("\n") | map(select(test("^\\s*update-type:"))) | length == 0)] | length' <<<"$commits")
   types=$(jq -rs '.[].m' <<<"$commits" | sed -nE 's/^[[:space:]]*update-type:[[:space:]]*//p')
   if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ "$listed" = "$(jq -r '.commits // empty' <<<"$pr")" ] \
+     && [ "$listed" = "$(jq -r '.total_commits // empty' <<<"$snap")" ] \
      && [ "$untyped" -eq 0 ] && [ -n "$types" ] \
      && ! grep -qvxE 'version-update:semver-(patch|minor)' <<<"$types"; then
     needs_review=false; why="a Dependabot patch or minor update"

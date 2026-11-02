@@ -29,6 +29,7 @@ case $p in
     f=base-\${p##*/}; [ -f "$FIX/$f" ] || { echo "stub gh: HTTP 404 $p" >&2; exit 1; }
     cat "$FIX/$f"; exit 0 ;;
   repos/*/rules/branches/*) f=rules.json ;;
+  repos/*/compare/*) f=compare.json ;;
   repos/*/pulls/*/files) f=files.json ;;
   repos/*/pulls/*/commits) f=commits.json ;;
   repos/*/pulls/*/reviews) f=reviews.json ;;
@@ -58,19 +59,22 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 
 // base is the PR's base branch (the default branch is main). rules is that branch's rulesets, and baseLists the
 // lists it carries ({risky, exempt}), served through the contents API. The env lists stand for main's checkout.
+// snapshotFiles and totalCommits are what GitHub's comparison of the PR's base and head commits holds; by default
+// it agrees with the PR's own listings.
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, status, fail,
-                  base = 'main', rules, baseLists = {}}) {
+                  base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
     writeFileSync(join(bin, 'gh'), stub); chmodSync(join(bin, 'gh'), 0o755)
     const pr = {state: 'open', draft: false, head: {sha: 'h1', repo: {full_name: 'o/r'}},
-                base: {ref: base, repo: {default_branch: 'main'}},
+                base: {ref: base, sha: 'b1', repo: {default_branch: 'main'}},
                 user: {login: user}, changed_files: files.length, commits: commitCount}
     writeFileSync(join(fix, 'pr.json'), JSON.stringify(pr))
     writeFileSync(join(fix, 'pulls.json'), JSON.stringify([{number: 1, head: {sha: 'h1'}}]))
     writeFileSync(join(fix, 'files.json'), JSON.stringify(files.map(filename => ({filename}))))
-    if (commits) writeFileSync(join(fix, 'commits.json'), JSON.stringify(commits))
+    writeFileSync(join(fix, 'compare.json'), JSON.stringify({files: snapshotFiles.map(filename => ({filename})),
+      commits: commits ?? [], total_commits: totalCommits}))
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (status) writeFileSync(join(fix, 'status.json'), JSON.stringify({statuses: status}))
     if (rules) writeFileSync(join(fix, 'rules.json'), JSON.stringify(rules))
@@ -191,17 +195,37 @@ test('a Dependabot PR with more commits than GitHub listed means a review', () =
   assert.equal(runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits}).state, 'success')
   const g = runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits, commitCount: 251})
   assert.equal(g.desc, NEEDS_REVIEW, g.out)
+  const s = runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits, totalCommits: 251})
+  assert.equal(s.desc, NEEDS_REVIEW, s.out)
 })
 
 test('a PR not opened by Dependabot gets no Dependabot exemption', () => {
   assert.equal(runGate({files: ['src/App.csproj'], commits: [dependabotCommit()]}).desc, NEEDS_REVIEW)
 })
 
-test('a failed commit listing stops the gate instead of reading as empty', () => {
-  const g = runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits: [dependabotCommit()], fail: 'pulls/1/commits'})
-  assert.notEqual(g.code, 0, g.out)
-  assert.equal(g.state, undefined)
-  assert.match(g.out, /could not list the PR's commits/)
+test('an exemption is judged from the base and head commits, so a listing that doesn\'t match them grants none', () => {
+  // Codex security finding on App #88: the files are listed by PR number after the head is read, so a push in between
+  // could swap them. GitHub's comparison of the recorded commits must list the same files.
+  const docs = ['docs/guide/setup.md']
+  assert.equal(runGate({files: docs}).state, 'success')
+  const swapped = runGate({files: docs, snapshotFiles: [...docs, 'src/App.cs']})
+  assert.equal(swapped.desc, NEEDS_REVIEW, swapped.out)
+  assert.match(swapped.out, /don't match the comparison/)
+  assert.equal(runGate({files: docs, snapshotFiles: ['src/App.cs']}).desc, NEEDS_REVIEW)
+  const failed = runGate({files: docs, fail: 'compare'})
+  assert.equal(failed.code, 0, failed.out)
+  assert.equal(failed.desc, NEEDS_REVIEW, failed.out)
+  assert.match(failed.out, /could not compare/)
+  const bot = runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits: [dependabotCommit()], fail: 'compare'})
+  assert.equal(bot.desc, NEEDS_REVIEW, bot.out)
+})
+
+test('a PR bigger than the comparison can list gets no exemption', () => {
+  const docs = n => Array.from({length: n}, (_, i) => `docs/guide/page${i}.md`)
+  assert.equal(runGate({files: docs(300)}).state, 'success')
+  const big = runGate({files: docs(301)})
+  assert.equal(big.state, 'pending', big.out)
+  assert.match(big.desc, /^Waiting for a clean review/)
 })
 
 test('nothing on this repo\'s exempt list is risky', () => {
