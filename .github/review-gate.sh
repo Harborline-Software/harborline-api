@@ -157,6 +157,9 @@ if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
   echo "::error::could not list the PR's changed files" >&2; exit 1
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
+# MSBuild imports the nearest Directory.Build.props, Directory.Build.targets and Directory.Packages.props above each
+# project, so one at any depth changes every build below it. Case-insensitive, as Windows resolves them.
+if grep -qiE '(^|/)Directory\.(Build\.(props|targets)|Packages\.props)$' <<<"$files"; then risky=true; fi
 if [ -r "$RISKY_LIST" ]; then
   # The entries go in through the environment, so a list with no entries can't make awk read the PR's files as the
   # list. A list that exists but names nothing fails closed: every PR needs the security review until it's fixed.
