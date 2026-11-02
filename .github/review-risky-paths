@@ -24,6 +24,9 @@ tests/package-consumer/
 repository.yaml
 # Build-wide inputs: the feeds restore pulls from and the pinned SDK.
 nuget.config
+# publish runs npm from the repository root with the write token; a root .npmrc can redirect the registry and
+# send that token elsewhere.
+.npmrc
 global.json
 # MSBuild tasks and analyzers that the build-wide files load into every build.
 tooling/Harborline.Tooling.LocalizationXliff/
