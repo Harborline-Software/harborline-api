@@ -71,6 +71,13 @@ fi
 if grep -qs 'npm publish' "$(dirname "$gate")/workflows/packages.yml"; then
   run 'main: a root .npmrc is risky' risky=true FILES=.npmrc
 fi
+# Where packages.yml installs packages/contracts with pnpm before publish ships its npm package, the files that
+# change that install are risky: a pnpmfile hook, the workspace file's overrides and patches, and a project .npmrc.
+if grep -qs 'working-directory: packages/contracts' "$(dirname "$gate")/workflows/packages.yml"; then
+  for f in .pnpmfile.cjs .pnpmfile.mjs pnpm-workspace.yaml patches/x.patch .npmrc; do
+    run "main: packages/contracts/$f is risky" risky=true FILES="packages/contracts/$f"
+  done
+fi
 run 'main: a product change is not risky' risky=false FILES=src/App.cs
 run 'main: a nested Directory.Build.targets is risky' risky=true FILES=src/Lib/Directory.Build.targets
 run 'main: a nested Directory.Build.rsp is risky' risky=true FILES=src/Lib/Directory.Build.rsp
