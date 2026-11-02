@@ -4,8 +4,8 @@
 # escalates, also needs a clean Codex security review on its head; comment "@codex security review" to ask
 # for one after a push, because Codex reviews on its own only when a PR opens or is marked ready.
 # A PR that touches only paths on .github/review-exempt-paths, or a Dependabot patch or minor update that only
-# Dependabot wrote, needs no review, unless a reviewer that ran left a blocker. A risky Dependabot bump still needs
-# the clean Codex security review above.
+# Dependabot wrote, needs no review if it touches nothing risky, unless a reviewer that ran left a blocker. A risky
+# change, every GitHub Actions bump included, always needs a review and the Codex security review.
 #
 # The logic is .github/review-gate.sh. Every trigger here runs this file and that script from the base branch
 # or the default branch, never from the PR, so a PR cannot change its own pass rule:
