@@ -2,7 +2,7 @@
 # review-gate: one commit status on a PR's head that says whether the PR has the review PROC-0001 asks for.
 # "Review policy, 2026-11-01": one clean pass from any of the Claude review, Codex or CodeRabbit, and no
 # blocker from any reviewer that ran. A risky change also needs a clean Codex security review.
-# "Review by risk": a change that touches only paths on the base branch's review-exempt list, or a Dependabot
+# "Review by risk": a change that touches only paths on the review-exempt list, or a Dependabot
 # patch or minor update that only Dependabot wrote, needs no review, as long as it touches nothing risky. A blocker
 # from a reviewer that ran still blocks.
 #
@@ -18,8 +18,8 @@ RISKY=${RISKY_PATHS:-'^(\.github/|global\.json$|\.config/dotnet-tools\.json$)'}
 # Plus the paths on the risky list, listed beside this script and read from the same default-branch checkout (or a
 # protected base, see below), so a PR can't shorten the list it is judged by. One path per line; / ends a folder.
 RISKY_LIST=${RISKY_LIST:-$(dirname "$0")/review-risky-paths}
-# Paths that need no review when a PR touches nothing else, read from the same base checkout. Same format as the
-# risky list, plus a line starting with ! takes a path back out; the last line that matches a file decides.
+# Paths that need no review when a PR touches nothing else, read from the same place as the risky list. Same
+# format, plus a line starting with ! takes a path back out; the last line that matches a file decides.
 EXEMPT_LIST=${EXEMPT_LIST:-$(dirname "$0")/review-exempt-paths}
 RUN_URL=${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/${GITHUB_RUN_ID:-0}
 
@@ -182,8 +182,18 @@ if [ "$BASE_REF" != "$default_branch" ]; then
       echo "::warning::could not read the risky list from protected base $BASE_REF; treating the PR as risky"
       RISKY_LIST=/dev/null/missing
     fi
+    # The review-exempt list comes from the same place, so a protected branch is judged by its own lists. One that
+    # can't be read grants no exemption: every PR into that base needs a review.
+    base_exempt=$(mktemp)
+    if gh api -H 'Accept: application/vnd.github.raw' \
+         "repos/$REPO/contents/.github/review-exempt-paths?ref=$(jq -rn --arg r "$BASE_REF" '$r | @uri')" >"$base_exempt"; then
+      EXEMPT_LIST=$base_exempt; echo "exempt list: from protected base $BASE_REF"
+    else
+      echo "::warning::could not read the exempt list from protected base $BASE_REF; every PR into it needs a review"
+      EXEMPT_LIST=/dev/null/missing
+    fi
   else
-    echo "risky list: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request"
+    echo "risky and exempt lists: from $default_branch, because base $BASE_REF has no ruleset requiring a pull request"
   fi
 fi
 if [ -r "$RISKY_LIST" ]; then
@@ -209,7 +219,7 @@ fi
 if $risky && [ "$codex_security" != clean ]; then
   need_security=true; else need_security=false; fi
 
-# Review by risk. Two kinds of PR need no review, and both are decided from the base branch and the PR's own record,
+# Review by risk. Two kinds of PR need no review, and both are decided from the trusted lists and the PR's own record,
 # never from anything the PR says about itself. A blocker from a reviewer that ran still blocks either of them.
 needs_review=true; why=''
 changed=$(jq -r '.changed_files // 0' <<<"$pr")
@@ -230,7 +240,7 @@ if ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ];
     needs_review=false; why="every change is on the review-exempt list"
   fi
 elif [ ! -r "$EXEMPT_LIST" ]; then
-  echo "::warning::no $EXEMPT_LIST on the base branch; every PR needs a review"
+  echo "::warning::no readable review-exempt list; every PR needs a review"
 fi
 
 # 2. A Dependabot version update that touches nothing risky. The PR is Dependabot's, and every commit on it was

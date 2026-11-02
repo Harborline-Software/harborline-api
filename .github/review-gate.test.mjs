@@ -18,13 +18,17 @@ while [ $# -gt 0 ]; do
   case $1 in
     api|--paginate) ;;
     --jq) jq_q=$2; shift ;;
-    -X|-f|-F) shift ;;
+    -X|-f|-F|-H) shift ;;
     *) [ -z "$path" ] && path=$1 ;;
   esac; shift
 done
 p=\${path%%\\?*}
 if [ -n "\${FAIL:-}" ] && [[ $p == *$FAIL* ]]; then echo "stub gh: failing $p" >&2; exit 1; fi
 case $p in
+  repos/*/contents/.github/*)
+    f=base-\${p##*/}; [ -f "$FIX/$f" ] || { echo "stub gh: HTTP 404 $p" >&2; exit 1; }
+    cat "$FIX/$f"; exit 0 ;;
+  repos/*/rules/branches/*) f=rules.json ;;
   repos/*/pulls/*/files) f=files.json ;;
   repos/*/pulls/*/commits) f=commits.json ;;
   repos/*/pulls/*/reviews) f=reviews.json ;;
@@ -52,12 +56,16 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
   commit: {message, verification: {verified: overrides.verified ?? true}},
 })
 
-function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, status, fail}) {
+// base is the PR's base branch (the default branch is main). rules is that branch's rulesets, and baseLists the
+// lists it carries ({risky, exempt}), served through the contents API. The env lists stand for main's checkout.
+function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, status, fail,
+                  base = 'main', rules, baseLists = {}}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
     writeFileSync(join(bin, 'gh'), stub); chmodSync(join(bin, 'gh'), 0o755)
-    const pr = {state: 'open', draft: false, head: {sha: 'h1', repo: {full_name: 'o/r'}}, base: {ref: 'main'},
+    const pr = {state: 'open', draft: false, head: {sha: 'h1', repo: {full_name: 'o/r'}},
+                base: {ref: base, repo: {default_branch: 'main'}},
                 user: {login: user}, changed_files: files.length, commits: commitCount}
     writeFileSync(join(fix, 'pr.json'), JSON.stringify(pr))
     writeFileSync(join(fix, 'pulls.json'), JSON.stringify([{number: 1, head: {sha: 'h1'}}]))
@@ -65,6 +73,9 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     if (commits) writeFileSync(join(fix, 'commits.json'), JSON.stringify(commits))
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (status) writeFileSync(join(fix, 'status.json'), JSON.stringify({statuses: status}))
+    if (rules) writeFileSync(join(fix, 'rules.json'), JSON.stringify(rules))
+    if (baseLists.risky != null) writeFileSync(join(fix, 'base-review-risky-paths'), baseLists.risky)
+    if (baseLists.exempt != null) writeFileSync(join(fix, 'base-review-exempt-paths'), baseLists.exempt)
     // Fixed lists, so the cases don't depend on what this repo's own lists hold today.
     writeFileSync(join(dir, 'risky'), 'Directory.Packages.props\npackage.json\nscripts/release/\n')
     writeFileSync(join(dir, 'exempt'), '# docs that nothing builds or gates on\nSUPPORT.md\ndocs/guide/\n!docs/guide/evidence.md\n')
@@ -103,6 +114,29 @@ test('a blocker still blocks an exempt change', () => {
     status: [{context: 'claude-review', state: 'failure', updated_at: '2026-11-02T00:00:00Z', description: 'Claude review: BLOCK'}]})
   assert.equal(g.state, 'failure', g.out)
   assert.match(g.desc, /^Blocked: /)
+})
+
+test('a PR into a protected branch is judged by that branch\'s own exempt list', () => {
+  const protectedBase = {base: 'release', rules: [{type: 'pull_request'}],
+                         baseLists: {risky: 'Directory.Packages.props\n', exempt: 'docs/release-notes/\n'}}
+  const g = runGate({...protectedBase, files: ['docs/release-notes/1.2.md']})
+  assert.equal(g.state, 'success', g.out)
+  assert.match(g.out, /exempt list: from protected base release/)
+  // main's exempt list doesn't apply there.
+  assert.equal(runGate({...protectedBase, files: ['docs/guide/setup.md']}).desc, NEEDS_REVIEW)
+})
+
+test('a protected branch whose exempt list can\'t be read grants no exemption', () => {
+  const g = runGate({base: 'release', rules: [{type: 'pull_request'}], baseLists: {risky: 'Directory.Packages.props\n'},
+                     files: ['docs/guide/setup.md']})
+  assert.equal(g.desc, NEEDS_REVIEW, g.out)
+  assert.match(g.out, /could not read the exempt list from protected base release/)
+})
+
+test('a PR into an unprotected branch is judged by main\'s lists, whatever that branch carries', () => {
+  const opts = {base: 'feature', rules: [], baseLists: {risky: 'Directory.Packages.props\n', exempt: 'src/\n'}}
+  assert.equal(runGate({...opts, files: ['docs/guide/setup.md']}).state, 'success')
+  assert.equal(runGate({...opts, files: ['src/App.cs']}).desc, NEEDS_REVIEW)
 })
 
 test('a Dependabot patch or minor update of a file that is not risky needs no review', () => {
