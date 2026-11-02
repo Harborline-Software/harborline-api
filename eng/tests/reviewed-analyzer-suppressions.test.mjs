@@ -256,6 +256,15 @@ test('the pinned quality tool retains the reviewed finding and still fails new u
 
 for (const [name, handler, valid] of [
   ['one bare handler', 'catch { PreservePrimary(); }', true],
+  ['one filtered primary handler', 'catch (Exception) when (primary is not null) { primary.Throw(); }', true],
+  ['filtered primary handler with quoted braces', 'catch (Exception error) when (primary is not null) { Record("}"); /* { */ primary.Throw(); }', true],
+  ['filtered primary followed by another catch', 'catch (Exception) when (primary is not null) { primary.Throw(); } catch { Ignore(); }', false],
+  ['filtered primary followed by a statement', 'catch (Exception) when (primary is not null) { primary.Throw(); } Ignore();', false],
+  ['compound filter expression', 'catch (Exception) when (primary is not null || Ready()) { primary.Throw(); }', false],
+  ['unsupported filter expression', 'catch (Exception) when (primary != null) { primary.Throw(); }', false],
+  ['literal instead of primary guard', 'catch (Exception) when (true is not null) { PreservePrimary(); }', false],
+  ['string instead of primary guard', 'catch (Exception) when ("primary is not null") { PreservePrimary(); }', false],
+
   ['two bare handlers', 'catch { PreservePrimary(); } catch { Ignore(); }', false],
   ['bare handler followed by a statement', 'catch { PreservePrimary(); } Ignore();', false],
 ]) test(`reviewed catch parser: ${name}`, t => {

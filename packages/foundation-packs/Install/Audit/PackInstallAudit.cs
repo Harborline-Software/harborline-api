@@ -33,6 +33,9 @@ public enum PackInstallAuditAction
     /// <summary>An administrator NARROWED one content key through the ordinary tenant-override overlay
     /// (ticket 208 L624). The seed layer is untouched; the overlay is what changes.</summary>
     Narrowed = 6,
+
+    /// <summary>An identical verified retry preserved the occupied version without replaying installation.</summary>
+    Unchanged = 7,
 }
 
 /// <summary>

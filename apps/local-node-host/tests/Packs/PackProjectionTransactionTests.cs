@@ -10,10 +10,14 @@ public sealed class PackProjectionTransactionTests
     {
         var count = 0;
         var transaction = new PackProjectionTransaction();
+        var durable = new DurableUnit(fail: false);
+        transaction.Durable(() => durable);
         transaction.Finally(() => throw new IOException("cleanup failed"));
         transaction.AfterCommit(() => { count++; return Task.CompletedTask; });
         transaction.Commit();
         transaction.Dispose(); // Must not report a refused activation after the commit boundary.
+        Assert.True(durable.Disposed);
+        Assert.True(durable.Committed);
         var diagnostics = await transaction.ReactAsync();
         Assert.Equal("cleanup failed", Assert.Single(diagnostics!.InnerExceptions).Message);
         Assert.Null(await transaction.ReactAsync());

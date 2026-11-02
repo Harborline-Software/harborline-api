@@ -400,7 +400,7 @@ public sealed class DurablePackInstallStoreRestartTests
             inner.GetOverrides(tenant, packKey);
         public void SaveOverride(TenantId tenant, string packKey, PackTenantOverride tenantOverride) =>
             inner.SaveOverride(tenant, packKey, tenantOverride);
-        public void Commit(PackInstallTransaction transaction) => inner.Commit(transaction);
+        public PackInstallCommitResult Commit(PackInstallTransaction transaction) => inner.Commit(transaction);
         public void Activate(TenantId tenant, string packKey, string version) => inner.Activate(tenant, packKey, version);
         public void Deactivate(TenantId tenant, string packKey, string version) => inner.Deactivate(tenant, packKey, version);
         public IReadOnlyDictionary<string, string> GetKeyOwnership(TenantId tenant) => inner.GetKeyOwnership(tenant);
