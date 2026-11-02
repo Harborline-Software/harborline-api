@@ -16,6 +16,10 @@
 # folder counts.
 eng/
 tooling/harborline-contract-codegen/
+# pack-consume runs this manifest's build script to make the npm package, and package-proof.py restores the packed
+# packages into this consumer to prove them.
+packages/contracts/package.json
+tests/package-consumer/
 # The publish job reads its publication authority from here.
 repository.yaml
 # Build-wide inputs: the feeds restore pulls from and the pinned SDK.
