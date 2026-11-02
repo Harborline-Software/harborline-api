@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
@@ -1543,6 +1545,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                     .GetRequiredService<Harborline.Api.Foundation.Authorization.IAuthorizationContext>()
                     .HasPermission(permission);
             }));
+            builder.Services.AddTestDefinitionArchives();
             var app = builder.Build();
 
             app.Use(async (HttpContext http, RequestDelegate next) =>
@@ -1586,7 +1589,8 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>(),
                 app.Services.GetRequiredService<ISchemaRegistry>(),
                 activeTeam,
-                TimeProvider.System);
+                TimeProvider.System,
+                app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
             FormsRoutes.Map(
                 app,
                 app.Services.GetRequiredService<IFormEngine>(),

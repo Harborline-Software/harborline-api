@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
@@ -78,6 +80,7 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
             _trail = new FaultingAuditTrail(sp.GetRequiredService<InMemoryAuditTrail>()));
         builder.Services.AddAuthorizationRefusalAudit();
 
+        builder.Services.AddTestDefinitionArchives();
         _app = builder.Build();
         var activeTeam = new FixedActiveTeamAccessor(new TeamContext(
             Team, "Team C", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
@@ -92,7 +95,8 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
             _app.MapDeviceReachableProductDataGroup(),
             _app.Services.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>(),
             activeTeam,
-            TimeProvider.System);
+            TimeProvider.System,
+            _app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>()

@@ -1,3 +1,8 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Blocks.BuilderDefinitions;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -54,8 +59,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </para>
 /// <para>
 /// <b>Tenant-scoping (INV-S1).</b> Exactly as <see cref="FormDefinitionRoutes"/>: the Harborline App sends
-/// NO tenant id and NO principal. The route resolves the tenant from the active team
-/// (<see cref="NodeTenant.Resolve"/>) server-side and the store enforces the boundary on every
+/// NO tenant id and NO principal. The route resolves the selected request or desktop active-team
+/// tenant server-side and the store enforces the boundary on every
 /// lookup/listing. A definition saved under tenant A is invisible to tenant B. The route also owns
 /// the id (<c>{key}</c> route param) + the minted version — the client cannot forge either.
 /// </para>
@@ -83,16 +88,37 @@ public static class WorkflowDefinitionRoutes
         IEndpointRouteBuilder app,
         AuthorizedWorkflowDefinitionLifecycle store,
         IActiveTeamAccessor activeTeam,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        NodeDefinitionArchiveWriter archives)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        (TenantId Tenant, IResult? Refusal) ResolveRequestTenant(HttpContext http)
+        {
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return (default, Results.Unauthorized());
+            if (selected is not null)
+            {
+                var invalidCorrelation = SelectedRequestCorrelation.Bind(http);
+                if (invalidCorrelation is not null) return (default, invalidCorrelation);
+                return (selected.TenantId, null);
+            }
+            return (NodeTenant.Resolve(activeTeam), null);
+        }
 
         // GET /api/local-node/workflows/definitions — list the tenant's current published definitions.
-        app.MapGet(RouteBase, async (CancellationToken ct) =>
+        app.MapGet(RouteBase, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
+            var includeArchived = string.Equals(http.Request.Query["includeArchived"], "1", StringComparison.Ordinal)
+                || string.Equals(http.Request.Query["includeArchived"], "true", StringComparison.OrdinalIgnoreCase);
             var summaries = new List<WorkflowDefinitionSummaryDto>();
             await foreach (var record in store.ListByTenantAsync(tenant, ct).ConfigureAwait(false))
             {
@@ -103,13 +129,40 @@ public static class WorkflowDefinitionRoutes
                 summaries.Add(WorkflowDefinitionSummaryDto.From(record));
             }
 
+            if (!includeArchived)
+            {
+                var archived = await archives.ListArchivedAsync(tenant, DefinitionKind.Workflows, ct).ConfigureAwait(false);
+                summaries.RemoveAll(summary => archived.Contains(summary.Key));
+            }
             return Results.Ok(summaries);
         });
 
-        // GET /api/local-node/workflows/definitions/{key} — load the authored definition (verbatim).
-        app.MapGet($"{RouteBase}/{{key}}", async (string key, CancellationToken ct) =>
+        foreach (var archived in new[] { true, false })
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            app.MapPost($"{RouteBase}/{{key}}/{(archived ? "archive" : "unarchive")}", async (
+                string key, HttpContext http, CancellationToken ct) =>
+            {
+                var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+                if (tenantRefusal is not null) return tenantRefusal;
+                var authority = RequestAuthorization.Authority(http, tenant, timeProvider);
+                try
+                {
+                    var found = await archives.SetWorkflowArchivedAsync(store, key, archived, authority, ct).ConfigureAwait(false);
+                    if (found is null) return Results.NotFound(new { error = $"No published workflow definition '{key}' for this tenant." });
+                    return Results.NoContent();
+                }
+                catch (AuthorizationDeniedException denial)
+                {
+                    return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
+                }
+            });
+        }
+
+        // GET /api/local-node/workflows/definitions/{key} — load the authored definition (verbatim).
+        app.MapGet($"{RouteBase}/{{key}}", async (string key, HttpContext http, CancellationToken ct) =>
+        {
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             var record = await store.GetCurrentPublishedAsync(
                 new DefinitionAddress(tenant, key), ct).ConfigureAwait(false);
             if (record is null)
@@ -125,12 +178,10 @@ public static class WorkflowDefinitionRoutes
         // PUT /api/local-node/workflows/definitions/{key} — save the authored definition.
         app.MapPut($"{RouteBase}/{{key}}", async (string key, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var (tenant, tenantRefusal) = ResolveRequestTenant(http);
+            if (tenantRefusal is not null) return tenantRefusal;
             var at = AdmittedInstant.Read(timeProvider);
-            var authority = new AuthorizationWriteContext(
-                new ActorId(NodeCallerParty.Resolve(http).Value),
-                tenant,
-                at);
+            var authority = RequestAuthorization.Authority(http, tenant, at);
             AuthorizedWorkflowDefinitionLifecycle.WriteAuthority decision;
             try
             {

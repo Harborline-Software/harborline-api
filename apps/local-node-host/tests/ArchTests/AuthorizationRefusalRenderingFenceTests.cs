@@ -58,6 +58,10 @@ public sealed class AuthorizationRefusalRenderingFenceTests
     {
         ["Harborline.Api.LocalNodeHost.Health.AuthorizationAdminRoutes"] =
             "Binding writes render and audit the writer decision through RequestAuthorization.RefusedAsync",
+        ["Harborline.Api.LocalNodeHost.Health.FormDefinitionRoutes"] =
+            "ticket 305: archive and unarchive pass the carried writer denial only to "
+            + "RequestAuthorization.RefusedAsync / AuthorizationRefusalRenderer for rendering and audit; "
+            + "the exception's message and unfiltered decision are never serialized",
         ["Harborline.Api.LocalNodeHost.Health.WebSession.SelectedFormSubmitRoutes"] =
             "ticket 433: the selected form submission catches a carried engine denial and delegates only "
             + "to RequestAuthorization.RefusedAsync / AuthorizationRefusalRenderer; exception prose and "
@@ -207,6 +211,16 @@ public sealed class AuthorizationRefusalRenderingFenceTests
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "Harborline.Api.slnx"))) root = root.Parent;
         Assert.NotNull(root);
         var source = File.ReadAllText(Path.Combine(root.FullName, "apps", "local-node-host", "Health", "WebSession", filename));
+        Assert.True(OnlyRendererConsumesDenial(source));
+    }
+
+    [Fact]
+    public void Form_archive_catcher_only_passes_the_exception_to_the_shared_renderer()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Harborline.Api.slnx"))) root = root.Parent;
+        Assert.NotNull(root);
+        var source = File.ReadAllText(Path.Combine(root.FullName, "apps", "local-node-host", "Health", "FormDefinitionRoutes.cs"));
         Assert.True(OnlyRendererConsumesDenial(source));
     }
 

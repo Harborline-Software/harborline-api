@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Runtime.CompilerServices;
@@ -984,6 +986,7 @@ public sealed class RoleGateAdmissionTests
         // admission refusal remains the only thing that can move the verdict.
         builder.Services.AddTestKernelClock();
         builder.Services.AddSingleton(TestRouteGate.AllowAll());
+        builder.Services.AddTestDefinitionArchives();
         var app = builder.Build();
         var activeTeam = new MatrixActiveTeamAccessor(new TeamContext(
             new TeamId(Guid.Parse("21800000-0000-0000-0000-000000000001")),
@@ -991,7 +994,8 @@ public sealed class RoleGateAdmissionTests
             new ServiceCollection().BuildServiceProvider(),
             TimeProvider.System));
         FormDefinitionRoutes.Map(
-            app, lifecycle, new InMemorySchemaRegistry(TimeProvider.System), activeTeam, TimeProvider.System);
+            app, lifecycle, new InMemorySchemaRegistry(TimeProvider.System), activeTeam, TimeProvider.System,
+            app.Services.GetRequiredService<NodeDefinitionArchiveWriter>());
         await app.StartAsync();
         try
         {

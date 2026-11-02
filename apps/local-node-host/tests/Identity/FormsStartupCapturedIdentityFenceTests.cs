@@ -1,3 +1,5 @@
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Api.LocalNodeHost.Tests.DefinitionLifecycle;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -278,6 +280,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             outer.AddSingleton(new NodeCallerSessionToken(CallerToken));
             outer.AddSingleton<IWebSelectedSessionPrincipalAuthority>(new FixedSelectedSessionAuthority());
 
+            outer.AddTestDefinitionArchives();
             var outerProvider = outer.BuildServiceProvider();
 
             // Both boot roles can reach the engine's gate; the form capability's Admin
@@ -305,6 +308,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                 outerProvider.GetRequiredService<AuthorizedFormDefinitionLifecycle>(),
                 outerProvider.GetRequiredService<ISchemaRegistry>(),
                 outerProvider.GetRequiredService<ILogger<HostedFormsApiEndpoint>>(),
+                outerProvider.GetRequiredService<NodeDefinitionArchiveWriter>(),
                 outerProvider.GetRequiredService<ICurrentUser>(),
                 TimeProvider.System);
             await endpoint.StartAsync(CancellationToken.None);
