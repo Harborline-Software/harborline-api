@@ -214,7 +214,7 @@ fi
 #    written by Dependabot and committed and signed by GitHub itself (committer web-flow, verified), which is how
 #    Dependabot's own commits look. A commit someone else pushed, even one that keeps Dependabot as its author and is
 #    signed with their own key, has another committer and needs a review. Every update must be a patch or minor one,
-#    from the update-type lines Dependabot writes in its commit messages. A major update, a security update with no
+#    from the update-type lines Dependabot writes in its commit messages, and every commit must carry such lines. A major update, a security update with no
 #    update-type, or a bump that touches a risky path (anything under .github/, so every GitHub Actions bump, or a
 #    file on the risky list) needs a review like any other PR, and a risky one its Codex security review too.
 #    GitHub lists at most 250 of a PR's commits, so the listing must hold as many commits as the PR says it has;
@@ -228,9 +228,11 @@ if $needs_review && ! $risky && [ "$(jq -r .user.login <<<"$pr")" = 'dependabot[
   fi
   others=$(jq -s '[.[] | select(.a != "dependabot[bot]" or .c != "web-flow" or .v != true)] | length' <<<"$commits")
   listed=$(jq -s length <<<"$commits")
+  # Every commit must carry its own update-type lines; one with none must not hide behind another's.
+  untyped=$(jq -s '[.[] | select(.m | split("\n") | map(select(test("^\\s*update-type:"))) | length == 0)] | length' <<<"$commits")
   types=$(jq -rs '.[].m' <<<"$commits" | sed -nE 's/^[[:space:]]*update-type:[[:space:]]*//p')
   if [ -n "$commits" ] && [ "$others" -eq 0 ] && [ "$listed" = "$(jq -r '.commits // empty' <<<"$pr")" ] \
-     && [ -n "$types" ] \
+     && [ "$untyped" -eq 0 ] && [ -n "$types" ] \
      && ! grep -qvxE 'version-update:semver-(patch|minor)' <<<"$types"; then
     needs_review=false; why="a Dependabot patch or minor update"
   fi

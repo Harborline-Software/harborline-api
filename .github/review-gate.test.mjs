@@ -139,6 +139,7 @@ test('an unverified, human-written, major or untyped Dependabot update means a r
                                                 commit: {message: 'fix', verification: {verified: true}}}],
     major: [dependabotCommit(dependabotMessage('version-update:semver-patch', 'version-update:semver-major'))],
     'no update-type': [dependabotCommit('Bump x (security)')],
+    'one commit with no update-type': [dependabotCommit(), dependabotCommit('Bump x (security)')],
   }
   for (const [name, commits] of Object.entries(cases)) {
     assert.equal(runGate({user: 'dependabot[bot]', files: ['src/App.csproj'], commits}).desc, NEEDS_REVIEW, name)
