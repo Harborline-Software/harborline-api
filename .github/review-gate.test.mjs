@@ -105,6 +105,13 @@ test('one file off the exempt list, or one taken back out with !, means a review
   assert.equal(runGate({files: ['docs/guide/evidence.md']}).desc, NEEDS_REVIEW)
 })
 
+test('an agent instruction file inside an exempt folder, at any depth or casing, means a review', () => {
+  for (const f of ['docs/guide/AGENTS.md', 'docs/guide/deep/er/agents.md', 'docs/guide/AGENTS.override.md',
+    'docs/guide/x/CLAUDE.md', 'docs/guide/CLAUDE.local.md']) {
+    assert.equal(runGate({files: ['SUPPORT.md', f]}).desc, NEEDS_REVIEW, f)
+  }
+})
+
 test('the exemption never applies to a risky path', () => {
   for (const f of ['.github/review-exempt-paths', '.github/workflows/verify.yml', 'scripts/release/sign.sh']) {
     const g = runGate({files: ['SUPPORT.md', f]})

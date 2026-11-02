@@ -245,12 +245,16 @@ else
 fi
 
 # 1. Every changed file, by its new and its old path, is on the exempt list, and nothing about the PR is risky.
-#    An empty PR, a missing list or one that names nothing exempts nothing.
+#    An empty PR, a missing list or one that names nothing exempts nothing, and no agent instruction file is exempt.
 if $exempt_ok && ! $risky && [ "$changed" -gt 0 ] && [ -n "$files" ] && [ -r "$EXEMPT_LIST" ]; then
   rules=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$EXEMPT_LIST" | grep -v '^$' || true)
   if [ -n "$rules" ] && RULES=$rules awk '
       BEGIN { n = split(ENVIRON["RULES"], r, "\n") }
       { hit = 0
+        # Agent instruction files steer the agents that write and review code below them, so none is exempt at any
+        # depth or in any casing, whatever the list says (Codex reads a nested AGENTS.md for its subtree).
+        f = tolower($0); sub(/.*\//, "", f)
+        if (f == "agents.md" || f == "agents.override.md" || f == "claude.md" || f == "claude.local.md") { bad = 1; exit }
         for (i = 1; i <= n; i++) {
           neg = substr(r[i], 1, 1) == "!"; p = neg ? substr(r[i], 2) : r[i]
           if ($0 == p || (p ~ /\/$/ && index($0, p) == 1)) hit = neg ? 0 : 1

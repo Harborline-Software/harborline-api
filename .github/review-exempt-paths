@@ -9,7 +9,9 @@
 # (rules the reviewers and agents follow), LICENSE, NOTICE, SECURITY.md and TRADEMARKS.md (legal and security
 # policy), docs/evidence/ (records gates rely on), docs/install/ (ships in the install artefact), the t433 and m6
 # design notes at the top of docs/ (tests and gates read some of them), and packages/**/Contracts/*.md (contracts,
-# not prose). This file is under .github/, so changing it is itself risky.
+# not prose). The gate never exempts an agent instruction file (AGENTS.md, AGENTS.override.md, CLAUDE.md or
+# CLAUDE.local.md) at any depth, even inside a folder listed here. This file is under .github/, so changing it is
+# itself risky.
 SUPPORT.md
 docs/examples/
 docs/operations/
