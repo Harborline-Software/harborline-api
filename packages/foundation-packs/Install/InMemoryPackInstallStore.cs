@@ -137,7 +137,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     }
 
     /// <inheritdoc />
-    public void Commit(PackInstallTransaction transaction)
+    public PackInstallCommitResult Commit(PackInstallTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var pack = transaction.InstalledPack;
@@ -145,10 +145,12 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            // COPY-ON-WRITE: build the whole next state off to the side; publish only at the very end.
+            _byTenant.TryGetValue(transaction.Tenant, out var observed);
+            var occupied = observed?.Versions.GetValueOrDefault(VersionKey(pack.PackKey, pack.Version));
+            var classification = transaction.ClassifyExisting(occupied);
+            if (classification is not null) return classification;
             transaction.RequireCurrentWatermark(
-                _byTenant.TryGetValue(transaction.Tenant, out var observed)
-                    && observed.Watermarks.TryGetValue(pack.PackKey, out var watermark) ? watermark : null);
+                observed is not null && observed.Watermarks.TryGetValue(pack.PackKey, out var watermark) ? watermark : null);
             transaction.RequireCurrentInstalledState(observed is null ? [] : observed.Versions.Values);
             transaction.RequireCurrentAdmissionState(
                 observed is not null && observed.Overrides.TryGetValue(pack.PackKey, out var overrides) ? overrides : [],
@@ -164,6 +166,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
             // Single publish — the atomic boundary. Everything above is on the copy; a throw before here
             // leaves the store untouched (S-7 no-partial-seed-layer).
             _byTenant[transaction.Tenant] = next;
+            return new PackInstallCommitResult(PackInstallCommitDisposition.Written, transaction.Audit);
         }
     }
 

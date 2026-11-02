@@ -1,12 +1,12 @@
 # PR346 reviewed analyzer exceptions
 
-Status: all three source-local exceptions are reviewed in the manifest. The restored recovery/provider/caller trial passed 30/30 with no skips. The Windows host gate passed at `fd2730d356d4569a72da2ad37eecc845e804aff7`; its receipt applies to that exact head, not subsequent documentation commits. Fresh required exact-head PR reviews and hosted checks remain the coordinator’s responsibility.
+Historical PR346 status: the original three source-local exceptions are reviewed in the manifest. The restored recovery/provider/caller trial passed 30/30 with no skips. The Windows host gate passed at `fd2730d356d4569a72da2ad37eecc845e804aff7`; its receipt applies to that exact head, not subsequent documentation commits. Fresh required exact-head PR reviews and hosted checks remain the coordinator’s responsibility.
 
 The owner approved the policy in [coordinator comment 5973232820](https://github.com/Harborline-Software/harborline-api/pull/346#issuecomment-5973232820). Control owns the authoritative change-delivery policy. The API implementation supplies a fail-closed ingestion contract; it does not change the shared analyzer pin, thresholds, baseline, branch protection, or required checks.
 
 ## Evidence contract
 
-An exception names one exact analyzer rule, source path, and reviewed local scope. A tagged disable and matching restore enclose either one local initializer or one catch handler, with a maximum of 32 source lines. The normalized-LF SHA-256 pins the reviewed scope. Unsupported forms require separate reviewed parser support. A file, category, multiple-rule, declaration, or missing-restore exception is not supported.
+An exception names one exact analyzer rule, source path, and reviewed local scope. A tagged disable and matching restore enclose either one local initializer or one catch handler, with a maximum of 32 source lines. The normalized-LF SHA-256 pins the reviewed scope. The finite catch-header forms are an unfiltered handler or a handler with the specific captured-primary guard `when (primary is not null)`; whitespace may vary. Arbitrary expressions, compound filters and guards on other identifiers remain unsupported. The guard does not authorize the source exception: the exact rule, local scope, digest, justification, tests and review are still required. Unsupported forms require separate reviewed parser support. A file, category, multiple-rule, declaration, or missing-restore exception is not supported.
 
 The source-owned manifest must explain the protected behavior, the behavior change caused by compliance, the rule's protected risk, why detection is inapplicable or misfires here, and remaining controls. It records rejected alternatives as analysis or executed trials. Executed trials additionally identify the command, exact source commit, observed result, outcome, and report reference. Analysis-only rejection is never presented as execution. A justification need not prove that no conceivable compliant implementation exists.
 
@@ -138,3 +138,175 @@ The repaired working-candidate compiler SARIF is retained byte-for-byte with SHA
 Independent source review: `/root/review333` recomputed the scope digest and accepted separate lane bounds, explicit BINARY comparisons/order, cancellation propagation, failure isolation and literal test oracles. Review identified a stale-bound empty-first-page race and a partial initial logout page; both were corrected and the causal/provider trials above validate those corrections. Root separately reviewed the reviewer's membership and race fixtures. This is local source review and actual executed regression evidence, not required GitHub approval. No rule policy, baseline, threshold, transaction, lease or protected-queue guarantee was changed. The working candidate was based on `55cc8e6a8756bd77cc0c7e197d0cde09c85718d9`; a subsequent exact-head all-lane gate is required before push.
 
 Restored affected suites: 57 passed, zero failed, zero skipped across InstallationIdentityCoordinatorServiceTests, WebSelectedSessionLogoutAuthorityTests and WebTenantSelectionAuthorityTests. This includes the existing actual provider rejection, tied-home page/order SQL assertions, requested-cancellation identity, failed-row logging, lease-release primary-exception and exactly-once recovery controls. Restored-suite TRX SHA-256: `2a7d6d528fab7a786538937431081c2e5e521279533ad0a0a9587e045c85ee74`. Empty-cycle causal-control TRX SHA-256: `36f6bc8f1f6283eef6ef70298571b52935130e94f33edf09170c019319079c19`. Raw reports and compiler SARIF remain in the external task evidence archive.
+
+## T1098 source applicability review
+
+T1098 adds eight individually scoped CA1031 registrations under the existing owner-approved finite-exception policy. Root separately reviewed the recurring callback/cleanup/diagnostic pattern and each contract, using independent Spec and Standards applicability reviews. Their report SHA-256 values are `3ca811654d0d0b455ba3fd4859a089453a6dfc10b424b2ffb784f342f29db4c1` and `722d6861b2596c3ba64be44e5183906df5be53ccdd583902914b75010fcf2248`. Root's explicit site/risk disposition has SHA-256 `8ccd4125d75297f88ddbfdfa1ef926d4042a8cd5ab1958eb659b6cc2f001b15c`. This is repository-policy acceptance of specific risks, not a claim that Microsoft recommends broad catches or suppressing CA1031. Further sites still require their own separate applicability review.
+
+The production source baseline is `2721fd92d6d920a3c6bc8735138af0eb83176186`. The two new post-outcome warning tests were independently source-reviewed with no findings, but have not been executed at that head. Existing test references below establish relevant source coverage, not a claim that they ran on the composed candidate. Alternative rethrow/narrowing/rewrite proposals below are analysis-only; no new executed alternative trial is claimed. The two owner-internal defensive catches have only indirect coverage and explicit limited-risk dispositions; they do not promise reliable recovery from allocation exhaustion. No production failure hooks or unsafe exhaustion trials were added.
+
+The finite parser change preserves the existing real `when (primary is not null)` filter. Its trust-boundary fixtures first failed the two valid filtered cases with the old parser; the candidate then passed all 44 Node checks, including the pinned Quality consumer integration, with zero failures or skips. This is structural normalizer/consumer/writer/comparison evidence, not Roslyn production evidence, mutation qualification or a full verification receipt. Independent parser source reviews reported no findings on either axis. The prior D8 macOS full run timed out after 90 minutes with 5,582 starts and 5,579 ends; no whole-host TRX or full receipt exists. Its cause remains unknown. Earlier OFF/ON parity results are separate from full qualification. Required exact-commit source review, genuine hosted checks and protected integration remain separate landing prerequisites.
+
+### t1098-stage-observer
+
+Source: `apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Keep an optional stage-observer failure from changing authorization, installation, cancellation or the original exception.
+
+Why ordinary compliance changes it: Rethrowing makes diagnostic delivery gate the operation; a finite exception list is not established by the Action<string> callback contract.
+
+Analyzer risk: A general catch can hide defects, discard observer cancellation and lose progress diagnostics.
+
+Site applicability: Only the optional diagnostic observer is isolated here; business operations and their cancellation checks remain outside this handler.
+
+Controls and evidence limits: The existing route regression throws from the stage logger, proves StageCalls > 0 and preserves the original authorization-denial object. This does not guarantee diagnostic delivery or cover every outcome.
+
+Analysis-only alternatives: Rethrow observer errors: Would make optional diagnostics replace or prevent the operation. Catch only assumed logging exception classes: The callback contract does not define an exhaustive exception set. Remove stage observation: Loses the requested progress diagnostics rather than preserving their isolation.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs` — `Diagnostic_log_sink_failure_cannot_replace_original_authorization_denial`.
+
+### t1098-primary-capture
+
+Source: `apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Capture the original failure, mark the joined transaction failed, complete owner cleanup/reactions and publish diagnostics before rethrowing the same primary through ExceptionDispatchInfo.
+
+Why ordinary compliance changes it: An immediate rethrow still runs finally but skips the following report publication; narrowing loses open dependency failures. Moving the whole report lifecycle into a new finally is a broader behavioral redesign, not proven equivalent.
+
+Analyzer risk: A general catch can hide defects or change propagation timing and stack information.
+
+Site applicability: This handler deliberately rethrows the captured primary after the owner lifecycle; it is not a success conversion or general swallowing boundary.
+
+Controls and evidence limits: The capture matrix asserts original exception identity and its cancellation token, durable business-state preservation, release facts and cleanup secondaries. Per-attempt capture tests assert immutability. No direct stack-trace oracle or executed rewrite control is claimed.
+
+Analysis-only alternatives: Immediately rethrow after marking failed: Finally would run, but the report-publication block after it would be skipped. Catch an assumed finite dependency-exception set: Dependency contracts do not establish that complete set. Move report publication into an outer finally: Would require a broader lifecycle/first-pass-filter compatibility review; equivalence has not been established.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs` — `Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary`.
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs` — `Same_primary_reused_across_attempts_has_two_independent_immutable_captures`.
+
+### t1098-reaction-boundary
+
+Source: `apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Retain an unexpected fault escaping owner reaction processing as a secondary rather than replacing an original primary or accepted transaction outcome.
+
+Why ordinary compliance changes it: Removing this guard lets an internal reaction-processing fault replace the outcome; no complete narrower exception contract is established. This is a limited defensive choice, not a demonstrated arbitrary-callback boundary.
+
+Analyzer risk: An unexpected internal defect can be hidden; the failure-collection Add can itself allocate and fail.
+
+Site applicability: Ordinary callback failures are already caught by CollectAsync. Remaining plausible faults are internal bookkeeping/allocation or unsupported concurrent mutation, not arbitrary provider callbacks.
+
+Controls and evidence limits: The owner capture and committed-observer regressions are relevant INDIRECT evidence only: they do not execute this catch. No supported injection seam was identified. Root accepts the limited defensive risk without claiming reliable resource-exhaustion recovery or adding production throw hooks.
+
+Analysis-only alternatives: Remove the unexpected-fault guard: Changes the primary/outcome priority for escaping internal faults. Catch only callback exception types: Callbacks are already isolated; an assumed callback list does not describe internal bookkeeping failures. Add production fault hooks or force allocation failure: Adds behavior solely for an artificial test; unsafe resource-exhaustion trials would not prove reliable recovery.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs` — `Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary`.
+- `apps/local-node-host/tests/Packs/PackProjectionTransactionTests.cs` — `Committed_observer_failures_do_not_throw_or_skip_later_observers`.
+
+### t1098-report-publication
+
+Source: `apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Preserve an existing captured primary if diagnostic report materialization/publication fails; without a primary, that publication failure still propagates.
+
+Why ordinary compliance changes it: Removing the handler lets publication failure replace the primary; moving the guard into a catch body changes exception-filter selection and unwind semantics.
+
+Analyzer risk: A secondary publication defect can be lost, and allocation failure cannot be promised recoverable.
+
+Site applicability: The exact when (primary is not null) filter limits primary priority. Inputs are owner-created snapshots and a list; publication is nonvirtual Interlocked.CompareExchange, not an arbitrary provider enumerable.
+
+Controls and evidence limits: Capture identity and per-attempt immutable reports are INDIRECT evidence for this defensive catch. No supported publication-failure seam exists. Root accepts loss of the secondary when the original primary wins, without a direct fault-coverage or resource-exhaustion guarantee. The real filter and primary-absent propagation remain unchanged.
+
+Analysis-only alternatives: Remove primary-priority protection: An unexpected report-construction fault could replace the captured primary. Replace the filter with an if inside catch: Changes handler-selection/unwind behavior and enters the handler when the original filter would be false. Inject a publication callback or force allocation exhaustion: The implementation has no such callback; adding a production hook or unsafe exhaustion trial is not justified.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs` — `Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary`.
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs` — `Same_primary_reused_across_attempts_has_two_independent_immutable_captures`.
+
+### t1098-request-warning
+
+Source: `apps/local-node-host/Health/ConfigurationProposalRoutes.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Keep a host warning-sink failure from replacing the original typed request exception.
+
+Why ordinary compliance changes it: Rethrow or an assumed narrower logger-exception list allows a logging-provider error to replace the original denial/cancellation/operational error.
+
+Analyzer risk: A log-provider defect or its cancellation may be hidden and request diagnostics lost.
+
+Site applicability: This is only best-effort host logging while preserving an existing primary through the surrounding catch; it does not suppress authorization or install failure.
+
+Controls and evidence limits: The existing route regression configures a throwing warning sink and asserts that the same original authorization-denial object escapes. It asserts a stage attempt, not an explicit WarningCalls counter for this older denial case. Diagnostics are not guaranteed delivered.
+
+Analysis-only alternatives: Rethrow warning-sink exceptions: Allows a diagnostic-provider error to replace the typed primary. Catch only assumed logger exception types: ILogger providers do not define an exhaustive thrown-exception contract.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs` — `Diagnostic_log_sink_failure_cannot_replace_original_authorization_denial`.
+
+### t1098-outcome-warning
+
+Source: `apps/local-node-host/Health/ConfigurationProposalRoutes.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Keep warning logging from changing an already determined committed success or deferred refusal HTTP/transaction outcome.
+
+Why ordinary compliance changes it: Rethrow or a finite assumed logger-error list lets diagnostic delivery turn a committed result or established refusal into an escaping request failure.
+
+Analyzer risk: A diagnostic-provider defect can be hidden and secondary-outcome details may not reach the host log.
+
+Site applicability: Only post-outcome host warning logging is isolated. The response retains stable literal diagnostic codes; exception details remain host-only.
+
+Controls and evidence limits: Two tests added at2721fd92 assert WarningCalls > 0 before the injected throw, literal HTTP200/installed or422/refused responses, literal diagnostic codes and no leaked sink secret. Success reopens the active version; refusal preserves durable business rows, not audit-outbox equality. These source-reviewed tests have not run at this head.
+
+Analysis-only alternatives: Rethrow post-outcome warning errors: Lets a host diagnostic sink replace the committed success or established refusal. Catch only assumed logger exception classes: The provider contract does not establish an exhaustive exception set. Remove diagnostic warnings: Loses the required host-only detail rather than preserving isolated delivery.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs` — `Postcommit_warning_sink_failure_preserves_the_committed_success`.
+- `apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs` — `Deferred_refusal_warning_sink_failure_preserves_the_refusal_and_durable_state`.
+
+### t1098-callback-collection
+
+Source: `packages/foundation/Definitions/PackProjectionTransaction.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Collect an eligible callback failure and continue later reactions while retaining the original exception in transaction diagnostics.
+
+Why ordinary compliance changes it: Propagating the first error skips later eligible callbacks; callback contracts do not establish a complete finite set of synchronous, asynchronous or cancellation failures.
+
+Analyzer risk: Callback defects and callback cancellation can be collected instead of propagated, and collection itself can allocate/fail.
+
+Site applicability: This is the post-release callback collector, not a general application boundary. The transaction decides committed state and confirmed resource release before delivery.
+
+Controls and evidence limits: The committed-observer regression throws synchronously, asynchronously and via a canceled task, checks later callbacks still run and checks aggregate exception types and messages. It does not assert exact object identity or prove every provider or recovery under resource exhaustion.
+
+Analysis-only alternatives: Propagate the first callback failure: Skips eligible later observers and changes the diagnostic aggregate contract. Catch an assumed finite set of callback failures: Func<Task> implementations can fail synchronously or asynchronously with no exhaustive type list.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Packs/PackProjectionTransactionTests.cs` — `Committed_observer_failures_do_not_throw_or_skip_later_observers`.
+
+### t1098-cleanup-attempt
+
+Source: `packages/foundation/Definitions/PackProjectionTransaction.cs`; one CA1031 catch handler, with the exact pragma-bounded digest recorded in the manifest.
+
+Protected behavior: Attempt all protected rollback/cleanup/resource-release actions, retain their failures and suppress later delivery when resource release is uncertain.
+
+Why ordinary compliance changes it: Propagating the first cleanup error skips later mandatory attempts and can replace the primary; Action cleanup contracts do not define an exhaustive error set.
+
+Analyzer risk: Cleanup defects can be contained, resources may remain unreleased and failure collection can itself fail.
+
+Site applicability: This helper returns false on an attempted action failure; release confirmation is conjunctive and uncertain release retires notification/refusal delivery. It does not report failed cleanup as success.
+
+Controls and evidence limits: The protected-cleanup regression pins action order, exact retained rollback/cleanup/durable-release errors, false release confirmation, no delivery and no repeated delivery. It does not directly fault-inject the real activation-barrier lease disposal or prove eventual resource recovery.
+
+Analysis-only alternatives: Propagate the first cleanup error: Skips later cleanup/release attempts and can replace the original failure. Catch only assumed cleanup error classes: Cleanup Action providers do not define an exhaustive thrown-exception contract.
+
+Regression sources:
+
+- `apps/local-node-host/tests/Packs/PackSameVersionRetryTests.cs` — `Protected_cleanup_attempts_all_in_order_and_uncertain_release_retires_delivery`.

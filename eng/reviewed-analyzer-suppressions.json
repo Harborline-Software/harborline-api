@@ -230,6 +230,485 @@
         "status": "reviewed",
         "reviewedBy": "/root/review333; final source/parser/manifest review, not required GitHub approval"
       }
+    },
+    {
+      "id": "t1098-stage-observer",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "7176dd58e99977293d6e8ed1d69ea743503e698ecdf33b5770e790af7f8ebe07",
+      "justification": {
+        "protectedBehavior": "Keep an optional stage-observer failure from changing authorization, installation, cancellation or the original exception.",
+        "whyComplianceChangesBehavior": "Rethrowing makes diagnostic delivery gate the operation; a finite exception list is not established by the Action<string> callback contract.",
+        "protectedRisk": "A general catch can hide defects, discard observer cancellation and lose progress diagnostics.",
+        "applicability": "Only the optional diagnostic observer is isolated here; business operations and their cancellation checks remain outside this handler.",
+        "remainingControls": "The existing route regression throws from the stage logger, proves StageCalls > 0 and preserves the original authorization-denial object. This does not guarantee diagnostic delivery or cover every outcome.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Rethrow observer errors",
+          "reason": "Would make optional diagnostics replace or prevent the operation.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-stage-observer"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch only assumed logging exception classes",
+          "reason": "The callback contract does not define an exhaustive exception set.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-stage-observer"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Remove stage observation",
+          "reason": "Loses the requested progress diagnostics rather than preserving their isolation.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-stage-observer"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs",
+          "anchor": "Diagnostic_log_sink_failure_cannot_replace_original_authorization_denial"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-primary-capture",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "d25ff520ad94910e12073e56acb3a503635411afd5f1f5d4a4d86a2c265642dc",
+      "justification": {
+        "protectedBehavior": "Capture the original failure, mark the joined transaction failed, complete owner cleanup/reactions and publish diagnostics before rethrowing the same primary through ExceptionDispatchInfo.",
+        "whyComplianceChangesBehavior": "An immediate rethrow still runs finally but skips the following report publication; narrowing loses open dependency failures. Moving the whole report lifecycle into a new finally is a broader behavioral redesign, not proven equivalent.",
+        "protectedRisk": "A general catch can hide defects or change propagation timing and stack information.",
+        "applicability": "This handler deliberately rethrows the captured primary after the owner lifecycle; it is not a success conversion or general swallowing boundary.",
+        "remainingControls": "The capture matrix asserts original exception identity and its cancellation token, durable business-state preservation, release facts and cleanup secondaries. Per-attempt capture tests assert immutability. No direct stack-trace oracle or executed rewrite control is claimed.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Immediately rethrow after marking failed",
+          "reason": "Finally would run, but the report-publication block after it would be skipped.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-primary-capture"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch an assumed finite dependency-exception set",
+          "reason": "Dependency contracts do not establish that complete set.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-primary-capture"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Move report publication into an outer finally",
+          "reason": "Would require a broader lifecycle/first-pass-filter compatibility review; equivalence has not been established.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-primary-capture"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs",
+          "anchor": "Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary"
+        },
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs",
+          "anchor": "Same_primary_reused_across_attempts_has_two_independent_immutable_captures"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-reaction-boundary",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "0837ed25c33b5696b19f709f01409f00daafaa9a818f2d4a0178bb835b542da6",
+      "justification": {
+        "protectedBehavior": "Retain an unexpected fault escaping owner reaction processing as a secondary rather than replacing an original primary or accepted transaction outcome.",
+        "whyComplianceChangesBehavior": "Removing this guard lets an internal reaction-processing fault replace the outcome; no complete narrower exception contract is established. This is a limited defensive choice, not a demonstrated arbitrary-callback boundary.",
+        "protectedRisk": "An unexpected internal defect can be hidden; the failure-collection Add can itself allocate and fail.",
+        "applicability": "Ordinary callback failures are already caught by CollectAsync. Remaining plausible faults are internal bookkeeping/allocation or unsupported concurrent mutation, not arbitrary provider callbacks.",
+        "remainingControls": "The owner capture and committed-observer regressions are relevant INDIRECT evidence only: they do not execute this catch. No supported injection seam was identified. Root accepts the limited defensive risk without claiming reliable resource-exhaustion recovery or adding production throw hooks.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Remove the unexpected-fault guard",
+          "reason": "Changes the primary/outcome priority for escaping internal faults.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-reaction-boundary"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch only callback exception types",
+          "reason": "Callbacks are already isolated; an assumed callback list does not describe internal bookkeeping failures.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-reaction-boundary"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Add production fault hooks or force allocation failure",
+          "reason": "Adds behavior solely for an artificial test; unsafe resource-exhaustion trials would not prove reliable recovery.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-reaction-boundary"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs",
+          "anchor": "Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary"
+        },
+        {
+          "path": "apps/local-node-host/tests/Packs/PackProjectionTransactionTests.cs",
+          "anchor": "Committed_observer_failures_do_not_throw_or_skip_later_observers"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-report-publication",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Data/Configuration/ReleasedPackInstaller.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "2307699a3c5771547ed65e1cee137f5c9bd59452cd704d7a36a5cc8e1e6fd18d",
+      "justification": {
+        "protectedBehavior": "Preserve an existing captured primary if diagnostic report materialization/publication fails; without a primary, that publication failure still propagates.",
+        "whyComplianceChangesBehavior": "Removing the handler lets publication failure replace the primary; moving the guard into a catch body changes exception-filter selection and unwind semantics.",
+        "protectedRisk": "A secondary publication defect can be lost, and allocation failure cannot be promised recoverable.",
+        "applicability": "The exact when (primary is not null) filter limits primary priority. Inputs are owner-created snapshots and a list; publication is nonvirtual Interlocked.CompareExchange, not an arbitrary provider enumerable.",
+        "remainingControls": "Capture identity and per-attempt immutable reports are INDIRECT evidence for this defensive catch. No supported publication-failure seam exists. Root accepts loss of the secondary when the original primary wins, without a direct fault-coverage or resource-exhaustion guarantee. The real filter and primary-absent propagation remain unchanged.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Remove primary-priority protection",
+          "reason": "An unexpected report-construction fault could replace the captured primary.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-report-publication"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Replace the filter with an if inside catch",
+          "reason": "Changes handler-selection/unwind behavior and enters the handler when the original filter would be false.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-report-publication"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Inject a publication callback or force allocation exhaustion",
+          "reason": "The implementation has no such callback; adding a production hook or unsafe exhaustion trial is not justified.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-report-publication"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs",
+          "anchor": "Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary"
+        },
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallTests.cs",
+          "anchor": "Same_primary_reused_across_attempts_has_two_independent_immutable_captures"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-request-warning",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "aa4aa72ad6ec4e8b69e13c0c5f461067f323ce268682cc60727b81060e388e52",
+      "justification": {
+        "protectedBehavior": "Keep a host warning-sink failure from replacing the original typed request exception.",
+        "whyComplianceChangesBehavior": "Rethrow or an assumed narrower logger-exception list allows a logging-provider error to replace the original denial/cancellation/operational error.",
+        "protectedRisk": "A log-provider defect or its cancellation may be hidden and request diagnostics lost.",
+        "applicability": "This is only best-effort host logging while preserving an existing primary through the surrounding catch; it does not suppress authorization or install failure.",
+        "remainingControls": "The existing route regression configures a throwing warning sink and asserts that the same original authorization-denial object escapes. It asserts a stage attempt, not an explicit WarningCalls counter for this older denial case. Diagnostics are not guaranteed delivered.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Rethrow warning-sink exceptions",
+          "reason": "Allows a diagnostic-provider error to replace the typed primary.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-request-warning"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch only assumed logger exception types",
+          "reason": "ILogger providers do not define an exhaustive thrown-exception contract.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-request-warning"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs",
+          "anchor": "Diagnostic_log_sink_failure_cannot_replace_original_authorization_denial"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-outcome-warning",
+      "rule": "CA1031",
+      "path": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "0d816537ae4956ca84c79f275bfa56e0d6d1d957f372210f6db09cdcbe315712",
+      "justification": {
+        "protectedBehavior": "Keep warning logging from changing an already determined committed success or deferred refusal HTTP/transaction outcome.",
+        "whyComplianceChangesBehavior": "Rethrow or a finite assumed logger-error list lets diagnostic delivery turn a committed result or established refusal into an escaping request failure.",
+        "protectedRisk": "A diagnostic-provider defect can be hidden and secondary-outcome details may not reach the host log.",
+        "applicability": "Only post-outcome host warning logging is isolated. The response retains stable literal diagnostic codes; exception details remain host-only.",
+        "remainingControls": "Two tests added at2721fd92 assert WarningCalls > 0 before the injected throw, literal HTTP200/installed or422/refused responses, literal diagnostic codes and no leaked sink secret. Success reopens the active version; refusal preserves durable business rows, not audit-outbox equality. These source-reviewed tests have not run at this head.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Rethrow post-outcome warning errors",
+          "reason": "Lets a host diagnostic sink replace the committed success or established refusal.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-outcome-warning"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch only assumed logger exception classes",
+          "reason": "The provider contract does not establish an exhaustive exception set.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-outcome-warning"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Remove diagnostic warnings",
+          "reason": "Loses the required host-only detail rather than preserving isolated delivery.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-outcome-warning"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs",
+          "anchor": "Postcommit_warning_sink_failure_preserves_the_committed_success"
+        },
+        {
+          "path": "apps/local-node-host/tests/Configuration/ReleasedPackAtomicInstallRouteTests.cs",
+          "anchor": "Deferred_refusal_warning_sink_failure_preserves_the_refusal_and_durable_state"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-callback-collection",
+      "rule": "CA1031",
+      "path": "packages/foundation/Definitions/PackProjectionTransaction.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "0e92c575f23b6ebee82a37a4b8ea23573060fe6983fba590ff39693e0087fdc9",
+      "justification": {
+        "protectedBehavior": "Collect an eligible callback failure and continue later reactions while retaining the original exception in transaction diagnostics.",
+        "whyComplianceChangesBehavior": "Propagating the first error skips later eligible callbacks; callback contracts do not establish a complete finite set of synchronous, asynchronous or cancellation failures.",
+        "protectedRisk": "Callback defects and callback cancellation can be collected instead of propagated, and collection itself can allocate/fail.",
+        "applicability": "This is the post-release callback collector, not a general application boundary. The transaction decides committed state and confirmed resource release before delivery.",
+        "remainingControls": "The committed-observer regression throws synchronously, asynchronously and via a canceled task, checks later callbacks still run and checks aggregate exception types and messages. It does not assert exact object identity or prove every provider or recovery under resource exhaustion.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Propagate the first callback failure",
+          "reason": "Skips eligible later observers and changes the diagnostic aggregate contract.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-callback-collection"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch an assumed finite set of callback failures",
+          "reason": "Func<Task> implementations can fail synchronously or asynchronously with no exhaustive type list.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-callback-collection"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Packs/PackProjectionTransactionTests.cs",
+          "anchor": "Committed_observer_failures_do_not_throw_or_skip_later_observers"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
+    },
+    {
+      "id": "t1098-cleanup-attempt",
+      "rule": "CA1031",
+      "path": "packages/foundation/Definitions/PackProjectionTransaction.cs",
+      "scopeKind": "catch",
+      "scopeSha256": "0e556a127673c5da3dc99e2013554a5bda5c4882d2a5d500b1aa2afcf98ce7f1",
+      "justification": {
+        "protectedBehavior": "Attempt all protected rollback/cleanup/resource-release actions, retain their failures and suppress later delivery when resource release is uncertain.",
+        "whyComplianceChangesBehavior": "Propagating the first cleanup error skips later mandatory attempts and can replace the primary; Action cleanup contracts do not define an exhaustive error set.",
+        "protectedRisk": "Cleanup defects can be contained, resources may remain unreleased and failure collection can itself fail.",
+        "applicability": "This helper returns false on an attempted action failure; release confirmation is conjunctive and uncertain release retires notification/refusal delivery. It does not report failed cleanup as success.",
+        "remainingControls": "The protected-cleanup regression pins action order, exact retained rollback/cleanup/durable-release errors, false release confirmation, no delivery and no repeated delivery. It does not directly fault-inject the real activation-barrier lease disposal or prove eventual resource recovery.",
+        "repeatedExceptionReview": "The recurring T1098 callback, cleanup and diagnostic boundaries received separate rule-applicability review and individual site dispositions. Further sites require their own contract, exact scope, evidence and review; no analyzer-wide change is authorized."
+      },
+      "alternatives": [
+        {
+          "kind": "analysis",
+          "option": "Propagate the first cleanup error",
+          "reason": "Skips later cleanup/release attempts and can replace the original failure.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-cleanup-attempt"
+            }
+          ]
+        },
+        {
+          "kind": "analysis",
+          "option": "Catch only assumed cleanup error classes",
+          "reason": "Cleanup Action providers do not define an exhaustive thrown-exception contract.",
+          "evidence": [
+            {
+              "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+              "anchor": "t1098-cleanup-attempt"
+            }
+          ]
+        }
+      ],
+      "tests": [
+        {
+          "path": "apps/local-node-host/tests/Packs/PackSameVersionRetryTests.cs",
+          "anchor": "Protected_cleanup_attempts_all_in_order_and_uncertain_release_retires_delivery"
+        }
+      ],
+      "review": {
+        "path": "docs/evidence/pr346-reviewed-analyzer-exceptions.md",
+        "anchor": "T1098 source applicability review",
+        "status": "reviewed",
+        "reviewedBy": "Root policy-owner disposition8ccd4125 and independent ca1031_applicability_spec/ca1031_applicability_standards; final registration composition review remains pending"
+      }
     }
   ]
 }

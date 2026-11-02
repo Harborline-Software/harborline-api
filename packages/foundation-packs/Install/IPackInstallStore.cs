@@ -68,11 +68,28 @@ public interface IPackInstallStore
 public interface IPackInstallMutationStore : IPackInstallStore
 {
     void SaveOverride(TenantId tenant, string packKey, PackTenantOverride tenantOverride);
-    void Commit(PackInstallTransaction transaction);
+    /// <summary>Atomically classifies an exact coordinate; an identical retry writes only its selected audit.</summary>
+    PackInstallCommitResult Commit(PackInstallTransaction transaction);
     void Activate(TenantId tenant, string packKey, string version);
     void Deactivate(TenantId tenant, string packKey, string version);
     void RecordKeyOwnership(TenantId tenant, string contentKey, string owningPackKey);
 }
+
+/// <summary>The classification selected inside the atomic install boundary.</summary>
+public enum PackInstallCommitDisposition
+{
+    /// <summary>An absent coordinate was written after all original readsets passed.</summary>
+    Written,
+    /// <summary>An identical occupied coordinate was preserved with its prepared no-op audit.</summary>
+    Unchanged,
+    /// <summary>A complete different signed artifact occupies the coordinate.</summary>
+    Conflict,
+    /// <summary>The occupied coordinate lacks complete supported identity evidence.</summary>
+    Unknown,
+}
+
+/// <summary>The actual disposition and exact prepared audit selected by the atomic store.</summary>
+public sealed record PackInstallCommitResult(PackInstallCommitDisposition Disposition, PackCommitAudit? SelectedAudit);
 
 /// <summary>Durable admission evidence for one pack lifecycle transition.</summary>
 public sealed record PackProjectionAdmission
@@ -148,6 +165,20 @@ public sealed record PackInstallTransaction(
 {
     /// <summary>T-1048: the audit of this install, staged by a durable store in the same commit.</summary>
     public PackCommitAudit? Audit { get; init; }
+    /// <summary>The fresh prepared audit selected only for an identical occupied version.</summary>
+    public PackCommitAudit? UnchangedAudit { get; init; }
+
+    /// <summary>Classifies an occupied exact coordinate before any readset comparison or state write.</summary>
+    public PackInstallCommitResult? ClassifyExisting(InstalledPack? existing)
+    {
+        if (existing is null) return null;
+        var disposition = PackInstallArtifactIdentity.Compare(existing, InstalledPack);
+        var selected = disposition == PackInstallCommitDisposition.Unchanged
+            ? UnchangedAudit ?? throw new InvalidOperationException("An identical retry requires a prepared Unchanged audit.")
+            : null;
+        return new PackInstallCommitResult(disposition, selected);
+    }
+
     /// <summary>Compare the planning watermark at the store's atomic commit boundary.</summary>
     public bool CompareWatermark { get; init; }
     /// <summary>The watermark read by bind; null means no watermark existed.</summary>
