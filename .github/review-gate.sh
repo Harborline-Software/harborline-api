@@ -158,8 +158,9 @@ if ! files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
 fi
 if grep -qE "$RISKY" <<<"$files"; then risky=true; fi
 # MSBuild imports the nearest Directory.Build.props, Directory.Build.targets and Directory.Packages.props above each
-# project, so one at any depth changes every build below it. Case-insensitive, as Windows resolves them.
-if grep -qiE '(^|/)Directory\.(Build\.(props|targets)|Packages\.props)$' <<<"$files"; then risky=true; fi
+# project, and reads the nearest Directory.Build.rsp as extra command-line switches, so one at any depth changes every
+# build below it. Case-insensitive, as Windows resolves them.
+if grep -qiE '(^|/)Directory\.(Build\.(props|targets|rsp)|Packages\.props)$' <<<"$files"; then risky=true; fi
 # The risky list is the default branch's, checked out beside this script. A PR into another branch uses that branch's
 # list only when a ruleset there requires a pull request, so nobody can aim a PR at a branch carrying an edited list.
 # The base's list is read as data through the API; nothing from the base runs. A failed lookup stops the script,
