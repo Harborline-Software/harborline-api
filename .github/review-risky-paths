@@ -1,0 +1,40 @@
+# Scripts and build inputs that make the packages CI publishes, and the files those scripts import or call. A
+# change to any of them also needs a clean Codex security review (PROC-0001, "Review policy, 2026-11-01").
+# review-gate reads this file from main, or from a PR's base branch when a ruleset requires pull requests there.
+# One path per line; a path ending in / covers a folder.
+#
+# Only packages.yml's publish job holds the write token (packages: write), and it builds nothing: it pushes the
+# bytes pack-consume made and proved. Those bytes ship as they are, so what makes them is still risky even though
+# that job runs read-only. Product code and dependencies are not listed; they no longer run with the token.
+#
+# Keep it current: a PR that adds a script to the packing or publishing jobs adds it here.
+# review-gate.sh itself counts Directory.Build.props, Directory.Build.targets and Directory.Packages.props at any
+# depth. This file is under .github/, so changing it is itself risky.
+
+# packages.yml's pack-consume runs eng/verify-packages.sh, which runs eng/verify-boundaries.sh and eng/verify.sh,
+# and publish runs eng/package-proof.py. Those reach most of eng/ (scripts, tests, pins and baselines), so the whole
+# folder counts.
+eng/
+tooling/harborline-contract-codegen/
+# pack-consume runs this manifest's build script to make the npm package, and package-proof.py restores the packed
+# packages into this consumer to prove them.
+packages/contracts/package.json
+tests/package-consumer/
+# pnpm install there runs any pnpmfile hook beside the lockfile, applies the workspace file's overrides and patches,
+# and reads a project .npmrc, all before the npm package publish ships is built.
+packages/contracts/.pnpmfile.cjs
+packages/contracts/.pnpmfile.mjs
+packages/contracts/pnpm-workspace.yaml
+packages/contracts/patches/
+packages/contracts/.npmrc
+# The publish job reads its publication authority from here.
+repository.yaml
+# Build-wide inputs: the feeds restore pulls from and the pinned SDK.
+nuget.config
+# publish runs npm from the repository root with the write token; a root .npmrc can redirect the registry and
+# send that token elsewhere.
+.npmrc
+global.json
+# MSBuild tasks and analyzers that the build-wide files load into every build.
+tooling/Harborline.Tooling.LocalizationXliff/
+packages/analyzers/

@@ -4,8 +4,9 @@
 # escalates, also needs a clean Codex security review on its head; comment "@codex security review" to ask
 # for one after a push, because Codex reviews on its own only when a PR opens or is marked ready.
 #
-# The logic is .github/review-gate.sh. Every trigger here runs this file and that script from the base branch
-# or the default branch, never from the PR, so a PR cannot change its own pass rule:
+# The logic is .github/review-gate.sh. Every trigger checks out that script and its risky list from the default
+# branch and runs only that code, never anything from the PR's base or head, so a PR cannot change its own pass
+# rule. The PR's files and text are only data the script reads through the API:
 # - pull_request_target: a new head starts out pending, and a new base drops passes given before it.
 # - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
 # - pull_request_review: a submitted, edited or dismissed review (CodeRabbit's verdict lives there). GitHub runs
@@ -67,11 +68,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The script from the default branch, or from the PR's base for pull_request_target. Never the PR head.
+      # Only main's code runs here, for every event: the script and its fallback list come from the default branch,
+      # never from the PR's base or head. The script may read a protected base branch's list as data; see the script.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
-          sparse-checkout: .github/review-gate.sh
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/review-gate.sh
+            .github/review-risky-paths
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Set review-gate on the PR head
