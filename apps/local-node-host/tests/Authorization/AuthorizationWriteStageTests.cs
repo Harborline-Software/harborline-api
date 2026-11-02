@@ -2582,7 +2582,7 @@ public sealed class AuthorizationWriteStageTests
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => Touched<PackInstallWatermark?>();
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) => Touched<IReadOnlyList<PackTenantOverride>>();
         public void SaveOverride(TenantId tenant, string packKey, PackTenantOverride tenantOverride) => Touched();
-        public void Commit(PackInstallTransaction transaction) => Touched();
+        public PackInstallCommitResult Commit(PackInstallTransaction transaction) => Touched<PackInstallCommitResult>();
         public void Activate(TenantId tenant, string packKey, string version) => Touched();
         public void Deactivate(TenantId tenant, string packKey, string version) => Touched();
         public IReadOnlyDictionary<string, string> GetKeyOwnership(TenantId tenant) => Touched<IReadOnlyDictionary<string, string>>();

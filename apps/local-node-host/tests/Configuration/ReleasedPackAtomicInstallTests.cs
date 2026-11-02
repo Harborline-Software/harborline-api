@@ -63,6 +63,130 @@ namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 /// </summary>
 public sealed class ReleasedPackAtomicInstallTests
 {
+    [Theory]
+    [InlineData("Written", false)]
+    [InlineData("Written", true)]
+    [InlineData("Unchanged", false)]
+    [InlineData("Unchanged", true)]
+    [InlineData("Refusal", false)]
+    [InlineData("Refusal", true)]
+    [InlineData("Operational", false)]
+    [InlineData("Operational", true)]
+    [InlineData("Cancellation", false)]
+    [InlineData("Cancellation", true)]
+    [InlineData("Authorization", false)]
+    [InlineData("Authorization", true)]
+    public async Task Public_capture_preserves_clean_and_mixed_owner_outcomes_and_typed_primary(string kind, bool mixed)
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        fixture.SeedOwnPrior();
+        var edits = kind == "Refusal"
+            ? new[] { ReleasedPackAtomicFixture.OwnNote, ReleasedPackAtomicFixture.WithoutContactTitle, ReleasedPackAtomicFixture.WithoutPackageCeiling }
+            : new[] { ReleasedPackAtomicFixture.OwnNote };
+        var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", edits,
+            (ReleasedPackAtomicFixture.Defaults, "1.0.0")));
+        if (kind == "Unchanged") Assert.True((await fixture.InstallAsync(digest)).Succeeded);
+        var before = await fixture.DurableStateAsync();
+        var activations = fixture.Installer.Activations;
+        var cleanup = new IOException("owner cleanup secondary");
+        if (mixed) fixture.Installer.OnJoined = transaction => transaction.Finally(() => throw cleanup);
+        Exception? primary = kind switch
+        {
+            "Operational" => new IOException("owner primary"),
+            "Cancellation" => new OperationCanceledException("owner primary cancellation", new CancellationToken(true)),
+            "Authorization" => await fixture.DenialAsync(),
+            _ => null,
+        };
+        if (primary is not null) fixture.Audit.BeforePrepare = (_, _) => throw primary;
+        var capture = new ReleasedInstallDiagnosticCapture();
+        ReleasedPackInstallOutcome? returned = null;
+        if (primary is null)
+            returned = await fixture.InstallWithDiagnosticsAsync(digest, capture);
+        else
+        {
+            var thrown = await Assert.ThrowsAnyAsync<Exception>(() => fixture.InstallWithDiagnosticsAsync(digest, capture).AsTask());
+            Assert.Same(primary, thrown);
+            if (kind == "Cancellation") Assert.Equal(new CancellationToken(true), Assert.IsType<OperationCanceledException>(thrown).CancellationToken);
+            if (kind == "Authorization") Assert.IsType<AuthorizationDeniedException>(thrown);
+            Assert.Equal(before, await fixture.DurableStateAsync());
+        }
+        var report = Assert.IsType<ReleasedInstallDiagnosticReport>(capture.Report);
+        Assert.Equal(kind is "Written" or "Unchanged", report.Committed);
+        Assert.True(report.ResourceReleaseConfirmed);
+        Assert.Empty(report.BoundaryFailures);
+        if (mixed)
+        {
+            var secondary = Assert.Single(report.Failures);
+            Assert.Equal("Cleanup", secondary.Kind.ToString());
+            Assert.Same(cleanup, secondary.Error);
+        }
+        else Assert.Empty(report.Failures);
+        if (returned is not null)
+        {
+            Assert.Equal(kind != "Refusal", returned.Succeeded);
+            if (kind == "Written") Assert.True(returned.Installed);
+            if (kind == "Unchanged")
+            {
+                Assert.False(returned.Installed);
+                Assert.Equal(activations, fixture.Installer.Activations);
+                Assert.Equal(before, await fixture.DurableStateAsync());
+                Assert.Contains(fixture.Audit.Successes(), item => item.Action.ToString() == "Unchanged");
+            }
+            if (kind == "Refusal") Assert.Equal(before, await fixture.DurableStateAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Same_primary_reused_across_attempts_has_two_independent_immutable_captures()
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        fixture.SeedOwnPrior();
+        var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", [ReleasedPackAtomicFixture.OwnNote]));
+        var primary = new OperationCanceledException("shared primary", new CancellationToken(true));
+        fixture.Audit.BeforePrepare = (_, _) => throw primary;
+        var firstError = new IOException("first secondary");
+        var secondError = new IOException("second secondary");
+        var first = new ReleasedInstallDiagnosticCapture();
+        var second = new ReleasedInstallDiagnosticCapture();
+        fixture.Installer.OnJoined = transaction => transaction.Finally(() => throw firstError);
+        Assert.Same(primary, await Assert.ThrowsAsync<OperationCanceledException>(() => fixture.InstallWithDiagnosticsAsync(digest, first).AsTask()));
+        var retained = first.Report;
+        fixture.Installer.OnJoined = transaction => transaction.Finally(() => throw secondError);
+        Assert.Same(primary, await Assert.ThrowsAsync<OperationCanceledException>(() => fixture.InstallWithDiagnosticsAsync(digest, second).AsTask()));
+        Assert.Same(retained, first.Report);
+        Assert.Same(firstError, Assert.Single(first.Report!.Failures).Error);
+        Assert.Same(secondError, Assert.Single(second.Report!.Failures).Error);
+        var exports = fixture.Exporter.Exports;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.InstallWithDiagnosticsAsync(digest, first).AsTask());
+        Assert.Equal(exports, fixture.Exporter.Exports);
+    }
+
+    [Fact]
+    public async Task Unchanged_own_pack_still_performs_foreign_work_and_later_refusal_rolls_back_its_noop_audit()
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        fixture.SeedOwnPrior();
+        var ownDigest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", [ReleasedPackAtomicFixture.OwnNote],
+            (ReleasedPackAtomicFixture.Defaults, "1.0.0")));
+        Assert.True((await fixture.InstallAsync(ownDigest)).Succeeded);
+        var mixedDigest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0",
+            [ReleasedPackAtomicFixture.OwnNote, ReleasedPackAtomicFixture.WithoutContactTitle, ReleasedPackAtomicFixture.WithoutNoteDefault],
+            (ReleasedPackAtomicFixture.Defaults, "1.0.0")));
+        var activations = fixture.Installer.Activations;
+        var success = await fixture.InstallAsync(mixedDigest);
+        Assert.True(success.Succeeded);
+        Assert.False(success.Installed);
+        Assert.Equal(activations, fixture.Installer.Activations);
+        Assert.Equal(new[] { ReleasedPackAtomicFixture.FieldDefaults, ReleasedPackAtomicFixture.PackageDefaults }, success.Narrowed);
+        var before = await fixture.DurableStateAsync();
+        var outbox = await fixture.OutboxCountAsync();
+        fixture.Admission.SiblingConflict = (ReleasedPackAtomicFixture.FieldDefaults, ReleasedPackAtomicFixture.PackageDefaults);
+        var refused = await fixture.InstallAsync(mixedDigest);
+        Assert.False(refused.Succeeded);
+        Assert.Equal(before, await fixture.DurableStateAsync());
+        Assert.Equal(outbox, await fixture.OutboxCountAsync());
+    }
+
     private const string FinanceForm = """{"id":"forms/invoice"}""";
     private const string FinanceRecord = """{"id":"records/invoice"}""";
 
@@ -749,6 +873,17 @@ internal sealed class ReleasedPackAtomicFixture : IAsyncDisposable
         return digest;
     }
 
+    internal ValueTask<ReleasedPackInstallOutcome> InstallWithDiagnosticsAsync(string digest,
+        ReleasedInstallDiagnosticCapture capture, CancellationToken cancellationToken = default) =>
+        Releases.InstallWithDiagnosticsAsync(Tenant, digest, TestAuthorization.Write(Tenant, Principal, Frozen), capture, cancellationToken);
+
+    internal async Task<AuthorizationDeniedException> DenialAsync()
+    {
+        var decision = await TestAuthorization.Gate(false).DecideAsync(TestAuthorization.Write(Tenant, Principal, Frozen)
+            .Request(PackOperation.Operate, PackRouteAuthorization.PackRecordKind, ReleaseKey));
+        return Assert.Throws<AuthorizationDeniedException>(decision.RequireAllowed);
+    }
+
     internal ValueTask<ReleasedPackInstallOutcome> InstallAsync(string digest, CancellationToken cancellationToken = default) =>
         Releases.InstallAsync(Tenant, digest, TestAuthorization.Write(Tenant, Principal, Frozen), cancellationToken);
 
@@ -811,10 +946,12 @@ internal sealed class RecordingInstaller(IPackInstaller inner, IDbContextFactory
     : IPackInstaller, IPackProjectionParticipant
 {
     internal Action<SqliteConnection>? OnJoinedConnection { get; set; }
+    internal Action<PackProjectionTransaction>? OnJoined { get; set; }
 
     public void StageProjection(PackProjectionTransaction transaction)
     {
         transaction.Enlist(inner);
+        OnJoined?.Invoke(transaction);
         if (OnJoinedConnection is not { } configure) return;
         // Join the already-owned real durable unit. The test hook never replaces its Commit/Dispose behavior.
         var unit = transaction.Durable(() => new PackProjectionSqliteUnit(factory.CreateDbContext()));
