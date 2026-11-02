@@ -150,7 +150,7 @@ test('darwin CPU refuses incomplete malformed foreign duplicated and failed samp
     '123 999999999999999999999999999999:00.00\n456 0:00.00\n',
     '123 0:00.00\n456 0:00.00\n\n', '123 0:00.00\n456 0:00.00\tPRIVATE',
     '123 0:00.00\n456 0:00.00\r\n']) {
-    const actual = sampleCpu([123, 456], {platform: 'darwin', execute: () => ({status: 0, stdout, stderr: 'PRIVATE'})})
+    const actual = sampleCpu([123, 456], {platform: 'darwin', probe: () => {}, execute: () => ({status: 0, stdout, stderr: 'PRIVATE'})})
     assert.deepEqual(actual, {available: false, processes: []}, stdout)
     assert.doesNotMatch(JSON.stringify(actual), /PRIVATE|Infinity/)
   }
@@ -161,4 +161,15 @@ test('darwin CPU refuses incomplete malformed foreign duplicated and failed samp
   for (const platform of ['linux', 'darwin'])
     assert.deepEqual(sampleCpu([], {platform, execute: () => {assert.fail('empty request must not execute')}}), {available: false, processes: []})
   assert.deepEqual(sampleCpu(['PRIVATE', 0], {platform: 'darwin', execute: () => {assert.fail('invalid request must not execute')}}), {available: false, processes: []})
+})
+
+test('Mac CPU sampling excludes confirmed exits but refuses omissions of live or inaccessible writers', () => {
+  const execute = () => ({status: 0, stdout: '123 0:01.25\n'})
+  const exited = () => { throw Object.assign(new Error('exited'), {code: 'ESRCH'}) }
+  assert.deepEqual(sampleCpu([123, 456], {platform: 'darwin', execute, probe: exited}),
+    {available: true, processes: [{pid: 123, cpuMs: 1250}]})
+  for (const probe of [() => {}, () => { throw Object.assign(new Error('denied'), {code: 'EPERM'}) }]) {
+    assert.deepEqual(sampleCpu([123, 456], {platform: 'darwin', execute, probe}),
+      {available: false, processes: []})
+  }
 })

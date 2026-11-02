@@ -46,7 +46,7 @@ export function diagnosticReader(directory) {
 }
 
 // Numeric trace-writer PIDs only; process lifetimes and SDK-tree membership are unproven.
-export function sampleCpu(pids, {platform = process.platform, execute = spawnSync} = {}) {
+export function sampleCpu(pids, {platform = process.platform, execute = spawnSync, probe = pid => process.kill(pid, 0)} = {}) {
   if (!['win32', 'darwin'].includes(platform) || !pids.length) return {available: false, processes: []}
   const ids = pids.filter(pid => Number.isSafeInteger(pid) && pid > 0).slice(0, 16)
   if (!ids.length) return {available: false, processes: []}
@@ -64,7 +64,12 @@ export function sampleCpu(pids, {platform = process.platform, execute = spawnSyn
         if (!requested.includes(pid) || seen.has(pid) || !Number.isSafeInteger(cpuMs) || cpuMs < 0) return {available: false, processes: []}
         seen.add(pid); processes.push({pid, cpuMs})
       }
-      return processes.length === requested.length ? {available: true, processes} : {available: false, processes: []}
+      // Only ESRCH confirms exit; permission errors and live omissions remain unavailable.
+      const active = requested.filter(pid => {
+        if (seen.has(pid)) return true
+        try { probe(pid); return true } catch (error) { return error.code !== 'ESRCH' }
+      })
+      return processes.length === active.length && processes.length > 0 ? {available: true, processes} : {available: false, processes: []}
     }
     const script = `Get-Process -Id ${ids.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { [pscustomobject]@{pid=$_.Id;cpuMs=[math]::Round($_.TotalProcessorTime.TotalMilliseconds)} } | ConvertTo-Json -Compress`
     const result = execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],

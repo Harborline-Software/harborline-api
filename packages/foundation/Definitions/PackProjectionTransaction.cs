@@ -317,9 +317,15 @@ public sealed class PackProjectionTransaction : IDisposable
             var durableReleased = durable is null;
             try
             {
-                for (var index = cleanup.Count - 1; index >= 0; index--) cleanup[index]();
-                durable?.Dispose();
-                durableReleased = true;
+                try
+                {
+                    for (var index = cleanup.Count - 1; index >= 0; index--) cleanup[index]();
+                }
+                finally
+                {
+                    durable?.Dispose();
+                    durableReleased = true;
+                }
             }
             catch (Exception exception) when (committed) { postCommitCleanupFailure = exception; }
             finally
