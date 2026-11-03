@@ -27,6 +27,9 @@ for project in "${package_projects[@]}"; do
   # for a version nothing had produced. MinVerVersionOverride is MinVer's own
   # supported pin, and it is what makes the uploaded artifact actually carry the
   # immutable version the workflow selected.
-  dotnet pack "$project" -c Release -p:MinVerVersionOverride="$version" -o "$artifact_dir"
+  # RestoreConfigFile pins restore to the repository's root nuget.config, so a nuget.config nested beside a
+  # project is never read while packing (T-1139).
+  dotnet pack "$project" -c Release -p:MinVerVersionOverride="$version" \
+    -p:RestoreConfigFile="$repo_root/nuget.config" -o "$artifact_dir"
 done
-python3 "$repo_root/eng/package-proof.py" consume "$artifact_dir" "$version"
+python3 -I "$repo_root/eng/package-proof.py" consume "$artifact_dir" "$version"
