@@ -188,7 +188,10 @@ jobs:
           fi
           echo "value=$value" >> "$GITHUB_OUTPUT"
       - name: Test package promotion guards
-        run: python3 -m unittest discover -s eng/tests -p "test_package_proof.py"
+        # -I (isolated mode): the checkout root is never on sys.path, so a committed root unittest.py or
+        # unittest/ cannot stand in for the standard library (T-1139 finding 1; CWE-427). The same holds for every
+        # Python step in the packing and publishing jobs.
+        run: python3 -I -m unittest discover -s eng/tests -p "test_package_proof.py"
       - name: Pack and verify clean consumer
         env:
           HARBORLINE_PACKAGE_PACK_ONLY: ${{ github.event_name == 'push' && '1' || '' }}
@@ -210,14 +213,15 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
-          pnpm install --frozen-lockfile
+          # --ignore-pnpmfile: a .pnpmfile.cjs/.mjs beside the lockfile is never loaded while packing (T-1139).
+          pnpm install --frozen-lockfile --ignore-pnpmfile
           pnpm run build
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm pack --pack-destination "${{ github.workspace }}/artifacts/packages"
       - name: Bind the distribution manifest to the successful consumer proof
         env:
           VERSION: ${{ steps.version.outputs.value }}
-        run: python3 eng/package-proof.py seal artifacts/packages "$VERSION"
+        run: python3 -I eng/package-proof.py seal artifacts/packages "$VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: harborline-api-${{ steps.version.outputs.value }}
@@ -227,10 +231,11 @@ jobs:
             artifacts/packages/consumer-proof.json
             artifacts/packages/package-manifest.json
           if-no-files-found: error
-  # Publication does not rerun the source suite. It accepts only commits on main and the exact
-  # NuGet bytes consumed in this run. The npm tarball is identity/hash checked, not consumer-tested.
-  # The source/run-bound receipt and distribution manifest are checked after artifact transfer.
-  publish:
+  # T-1139 (owner ruling 2026-11-03: "Separate signing job"). The only job that can sign: it checks nothing out and
+  # runs no repository code, so nothing a commit runs while packing can mint an attestation. It attests each package
+  # and the manifest with SLSA build provenance for this workflow and commit; publish verifies every file against it.
+  # It runs exactly when publish does, so pull requests and the merge queue create no attestations.
+  attest:
     needs: [pack-consume]
     if: >-
       vars.ACTIONS_ENABLED == 'true'
@@ -238,7 +243,33 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: harborline-api-${{ needs.pack-consume.outputs.version }}
+          path: artifacts/packages
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.tgz
+            artifacts/packages/package-manifest.json
+  # Publication does not rerun the source suite. It accepts only commits on main and the exact
+  # NuGet bytes consumed in this run. The npm tarball is identity/hash checked, not consumer-tested.
+  # The source/run-bound receipt and distribution manifest are checked after artifact transfer, and
+  # every file must carry the attest job's attestation for this commit before anything is pushed.
+  publish:
+    needs: [pack-consume, attest]
+    if: >-
+      vars.ACTIONS_ENABLED == 'true'
+      && (startsWith(github.ref, 'refs/tags/') || inputs.publish == true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       packages: write
+      attestations: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -264,7 +295,11 @@ jobs:
       - name: Verify transferred package bytes and consumer proof
         env:
           VERSION: ${{ needs.pack-consume.outputs.version }}
-        run: python3 eng/package-proof.py verify artifacts/packages "$VERSION"
+        run: python3 -I eng/package-proof.py verify artifacts/packages "$VERSION"
+      - name: Refuse any file without the attest job's attestation for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash eng/verify-attestations.sh artifacts/packages
       - name: Require explicit distribution authority
         shell: bash
         run: |
@@ -278,14 +313,22 @@ jobs:
         env:
           VERSION: ${{ needs.pack-consume.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The push runs from an empty directory outside the checkout, so the only nuget.config in NuGet's lookup
+        # path is the one this step writes there; no repository config is read, and the token is never written to
+        # the repository's (T-1139). GitHub Packages authenticates the service index as well as the push, so the
+        # source keeps the credentials the earlier flow gave it, in that throwaway file.
         run: |
+          packages="$GITHUB_WORKSPACE/artifacts/packages"
+          cd "$(mktemp -d)"
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<configuration />' > nuget.config
           dotnet nuget add source \
+            --configfile nuget.config \
             --username "${GITHUB_ACTOR}" \
             --password "${GH_TOKEN}" \
             --store-password-in-clear-text \
             --name github \
             "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json"
-          dotnet nuget push "artifacts/packages/*.nupkg" \
+          dotnet nuget push "$packages/*.nupkg" \
             --source github \
             --api-key "${GH_TOKEN}" \
             --skip-duplicate
@@ -295,9 +338,18 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: '@harborline-software'
       - name: Publish the npm contracts package to GitHub Packages
+        # npm reads only a user config this step writes, from an empty directory outside the checkout, so no
+        # .npmrc in the repository can redirect the registry or the token; --ignore-scripts runs no package
+        # scripts (T-1139).
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for tgz in artifacts/packages/*.tgz; do
-            npm publish "$tgz" --access restricted
+          packages="$GITHUB_WORKSPACE/artifacts/packages"
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/publish.npmrc"
+          # shellcheck disable=SC2016  # npm expands ${NODE_AUTH_TOKEN} itself; the token must not be written to disk
+          printf '%s\n' '@harborline-software:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
+          cd "$(mktemp -d)"
+          for tgz in "$packages"/*.tgz; do
+            npm publish "$tgz" --access restricted --ignore-scripts --registry https://npm.pkg.github.com
           done

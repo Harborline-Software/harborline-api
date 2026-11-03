@@ -58,6 +58,10 @@ bash "$repo_root/eng/tests/verify-lane.test.sh" || exit 1
 node --test "$repo_root/eng/tests/verify-preflight.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/dependency-ledger.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/focused-mode-policy.test.mjs" || exit 1
+# T-1139: the packing and publishing jobs run no code or config the checkout supplies implicitly.
+node --test "$repo_root/eng/tests/packing-isolation.test.mjs" || exit 1
+# T-1139: only the attest job can sign, and publish refuses any file without its attestation for this commit.
+node --test "$repo_root/eng/tests/attestation-verify.test.mjs" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
 dotnet run --project "$repo_root/eng/test-isolation/test-isolation.csproj" -- "$repo_root" || exit 1
