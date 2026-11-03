@@ -66,10 +66,14 @@ test('dotnet pack restores only from the root nuget.config', () => {
   for (const pack of packs) assert.match(pack, /-p:RestoreConfigFile="\$repo_root\/nuget\.config"/, pack)
 })
 
-test('publish pushes NuGet packages outside the checkout, to an explicit source, writing no config', () => {
+test('publish pushes NuGet packages from outside the checkout, with credentials only in its own config', () => {
   const publish = packing.publish
-  assert.doesNotMatch(publish, /dotnet nuget add source/)
-  assert.match(publish, /cd "\$\(mktemp -d\)"\n\s*dotnet nuget push "\$packages\/\*\.nupkg"\s+--source "https:\/\/nuget\.pkg\.github\.com\//)
+  // Every `dotnet nuget add source` writes to the step's own file, never the nearest (repository) nuget.config.
+  const adds = publish.match(/dotnet nuget add source[^\n]*/g) ?? []
+  assert.ok(adds.length > 0)
+  for (const add of adds) assert.match(add, /--configfile\s+nuget\.config\s/, add)
+  assert.match(publish, /cd "\$\(mktemp -d\)"\n\s*printf '%s\\n' '<\?xml version="1\.0" encoding="utf-8"\?>' '<configuration \/>' > nuget\.config\n\s*dotnet nuget add source\s+--configfile\s+nuget\.config\s/)
+  assert.match(publish, /\n\s*dotnet nuget push "\$packages\/\*\.nupkg"\s+--source github\s+--api-key "\$\{GH_TOKEN\}"/)
 })
 
 test('publish runs npm with only its own user config, outside the checkout, and no package scripts', () => {

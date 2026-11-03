@@ -313,13 +313,23 @@ jobs:
         env:
           VERSION: ${{ needs.pack-consume.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # The push runs from an empty directory outside the checkout against an explicit source URL, so no
-        # nuget.config from the repository is in NuGet's lookup path, and the token is never written to one (T-1139).
+        # The push runs from an empty directory outside the checkout, so the only nuget.config in NuGet's lookup
+        # path is the one this step writes there; no repository config is read, and the token is never written to
+        # the repository's (T-1139). GitHub Packages authenticates the service index as well as the push, so the
+        # source keeps the credentials the earlier flow gave it, in that throwaway file.
         run: |
           packages="$GITHUB_WORKSPACE/artifacts/packages"
           cd "$(mktemp -d)"
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<configuration />' > nuget.config
+          dotnet nuget add source \
+            --configfile nuget.config \
+            --username "${GITHUB_ACTOR}" \
+            --password "${GH_TOKEN}" \
+            --store-password-in-clear-text \
+            --name github \
+            "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json"
           dotnet nuget push "$packages/*.nupkg" \
-            --source "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" \
+            --source github \
             --api-key "${GH_TOKEN}" \
             --skip-duplicate
       - uses: actions/setup-node@v7
