@@ -231,10 +231,11 @@ jobs:
             artifacts/packages/consumer-proof.json
             artifacts/packages/package-manifest.json
           if-no-files-found: error
-  # Publication does not rerun the source suite. It accepts only commits on main and the exact
-  # NuGet bytes consumed in this run. The npm tarball is identity/hash checked, not consumer-tested.
-  # The source/run-bound receipt and distribution manifest are checked after artifact transfer.
-  publish:
+  # T-1139 (owner ruling 2026-11-03: "Separate signing job"). The only job that can sign: it checks nothing out and
+  # runs no repository code, so nothing a commit runs while packing can mint an attestation. It attests each package
+  # and the manifest with SLSA build provenance for this workflow and commit; publish verifies every file against it.
+  # It runs exactly when publish does, so pull requests and the merge queue create no attestations.
+  attest:
     needs: [pack-consume]
     if: >-
       vars.ACTIONS_ENABLED == 'true'
@@ -242,7 +243,33 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: harborline-api-${{ needs.pack-consume.outputs.version }}
+          path: artifacts/packages
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.tgz
+            artifacts/packages/package-manifest.json
+  # Publication does not rerun the source suite. It accepts only commits on main and the exact
+  # NuGet bytes consumed in this run. The npm tarball is identity/hash checked, not consumer-tested.
+  # The source/run-bound receipt and distribution manifest are checked after artifact transfer, and
+  # every file must carry the attest job's attestation for this commit before anything is pushed.
+  publish:
+    needs: [pack-consume, attest]
+    if: >-
+      vars.ACTIONS_ENABLED == 'true'
+      && (startsWith(github.ref, 'refs/tags/') || inputs.publish == true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       packages: write
+      attestations: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -269,6 +296,10 @@ jobs:
         env:
           VERSION: ${{ needs.pack-consume.outputs.version }}
         run: python3 -I eng/package-proof.py verify artifacts/packages "$VERSION"
+      - name: Refuse any file without the attest job's attestation for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash eng/verify-attestations.sh artifacts/packages
       - name: Require explicit distribution authority
         shell: bash
         run: |
