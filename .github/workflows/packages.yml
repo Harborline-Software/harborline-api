@@ -336,6 +336,7 @@ jobs:
         run: |
           packages="$GITHUB_WORKSPACE/artifacts/packages"
           export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/publish.npmrc"
+          # shellcheck disable=SC2016  # npm expands ${NODE_AUTH_TOKEN} itself; the token must not be written to disk
           printf '%s\n' '@harborline-software:registry=https://npm.pkg.github.com' \
             '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
           cd "$(mktemp -d)"
