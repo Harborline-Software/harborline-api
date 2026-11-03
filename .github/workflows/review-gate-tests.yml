@@ -1,0 +1,33 @@
+# Runs the review-gate tests on a PR that changes the gate's script, its path lists or the tests. The gate itself
+# (review-gate.yml) always runs from the base branch, so this is where a change to its rules gets exercised before
+# it lands. Read-only: it never sets the review-gate status.
+name: review-gate-tests
+
+on:
+  pull_request:
+    paths:
+      - .github/review-gate.sh
+      - .github/review-gate.test.mjs
+      - .github/review-risky-paths
+      - .github/review-exempt-paths
+      - .github/workflows/review-gate-tests.yml
+
+concurrency:
+  group: review-gate-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - name: Test the review-gate rules
+        run: node --test .github/review-gate.test.mjs

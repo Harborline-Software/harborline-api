@@ -3,6 +3,9 @@
 # or CodeRabbit, and no blocker from any reviewer that ran. A change under .github/, or one the Claude review
 # escalates, also needs a clean Codex security review on its head; comment "@codex security review" to ask
 # for one after a push, because Codex reviews on its own only when a PR opens or is marked ready.
+# A PR that touches only paths on .github/review-exempt-paths, or a Dependabot patch or minor update that only
+# Dependabot wrote, needs no review if it touches nothing risky, unless a reviewer that ran left a blocker. A risky
+# change, every GitHub Actions bump included, always needs a review and the Codex security review.
 #
 # The logic is .github/review-gate.sh. Every trigger checks out that script and its risky list from the default
 # branch and runs only that code, never anything from the PR's base or head, so a PR cannot change its own pass
@@ -76,6 +79,7 @@ jobs:
           sparse-checkout: |
             .github/review-gate.sh
             .github/review-risky-paths
+            .github/review-exempt-paths
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Set review-gate on the PR head
