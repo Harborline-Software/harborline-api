@@ -49,6 +49,7 @@
     <Compile Include="..\..\packages\shared\HarborlineOperationalEnvironment.cs"
              Link="OperationalEnvironment\HarborlineOperationalEnvironment.cs" />
     <ProjectReference Include="../../src/Harborline.Api.Contracts/Harborline.Api.Contracts.csproj" />
+    <PackageReference Include="Harborline.Foundation.ContentStore" />
     <PackageReference Include="Harborline.Foundation.DataExchange" />
     <PackageReference Include="Harborline.Foundation.FieldRuntime" />
     <PackageReference Include="Harborline.Kernel.WorkItems" />
