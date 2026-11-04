@@ -54,6 +54,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
     private const string UnknownRoot = "invoice-404";
     private const string MistypedRoot = "invoice-8";
     private const string SlashedRoot = "invoice-9";
+    private const string SourcesRoot = "invoice-11";
     private const string RegistryRoot = "invoice-r1";
     private static readonly LayoutRecordReference OwnerRecord = new(SurfacePack.PartyType, "party-19");
 
@@ -274,6 +275,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
     [InlineData(SurfacePack.PlainFieldSurface, "layout.surface.relationship_undeclared", "finance.invoice.supplier")]
     [InlineData(SurfacePack.UnknownFieldSurface, "layout.surface.relationship_undeclared", "finance.invoice.payee")]
     [InlineData(SurfacePack.NestedSurface, "layout.surface.relationship_undeclared", "finance.invoice.owner")]
+    [InlineData(SurfacePack.RepeatedRelatedSurface, "layout.surface.relationship_undeclared", "finance.invoice.owner")]
     public async Task A_relationship_the_root_type_does_not_declare_as_single_target_refuses(string surface, string code, string relationship)
     {
         await using var h = await Host.CreateAsync(TimeSpan.Zero);
@@ -460,6 +462,75 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal("layout.surface.root_unknown", await CodeAsync(unknown));
     }
 
+    [Fact(DisplayName = "T-735 layout-ck-39: a surface binds through a Record Type its pack holds only in the signed dependency it pinned")]
+    public async Task A_record_type_in_the_dependency_closure_binds()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var response = await h.GetAsync(Member, SurfacePack.DependencySurface, Root);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(["owner-card=\"Owner\"", "owner-name=\"Contoso\"", "supplier=\"Fabrikam\""], Blocks(body.RootElement));
+    }
+
+    [Fact(DisplayName = "T-735 layout-ck-39: a closure that declares the root's Record Type twice has no one declaration, so the key refuses")]
+    public async Task A_record_type_declared_twice_in_the_closure_refuses()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        await SurfacePack.InstallRedeclaringPackAsync(h.Packs, h.Tenant);
+
+        using var response = await h.GetAsync(Member, SurfacePack.RedeclaredSurface, Root);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("layout.surface.relationship_undeclared", await CodeAsync(response));
+    }
+
+    [Fact(DisplayName = "T-735: a surface identity two Active packs carry refuses with layout.surface.ambiguous and is not chosen between")]
+    public async Task A_surface_two_active_packs_carry_refuses()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        await SurfacePack.InstallDuplicateSurfaceAsync(h.Packs, h.Tenant);
+
+        using var response = await h.GetAsync(Member, SurfacePack.Invoice, Root);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("layout.surface.ambiguous", await CodeAsync(response));
+    }
+
+    [Fact(DisplayName = "T-735 layout-eng-17: a repeating block resolves per row, a dotted path reads into the record, and an undeclared field or a query with no host source refuses by block")]
+    public async Task The_host_field_sources_resolve_rows_paths_and_refusals()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var response = await h.GetAsync(Member, SurfacePack.SourcesSurface, SourcesRoot);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            // The repeating container places itself with no value, then one child per row (layout-run-2).
+            ["lines=null", "line-amount=5", "line-amount=7", "customer-name=\"Tailspin\"", "customer-missing=null"],
+            Blocks(body.RootElement));
+        Assert.Equal(
+            [("undeclared", "not_a_field", "layout.binding.unresolvable"), ("view", "finance.open-invoices", "layout.binding.unresolvable")],
+            body.RootElement.GetProperty("refusals").EnumerateArray().Select(refusal => (
+                refusal.GetProperty("blockId").GetString(), refusal.GetProperty("name").GetString(), refusal.GetProperty("code").GetString())));
+    }
+
+    [Fact(DisplayName = "T-735: every response and refusal the route writes is marked no-store")]
+    public async Task Every_response_is_no_store()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var served = await h.GetAsync(Member, SurfacePack.Invoice, Root);
+        using var unknown = await h.GetAsync(Member, SurfacePack.Invoice, UnknownRoot);
+        using var refused = await h.GetAsync(ReaderOnly, SurfacePack.Invoice, Root);
+
+        Assert.All(new[] { served, unknown, refused }, each =>
+            Assert.True(each.Headers.CacheControl?.NoStore, "the response must not be cached"));
+    }
+
     [Fact(DisplayName = "layout-eng-31 T-735: in audit-degraded mode a surface with a related block refuses with layout.audit.degraded")]
     public async Task Audit_degraded_mode_refuses_with_its_stable_code()
     {
@@ -545,8 +616,9 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         private readonly ServiceProvider _authorization;
 
         private Host(WebApplication app, ServiceProvider authorization, Pipeline pipeline, LayoutSurfaceOptions options,
-            FixtureRoots roots, FixtureRelatedRecords related)
+            FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs)
         {
+            Packs = packs;
             _app = app;
             _authorization = authorization;
             Pipeline = pipeline;
@@ -560,6 +632,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         }
 
         public HttpClient Client { get; }
+        public Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore Packs { get; }
         public TenantId Tenant { get; } = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
         public Pipeline Pipeline { get; }
         public LayoutSurfaceOptions Options { get; }
@@ -584,6 +657,8 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var roots = new FixtureRoots();
             roots.Add(Root, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.party","id":"party-19"}}""");
+            roots.Add(SourcesRoot, SurfacePack.InvoiceType,
+                """{"customer":{"name":"Tailspin"},"lines":[{"amount":5},{"amount":7}]}""");
             roots.Add(MistypedRoot, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.invoice","id":"party-19"}}""");
             var related = new FixtureRelatedRecords();
@@ -614,7 +689,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();
-            return new Host(app, authorization, pipeline, options, roots, related);
+            return new Host(app, authorization, pipeline, options, roots, related, packs);
         }
 
         public Task<HttpResponseMessage> GetAsync(ActorId caller, string surface, string record, Guid? correlation = null)
