@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Blobs;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
@@ -234,8 +235,23 @@ internal static class LayoutRelationshipMap
     /// has no target, decided before the lookup: if it reached the gate only when the record existed, the gate's
     /// refusal of it would answer, outside the floor, whether the record exists.
     /// </summary>
+    /// <remarks>
+    /// It asks the gate's own grammar, building the same <c>/records/{id}</c> scope the gate builds, so it refuses
+    /// exactly what the gate would (a separator, <c>?</c>, <c>#</c>, a backslash, a dot segment) and no more.
+    /// </remarks>
     private static bool IsAddressable(string id)
-        => id.Length > 0 && !id.Contains('/', StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(id);
+    {
+        if (string.IsNullOrWhiteSpace(id) || id.Contains('/', StringComparison.Ordinal)) return false;
+        try
+        {
+            _ = ScopeExpression.Parse($"/records/{id}");
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     private static bool TryText(JsonNode? node, out string text)
     {

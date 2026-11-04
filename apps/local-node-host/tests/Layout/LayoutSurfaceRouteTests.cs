@@ -270,11 +270,18 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(0, h.Roots.Lookups);
     }
 
-    [Fact(DisplayName = "layout-eng-31 T-735: a reference id the gate cannot address has no target, whether or not a record with that id exists")]
-    public async Task An_unaddressable_reference_id_has_no_target_either_way()
+    [Theory(DisplayName = "layout-eng-31 T-735: a reference id the gate cannot address has no target, whether or not a record with that id exists")]
+    [InlineData("party/19")]
+    [InlineData("party?19")]
+    [InlineData("party#19")]
+    [InlineData("party\\19")]
+    [InlineData("..")]
+    public async Task An_unaddressable_reference_id_has_no_target_either_way(string id)
     {
         await using var h = await Host.CreateAsync(TimeSpan.Zero);
-        h.Related.Add(new LayoutRecordReference(SurfacePack.PartyType, "party/19"), """{"name":"Slashed"}""");
+        h.Related.Add(new LayoutRecordReference(SurfacePack.PartyType, id), """{"name":"Unaddressable"}""");
+        h.Roots.Add(SlashedRoot, SurfacePack.InvoiceType,
+            $$$"""{"supplier":"Fabrikam","owner":{"type":"finance.party","id":{{{JsonSerializer.Serialize(id)}}}}}""");
 
         h.Related.Present = false;
         var absent = await h.ReadAsync(Member, SurfacePack.Invoice, SlashedRoot);
@@ -437,8 +444,6 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var roots = new FixtureRoots();
             roots.Add(Root, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.party","id":"party-19"}}""");
-            roots.Add(SlashedRoot, SurfacePack.InvoiceType,
-                """{"supplier":"Fabrikam","owner":{"type":"finance.party","id":"party/19"}}""");
             roots.Add(MistypedRoot, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.invoice","id":"party-19"}}""");
             var related = new FixtureRelatedRecords();
