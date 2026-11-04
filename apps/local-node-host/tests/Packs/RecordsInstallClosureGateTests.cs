@@ -453,7 +453,7 @@ public sealed class RecordsInstallClosureGateTests
             .Order(StringComparer.Ordinal);
         Assert.Equal(
             published.Append("pack.install.refused.records_unpublished_refusal").Append("pack.install.refused.records_gate_not_evaluated")
-                .Append("pack.install.refused.records_admission_unsupported")
+                .Append("pack.install.refused.records_admission_unsupported").Append("pack.install.refused.records_edge_undeclared")
                 .Order(StringComparer.Ordinal),
             declared);
     }

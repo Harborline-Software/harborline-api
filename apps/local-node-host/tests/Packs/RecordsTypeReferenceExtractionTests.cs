@@ -137,6 +137,46 @@ public sealed class RecordsTypeReferenceExtractionTests
         Assert.DoesNotContain("pack.install.refused.records_admission_unsupported", unverified.RefusalCodes);
     }
 
+    [Theory(DisplayName = "T-615 CWE-345: a signed edge from a Records item that its body does not declare is refused at the item")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Install_refuses_extra_signed_records_edge(bool extra)
+    {
+        // Oracle: the T-EXACT literal edge the body derives; the extra edge targets the same installed item as ParentOf,
+        // so it passes the unmet-reference check and only the Records body comparison can refuse it.
+        PackContentReferenceEdge Edge(PackFeatureEdgeRelation relation) => new("consumer.work", PackContentKind.AssetTypeDefinition,
+            "eam-core", "records/eam.asset-class", PackContentKind.AssetTypeDefinition, relation);
+        using var key = KeyPair.Generate();
+        var tenant = new TenantId("tenant-a");
+        var store = new InMemoryPackInstallStore();
+        store.Commit(new PackInstallTransaction(tenant, RecordsInstallClosureGateTests.AssetClassProducer(),
+            new PackInstallWatermark("eam-core", "7.0.0", new Dictionary<string, int>()), []));
+        var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
+            new WorkflowRefusingPackContentAdmission(), new InMemoryPackInstallAudit(), TestAuthorization.AllowGate())
+        { RecordsAdmission = RecordsInstallClosureGateTests.Records().AdmitInstallAsync };
+        var context = new PackInstallContext(tenant,
+            new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, key.PrincipalId, 1, TrustRootStatus.Current)]),
+            PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(DateTimeOffset.FromUnixTimeSeconds(1791633600)), TimeSpan.FromDays(30), Principal: "test-operator");
+        PackContentReferenceEdge[] signed = extra
+            ? [Edge(PackFeatureEdgeRelation.References), Edge(PackFeatureEdgeRelation.ParentOf)]
+            : [Edge(PackFeatureEdgeRelation.References)];
+        var file = await new RecordsTypeReferenceUncheckedExporter(signed).ExportAsync(Request(Body()), new Ed25519Signer(key));
+
+        var outcome = await installer.InstallAsync(file.FileBytes!, context);
+
+        if (!extra)
+        {
+            Assert.True(outcome.Installed, string.Join("; ", outcome.Preview.Refusals));
+            return;
+        }
+        Assert.False(outcome.Installed);
+        var refusal = Assert.Single(outcome.Preview.AdmissionRefusals);
+        Assert.Equal(("consumer.work", "pack.install.refused.records_edge_undeclared", ""), (refusal.ContentKey, refusal.Code, refusal.Pointer));
+        var located = Assert.Single(outcome.Preview.Refusals);
+        Assert.Equal(("pack.install.refused.admission", "/contents/0/contentBase64"), (located.Code, located.Pointer));
+        Assert.Null(store.GetVersion(tenant, "consumer", "1.0.0"));
+    }
+
     [Fact(DisplayName = "T-615: duplicate and self references keep one located outcome per occurrence; identity collisions refuse")]
     public void Internal_join_is_exact_and_located()
     {

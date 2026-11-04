@@ -2405,14 +2405,26 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             installed, RecordsAdmission, ct).ConfigureAwait(false);
         if (admission.IsAdmissible)
         {
-            var references = PackContentReferenceDeriver.ResolveRecords(plan.NewInstalledPack.PackKey,
-                seeds.Select(item => new PackContentSource(item.Key, item.Kind, item.Version, item.ParseContent())).ToArray(),
+            var sources = seeds.Select(item => new PackContentSource(item.Key, item.Kind, item.Version, item.ParseContent())).ToArray();
+            var references = PackContentReferenceDeriver.ResolveRecords(plan.NewInstalledPack.PackKey, sources,
                 plan.NewInstalledPack.Dependencies, installed);
+            var signed = plan.NewInstalledPack.ContentReferences ?? [];
             var missing = references.Where(reference => reference.RefusalCode is not null
-                || (reference.Edge is not null && !(plan.NewInstalledPack.ContentReferences ?? []).Contains(reference.Edge)));
+                || (reference.Edge is not null && !signed.Contains(reference.Edge)));
+            // CWE-345: the graph projects signed edges without re-reading bodies, so a signed edge from a Records item
+            // must be one its body derives (a Records edge or the legacy parentType edge); anything else is refused.
+            var gated = RecordsInstallClosureGate.GatedItems(seeds).Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
+            var derived = references.Where(reference => reference.Edge is not null).Select(reference => reference.Edge!)
+                .Concat(PackContentReferenceDeriver.Derive(plan.NewInstalledPack.PackKey, sources,
+                    plan.NewInstalledPack.Dependencies.Select(dependency => dependency.Key)) ?? [])
+                .ToHashSet();
+            var extra = signed.Where(edge => gated.Contains(edge.FromContentKey) && !derived.Contains(edge));
             admission = new PackAdmissionResult(missing.Select(reference => new PackAdmissionRefusal(reference.ContentKey,
                 PackRecordsInstallCodes.PublishedCode(reference.RefusalCode ?? PackRecordsInstallCodes.ClosureMissing), "The signed Records reference has no exact admitted edge.")
-                { Pointer = reference.Pointer }).ToArray());
+                { Pointer = reference.Pointer })
+                .Concat(extra.Select(edge => new PackAdmissionRefusal(edge.FromContentKey, PackRecordsInstallCodes.EdgeUndeclared,
+                    $"The signed edge to '{edge.ToPackKey}/{edge.ToContentKey}' is not declared by the Records body.")))
+                .ToArray());
         }
         if (admission.IsAdmissible)
             return plan;

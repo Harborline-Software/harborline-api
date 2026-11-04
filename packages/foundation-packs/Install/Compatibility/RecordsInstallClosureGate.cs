@@ -296,6 +296,12 @@ public static class PackRecordsInstallCodes
     /// <summary>The host cannot run complete Records admission, so affected content cannot install.</summary>
     public const string AdmissionUnsupported = "pack.install.refused.records_admission_unsupported";
 
+    /// <summary>
+    /// The signed manifest carries a content reference from a Record Type that the Record Type's body does not derive.
+    /// The pointer names the claiming item (CWE-345: signed edges are compared to the body in both directions).
+    /// </summary>
+    public const string EdgeUndeclared = "pack.install.refused.records_edge_undeclared";
+
     /// <summary>Returns <paramref name="platformCode"/> when the API publishes it, otherwise <see cref="Unpublished"/>.</summary>
     /// <param name="platformCode">A code the Platform Records install gate reported.</param>
     public static string PublishedCode(string? platformCode)
@@ -322,6 +328,7 @@ public static class PackRecordsInstallCodes
             InterfaceIncompatible => PackRecordsInstallCodes.InterfaceIncompatible,
             ClosureMissing => PackRecordsInstallCodes.ClosureMissing,
             ClosureChanged => PackRecordsInstallCodes.ClosureChanged,
+            EdgeUndeclared => PackRecordsInstallCodes.EdgeUndeclared,
             _ => PackRecordsInstallCodes.Unpublished,
         };
     }
