@@ -230,6 +230,7 @@ public sealed class RecordsTypeReferenceExtractionTests
     [InlineData("absent", "records.reference.dependency_undeclared")]
     [InlineData("missing", "records.reference.dependency_undeclared")]
     [InlineData("wrong", "records.reference.interface_incompatible")]
+    [InlineData("prefix", "records.reference.dependency_undeclared")]
     [InlineData("self", "records.reference.pin_unexpected")]
     public async Task Reference_declarations_are_exact(string declaration, string? code)
     {
@@ -238,6 +239,7 @@ public sealed class RecordsTypeReferenceExtractionTests
         {
             "mixed" => JsonNode.Parse("[{\"capability\":\"eam-core@1\"},{\"capability\":\"other@1\"}]"),
             "wrong" => JsonNode.Parse("[{\"capability\":\"eam-core@2\"}]"),
+            "prefix" => JsonNode.Parse("[{\"capability\":\"eam-core-extra@1\"}]"),
             _ => new JsonArray(),
         };
         if (declaration == "missing") request.Contents[0].Content["envelope"]!.AsObject().Remove("requires");
@@ -298,6 +300,66 @@ public sealed class RecordsTypeReferenceExtractionTests
         Assert.Equal(("pack.validation.reference.dependency_undeclared", "consumer.work"),
             (validation.Errors[0].Code, validation.Errors[0].Target));
         Assert.Contains(validation.Errors, error => error.Code == "records.document_invalid");
+    }
+
+    [Fact(DisplayName = "T-615: signed Records edges are ordinal and deduplicated while every source reference keeps its pointer")]
+    public async Task Signed_records_edges_are_ordered_and_deduplicated()
+    {
+        var producer = RecordsInstallClosureGateTests.AssetClassProducer();
+        var seed = producer.SeedItems[0];
+        var otherContent = new PackContentCanonicalizer().Canonicalize(new PackContentSource("records/eam.other", seed.Kind,
+            seed.Version, JsonNode.Parse(seed.CanonicalJson.Replace("eam.asset-class", "eam.other", StringComparison.Ordinal))!));
+        var other = new PackSeedItem(otherContent.Key, otherContent.Kind, otherContent.Version,
+            System.Text.Encoding.UTF8.GetString(otherContent.CanonicalBytes.Span), otherContent.ContentAddress);
+        producer = producer with { SeedItems = [seed, other], Exposes = [seed.Key, other.Key],
+            ExposedDefinitions = [new(seed.Key, "3.1.4", Digest), new(other.Key, "3.1.4", Digest)] };
+        var body = JsonNode.Parse(Body())!;
+        var fields = body["fields"]!.AsArray();
+        var first = fields[0]!.DeepClone();
+        first["reference"]!["target_type_id"] = "eam.other";
+        first["reference"]!["pin"]!["definition_id"] = "eam.other";
+        first["field_key"] = "other";
+        first["reference"]!["parent"] = false;
+        fields.Insert(0, first);
+        var duplicate = fields[1]!.DeepClone();
+        duplicate["field_key"] = "again";
+        duplicate["reference"]!["parent"] = false;
+        fields.Add(duplicate);
+        var another = first.DeepClone();
+        another["field_key"] = "another";
+        another["reference"]!["pin"]!["package_id"] = "aaa";
+        fields.Add(another);
+        body["envelope"]!["requires"]!.AsArray().Add(new JsonObject { ["capability"] = "aaa@1" });
+        var secondProducer = producer with { PackKey = "aaa", SeedItems = [other], Exposes = [other.Key],
+            ExposedDefinitions = [new(other.Key, "3.1.4", Digest)] };
+        var source = new PackContentSource("consumer.z", PackContentKind.AssetTypeDefinition, "1.0.0", body);
+        var second = source with { Key = "consumer.a", Content = body.DeepClone() };
+        second.Content["record_type_id"] = "consumer.a";
+        var request = Request(Body()) with { Contents = [source, second], VerifiedProducers = [producer, secondProducer],
+            Dependencies = [new("eam-core", "7.0.0", []), new("aaa", "7.0.0", [])] };
+        var resolved = PackContentReferenceDeriver.ResolveRecords("consumer", request.Contents, request.Dependencies, request.VerifiedProducers);
+        Assert.Equal(["consumer.z/fields/0/reference", "consumer.z/fields/1/reference", "consumer.z/fields/2/reference",
+            "consumer.z/fields/3/reference", "consumer.a/fields/0/reference", "consumer.a/fields/1/reference",
+            "consumer.a/fields/2/reference", "consumer.a/fields/3/reference"],
+            resolved.Select(reference => reference.ContentKey + reference.Pointer));
+        using var key = KeyPair.Generate();
+        var outcome = await Exporter().ExportAsync(request, new Ed25519Signer(key));
+        Assert.True(outcome.Succeeded, string.Join("; ", outcome.Validation.Errors));
+        Assert.Equal(["consumer.a|aaa|records/eam.other", "consumer.a|eam-core|records/eam.asset-class", "consumer.a|eam-core|records/eam.other",
+            "consumer.z|aaa|records/eam.other", "consumer.z|eam-core|records/eam.asset-class", "consumer.z|eam-core|records/eam.other"],
+            outcome.File!.Envelope!.Payload.Manifest.ContentReferences!.Select(edge => edge.FromContentKey + "|" + edge.ToPackKey + "|" + edge.ToContentKey));
+    }
+
+    [Fact(DisplayName = "T-615 legacy bytes: an empty reference set remains absent in the signed manifest")]
+    public async Task Empty_references_are_omitted()
+    {
+        var request = Request("{\"displayName\":\"Legacy\"}") with { Dependencies = [] };
+        using var key = KeyPair.Generate();
+        var outcome = await Exporter().ExportAsync(request, new Ed25519Signer(key));
+        Assert.True(outcome.Succeeded);
+        Assert.Null(outcome.File!.Envelope!.Payload.Manifest.ContentReferences);
+        var canonical = System.Text.Encoding.UTF8.GetString(CanonicalJson.Serialize(outcome.File.Envelope.Payload.Manifest));
+        Assert.DoesNotContain("contentReferences", canonical, StringComparison.Ordinal);
     }
 
 }
