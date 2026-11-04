@@ -1,0 +1,168 @@
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.LocalNodeHost.Layout;
+using Harborline.Blocks.LayoutRuntime;
+
+namespace Harborline.Api.LocalNodeHost.Health;
+
+/// <summary>
+/// T-735: serves an Active installed pack's Layout surface for one root record through the registered
+/// <see cref="LayoutSurfaceHost"/>, under the selected-session principal and the existing
+/// <see cref="RequestAuthorization"/> pipeline.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Root existence (MITRE CWE-203; OWASP API Security Top 10 2023, API1).</b> <c>records:read</c> on the root is
+/// decided before the surface, the root or anything else is looked up, so a caller who may not read the root gets
+/// one refusal whether or not it exists, and whether or not the surface does. Only an authorized caller learns
+/// that a root is unknown.
+/// </para>
+/// <para>
+/// <b>Related targets (DES-0052 layout-eng-31).</b> The relationship map comes from the Records reference fields the
+/// root's Record Type declares in the surface pack's signed closure (layout-ck-28, layout-ck-39); the lookups run
+/// inside the host's floor through its traversal callbacks. A missing and a denied target resolve to the same
+/// absent block with the same status, so nothing on the wire says which it was. The response carries no request
+/// or correlation id: the denial trace is keyed by the caller's own <c>X-Correlation-ID</c> when it sends one.
+/// </para>
+/// </remarks>
+public static class LayoutSurfaceRoutes
+{
+    /// <summary>The route: one installed surface, by its definition identity, for one root record.</summary>
+    public const string RouteTemplate = "/api/local-node/layout/surfaces/{surfaceId}/records/{recordId}";
+
+    /// <summary>The RFC 9457 problem media type every refusal this route owns is written with.</summary>
+    internal const string ProblemContentType = "application/problem+json";
+
+    /// <summary>Maps the surface route, closing over dependencies from the outer host container.</summary>
+    public static void Map(
+        IEndpointRouteBuilder app,
+        LayoutSurfaceHost host,
+        IPackInstallStore packs,
+        ILayoutRootRecordSource roots,
+        ILayoutRelatedRecordSource related)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(packs);
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(related);
+
+        app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (principal is null || principal.TenantId.IsSystemSentinel)
+                return Results.Unauthorized();
+            if (SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation)
+                return invalidCorrelation;
+            var tenant = principal.TenantId;
+
+            // Decided before any lookup: existence is not probeable through the refusal.
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct)
+                .ConfigureAwait(false);
+            if (denied is not null)
+                return denied;
+
+            var (surface, ambiguous) = InstalledLayoutSurfaces.Find(packs, tenant, surfaceId);
+            if (ambiguous)
+                return Problem(StatusCodes.Status409Conflict, LayoutSurfaceCodes.SurfaceAmbiguous,
+                    "More than one installed pack carries this Layout surface.");
+            if (surface is null)
+                return Problem(StatusCodes.Status404NotFound, LayoutSurfaceCodes.SurfaceUnknown,
+                    "No installed pack carries this Layout surface.");
+
+            var root = await roots.FindAsync(tenant, recordId, ct).ConfigureAwait(false);
+            if (root is null)
+                return Problem(StatusCodes.Status404NotFound, LayoutSurfaceCodes.RootUnknown,
+                    "The root record does not exist.");
+
+            var rootType = InstalledLayoutSurfaces.RecordType(packs, tenant, surface.Pack, root.RecordTypeId);
+            var relationships = LayoutRelationshipMap.Build(surface.Definition, rootType,
+                new LayoutRelatedRecordRequestCache(related, tenant), out var refusal);
+            if (refusal is not null)
+                return Problem(StatusCodes.Status422UnprocessableEntity, refusal.Code,
+                    "A related block's relationship is not a single-target reference the root's Record Type declares.",
+                    refusal.Relationship);
+
+            var requestId = (http.Features.Get<SelectedRequestCorrelation>()?.Value ?? Guid.NewGuid()).ToString("D");
+            try
+            {
+                var resolution = await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
+                    relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
+                    tenant, NodeGatePrincipal.Of(principal), requestId, ct).ConfigureAwait(false);
+                return Results.Json(LayoutSurfaceResponse.Of(surface.Definition, resolution));
+            }
+            catch (LayoutAuditDegradedException)
+            {
+                return Problem(StatusCodes.Status503ServiceUnavailable, LayoutAuditDegradedException.Code,
+                    "Related records are unavailable while this node's audit trail is degraded.");
+            }
+        });
+    }
+
+    private static IResult Problem(int status, string code, string title, string? relationship = null)
+        => Results.Json(new LayoutSurfaceProblem(title, status, code, relationship),
+            contentType: ProblemContentType, statusCode: status);
+}
+
+/// <summary>An RFC 9457 problem with the route's stable <paramref name="Code"/> as an extension member.</summary>
+/// <param name="Title">A short, fixed summary of the problem type.</param>
+/// <param name="Status">The HTTP status code.</param>
+/// <param name="Code">The stable refusal code.</param>
+/// <param name="Relationship">For a relationship refusal, the authored key that did not bind.</param>
+public sealed record LayoutSurfaceProblem(
+    string Title,
+    int Status,
+    string Code,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Relationship = null);
+
+/// <summary>A resolved surface on the wire: what placed, what a guard withheld and what refused.</summary>
+/// <param name="Surface">The surface's definition identity.</param>
+/// <param name="Version">The installed definition version.</param>
+/// <param name="Blocks">The placed blocks, in authored order.</param>
+/// <param name="Refusals">One entry per unresolvable binding.</param>
+/// <param name="Hidden">The blocks a <c>show_when</c> guard withheld.</param>
+public sealed record LayoutSurfaceResponse(
+    string Surface,
+    string Version,
+    IReadOnlyList<LayoutSurfaceBlock> Blocks,
+    IReadOnlyList<LayoutSurfaceRefusal> Refusals,
+    IReadOnlyList<string> Hidden)
+{
+    internal static LayoutSurfaceResponse Of(Harborline.Blocks.BuilderDefinitions.LayoutDefinition definition,
+        LayoutBindingResolution resolution) => new(
+        definition.Envelope.Identity,
+        definition.Envelope.Version,
+        [.. resolution.Blocks.Select(block => new LayoutSurfaceBlock(
+            block.BlockId, block.Kind, block.BindingKind, block.Name, block.Value?.DeepClone(), block.RowId))],
+        [.. resolution.Refusals.Select(refusal => new LayoutSurfaceRefusal(
+            refusal.BlockId, refusal.BindingKind, refusal.Name, refusal.Code, refusal.RowId))],
+        [.. resolution.Hidden]);
+}
+
+/// <summary>One placed block.</summary>
+public sealed record LayoutSurfaceBlock(
+    string BlockId,
+    string Kind,
+    string BindingKind,
+    string Name,
+    JsonNode? Value,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RowId);
+
+/// <summary>One unresolvable binding.</summary>
+public sealed record LayoutSurfaceRefusal(
+    string BlockId,
+    string BindingKind,
+    string Name,
+    string Code,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RowId);
