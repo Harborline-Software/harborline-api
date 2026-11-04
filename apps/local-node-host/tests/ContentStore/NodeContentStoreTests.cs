@@ -94,7 +94,7 @@ public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposabl
     {
         using (var backing = new NodeContentStoreStorage(_path, Key))
             Assert.Throws<IOException>(() => new NodeContentStoreStorage(_path, Key));
-        Assert.Throws<SqliteException>(() => new NodeContentStoreStorage(_path, new byte[32]));
+        Assert.Throws<SqliteException>(() => new NodeContentStoreStorage(_path, Enumerable.Repeat((byte)0x39, 32).ToArray()));
         using var recovered = new NodeContentStoreStorage(_path, Key);
     }
 
@@ -130,8 +130,28 @@ public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposabl
             sparse.SetLength(1L << 30);
         }
         var sparseFree = new DriveInfo(storage.DirectoryPath).AvailableFreeSpace;
-        Assert.InRange(quota.GetQuotaBaseBytes() - sparseFree, 0, 16 * 1024 * 1024);
+        // Free space can move either way between the two reads, so the tolerance is symmetric (16 MiB).
+        Assert.InRange(quota.GetQuotaBaseBytes() - sparseFree, -16L * 1024 * 1024, 16L * 1024 * 1024);
         File.Delete(Path.Combine(storage.DirectoryPath, "allocation-probe"));
+    }
+
+    [Fact]
+    public void An_all_zero_key_is_refused_and_a_second_provider_reopens_with_the_derived_key()
+    {
+        Assert.Throws<ArgumentException>(() => new NodeContentStoreStorage(_path, new byte[32]));
+        var services = new ServiceCollection().AddNodeContentStore(_path, Key);
+        ContentReference reference;
+        using (var first = services.BuildServiceProvider())
+        {
+            var store = Store(first.GetRequiredService<IContentStoreStorage>());
+            reference = store.Commit(Tenant, Put(store), new("record", "one"), "x.txt");
+        }
+        // A second provider from the same collection must open the same database, not a new one under a cleared key.
+        using var second = services.BuildServiceProvider();
+        var reopened = Store(second.GetRequiredService<IContentStoreStorage>());
+        using var body = reopened.Read(Tenant, reference, true).Body;
+        using var plain = new MemoryStream(); body.CopyTo(plain);
+        Assert.Equal("hello"u8.ToArray(), plain.ToArray());
     }
 
     [Fact]

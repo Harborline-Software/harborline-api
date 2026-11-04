@@ -32,6 +32,9 @@ public sealed class NodeContentStoreStorage : IContentStoreStorage, IDisposable
     public NodeContentStoreStorage(string directory, ReadOnlySpan<byte> databaseKey)
     {
         if (databaseKey.Length != 32) throw new ArgumentException("A 256-bit store key is required.", nameof(databaseKey));
+        // An all-zero key is a cleared or uninitialised buffer, never a derived key; refuse it rather than create or
+        // open a store under it (CWE-1391 weak credentials, CWE-665 improper initialisation).
+        if (!databaseKey.ContainsAnyExcept((byte)0)) throw new ArgumentException("The store key is all zero.", nameof(databaseKey));
         DirectoryPath = Path.GetFullPath(directory);
         Directory.CreateDirectory(DirectoryPath);
         // Only installation-owned paths; tenant/content ids never become paths (CWE-22).

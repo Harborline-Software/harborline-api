@@ -46,7 +46,10 @@ public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) :
             if (!GetFileInformationByHandleEx(file, 1, out var info, Marshal.SizeOf<FileStandardInfo>())) throw new Win32Exception();
             return info.AllocationSize;
         }
-        if (!Environment.Is64BitProcess) throw new PlatformNotSupportedException("Content-store allocation measurement requires a 64-bit host.");
+        // The st_blocks offsets below are verified only for these ABIs; refuse every other platform explicitly.
+        var arch = RuntimeInformation.ProcessArchitecture;
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) || (arch != Architecture.X64 && arch != Architecture.Arm64))
+            throw new PlatformNotSupportedException($"Content-store allocation measurement supports Windows, and Linux or macOS on x64 or arm64; this host is {RuntimeInformation.OSDescription} {arch}.");
         // Native 64-bit ABI: st_blocks is measured in 512-byte units, including sparse files.
         var status = new byte[256];
         // x64 macOS exports the 64-bit-inode stat as fstat$INODE64; arm64 macOS has only that layout, as fstat.

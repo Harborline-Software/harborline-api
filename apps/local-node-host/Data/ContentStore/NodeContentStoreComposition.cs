@@ -15,13 +15,14 @@ public static class NodeContentStoreComposition
         HKDF.DeriveKey(HashAlgorithmName.SHA256, atRestRootKey, key, salt: [], info: "harborline-content-store:database:v1"u8);
         var directory = Path.Combine(dataDirectory, "content-store");
         // The container builds and disposes the storage, so a composition abandoned before its provider is built
-        // never holds the writer lease. The key is cleared once the singleton opens; a failed open keeps it so a
-        // retry opens the same database rather than creating one under a cleared key.
+        // never holds the writer lease. Each factory run opens with its own copy of the derived key and clears only
+        // that copy, so a second provider built from this collection opens the same database under the same key.
+        // The derived key lives as long as the collection, as SqlCipherConnectionInterceptor's does.
         services.AddSingleton(_ =>
         {
-            var storage = new NodeContentStoreStorage(directory, key);
-            CryptographicOperations.ZeroMemory(key);
-            return storage;
+            var copy = key.ToArray();
+            try { return new NodeContentStoreStorage(directory, copy); }
+            finally { CryptographicOperations.ZeroMemory(copy); }
         });
         services.AddSingleton<IContentStoreStorage>(provider => provider.GetRequiredService<NodeContentStoreStorage>());
         services.AddSingleton<IContentStoreQuotaBase, NodeContentStoreQuotaBase>();
