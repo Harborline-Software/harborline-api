@@ -9,6 +9,7 @@
     <PackageVersion Include="Harborline.Contracts" Version="$(HarborlinePackedVersion)"  Justification="platform"/>
     <PackageVersion Include="Harborline.Blocks.EntityViews" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.MultiTenancy" Version="$(HarborlinePackedVersion)"  Justification="platform"/>
+    <PackageVersion Include="Harborline.Foundation.ContentStore" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.DataExchange" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.FieldRuntime" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Kernel.WorkItems" Version="$(HarborlinePackedVersion)" Justification="platform"/>
