@@ -13,7 +13,7 @@ using Xunit.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ContentStore;
 
-public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposable
+public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), "t521-" + Guid.NewGuid().ToString("N"));
     private static readonly byte[] Key = Enumerable.Repeat((byte)0x38, 32).ToArray();
@@ -236,9 +236,9 @@ public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposabl
             $"FSCTL_SET_SPARSE failed: {Marshal.GetLastPInvokeError()}");
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeviceIoControl(SafeFileHandle device, uint code, IntPtr inBuffer, uint inSize,
+    private static partial bool DeviceIoControl(SafeFileHandle device, uint code, IntPtr inBuffer, uint inSize,
         IntPtr outBuffer, uint outSize, out uint returned, IntPtr overlapped);
 
     public void Dispose() { if (Directory.Exists(_path)) Directory.Delete(_path, true); }

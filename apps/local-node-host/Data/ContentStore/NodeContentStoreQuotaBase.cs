@@ -14,7 +14,7 @@ namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 /// glibc x86_64 and the generic aarch64 layouts, and a test checks the result against <c>stat(1)</c>. Database
 /// allocation, including free pages, is counted rather than plaintext or sparse logical length.
 /// </remarks>
-public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) : IContentStoreQuotaBase
+public sealed partial class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) : IContentStoreQuotaBase
 {
     public long GetQuotaBaseBytes()
     {
@@ -51,13 +51,13 @@ public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) :
         if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) || (arch != Architecture.X64 && arch != Architecture.Arm64))
             throw new PlatformNotSupportedException($"Content-store allocation measurement supports Windows, and Linux or macOS on x64 or arm64; this host is {RuntimeInformation.OSDescription} {arch}.");
         // Native 64-bit ABI: st_blocks is measured in 512-byte units, including sparse files.
-        var status = new byte[256];
+        Span<byte> status = stackalloc byte[256];
         // x64 macOS exports the 64-bit-inode stat as fstat$INODE64; arm64 macOS has only that layout, as fstat.
         var result = !OperatingSystem.IsMacOS() || RuntimeInformation.ProcessArchitecture == Architecture.Arm64
             ? UnixFStat(file, status)
             : MacX64FStat(file, status);
         if (result != 0) throw new Win32Exception();
-        return checked(BitConverter.ToInt64(status, OperatingSystem.IsMacOS() ? 104 : 64) * 512);
+        return checked(BitConverter.ToInt64(status[(OperatingSystem.IsMacOS() ? 104 : 64)..]) * 512);
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -69,14 +69,15 @@ public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) :
         public byte DeletePending;
         public byte Directory;
     }
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    // Source-generated P/Invoke (LibraryImport, SYSLIB1054). Win32 paths are UTF-16; errno/GetLastError is kept.
+    [LibraryImport("kernel32.dll", EntryPoint = "GetDiskFreeSpaceExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetDiskFreeSpaceEx(string directory, out ulong available, out ulong total, out ulong free);
-    [DllImport("kernel32.dll", SetLastError = true)]
+    private static partial bool GetDiskFreeSpaceEx(string directory, out ulong available, out ulong total, out ulong free);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetFileInformationByHandleEx(SafeFileHandle file, int informationClass, out FileStandardInfo info, int size);
-    [DllImport("libc", EntryPoint = "fstat$INODE64", SetLastError = true)]
-    private static extern int MacX64FStat(SafeFileHandle file, [Out] byte[] status);
-    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
-    private static extern int UnixFStat(SafeFileHandle file, [Out] byte[] status);
+    private static partial bool GetFileInformationByHandleEx(SafeFileHandle file, int informationClass, out FileStandardInfo info, int size);
+    [LibraryImport("libc", EntryPoint = "fstat$INODE64", SetLastError = true)]
+    private static partial int MacX64FStat(SafeFileHandle file, Span<byte> status);
+    [LibraryImport("libc", EntryPoint = "fstat", SetLastError = true)]
+    private static partial int UnixFStat(SafeFileHandle file, Span<byte> status);
 }
