@@ -1,6 +1,6 @@
 using Harborline.Api.Foundation.Forms.Models;
 
-using ContractRule = Harborline.Contracts.Forms.RuleDefinition;
+using ContractRule = Harborline.Contracts.Rules.RuleDefinition;
 
 namespace Harborline.Api.Foundation.Forms.Engine;
 
@@ -15,11 +15,11 @@ internal static class PlatformRuleContract
     internal static ContractRule ToContract(RuleDefinition rule) => new()
     {
         Id = rule.Id,
-        Tier = Enum.Parse<Harborline.Contracts.Forms.RuleTier>(rule.Tier.ToString()),
-        Scope = Enum.Parse<Harborline.Contracts.Forms.RuleScope>(rule.Scope.ToString()),
+        Tier = Enum.Parse<Harborline.Contracts.Rules.RuleTier>(rule.Tier.ToString()),
+        Scope = Enum.Parse<Harborline.Contracts.Rules.RuleScope>(rule.Scope.ToString()),
         ScopeTarget = rule.ScopeTarget,
         Expression = rule.Expression,
-        Action = Enum.Parse<Harborline.Contracts.Forms.RuleActionKind>(rule.Action.ToString()),
+        Action = Enum.Parse<Harborline.Contracts.Rules.RuleActionKind>(rule.Action.ToString()),
     };
 
     internal static ContractRule[] ToContract(IEnumerable<RuleDefinition> rules) => rules.Select(ToContract).ToArray();
@@ -28,10 +28,10 @@ internal static class PlatformRuleContract
     internal static ContractRule PageGuard(string pageId, string guard) => new()
     {
         Id = $"page-guard:{pageId}",
-        Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-        Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+        Tier = Harborline.Contracts.Rules.RuleTier.JsonLogic,
+        Scope = Harborline.Contracts.Rules.RuleScope.Schema,
         ScopeTarget = string.Empty,
         Expression = guard,
-        Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+        Action = Harborline.Contracts.Rules.RuleActionKind.Validate,
     };
 }

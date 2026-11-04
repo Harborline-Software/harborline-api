@@ -284,14 +284,14 @@ internal sealed class VerificationCandidateWorld
 
     // The api Forms model to the platform contract, as the Forms submit gate maps it: the enums by member name, so a
     // renamed member fails loudly instead of shifting.
-    private static Harborline.Contracts.Forms.RuleDefinition ToContract(RuleDefinition rule) => new()
+    private static Harborline.Contracts.Rules.RuleDefinition ToContract(RuleDefinition rule) => new()
     {
         Id = rule.Id,
-        Tier = Enum.Parse<Harborline.Contracts.Forms.RuleTier>(rule.Tier.ToString()),
-        Scope = Enum.Parse<Harborline.Contracts.Forms.RuleScope>(rule.Scope.ToString()),
+        Tier = Enum.Parse<Harborline.Contracts.Rules.RuleTier>(rule.Tier.ToString()),
+        Scope = Enum.Parse<Harborline.Contracts.Rules.RuleScope>(rule.Scope.ToString()),
         ScopeTarget = rule.ScopeTarget,
         Expression = rule.Expression,
-        Action = Enum.Parse<Harborline.Contracts.Forms.RuleActionKind>(rule.Action.ToString()),
+        Action = Enum.Parse<Harborline.Contracts.Rules.RuleActionKind>(rule.Action.ToString()),
     };
 
     /// <summary>A cell key as an RFC 6901 pointer into the record; a non-field cell addresses the whole.</summary>
