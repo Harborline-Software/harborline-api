@@ -1,6 +1,7 @@
 using System.Buffers;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Dcp;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -101,6 +102,15 @@ public sealed class PackExporter : IPackExporter
                 reference.FromContentKey,
                 $"'{reference.FromContentKey}' references '{reference.ToContentKey}', which no declared dependency provides."))
             .ToList();
+
+        var records = PackContentReferenceDeriver.ResolveRecords(request.Key, request.Contents, request.Dependencies, request.VerifiedProducers);
+        referenceErrors.AddRange(records.Where(result => result.RefusalCode is not null).Select(result => new PackValidationError(
+            PackRecordsInstallCodes.PublishedCode(result.RefusalCode), $"/contents/{request.Contents.ToList().FindIndex(item => item.Key == result.ContentKey)}/contentBase64" + result.Pointer,
+            "The Records reference could not be resolved against its exact verified producer.")));
+        var allReferences = (contentReferences ?? []).Concat(records.Where(result => result.Edge is not null).Select(result => result.Edge!))
+            .Distinct().OrderBy(edge => edge.FromContentKey, StringComparer.Ordinal).ThenBy(edge => edge.ToPackKey, StringComparer.Ordinal)
+            .ThenBy(edge => edge.ToContentKey, StringComparer.Ordinal).ThenBy(edge => edge.Relation).ToArray();
+        contentReferences = allReferences.Length == 0 ? null : allReferences;
 
         var manifest = new PackManifest(
             Key: request.Key,

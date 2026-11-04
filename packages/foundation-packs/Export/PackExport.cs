@@ -1,5 +1,6 @@
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Packs.Dcp;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -51,6 +52,7 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// <see cref="Exposes"/> and <see cref="InterfaceVersion"/>; each entry names a distinct exposed key, a nonblank
 /// version and a <c>sha256:</c> digest of 64 lowercase hex digits, or export refuses
 /// <see cref="PackExportCodes.ExposedDefinitionMalformed"/> before anything is signed.</param>
+/// <param name="VerifiedProducers">The planner's installed snapshot; never a live catalogue or latest-version lookup.</param>
 public sealed record PackExportRequest(
     string Key,
     string Version,
@@ -70,7 +72,8 @@ public sealed record PackExportRequest(
     Cid? IconRef = null,
     IReadOnlyList<string>? Exposes = null,
     int? InterfaceVersion = null,
-    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null);
+    IReadOnlyList<PackExposedDefinition>? ExposedDefinitions = null,
+    IReadOnlyList<InstalledPack>? VerifiedProducers = null);
 
 /// <summary>
 /// The outcome of an export. On success, both the structured <see cref="File"/> and the encoded

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 using Microsoft.AspNetCore.Builder;
@@ -11,11 +13,131 @@ using Microsoft.Extensions.Options;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Capabilities;
 using Harborline.Api.LocalNodeHost.Health;
+using NSubstitute;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 public sealed class CallerTenantIdentifierFenceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Composer_accepts_only_its_session_tenant_at_the_Records_envelope(bool validateOnly)
+    {
+        using var teamServices = new ServiceCollection().BuildServiceProvider();
+        var active = Substitute.For<IActiveTeamAccessor>();
+        active.Active.Returns(new TeamContext(new TeamId(Guid.Parse("61500000-0000-0000-0000-000000000615")),
+            "Fence", teamServices, TimeProvider.System));
+        const string tenant = "61500000-0000-0000-0000-000000000615";
+        var bearer = Guid.NewGuid().ToString("N");
+        await using var provider = new ServiceCollection().AddTestKernelClock().AddLogging()
+            .AddSingleton(active).AddSingleton(new NodeCallerSessionToken(bearer)).BuildServiceProvider();
+        await using var app = new SharedHostedWebApp(provider,
+            Options.Create(new LocalNodeOptions { HealthPort = 0 }), new LocalNodeExecutableEndpointRegistry(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SharedHostedWebApp>>(),
+            provider.GetRequiredService<TimeProvider>());
+        app.MapApiRoutes(routes =>
+        {
+            var desktop = routes.MapDesktopPlaneOnlyGroup();
+            desktop.MapPost(PackComposerRoutes.ExportRoute, () => Results.Ok());
+            desktop.MapPost(PackComposerRoutes.VerifyRoute, () => Results.Ok());
+            routes.MapPost("/api/local-node/other", () => Results.Ok());
+        });
+        await app.StartAsync(CancellationToken.None);
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+            var path = PackComposerRoutes.ExportRoute + (validateOnly ? "?validateOnly=true" : "");
+            JsonObject Body() => new()
+            {
+                ["contents"] = new JsonArray(new JsonObject
+                {
+                    ["kind"] = "AssetTypeDefinition",
+                    ["content"] = new JsonObject
+                    {
+                        ["record_type_id"] = "consumer.work",
+                        ["envelope"] = new JsonObject { ["tenant"] = tenant },
+                    },
+                }),
+            };
+            foreach (var kind in new[] { "AssetTypeDefinition", "assettypedefinition" })
+            {
+                var body = Body();
+                body["contents"]![0]!["kind"] = kind;
+                using var accepted = await client.PostAsJsonAsync(path, body);
+                Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+            }
+
+            var mismatch = Body();
+            mismatch["contents"]![0]!["content"]!["envelope"]!["tenant"] = "another-session-tenant";
+            var nonString = Body();
+            nonString["contents"]![0]!["content"]!["envelope"]!["tenant"] = 615;
+            var legacy = Body();
+            legacy["contents"]![0]!["content"]!.AsObject().Remove("record_type_id");
+            var wrongKind = Body();
+            wrongKind["contents"]![0]!["kind"] = "FormDefinition";
+            var elsewhere = new[] { mismatch, nonString, legacy, wrongKind }.ToList();
+            var nestedArray = Body();
+            nestedArray["extra"] = Body()["contents"]!.DeepClone();
+            elsewhere.Add(nestedArray);
+            foreach (var spelling in TenantSpellings)
+            {
+                using var query = new HttpRequestMessage(HttpMethod.Post,
+                    path + (validateOnly ? "&" : "?") + spelling + "=" + tenant) { Content = JsonContent.Create(Body()) };
+                await AssertBadTenantAsync(client, query);
+                using var header = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(Body()) };
+                header.Headers.TryAddWithoutValidation(spelling, tenant);
+                await AssertBadTenantAsync(client, header);
+                foreach (var location in new[] { "root", "entry", "content", "nested", "escaped" })
+                {
+                    var body = Body();
+                    var content = body["contents"]![0]!["content"]!.AsObject();
+                    var target = location switch
+                    {
+                        "root" => body,
+                        "entry" => body["contents"]![0]!.AsObject(),
+                        "content" => content,
+                        "nested" => (content["extra"] = new JsonObject()).AsObject(),
+                        _ => (body["contents/0/content/envelope"] = new JsonObject()).AsObject(),
+                    };
+                    target[spelling] = tenant;
+                    elsewhere.Add(body);
+                }
+                if (spelling == "tenant") continue;
+                var alias = Body();
+                alias["contents"]![0]!["content"]!["envelope"]![spelling] = tenant;
+                elsewhere.Add(alias);
+            }
+            foreach (var body in elsewhere)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+                await AssertBadTenantAsync(client, request);
+            }
+            using (var duplicate = new HttpRequestMessage(HttpMethod.Post, path)
+            {
+                Content = new StringContent("{\"contents\":[{\"kind\":\"AssetTypeDefinition\",\"content\":{\"envelope\":{\"tenant\":\""
+                    + tenant + "\"}},\"content\":{\"record_type_id\":\"consumer.work\",\"envelope\":{\"tenant\":\""
+                    + tenant + "\"}}}]}", Encoding.UTF8, "application/json"),
+            })
+                await AssertBadTenantAsync(client, duplicate);
+            foreach (var otherPath in new[] { PackComposerRoutes.VerifyRoute, "/api/local-node/other" })
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, otherPath) { Content = JsonContent.Create(Body()) };
+                await AssertBadTenantAsync(client, request);
+            }
+            using (var get = new HttpRequestMessage(HttpMethod.Get, path) { Content = JsonContent.Create(Body()) })
+                await AssertBadTenantAsync(client, get);
+            client.DefaultRequestHeaders.Authorization = null;
+            using (var unauthenticated = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(Body()) })
+                await AssertBadTenantAsync(client, unauthenticated);
+        }
+        finally
+        {
+            await app.StopAsync(CancellationToken.None);
+        }
+    }
+
     [Fact]
     [Trait("Holds", "kernel-core-ck-4")]
     public async Task Every_registered_route_refuses_caller_supplied_tenant_ids()

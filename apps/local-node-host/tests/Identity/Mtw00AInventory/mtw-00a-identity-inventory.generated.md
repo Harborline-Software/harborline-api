@@ -151,7 +151,7 @@ owner-count: 31
 
 ## category-5-legacy-active-team-and-static-actor-consumers
 scan: apps/local-node-host/{Health,Feed}/**/*.cs matching the ADR0153-R3 legacy-authority regexes; each line is PATH<TAB>tenant-global-hits<TAB>static-actor-hits
-owner-count: 98
+owner-count: 99
 - apps/local-node-host/Feed/ChannelFeedRoutes.cs	2	0
 - apps/local-node-host/Feed/HostedChannelFeedApiEndpoint.cs	2	0
 - apps/local-node-host/Health/AdmissionRoutes.cs	4	0
@@ -162,6 +162,7 @@ owner-count: 98
 - apps/local-node-host/Health/BillRoutes.cs	12	0
 - apps/local-node-host/Health/CalendarCollectionRoutes.cs	3	0
 - apps/local-node-host/Health/CalendarRoutes.cs	6	0
+- apps/local-node-host/Health/CallerTenantIdentifierFence.cs	2	0
 - apps/local-node-host/Health/ChartOfAccountsRoutes.cs	2	0
 - apps/local-node-host/Health/CommsRoutes.cs	17	0
 - apps/local-node-host/Health/ConfigurationActivationRoutes.cs	2	0

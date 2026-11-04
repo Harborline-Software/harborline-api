@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Kernel.SchemaValidation.Records;
 
 namespace Harborline.Api.Foundation.Packs.Graph;
 
@@ -21,11 +23,9 @@ namespace Harborline.Api.Foundation.Packs.Graph;
 /// derivation (no second parser — the A4 two-implementations-drift class the collision engine warns about).
 /// </para>
 /// <para>
-/// <b>Today's real reference.</b> The only cross-item reference the shipped content contracts carry is an
-/// <see cref="PackContentKind.AssetTypeDefinition"/>'s <c>parentType</c> (a type-hierarchy edge; the seed
-/// projector reads the same field). Form→type bindings and workflow→form references are recognized SEAMS
-/// (they arrive with the form/workflow projection Wave-2 + the G2 manifest edge) and intentionally return
-/// nothing here rather than guess a not-yet-pinned schema.
+/// Legacy asset types carry <c>parentType</c>. Records references use <see cref="ExtractRecords"/>
+/// over the producer's typed document and resolve against the verified closure at export and install.
+/// The graph reads signed Records edges and skips gated bodies in its legacy fallback.
 /// </para>
 /// </remarks>
 public static class PackContentReferenceExtractor
@@ -53,6 +53,22 @@ public static class PackContentReferenceExtractor
             _ => Array.Empty<PackContentReference>(),
         };
     }
+
+    /// <summary>The Records identity, empty for a malformed claim, or null for legacy content.</summary>
+    public static string? RecordsId(PackContentKind kind, JsonNode? content)
+    {
+        if (kind != PackContentKind.AssetTypeDefinition || content is not JsonObject obj)
+            return null;
+        if (obj.TryGetPropertyValue("record_type_id", out var id))
+            return id is JsonValue value && value.TryGetValue<string>(out var text) ? text : "";
+        return obj["fields"] is JsonArray fields && fields.OfType<JsonObject>().Any(field => field.ContainsKey("reference"))
+            ? "" : null;
+    }
+
+    /// <summary>Every typed Records reference in source order, including duplicates and self references.</summary>
+    public static IEnumerable<(RecordReferenceDefinition Reference, string Pointer)> ExtractRecords(RecordTypeDocument document)
+        => document.Fields.Select((field, index) => (field.Reference, Pointer: $"/fields/{index}/reference"))
+            .Where(pair => pair.Reference is not null).Select(pair => (pair.Reference!, pair.Pointer));
 
     private static IReadOnlyList<PackContentReference> ParentTypeReference(JsonObject obj)
     {

@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Verify;
@@ -73,7 +74,8 @@ public static class PackComposerRoutes
         IActiveTeamAccessor activeTeam,
         AuthorizationGate gate,
         TimeProvider time,
-        ILogger logger)
+        ILogger logger,
+        IPackInstallStore? packs = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(exporter);
@@ -151,7 +153,8 @@ public static class PackComposerRoutes
                 ProviderSlot: string.IsNullOrWhiteSpace(request.ProviderSlot) ? null : request.ProviderSlot.Trim(),
                 Dcp: dcp,
                 Exposes: request.Exposes,
-                InterfaceVersion: request.InterfaceVersion);
+                InterfaceVersion: request.InterfaceVersion,
+                VerifiedProducers: packs?.ListInstalled(tenant));
 
             if (validateOnly == true)
             {

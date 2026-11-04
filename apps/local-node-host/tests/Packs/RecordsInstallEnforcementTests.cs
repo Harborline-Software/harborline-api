@@ -33,7 +33,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// anything for commit. A refused Record Type is a hard admission refusal: no seed layer, watermark, override, key
 /// ownership or Installed audit entry, exactly one Refused audit entry, and no break-glass. On the Released path the
 /// release transaction never commits. The gate runs only where a host sets <see cref="PackInstaller.RecordsAdmission"/>;
-/// production composition does not (G-HOST), which <see cref="Without_a_composed_gate_install_is_unchanged"/> pins.
+/// production composition does not (G-HOST), so affected installs fail closed.
 /// </summary>
 /// <remarks>
 /// Oracles: install codes and content pointers are literals from the installer's existing admission refusal shape
@@ -209,20 +209,55 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         AssertNoConsumerEffect(before);
     }
 
-    [Fact(DisplayName = "goal 3 (G-HOST): with no Records gate composed, as in production today, install keeps its existing behaviour")]
+    [Fact(DisplayName = "T-615 T-MAL: without complete Records admission every affected item refuses atomically")]
     public async Task Without_a_composed_gate_install_is_unchanged()
     {
         var installer = Installer(composeGate: false);
-        Assert.True((await installer.InstallAsync(await ExportProducerAsync(), _context)).Installed);
+        var bytes = await ExportAsync("fleet-ops", [("fleet-ops.dispatch", Dispatch), ("fleet-ops.route", Route)]);
+        var before = Snapshot();
 
-        var outcome = await installer.InstallAsync(await ExportConsumerAsync(pinnedInterface: 1), _context);
+        var outcome = await installer.InstallAsync(bytes, _context);
 
-        // The cross-package pin installs unchecked: the gate is opt-in and default-off until a host composes it.
-        Assert.True(outcome.Installed, string.Join("; ", outcome.RefusalCodes));
+        Assert.False(outcome.Installed);
+        Assert.False(outcome.BrokeGlass);
+        Assert.Equal(["pack.install.refused.records_admission_unsupported"], outcome.RefusalCodes);
+        Assert.Equal(
+            [("pack.install.refused.records_admission_unsupported", "/contents/0/contentBase64"),
+             ("pack.install.refused.records_admission_unsupported", "/contents/1/contentBase64")],
+            outcome.Preview.Refusals.Select(refusal => (refusal.Code, refusal.Pointer)));
         Assert.Equal(0, _gateCalls);
-        Assert.Null(new PackInstaller(
-            new PackVerifier(new Ed25519Verifier(), _codec), _store, new WorkflowRefusingPackContentAdmission(), _audit,
-            TestAuthorization.AllowGate()).RecordsAdmission);
+        Assert.Equal(before, Snapshot());
+        Assert.Empty(_store.ListInstalled(Tenant));
+        Assert.Equal(PackInstallAuditAction.Refused, Assert.Single(_audit.Query(Tenant)).Action);
+        Assert.Null(_store.GetWatermark(Tenant, "fleet-ops"));
+    }
+
+    [Fact(DisplayName = "T-615 T-ORDER: an existing install refusal precedes unsupported Records admission")]
+    public async Task Without_a_composed_gate_existing_refusal_wins()
+    {
+        var outcome = await Installer(composeGate: false).InstallAsync(await ExportConsumerAsync(1), _context);
+
+        Assert.False(outcome.Installed);
+        Assert.Equal(["pack.install.refused.unmet_dependency"], outcome.RefusalCodes);
+        Assert.Empty(_store.ListInstalled(Tenant));
+    }
+
+    [Theory(DisplayName = "T-615 T-MAL: a signature cannot admit a malformed Records body without a complete gate")]
+    [InlineData("{\"record_type_id\":7}")]
+    [InlineData("{\"fields\":[{\"reference\":null}]}")]
+    public async Task Signed_malformed_records_fail_closed_without_admission(string body)
+    {
+        var bytes = await ExportAsync("malformed", [("malformed.type", body)]);
+        var installer = Installer(composeGate: false);
+
+        var outcome = await installer.InstallAsync(bytes, _context);
+
+        Assert.False(outcome.Installed);
+        Assert.Equal(["pack.install.refused.records_admission_unsupported"], outcome.RefusalCodes);
+        Assert.Equal("/contents/0/contentBase64", Assert.Single(outcome.Preview.Refusals).Pointer);
+        Assert.Empty(_store.ListInstalled(Tenant));
+        Assert.Null(_store.GetWatermark(Tenant, "malformed"));
+        Assert.Equal(PackInstallAuditAction.Refused, Assert.Single(_audit.Query(Tenant)).Action);
     }
 
     [Fact(DisplayName = "goal 3 T-LEGACY: a legacy asset type of the same transport kind installs without reaching the gate")]
@@ -258,10 +293,10 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         Assert.Equal(PackInstallVerdict.Refused, preview.Verdict);
         Assert.Equal(["pack.install.refused.records_gate_not_evaluated"], preview.RefusalCodes);
         Assert.Equal(calls, _gateCalls);
-        // No Record Type, or no gate composed: the dry runs are unchanged.
+        // Legacy content is unchanged; missing Records admission fails closed in dry runs too.
         Assert.Equal(PackInstallVerdict.WouldInstall, installer.Check(legacy, _context).Verdict);
-        Assert.Equal(PackInstallVerdict.WouldInstall, Installer(composeGate: false).Check(consumer, _context).Verdict);
-        Assert.Equal(PackInstallVerdict.WouldInstall, Installer(composeGate: false).Preview(consumer, _context).Verdict);
+        Assert.Equal(["pack.install.refused.records_admission_unsupported"], Installer(composeGate: false).Check(consumer, _context).RefusalCodes);
+        Assert.Equal(["pack.install.refused.records_admission_unsupported"], Installer(composeGate: false).Preview(consumer, _context).RefusalCodes);
         Assert.Equal(["eam-core"], _store.ListInstalled(Tenant).Select(pack => pack.PackKey));
     }
 
@@ -292,7 +327,9 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
             await ExportAsync("fleet-ops", [("fleet-ops.dispatch", Dispatch), ("fleet-ops.route", Route)], version: "2.0.0"), _context)).Installed);
         var downgrade = await ExportAsync("fleet-ops", [("fleet-ops.dispatch", Dispatch), ("fleet-ops.route", Route)], version: "1.0.0");
         var calls = _gateCalls;
-        Assert.Equal(PackInstallVerdict.RequiresBreakGlass, Installer(composeGate: false).Preview(downgrade, _context).Verdict);
+        var unsupported = Installer(composeGate: false).Preview(downgrade, _context);
+        Assert.Equal(PackInstallVerdict.Refused, unsupported.Verdict);
+        Assert.Equal(["pack.install.refused.downgrade", "pack.install.refused.records_admission_unsupported"], unsupported.RefusalCodes);
 
         foreach (var preview in new[] { installer.Preview(downgrade, _context), installer.Check(downgrade, _context) })
         {
@@ -306,6 +343,48 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         }
         Assert.Equal(calls, _gateCalls);
         Assert.Equal("2.0.0", _store.GetWatermark(Tenant, "fleet-ops")!.Version);
+    }
+
+    [Theory(DisplayName = "T-615 Q4: Released install forwards unsupported Records pointers and preserves other admission codes")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Released_install_maps_unsupported_records_and_generic_admission(bool records)
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        IPackContentAdmission admission = records ? fixture.Admission : new WorkflowRefusingPackContentAdmission();
+        var engine = new PackInstaller(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), fixture.Reader,
+            fixture.Store, fixture.Store, admission, fixture.Audit, TestAuthorization.AllowGate());
+        var installer = new RecordingInstaller(engine, fixture.Harness.Store.PacksFactory);
+        var releases = new ReleasedPackInstaller(fixture.Proposals, new RecordsTypeReferenceUncheckedExporter(), installer, fixture.Node,
+            new Ed25519Verifier(), HostedPackInstallApiEndpoint.BuildTrustStore(fixture.Node, NullLogger.Instance),
+            PackRevocationList.Empty, fixture.Reader, TestPackGate.AllowAll());
+        (string Key, string Owner, string Kind, string Body)[] definitions = records
+            ? [("records/work-order", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition", ReleasedWorkOrder),
+               ("records/route", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition",
+                   ReleasedWorkOrder.Replace("release.work-order", "release.route", StringComparison.Ordinal))]
+            : [("workflows/refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}"),
+               ("workflows/also-refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}")];
+        var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", definitions,
+            (ReleasedPackAtomicFixture.Finance, "1.0.0")));
+        var live = fixture.LiveState();
+        var durable = await fixture.DurableStateAsync();
+        var outbox = await fixture.OutboxCountAsync();
+
+        var outcome = await releases.InstallAsync(fixture.Tenant, digest,
+            TestAuthorization.Write(fixture.Tenant, ReleasedPackAtomicFixture.Principal, ReleasedPackAtomicFixture.Frozen));
+
+        Assert.False(outcome.Succeeded);
+        Assert.False(outcome.Installed);
+        (string Code, string Target)[] expected = records
+            ? [("pack.install.refused.records_admission_unsupported", "/contents/0/contentBase64"),
+               ("pack.install.refused.records_admission_unsupported", "/contents/1/contentBase64")]
+            : [("pack.install.refused.admission", "releasedPackage")];
+        Assert.Equal(expected, outcome.Refusals.Select(refusal => (refusal.Code, refusal.Target)));
+        Assert.Equal((1, 0, 0), (installer.Installs, installer.Activations, installer.Narrowings));
+        Assert.Equal(live, fixture.LiveState());
+        Assert.Equal(durable, await fixture.DurableStateAsync());
+        Assert.Equal(outbox, await fixture.OutboxCountAsync());
+        Assert.Empty(fixture.Audit.Successes());
     }
 
     [Fact(DisplayName = "goal 3 T-ATOM: a Released cross-package pin commits nothing, audits one refusal and never breaks glass")]
@@ -325,7 +404,7 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
             },
         };
         var installer = new RecordingInstaller(engine, fixture.Harness.Store.PacksFactory);
-        var releases = new ReleasedPackInstaller(fixture.Proposals, fixture.Exporter, installer, fixture.Node,
+        var releases = new ReleasedPackInstaller(fixture.Proposals, new RecordsTypeReferenceUncheckedExporter(), installer, fixture.Node,
             new Ed25519Verifier(), HostedPackInstallApiEndpoint.BuildTrustStore(fixture.Node, NullLogger.Instance),
             PackRevocationList.Empty, fixture.Reader, TestPackGate.AllowAll());
         var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0",
@@ -340,9 +419,9 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
 
         Assert.False(outcome.Succeeded);
         Assert.False(outcome.Installed);
-        // G-DETAIL (held): the Released route reports the engine's code only; the Records code stays in the engine.
+        // Owner Q4: the Released route carries the Records code and exact content/body pointer.
         var refusal = Assert.Single(outcome.Refusals);
-        Assert.Equal(("pack.install.refused.admission", "releasedPackage"), (refusal.Code, refusal.Target));
+        Assert.Equal(("records.reference.closure_missing", "/contents/0/contentBase64/fields/0/reference/pin"), (refusal.Code, refusal.Target));
         Assert.Equal(1, gateCalls);
         Assert.Equal((1, 0, 0), (installer.Installs, installer.Activations, installer.Narrowings));
         // The release transaction did not commit: nothing it staged persists, in memory or on a restart.
@@ -436,9 +515,9 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         var changed = await releases.InstallAsync(fixture.Tenant, changedDigest, authority);
 
         Assert.False(changed.Succeeded);
-        Assert.Equal(("pack.install.refused.admission", "releasedPackage"),
+        Assert.Equal(("records.reference.closure_changed", "/contents/1/contentBase64/fields/0/reference/pin"),
             (Assert.Single(changed.Refusals).Code, Assert.Single(changed.Refusals).Target));
-        Assert.Equal(["records.reference.closure_changed"], reports);
+        Assert.Empty(reports); // Export refuses before the install gate is reached.
         Assert.Null(fixture.Store.GetVersion(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey, "1.1.0"));
         Assert.Equal(live, fixture.LiveState());
         Assert.Equal(durable, await fixture.DurableStateAsync());
@@ -448,10 +527,10 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         var genuine = await releases.InstallAsync(fixture.Tenant,
             await Offer(RecordsInstallClosureGateTests.AssetClassVersion), authority);
 
-        Assert.Equal(["records.reference.closure_changed", ""], reports);
+        Assert.Equal([""], reports);
         Assert.True(genuine.Succeeded, string.Join("; ", genuine.Refusals.Select(refusal => $"{refusal.Code}: {refusal.Message}")));
         Assert.True(genuine.Installed);
-        Assert.Equal((2, 1, 0), (installer.Installs, installer.Activations, installer.Narrowings));
+        Assert.Equal((1, 1, 0), (installer.Installs, installer.Activations, installer.Narrowings));
         Assert.NotNull(fixture.Store.GetVersion(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey, "1.1.0"));
         // The release transaction committed: its own pack is Active at the release revision with the gated Record Type.
         var active = fixture.Store.GetActive(fixture.Tenant, ReleasedPackAtomicFixture.ReleaseKey)!;
@@ -518,8 +597,7 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
             new PackValidator(new PackContentPiiScanner()),
             new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
             _codec, timeProvider: TimeProvider.System);
-        var export = await exporter.ExportAsync(
-            new PackExportRequest(
+        var request = new PackExportRequest(
                 Key: key,
                 Version: version,
                 Name: $"Records install closure test pack {key}",
@@ -535,10 +613,12 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
                 Dcp: DomainComplianceProfile.General("test-author"),
                 Exposes: exposes,
                 InterfaceVersion: interfaceVersion,
-                ExposedDefinitions: exposedDefinitions),
-            new Ed25519Signer(_keyPair));
-        Assert.True(export.Succeeded, string.Join(
-            "; ", export.Validation.Errors.Select(error => $"{error.Code}: {error.Message}")));
-        return export.FileBytes!;
+                ExposedDefinitions: exposedDefinitions,
+                VerifiedProducers: _store.ListInstalled(Tenant));
+        var export = await exporter.ExportAsync(request, new Ed25519Signer(_keyPair));
+        if (export.Succeeded) return export.FileBytes!;
+
+        // Signed hostile inputs exercise install independently of the strengthened export gate.
+        return (await new RecordsTypeReferenceUncheckedExporter().ExportAsync(request, new Ed25519Signer(_keyPair))).FileBytes!;
     }
 }

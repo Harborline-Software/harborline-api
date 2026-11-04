@@ -11,6 +11,7 @@ using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -45,6 +46,7 @@ public sealed class ComposeCeremony
     private readonly IFormDefinitionStore? _forms;
     private readonly ISchemaRegistry? _schemas;
     private readonly TimeProvider _clock;
+    private readonly IPackInstallStore? _packs;
 
     /// <summary>Constructs the ceremony over the authored-artifact registry + the pack canonicalizers.</summary>
     public ComposeCeremony(
@@ -54,12 +56,14 @@ public sealed class ComposeCeremony
         IDraftCompositionStore store,
         TimeProvider? clock = null,
         IFormDefinitionStore? forms = null,
-        ISchemaRegistry? schemas = null)
+        ISchemaRegistry? schemas = null,
+        IPackInstallStore? packs = null)
     {
         _types = types ?? throw new ArgumentNullException(nameof(types));
         _canonicalizer = canonicalizer ?? throw new ArgumentNullException(nameof(canonicalizer));
         _dcpCanonicalizer = dcpCanonicalizer ?? throw new ArgumentNullException(nameof(dcpCanonicalizer));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _packs = packs;
         _forms = forms;
         _schemas = schemas;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -326,7 +330,8 @@ public sealed class ComposeCeremony
             CapabilityRequirements: draft.CapabilityRequirements,
             Epoch: epoch,
             RenamedFrom: null,
-            Dcp: draft.Dcp);
+            Dcp: draft.Dcp,
+            VerifiedProducers: _packs?.ListInstalled(tenant));
 
         var outcome = await exporter.ExportAsync(exportRequest, signer, ct).ConfigureAwait(false);
         if (!outcome.Succeeded || outcome.FileBytes is null)
