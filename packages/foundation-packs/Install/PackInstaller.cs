@@ -2378,7 +2378,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
 
     /// <summary>
     /// The Records install gate (DES-0015 records-ck-41) a host composes, run over every install's planned seed layer
-    /// before it commits. Null, the default, keeps the existing behaviour: no Record Type edge is checked at install.
+    /// before it commits. Null, the default, refuses affected items because complete Records admission is unavailable.
     /// </summary>
     public RecordsInstallClosureGate.AdmitInstall? RecordsAdmission { get; init; }
 
@@ -2396,11 +2396,24 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     private async ValueTask<InstallPlan> AdmitRecordsAsync(InstallPlan plan, TenantId tenant,
         IReadOnlyList<InstalledPack> installed, CancellationToken ct)
     {
-        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict is PackInstallVerdict.Refused or PackInstallVerdict.AlreadyInstalled)
+        if (plan.NewInstalledPack is null || plan.Preview.Verdict is PackInstallVerdict.Refused or PackInstallVerdict.AlreadyInstalled)
             return plan;
+        if (RecordsAdmission is null)
+            return RecordsNotEvaluated(plan, collectRefusals: false);
         var seeds = plan.NewInstalledPack.SeedItems;
         var admission = await RecordsInstallClosureGate.AdmitAsync(tenant, seeds, plan.NewInstalledPack.Dependencies,
             installed, RecordsAdmission, ct).ConfigureAwait(false);
+        if (admission.IsAdmissible)
+        {
+            var references = PackContentReferenceDeriver.ResolveRecords(plan.NewInstalledPack.PackKey,
+                seeds.Select(item => new PackContentSource(item.Key, item.Kind, item.Version, item.ParseContent())).ToArray(),
+                plan.NewInstalledPack.Dependencies, installed);
+            var missing = references.Where(reference => reference.RefusalCode is not null
+                || (reference.Edge is not null && !(plan.NewInstalledPack.ContentReferences ?? []).Contains(reference.Edge)));
+            admission = new PackAdmissionResult(missing.Select(reference => new PackAdmissionRefusal(reference.ContentKey,
+                PackRecordsInstallCodes.PublishedCode(reference.RefusalCode ?? PackRecordsInstallCodes.ClosureMissing), "The signed Records reference has no exact admitted edge.")
+                { Pointer = reference.Pointer }).ToArray());
+        }
         if (admission.IsAdmissible)
             return plan;
         return plan with
@@ -2425,22 +2438,24 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     /// is refused with <see cref="PackRecordsInstallCodes.GateNotEvaluated"/> at each Record Type's content pointer,
     /// appended to the refusals the plan already reports, so a break-glass plan keeps its watermark refusals and codes.
     /// Check (<paramref name="collectRefusals"/>) appends to every refusal it collected; Preview leaves a plan that is
-    /// already refused unchanged. With no gate composed the plan is returned unchanged.
+    /// already refused unchanged. Without a composed gate, affected items refuse as unsupported.
     /// </summary>
     private InstallPlan RecordsNotEvaluated(InstallPlan plan, bool collectRefusals)
     {
-        if (RecordsAdmission is null || plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.AlreadyInstalled
+        if (plan.NewInstalledPack is null || plan.Preview.Verdict == PackInstallVerdict.AlreadyInstalled
             || (!collectRefusals && plan.Preview.Verdict == PackInstallVerdict.Refused))
             return plan;
         var seeds = plan.NewInstalledPack.SeedItems;
+        var code = RecordsAdmission is null ? PackRecordsInstallCodes.AdmissionUnsupported : PackRecordsInstallCodes.GateNotEvaluated;
         var notEvaluated = RecordsInstallClosureGate.GatedItems(seeds)
-            .Select(item => new PackInstallRefusal(PackRecordsInstallCodes.GateNotEvaluated, ContentPointer(seeds, item.Key)))
+            .Select(item => new PackInstallRefusal(code, ContentPointer(seeds, item.Key)))
             .ToList();
         if (notEvaluated.Count == 0)
             return plan;
         var kept = plan.Preview.Refusals;
         return plan with
         {
+            NewInstalledPack = null,
             Preview = plan.Preview with
             {
                 Verdict = PackInstallVerdict.Refused,

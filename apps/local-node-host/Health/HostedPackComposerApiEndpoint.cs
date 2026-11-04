@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -35,6 +36,7 @@ public sealed class HostedPackComposerApiEndpoint : IHostedService
 {
     private readonly SharedHostedWebApp _sharedApp;
     private readonly IPackExporter _exporter;
+    private readonly IPackInstallStore? _packs;
     private readonly IPackVerifier _verifier;
     private readonly NodePrincipalSigner _signer;
     private readonly IActiveTeamAccessor _activeTeam;
@@ -51,9 +53,11 @@ public sealed class HostedPackComposerApiEndpoint : IHostedService
         IActiveTeamAccessor activeTeam,
         AuthorizationGate gate,
         TimeProvider timeProvider,
-        ILogger<HostedPackComposerApiEndpoint> logger)
+        ILogger<HostedPackComposerApiEndpoint> logger,
+        IPackInstallStore? packs = null)
     {
         _sharedApp = sharedApp ?? throw new ArgumentNullException(nameof(sharedApp));
+        _packs = packs;
         _exporter = exporter ?? throw new ArgumentNullException(nameof(exporter));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _signer = signer ?? throw new ArgumentNullException(nameof(signer));
@@ -88,7 +92,8 @@ public sealed class HostedPackComposerApiEndpoint : IHostedService
                 _activeTeam,
                 _gate,
                 _time,
-                _logger);
+                _logger,
+                _packs);
         });
 
         _logger.LogInformation(

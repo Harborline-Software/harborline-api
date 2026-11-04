@@ -1,4 +1,10 @@
+using System.Text;
 using Harborline.Api.Foundation.Packs.Graph;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
+using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.Definitions;
+using Harborline.Kernel.SchemaValidation.Records;
 using Harborline.Api.Foundation.Packs.Model;
 
 namespace Harborline.Api.Foundation.Packs.Export;
@@ -35,6 +41,73 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// </remarks>
 public static class PackContentReferenceDeriver
 {
+    /// <summary>Resolves Records references only against this pack and its exact verified producer snapshot.</summary>
+    public static IReadOnlyList<PackRecordsReferenceResolution> ResolveRecords(string ownPackKey,
+        IReadOnlyList<PackContentSource> contents, IReadOnlyList<PackDependencyRef> dependencies,
+        IReadOnlyList<InstalledPack>? verifiedProducers)
+    {
+        var results = new List<PackRecordsReferenceResolution>();
+        var documents = new List<(PackContentSource Source, RecordTypeDocument Document)>();
+        var admission = RecordTypeDefinitionStore.Admission(new DefinitionContractWindow(1, 0, 1), new RecordsIntentValidator());
+        foreach (var source in contents)
+        {
+            var id = PackContentReferenceExtractor.RecordsId(source.Kind, source.Content);
+            if (id is null) continue;
+            var body = source.Content.ToJsonString();
+            var refusals = admission(new DefinitionDocument(new DefinitionKey("", DefinitionKind.Records, id),
+                source.Version, source.Version, body), DefinitionAdmissionPhase.Install);
+            if (refusals.Count > 0)
+            {
+                results.AddRange(refusals.Select(refusal => new PackRecordsReferenceResolution(source.Key, refusal.Pointer,
+                    RefusalCode: PackRecordsInstallCodes.PublishedCode(refusal.Code))));
+                continue;
+            }
+            documents.Add((source, RecordTypeDefinitionJson.Deserialize(Encoding.UTF8.GetBytes(body))));
+        }
+        var exposures = RecordsInstallClosureGate.ReadExposures(dependencies, verifiedProducers ?? []);
+        foreach (var (source, document) in documents)
+        foreach (var (reference, pointer) in PackContentReferenceExtractor.ExtractRecords(document))
+        {
+            var classTarget = !string.IsNullOrWhiteSpace(reference.TargetClassId);
+            var target = classTarget ? reference.TargetClassId! : reference.TargetTypeId!;
+            string? code = null, internalKey = null;
+            PackContentReferenceEdge? edge = null;
+            var location = pointer;
+            if (reference.Pin is not { } pin)
+            {
+                var targets = documents.Where(pair => pair.Document.RecordTypeId == target).ToArray();
+                if (!classTarget && targets.Length == 1
+                    && contents.Count(item => item.Key == targets[0].Source.Key) == 1)
+                    internalKey = targets[0].Source.Key;
+                else { code = PackRecordsInstallCodes.TargetUnresolved; location += classTarget ? "/target_class_id" : "/target_type_id"; }
+            }
+            else if (pin.PackageId == ownPackKey)
+            { code = PackRecordsInstallCodes.PinUnexpected; location += "/pin"; }
+            else if (pin.DefinitionId != target)
+                code = PackRecordsInstallCodes.PinStale;
+            else if (!(document.Envelope.Requires ?? []).Any(requirement => requirement.Capability == pin.PackageId + "@" + pin.InterfaceVersion))
+                code = (document.Envelope.Requires ?? []).Any(requirement => requirement.Capability.StartsWith(pin.PackageId + "@", StringComparison.Ordinal))
+                    ? PackRecordsInstallCodes.InterfaceIncompatible : PackRecordsInstallCodes.DependencyUndeclared;
+            else
+            {
+                var matches = exposures.Where(pair => pair.Exposure.PackageId == pin.PackageId && pair.Exposure.DefinitionId == target).ToArray();
+                location += "/pin";
+                if (classTarget || matches.Length != 1)
+                    code = PackRecordsInstallCodes.ClosureMissing;
+                else if (matches[0].Exposure != new PinnedExposure(pin.PackageId, DefinitionKind.Records, target, pin.Version, pin.Digest, pin.InterfaceVersion))
+                    code = PackRecordsInstallCodes.ClosureChanged;
+                else
+                {
+                    location = pointer;
+                    edge = new PackContentReferenceEdge(source.Key, source.Kind, pin.PackageId, matches[0].ContentKey,
+                        PackContentKind.AssetTypeDefinition, PackFeatureEdgeRelation.References);
+                }
+            }
+            results.Add(new PackRecordsReferenceResolution(source.Key, location, edge, internalKey, code));
+        }
+        return results;
+    }
+
     /// <summary>
     /// Derives the cross-app content-reference edges for a pack being composed. Returns <c>null</c> when the
     /// pack declares no cross-app reference (the common case), so the manifest field is omitted.
@@ -169,3 +242,7 @@ public static class PackContentReferenceDeriver
 /// <param name="FromContentKey">The referencing item's content key.</param>
 /// <param name="ToContentKey">The referenced content key.</param>
 public sealed record PackUndeclaredContentReference(string FromContentKey, string ToContentKey);
+
+/// <summary>One located Records outcome: exactly one of Edge, InternalContentKey or RefusalCode is set.</summary>
+public sealed record PackRecordsReferenceResolution(string ContentKey, string Pointer,
+    PackContentReferenceEdge? Edge = null, string? InternalContentKey = null, string? RefusalCode = null);

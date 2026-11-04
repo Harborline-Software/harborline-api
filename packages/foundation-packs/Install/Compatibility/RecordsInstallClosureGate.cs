@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Harborline.Api.Foundation.Packs.Graph;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Packs.Install.Admission;
@@ -91,7 +93,7 @@ public static class RecordsInstallClosureGate
             .Distinct(StringComparer.Ordinal)
             .Select(id => new InstallDefinitionTarget(DefinitionKind.Records, id))
             .ToArray();
-        return new RecordsInstallClosure(shipped, SignedExposures(dependencies, installed));
+        return new RecordsInstallClosure(shipped, ReadExposures(dependencies, installed).Select(pair => pair.Exposure).ToArray());
     }
 
     /// <summary>
@@ -147,7 +149,8 @@ public static class RecordsInstallClosureGate
 
     // Goal 3 P3: the exposures the exact pinned producers signed (see the type remarks). Every check is fail closed: what
     // is missing or ambiguous contributes nothing, and nothing is computed, defaulted or read from a store.
-    private static PinnedExposure[] SignedExposures(IReadOnlyList<PackDependencyRef> dependencies,
+    /// <summary>The verified content-key join and signed exposure facts shared by export and install.</summary>
+    public static IReadOnlyList<(string ContentKey, PinnedExposure Exposure)> ReadExposures(IReadOnlyList<PackDependencyRef> dependencies,
         IReadOnlyList<InstalledPack> installed)
     {
         // Each exposure with the signed entry key it came from, so the two ambiguity rules below stay independent.
@@ -195,53 +198,18 @@ public static class RecordsInstallClosureGate
         return exposures
             .GroupBy(pair => (pair.Exposure.PackageId, pair.Exposure.DefinitionId))
             .Where(group => group.Select(pair => pair.Key).Distinct(StringComparer.Ordinal).Take(2).Count() == 1)
-            .Select(group => group.First().Exposure)
+            .Select(group => (ContentKey: group.First().Key, group.First().Exposure))
             .ToArray();
     }
 
-    // The id an item is gated under, or null when it is not gated. G-DISC (owner decision P10, fail closed): an item of the
-    // Records transport kind is gated when its body carries record_type_id, or, without one, a field reference
-    // (fields[*].reference); the latter is gated under "" so the Platform gate refuses it rather than it passing ungated.
-    private static string? GatedId(PackSeedItem item)
-    {
-        if (item.Kind != PackContentKind.AssetTypeDefinition)
-            return null;
-        return RecordTypeId(item) ?? (HasFieldReference(item) ? "" : null);
-    }
+    private static string? GatedId(PackSeedItem item) => RecordTypeId(item);
 
-    // Whether the body is an object whose fields array holds an object with a reference member, whatever its value.
-    private static bool HasFieldReference(PackSeedItem item)
-    {
-        try
-        {
-            using var body = JsonDocument.Parse(item.CanonicalJson);
-            return body.RootElement.ValueKind == JsonValueKind.Object
-                && body.RootElement.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Array
-                && fields.EnumerateArray().Any(field => field.ValueKind == JsonValueKind.Object && field.TryGetProperty("reference", out _));
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    // The body's record_type_id: the member's string value, "" when it is present but not a string (the gate then
-    // refuses the document), or null when the body is not an object carrying that member.
     private static string? RecordTypeId(PackSeedItem item)
     {
-        try
-        {
-            using var body = JsonDocument.Parse(item.CanonicalJson);
-            if (body.RootElement.ValueKind != JsonValueKind.Object
-                || !body.RootElement.TryGetProperty("record_type_id", out var id))
-                return null;
-            return id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : "";
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        try { return PackContentReferenceExtractor.RecordsId(item.Kind, JsonNode.Parse(item.CanonicalJson)); }
+        catch (JsonException) { return null; }
     }
+
 }
 
 /// <summary>
@@ -324,6 +292,9 @@ public static class PackRecordsInstallCodes
     /// not run the asynchronous gate, so it cannot promise an install. Install evaluates the gate itself.
     /// </summary>
     public const string GateNotEvaluated = "pack.install.refused.records_gate_not_evaluated";
+
+    /// <summary>The host cannot run complete Records admission, so affected content cannot install.</summary>
+    public const string AdmissionUnsupported = "pack.install.refused.records_admission_unsupported";
 
     /// <summary>Returns <paramref name="platformCode"/> when the API publishes it, otherwise <see cref="Unpublished"/>.</summary>
     /// <param name="platformCode">A code the Platform Records install gate reported.</param>
