@@ -362,7 +362,8 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
             ? [("records/work-order", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition", ReleasedWorkOrder),
                ("records/route", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition",
                    ReleasedWorkOrder.Replace("release.work-order", "release.route", StringComparison.Ordinal))]
-            : [("workflows/refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}")];
+            : [("workflows/refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}"),
+               ("workflows/also-refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}")];
         var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", definitions,
             (ReleasedPackAtomicFixture.Finance, "1.0.0")));
         var live = fixture.LiveState();
