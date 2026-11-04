@@ -97,6 +97,7 @@ public sealed class RecordsTypeReferenceExtractionTests
     [InlineData("target_type_id", "eam.asset-class", "records.reference.closure_missing", "")]
     [InlineData("target_class_id", "eam.asset-class", "records.reference.closure_missing", "/pin")]
     [InlineData("target_class_id", "other.type", "records.reference.pin_stale", "")]
+    [InlineData("target_type_id", "collision", "records.reference.target_unresolved", "/target_type_id")]
     public async Task Install_refuses_missing_signed_edge(string target, string pinId, string code, string suffix)
     {
         using var key = KeyPair.Generate();
@@ -111,14 +112,29 @@ public sealed class RecordsTypeReferenceExtractionTests
         var context = new PackInstallContext(tenant,
             new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, key.PrincipalId, 1, TrustRootStatus.Current)]),
             PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(DateTimeOffset.FromUnixTimeSeconds(1791633600)), TimeSpan.FromDays(30), Principal: "test-operator");
-        var hostile = await new RecordsTypeReferenceUncheckedExporter().ExportAsync(Request(Body(target, pinId: pinId)), new Ed25519Signer(key));
+        var request = Request(Body(target, pinId: pinId));
+        if (pinId == "collision")
+        {
+            var source = request.Contents[0];
+            var reference = source.Content["fields"]![0]!["reference"]!;
+            reference.AsObject().Remove("pin");
+            reference["target_type_id"] = "consumer.work";
+            reference["parent"] = false;
+            request = request with { Contents = [source, source with { Key = "consumer.alias" }] };
+        }
+        var hostile = await new RecordsTypeReferenceUncheckedExporter().ExportAsync(request, new Ed25519Signer(key));
 
         var outcome = await installer.InstallAsync(hostile.FileBytes!, context);
 
         Assert.False(outcome.Installed);
-        Assert.Equal(code, Assert.Single(outcome.Preview.AdmissionRefusals).Code);
-        Assert.Equal("/fields/0/reference" + suffix, Assert.Single(outcome.Preview.AdmissionRefusals).Pointer);
+        Assert.Equal(pinId == "collision" ? 2 : 1, outcome.Preview.AdmissionRefusals.Count);
+        Assert.All(outcome.Preview.AdmissionRefusals, refusal =>
+            Assert.Equal((code, "/fields/0/reference" + suffix), (refusal.Code, refusal.Pointer)));
         Assert.Null(store.GetVersion(tenant, "consumer", "1.0.0"));
+        var unverified = installer.Check([], context);
+        Assert.Equal(PackInstallVerdict.Refused, unverified.Verdict);
+        Assert.Single(unverified.Refusals);
+        Assert.DoesNotContain("pack.install.refused.records_admission_unsupported", unverified.RefusalCodes);
     }
 
     [Fact(DisplayName = "T-615: duplicate and self references keep one located outcome per occurrence; identity collisions refuse")]
@@ -195,6 +211,93 @@ public sealed class RecordsTypeReferenceExtractionTests
         var result = await ceremony.ExportAsync(composed.Draft.ComposeId, tenant, exporter, new Ed25519Signer(key), 1);
         Assert.Equal(ComposeStatus.Ok, result.Status);
         packs.Received(1).ListInstalled(tenant);
+    }
+
+    [Theory(DisplayName = "T-615: every unpinned target has a located internal outcome or refusal")]
+    [InlineData("target_type_id", "records.reference.target_unresolved", "/target_type_id")]
+    [InlineData("target_class_id", "records.reference.target_unresolved", "/target_class_id")]
+    public async Task Unpinned_external_targets_refuse(string member, string code, string suffix)
+    {
+        var request = Request(Body(member));
+        request.Contents[0].Content["fields"]![0]!["reference"]!.AsObject().Remove("pin");
+        var validation = await Exporter().ValidateAsync(request);
+        var error = Assert.Single(validation.Errors);
+        Assert.Equal((code, "/contents/0/contentBase64/fields/0/reference" + suffix), (error.Code, error.Target));
+    }
+
+    [Theory(DisplayName = "T-615: dependency declarations are checked by exact package and interface")]
+    [InlineData("mixed", null)]
+    [InlineData("absent", "records.reference.dependency_undeclared")]
+    [InlineData("missing", "records.reference.dependency_undeclared")]
+    [InlineData("wrong", "records.reference.interface_incompatible")]
+    [InlineData("self", "records.reference.pin_unexpected")]
+    public async Task Reference_declarations_are_exact(string declaration, string? code)
+    {
+        var request = Request(Body()) with { VerifiedProducers = [RecordsInstallClosureGateTests.AssetClassProducer()] };
+        request.Contents[0].Content["envelope"]!["requires"] = declaration switch
+        {
+            "mixed" => JsonNode.Parse("[{\"capability\":\"eam-core@1\"},{\"capability\":\"other@1\"}]"),
+            "wrong" => JsonNode.Parse("[{\"capability\":\"eam-core@2\"}]"),
+            _ => new JsonArray(),
+        };
+        if (declaration == "missing") request.Contents[0].Content["envelope"]!.AsObject().Remove("requires");
+        if (declaration == "self") request.Contents[0].Content["fields"]![0]!["reference"]!["pin"]!["package_id"] = "consumer";
+        var validation = await Exporter().ValidateAsync(request);
+        if (code is null) Assert.True(validation.IsValid, string.Join("; ", validation.Errors));
+        else
+        {
+            var error = Assert.Single(validation.Errors);
+            Assert.Equal((code, "/contents/0/contentBase64/fields/0/reference" + (declaration == "self" ? "/pin" : "")),
+                (error.Code, error.Target));
+        }
+    }
+
+    [Theory(DisplayName = "T-615 T-MAL: malformed Records claims refuse at export before signing")]
+    [InlineData(false, "records.document_invalid", "")]
+    [InlineData(true, "pack.install.refused.records_unpublished_refusal", "/record_type_id")]
+    public async Task Malformed_records_export_refuses(bool missingId, string code, string suffix)
+    {
+        var request = Request(Body());
+        var body = request.Contents[0].Content;
+        if (missingId)
+        {
+            body.AsObject().Remove("record_type_id");
+            body["fields"]!.AsArray().Insert(0, JsonNode.Parse("{\"field_key\":\"plain\",\"display_name\":\"Plain\"}"));
+        }
+        else body["record_type_id"] = 7;
+        var validation = await Exporter().ValidateAsync(request);
+        var error = Assert.Single(validation.Errors);
+        Assert.Equal((code, "/contents/0/contentBase64" + suffix), (error.Code, error.Target));
+    }
+
+    [Fact(DisplayName = "T-615: another signed exposure of the same producer cannot make the exact target ambiguous")]
+    public async Task Unrelated_exposure_does_not_replace_the_exact_target()
+    {
+        var producer = RecordsInstallClosureGateTests.AssetClassProducer();
+        var seed = producer.SeedItems[0];
+        var other = new PackContentCanonicalizer().Canonicalize(new PackContentSource("records/eam.other", seed.Kind,
+            seed.Version, JsonNode.Parse(seed.CanonicalJson.Replace("eam.asset-class", "eam.other", StringComparison.Ordinal))!));
+        producer = producer with
+        {
+            SeedItems = [seed, new(other.Key, other.Kind, other.Version, System.Text.Encoding.UTF8.GetString(other.CanonicalBytes.Span), other.ContentAddress)],
+            Exposes = ["records/eam.asset-class", "records/eam.other"],
+            ExposedDefinitions = [new("records/eam.asset-class", "3.1.4", Digest), new("records/eam.other", "3.1.4", Digest)],
+        };
+        var validation = await Exporter().ValidateAsync(Request(Body()) with { VerifiedProducers = [producer] });
+        Assert.True(validation.IsValid, string.Join("; ", validation.Errors));
+    }
+
+    [Fact(DisplayName = "T-615 T-ORDER/K9: a Records claim never suppresses the legacy extractor's parentType refusal")]
+    public async Task Records_claim_does_not_skip_legacy_extract_or_change_K9_precedence()
+    {
+        var request = Request(Body());
+        request.Contents[0].Content["parentType"] = "unprovided.type";
+        var extracted = PackContentReferenceExtractor.Extract(PackContentKind.AssetTypeDefinition, request.Contents[0].Content);
+        Assert.Equal(["unprovided.type|ParentOf"], extracted.Select(reference => reference.ToContentKey + "|" + reference.Relation));
+        var validation = await Exporter().ValidateAsync(request);
+        Assert.Equal(("pack.validation.reference.dependency_undeclared", "consumer.work"),
+            (validation.Errors[0].Code, validation.Errors[0].Target));
+        Assert.Contains(validation.Errors, error => error.Code == "records.document_invalid");
     }
 
 }
