@@ -255,14 +255,14 @@ public sealed class CatalogueRegistryTests
     private static PackSeedItem[] Content()
     {
         var rule = new StandingRuleDefinition("receipt.handler", "1.0.0", new StandingReference("handler"), "matter", ["handler_id"],
-            new Harborline.Contracts.Forms.RuleDefinition
+            new Harborline.Contracts.Rules.RuleDefinition
             {
                 Id = "receipt.handler",
-                Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-                Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+                Tier = Harborline.Contracts.Rules.RuleTier.JsonLogic,
+                Scope = Harborline.Contracts.Rules.RuleScope.Schema,
                 ScopeTarget = string.Empty,
                 Expression = """{"==":[{"var":"handler_id"},"person-a"]}""",
-                Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+                Action = Harborline.Contracts.Rules.RuleActionKind.Validate,
             });
         return
         [

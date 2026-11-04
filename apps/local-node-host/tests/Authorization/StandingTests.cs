@@ -45,7 +45,7 @@ public sealed class StandingTests
         Assert.Equal(definition.RecordType, roundTripped.RecordType);
         Assert.Equal(definition.Predicate.Expression, roundTripped.Predicate.Expression);
         Assert.Equal(["handler_id"], roundTripped!.InputFields);
-        Assert.Equal(Harborline.Contracts.Forms.RuleTier.JsonLogic, roundTripped.Predicate.Tier);
+        Assert.Equal(Harborline.Contracts.Rules.RuleTier.JsonLogic, roundTripped.Predicate.Tier);
     }
 
     [Fact]
@@ -240,14 +240,14 @@ public sealed class StandingTests
             new StandingReference("handler"),
             "matter",
             ["handler_id"],
-            new Harborline.Contracts.Forms.RuleDefinition
+            new Harborline.Contracts.Rules.RuleDefinition
             {
                 Id = "matter.handler",
-                Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-                Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+                Tier = Harborline.Contracts.Rules.RuleTier.JsonLogic,
+                Scope = Harborline.Contracts.Rules.RuleScope.Schema,
                 ScopeTarget = string.Empty,
                 Expression = $$"""{"==":[{"var":"handler_id"},"{{person}}"]}""",
-                Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+                Action = Harborline.Contracts.Rules.RuleActionKind.Validate,
             });
 
     private static readonly RulesCapabilityCheck AllowAll = (_, _) => ValueTask.FromResult(true);

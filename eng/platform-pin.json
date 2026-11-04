@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "8f78be3bdad498e1b20a4a6c1e0237bfa62a5e5a",
-  "recordedAt": "2026-10-18 (M11: exact platform PR 326 merge commit 8f78be3b, builder-definitions interface revision 24. The Layout decoder detects a missing binding_kind discriminator at every actual LayoutBlock.Binding object while preserving escaped exact discriminator names and refusing empty binding objects. Includes intervening platform PRs 320 (taxonomy LastHop), 322 (stored run attempt snapshots), 316 (spinner reduced motion), 319 (shared scheduling tooling), 324 (RetryProfile isolation) and 325 (DeliveryChannels canonical inbox). Consumer source preparation only; complete exact-pin feed, clean restore/build, package-byte provenance and integration qualification remain required.)",
+  "commit": "5b4fdf09c70e8af7504f8a9c07a1a4756f09d31d",
+  "recordedAt": "2026-11-04 (M11: exact platform PR 409 merge commit 5b4fdf09, which T-521 content-store-durable-host needs. It includes platform PR 399 (343389c1, T-564), which moves RuleDefinition, RuleTier, RuleScope and RuleActionKind from Harborline.Contracts.Forms to Harborline.Contracts.Rules with unchanged shapes; the API adopts the new namespace in the same change. Also includes every platform PR merged since 8f78be3b, among them 405 (T-521 shared content-store producer), 406 (T-615 Definition Dependency Catalogue edges), 403 (T-1035 frozen package consumers), 408 (attested library signing) and 334 (T-493 pinned Taxonomy answers in Rule Runtime). Producer identities and all36 assembly pairs are unchanged. The complete exact-pin feed, a clean restore into an empty package folder and the Release build passed locally on macOS; test and CI qualification are recorded on API PR 461.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
@@ -11,7 +11,8 @@
     "Consume builder-definitions revision 19 exposedDefinitions (Goal 3 P1) so the Records install gate reads a cross-package pin's version and digest from the exact pinned producer's signed entry (Goal 3 P3). The host still composes no Records gate (G-HOST), and no Class exposure is produced.",
     "Consume T-1034's Layout decode refusal code (layout.definition.body_invalid) so the API's Layout admission carries Platform's own code, pointer and target for undecodable entries.",
     "Consume T-1091's structural missing-binding_kind refusal (owner ruling Q9, 2026-10-18) so API #429's final consumer can prove a Layout binding without binding_kind is refused as layout.definition.body_invalid instead of escaping as 500.",
-    "Consume Q16 Layout binding object admission from platform PR 326 at its actual merge commit so API #429 can preserve Platform refusal code, pointer and target while accepting escaped exact binding_kind names. Producer identities and all36 assembly pairs remain unchanged; host enablement and owner holds remain in force."
+    "Consume Q16 Layout binding object admission from platform PR 326 at its actual merge commit so API #429 can preserve Platform refusal code, pointer and target while accepting escaped exact binding_kind names. Producer identities and all36 assembly pairs remain unchanged; host enablement and owner holds remain in force.",
+    "Consume platform PR 399 (T-564), so rule contracts resolve through Harborline.Contracts.Rules instead of Forms, and pin platform PR 409 merge commit 5b4fdf09 as the base T-521 content-store-durable-host builds on. The namespace change is mechanical, with no host behavior change."
   ],
   "producers": {
     "Harborline.Blocks.ActivityTimeline": "Harborline.Blocks.ActivityTimeline.dll",

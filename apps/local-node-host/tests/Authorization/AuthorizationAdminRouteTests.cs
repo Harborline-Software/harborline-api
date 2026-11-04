@@ -491,14 +491,14 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         new StandingReference("handler"),
         "matter",
         ["handler_id", "unmapped"],
-        new Harborline.Contracts.Forms.RuleDefinition
+        new Harborline.Contracts.Rules.RuleDefinition
         {
             Id = "matter.handler",
-            Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-            Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+            Tier = Harborline.Contracts.Rules.RuleTier.JsonLogic,
+            Scope = Harborline.Contracts.Rules.RuleScope.Schema,
             ScopeTarget = string.Empty,
             Expression = "{\"and\":[{\"==\":[{\"var\":\"handler_id\"},\"person-7\"]},{\"==\":[{\"var\":\"unmapped\"},\"yes\"]}]}",
-            Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+            Action = Harborline.Contracts.Rules.RuleActionKind.Validate,
         });
 
     private static string SchemaWithProperties(params string[] properties)
