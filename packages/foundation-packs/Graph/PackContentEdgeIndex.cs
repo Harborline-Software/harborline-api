@@ -157,6 +157,8 @@ public static class PackContentEdgeIndexBuilder
                 continue; // an unreadable body contributes no edges (tolerant, like the projector's skip).
             }
 
+            if (PackContentReferenceExtractor.RecordsId(item.Kind, body) is not null)
+                continue; // Records edges come from the signed manifest, never the graph's representative winner.
             foreach (var reference in PackContentReferenceExtractor.Extract(item.Kind, body))
             {
                 if (string.Equals(reference.ToContentKey, item.Key, StringComparison.Ordinal))

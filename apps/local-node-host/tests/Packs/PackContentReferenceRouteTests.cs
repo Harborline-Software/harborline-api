@@ -15,6 +15,7 @@ using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Graph;
@@ -50,6 +51,8 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private KeyPair _key = null!;
+    private InMemoryPackInstallStore _store = null!;
+    private TenantId _tenant;
 
     public async Task InitializeAsync()
     {
@@ -76,7 +79,8 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         });
         var activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Ref Co"));
 
-        var store = new InMemoryPackInstallStore();
+        var store = _store = new InMemoryPackInstallStore();
+        _tenant = NodeTenant.Resolve(activeTeam);
         PlatformPackTestPreload.Activate(store, NodeTenant.Resolve(activeTeam));
         var admission = new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator());
         var installer = new PackInstaller(verifier, store, admission, new InMemoryPackInstallAudit(),
@@ -94,7 +98,7 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
             await next(http);
         });
-        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance);
+        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance, packs: store);
         PackInstallRoutes.Map(_app, installer, store, trustStore, PackRevocationList.Empty, activeTeam,
             authz, TimeProvider.System, NullLogger.Instance, authorizingPrincipal: _key.PrincipalId.ToBase64Url(),
             projector: projector);
@@ -111,6 +115,29 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         _key?.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
+    }
+
+    [Fact(DisplayName = "T-615: validate-only and signing share the route's exact installed snapshot")]
+    public async Task Records_validate_only_and_export_use_the_exact_snapshot()
+    {
+        var producer = RecordsInstallClosureGateTests.AssetClassProducer();
+        _store.Commit(new PackInstallTransaction(_tenant, producer,
+            new PackInstallWatermark("eam-core", "7.0.0", new Dictionary<string, int>()), []));
+        var body = new
+        {
+            key = "consumer", version = "1.0.0", name = "Consumer", scopeTier = "Horizontal",
+            contents = new[] { new { key = "consumer.work", kind = "AssetTypeDefinition", version = "1.0.0",
+                content = System.Text.Json.Nodes.JsonNode.Parse(RecordsTypeReferenceExtractionTests.Body()) } },
+            dependencies = new[] { new { key = "eam-core", version = "7.0.0" } },
+        };
+        var validate = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute + "?validateOnly=true", body);
+        Assert.Equal(HttpStatusCode.OK, validate.StatusCode);
+        var exported = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, body);
+        Assert.Equal(HttpStatusCode.OK, exported.StatusCode);
+        var file = new PackFileCodec().TryDecode(await exported.Content.ReadAsByteArrayAsync());
+        var reference = Assert.Single(file!.Envelope!.Payload.Manifest.ContentReferences!);
+        Assert.Equal(("eam-core", "records/eam.asset-class", "References"),
+            (reference.ToPackKey, reference.ToContentKey, reference.Relation.ToString()));
     }
 
     [Fact(DisplayName = "declared reference into an installed app: composer emits it, install accepts, graph shows it")]

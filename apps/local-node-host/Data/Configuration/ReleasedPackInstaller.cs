@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Merge;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Model;
@@ -339,6 +340,7 @@ public sealed class ReleasedPackInstaller
         if (request is not null)
         {
             capture?.ObserveStage("export");
+            request = request with { VerifiedProducers = installedPacks };
             var exported = await _exporter.ExportAsync(request, _signer.Signer, cancellationToken).ConfigureAwait(false);
             if (!exported.Succeeded || exported.FileBytes is null)
                 return new(false, offer.Released.Digest, request.Key, request.Version,
@@ -483,9 +485,25 @@ public sealed class ReleasedPackInstaller
         if (installed.Installed && installed.Action == Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditAction.Unchanged)
             return new(false, releasedDigest, installed.PackKey, installed.Version, []);
         if (!installed.Installed)
+        {
+            var records = installed.Preview.AdmissionRefusals.Where(refusal =>
+                refusal.Code.StartsWith("records.", StringComparison.Ordinal) || refusal.Code.StartsWith("definition.", StringComparison.Ordinal)
+                || refusal.Code.StartsWith("pack.install.refused.records_", StringComparison.Ordinal)).ToArray();
+            if (records.Length > 0)
+                return new(false, releasedDigest, request.Key, request.Version,
+                    [.. records.Select(refusal => new ReleasedPackRefusal(PackRecordsInstallCodes.PublishedCode(refusal.Code),
+                        $"/contents/{request.Contents.ToList().FindIndex(item => item.Key == refusal.ContentKey)}/contentBase64" + refusal.Pointer,
+                        refusal.Message))]);
+            var unsupported = installed.Preview.Refusals.Where(refusal => refusal.Code == PackRecordsInstallCodes.AdmissionUnsupported).ToArray();
+            if (unsupported.Length > 0)
+                return new(false, releasedDigest, request.Key, request.Version,
+                    [.. installed.Preview.Refusals.Select(refusal => new ReleasedPackRefusal(refusal.Code,
+                        refusal.Code == PackRecordsInstallCodes.AdmissionUnsupported ? refusal.Pointer : "releasedPackage",
+                        "The Released package was refused by the install engine."))]);
             return new(false, releasedDigest, request.Key, request.Version,
                 [.. installed.RefusalCodes.Select(code =>
                     new ReleasedPackRefusal(code, "releasedPackage", "The Released package was refused by the install engine."))]);
+        }
 
         capture?.ObserveStage("activate");
         var activated = await _installer.ActivateAsync(context, installed.PackKey, installed.Version, transaction,
