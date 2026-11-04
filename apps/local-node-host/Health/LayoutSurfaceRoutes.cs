@@ -21,10 +21,18 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>Opening a surface (DES-0052 layout-eng-26; T-724 ruling 76; owner ruling of 2026-11-04; MITRE CWE-862).</b>
+/// <c>layout:open</c> on the requested surface is decided first, deny by default. It is the decision
+/// <see cref="LayoutSurfaceHost"/> also makes: the same operation and record kind, on the identity the surface is
+/// matched by. The route has to enforce it, because the platform resolver does not read that decision. No seeded
+/// role or definition offers the operation yet, so until one is ruled every caller is refused here.
+/// </para>
+/// <para>
 /// <b>Root existence (MITRE CWE-203; OWASP API Security Top 10 2023, API1).</b> <c>records:read</c> on the root is
-/// decided before the surface, the root or anything else is looked up, so a caller who may not read the root gets
-/// one refusal whether or not it exists, and whether or not the surface does. Only an authorized caller learns
-/// that a root is unknown.
+/// decided next, still before the surface, the root or anything else is looked up. A caller who may not open the
+/// surface gets one refusal whatever the root and surface are and whatever else they hold; a caller who may open
+/// it but not read the root gets one refusal whether or not the root exists. Only a caller holding both learns
+/// that a surface or a root is unknown.
 /// </para>
 /// <para>
 /// <b>Related targets (DES-0052 layout-eng-31).</b> The relationship map comes from the Records reference fields the
@@ -48,13 +56,15 @@ public static class LayoutSurfaceRoutes
         LayoutSurfaceHost host,
         IPackInstallStore packs,
         ILayoutRootRecordSource roots,
-        ILayoutRelatedRecordSource related)
+        ILayoutRelatedRecordSource related,
+        TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(packs);
         ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(related);
+        ArgumentNullException.ThrowIfNull(time);
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
@@ -66,12 +76,18 @@ public static class LayoutSurfaceRoutes
                 return invalidCorrelation;
             var tenant = principal.TenantId;
 
-            // Decided before any lookup: existence is not probeable through the refusal.
-            var denied = await RequestAuthorization.RefusalAsync(
-                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct)
+            // Both decided before any lookup, at one instant: existence is not probeable through a refusal.
+            var authority = RequestAuthorization.Authority(http, tenant, time);
+            var cannotOpen = await RequestAuthorization.RefusalAsync(
+                    http, authority, LayoutSurfaceHost.LayoutOpen.Value, RouteRecord.Of(surfaceId), ct)
                 .ConfigureAwait(false);
-            if (denied is not null)
-                return denied;
+            if (cannotOpen is not null)
+                return cannotOpen;
+            var cannotRead = await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct)
+                .ConfigureAwait(false);
+            if (cannotRead is not null)
+                return cannotRead;
 
             var (surface, ambiguous) = InstalledLayoutSurfaces.Find(packs, tenant, surfaceId);
             if (ambiguous)

@@ -57,14 +57,55 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
     private const string RegistryRoot = "invoice-r1";
     private static readonly LayoutRecordReference OwnerRecord = new(SurfacePack.PartyType, "party-19");
 
-    /// <summary>May read the root record only: records:read is scoped to <c>/records/invoice-7</c>.</summary>
+    /// <summary>
+    /// The only source of a <c>layout:open</c> grant in these tests. No seeded role or definition offers the operation
+    /// (owner ruling of 2026-11-04), and it is not in the code operation catalogue, so definition admission refuses
+    /// one. This feeds the real gate the derivation a grant would produce and leaves every other read to the seeded
+    /// production reader. The gate addresses a layout:open target as <c>/records/{surface identity}</c>.
+    /// </summary>
+    private sealed class FixtureLayoutOpenGrants(
+        IAuthorizationClosureSnapshotReader closure, IAuthorizationDefinitionAtomReader atoms)
+        : IAuthorizationClosureSnapshotReader, IAuthorizationDefinitionAtomReader
+    {
+        private static readonly RoleReference SurfaceOpener = new(RoleVocabularies.Domain, "fixture-surface-opener");
+        private static readonly AuthorizationOperation Open = AuthorizationOperation.Parse("layout:open");
+        private static readonly Dictionary<ActorId, ScopeExpression> Holders = new()
+        {
+            [Viewer] = ScopeExpression.Parse($"/records/{SurfacePack.Invoice}"),
+            [Member] = ScopeExpression.Parse("/"),
+            [OpenerOnly] = ScopeExpression.Parse("/"),
+        };
+
+        public async ValueTask<AuthorizationClosureSnapshot> ReadAsync(AuthorizationGateRequest request, CancellationToken ct = default)
+        {
+            var snapshot = await closure.ReadAsync(request, ct);
+            if (request.Act.Operation != Open || !Holders.TryGetValue(request.Principal, out var scope)) return snapshot;
+            return new AuthorizationClosureSnapshot(
+                [.. snapshot.Derivations, new AuthorizationAtomDerivation(new PermissionAtom(Open, scope), SurfaceOpener,
+                    "fixture-grant", 1, "fixture-definition", scope, request.At.AddHours(-1), null)],
+                snapshot.Excluded);
+        }
+
+        public async ValueTask<IReadOnlyList<PermissionAtom>> AtomsForRoleAsync(TenantId tenantId, RoleReference role, CancellationToken ct = default)
+            => role == SurfaceOpener
+                ? [new PermissionAtom(Open, ScopeExpression.Parse("/"))]
+                : await atoms.AtomsForRoleAsync(tenantId, role, ct);
+    }
+
+    /// <summary>May open the invoice surface and read the root record only: both grants name exactly one target.</summary>
     private static readonly ActorId Viewer = new("viewer-735");
 
-    /// <summary>May read every record.</summary>
+    /// <summary>May open every surface and read every record.</summary>
     private static readonly ActorId Member = new("member-735");
 
     /// <summary>Holds no grant.</summary>
     private static readonly ActorId Stranger = new("stranger-735");
+
+    /// <summary>May read every record, and holds no layout:open.</summary>
+    private static readonly ActorId ReaderOnly = new("reader-only-735");
+
+    /// <summary>May open every surface, and holds no records:read.</summary>
+    private static readonly ActorId OpenerOnly = new("opener-only-735");
 
     /// <summary>Holds audit:read and records:read: the reader of the denial trace.</summary>
     private static readonly ActorId Auditor = new("auditor-member-735");
@@ -111,15 +152,20 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         var unknown = await h.ReadAsync(Stranger, SurfacePack.Invoice, UnknownRoot);
         var unknownSurface = await h.ReadAsync(Stranger, "no-such-surface", Root);
 
-        // The realistic probe: a caller who may read one record asks about one it may not read and one that is absent.
+        // The realistic probe: a caller who may open the surface and read one record asks about one it may not read and
+        // one that is absent. The opener with no read at all gets that same refusal.
         var scopedDenied = await h.ReadAsync(Viewer, SurfacePack.Invoice, MistypedRoot);
         var scopedUnknown = await h.ReadAsync(Viewer, SurfacePack.Invoice, UnknownRoot);
+        var openerDenied = await h.ReadAsync(OpenerOnly, SurfacePack.Invoice, Root);
+        var openerUnknown = await h.ReadAsync(OpenerOnly, SurfacePack.Invoice, UnknownRoot);
 
         Assert.Equal(HttpStatusCode.Forbidden, denied.Status);
         Assert.Equal(denied, unknown);
         Assert.Equal(denied, unknownSurface);
         Assert.Equal(HttpStatusCode.Forbidden, scopedDenied.Status);
         Assert.Equal(scopedDenied, scopedUnknown);
+        Assert.Equal(scopedDenied, openerDenied);
+        Assert.Equal(scopedDenied, openerUnknown);
         // The decision came before the lookup: the root store was never read for the stranger.
         Assert.Equal(0, h.Roots.Lookups);
 
@@ -127,6 +173,100 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         using var authorized = await h.GetAsync(Member, SurfacePack.Invoice, UnknownRoot);
         Assert.Equal(HttpStatusCode.NotFound, authorized.StatusCode);
         Assert.Equal("layout.surface.root_unknown", await CodeAsync(authorized));
+    }
+
+    [Fact(DisplayName = "layout-eng-26 T-735: a caller who may read the root but holds no layout:open is refused before anything is looked up")]
+    public async Task A_caller_without_layout_open_is_refused()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var response = await h.GetAsync(ReaderOnly, SurfacePack.Invoice, Root);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        using var body = JsonDocument.Parse(text);
+        Assert.Equal(("authorization.permission_required", "layout:open"),
+            (body.RootElement.GetProperty("code").GetString(), body.RootElement.GetProperty("permission").GetString()));
+        Assert.DoesNotContain("Fabrikam", text, StringComparison.Ordinal);
+        Assert.Equal((0, 0), (h.Roots.Lookups, h.Related.Lookups));
+    }
+
+    [Fact(DisplayName = "layout-eng-26 T-735: the same reader holding layout:open is served the surface")]
+    public async Task A_caller_with_layout_open_is_served()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var refused = await h.GetAsync(ReaderOnly, SurfacePack.Invoice, Root);
+        using var served = await h.GetAsync(Member, SurfacePack.Invoice, Root);
+
+        // ReaderOnly and Member hold the same records:read grant; layout:open is the only difference.
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, served.StatusCode);
+        using var body = JsonDocument.Parse(await served.Content.ReadAsStringAsync());
+        Assert.Equal("invoice", body.RootElement.GetProperty("surface").GetString());
+        Assert.Contains("supplier=\"Fabrikam\"", Blocks(body.RootElement));
+    }
+
+    [Fact(DisplayName = "layout-eng-26 T-735: a layout:open grant on one surface does not open another")]
+    public async Task A_grant_on_one_surface_does_not_open_another()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var granted = await h.GetAsync(Viewer, SurfacePack.Invoice, Root);
+        using var other = await h.GetAsync(Viewer, SurfacePack.ApproversSurface, Root);
+
+        Assert.Equal(HttpStatusCode.OK, granted.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, other.StatusCode);
+        using var body = JsonDocument.Parse(await other.Content.ReadAsStringAsync());
+        Assert.Equal("layout:open", body.RootElement.GetProperty("permission").GetString());
+    }
+
+    [Fact(DisplayName = "layout-eng-26 T-735 (CWE-862, CWE-203): to a caller who cannot open the surface, a readable root, a denied root, an unknown root, an unknown surface and a missing read grant are the same bytes")]
+    public async Task Callers_who_cannot_open_the_surface_cannot_tell_what_else_applies()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        var observed = new[]
+        {
+            await h.ReadAsync(ReaderOnly, SurfacePack.Invoice, Root),
+            await h.ReadAsync(ReaderOnly, SurfacePack.Invoice, UnknownRoot),
+            await h.ReadAsync(ReaderOnly, "no-such-surface", Root),
+            await h.ReadAsync(Stranger, SurfacePack.Invoice, Root),
+            await h.ReadAsync(Stranger, SurfacePack.Invoice, UnknownRoot),
+            await h.ReadAsync(Stranger, "no-such-surface", UnknownRoot),
+            // A grant on one surface: this other surface exists, this one does not.
+            await h.ReadAsync(Viewer, SurfacePack.ApproversSurface, Root),
+            await h.ReadAsync(Viewer, "no-such-surface", UnknownRoot),
+        };
+
+        Assert.Equal(HttpStatusCode.Forbidden, observed[0].Status);
+        Assert.All(observed, each => Assert.Equal(observed[0], each));
+        Assert.Equal((0, 0), (h.Roots.Lookups, h.Related.Lookups));
+        // The control: holding layout:open changes the answer, so the equality above is not vacuous.
+        Assert.Equal(HttpStatusCode.OK, (await h.ReadAsync(Member, SurfacePack.Invoice, Root)).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.ReadAsync(Member, SurfacePack.Invoice, UnknownRoot)).Status);
+    }
+
+    [Fact(DisplayName = "T-735 owner ruling 2026-11-04: which roles hold layout:open is not yet ruled, so no seeded role offers it and it is not in the code operation catalogue")]
+    public async Task No_seeded_role_offers_layout_open()
+    {
+        var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
+        var services = new ServiceCollection();
+        services.AddSingleton(TestAuthorization.AllowGate());
+        services.AddAccessGrantModule();
+        await using var provider = services.BuildServiceProvider();
+        await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
+            .InstallAsync(tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        var atoms = provider.GetRequiredService<IAuthorizationDefinitionAtomReader>();
+
+        foreach (var role in new[]
+                 {
+                     AccessGrantAuthorizationSeed.MemberRole, AccessGrantAuthorizationSeed.NodeOperatorRole,
+                     RoleReference.Administrator, RoleReference.Auditor,
+                 })
+            Assert.DoesNotContain(await atoms.AtomsForRoleAsync(tenant, role),
+                atom => atom.Operation.Value == "layout:open");
+        Assert.DoesNotContain(PermissionVocabulary.Operations, operation => operation.Value == "layout:open");
     }
 
     [Theory(DisplayName = "T-735 layout-ck-28: a related key with no single-target Records reference on the root's Record Type refuses")]
@@ -431,10 +571,10 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         {
             var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
             var authorization = await SeededAuthorizationAsync(tenant);
-            var gate = new AuthorizationGate(
+            var grants = new FixtureLayoutOpenGrants(
                 authorization.GetRequiredService<IAuthorizationClosureSnapshotReader>(),
-                authorization.GetRequiredService<IRecordStandingResolver>(),
                 authorization.GetRequiredService<IAuthorizationDefinitionAtomReader>());
+            var gate = new AuthorizationGate(grants, authorization.GetRequiredService<IRecordStandingResolver>(), grants);
             var pipeline = new Pipeline(new InMemoryAuditTrail());
             var options = new LayoutSurfaceOptions { ResponseFloor = floor };
             var time = new FixedTime(At);
@@ -470,7 +610,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 }
                 await next(http);
             });
-            LayoutSurfaceRoutes.Map(app.MapSelectedSessionProductGroup(), surfaces, packs, rootSource ?? roots, relatedSource ?? related);
+            LayoutSurfaceRoutes.Map(app.MapSelectedSessionProductGroup(), surfaces, packs, rootSource ?? roots, relatedSource ?? related, time);
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();
@@ -507,6 +647,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(tenant, Grant(tenant, Viewer, member, $"/records/{Root}"));
             await grants.AppendAsync(tenant, Grant(tenant, Member, member, "/"));
+            await grants.AppendAsync(tenant, Grant(tenant, ReaderOnly, member, "/"));
             await grants.AppendAsync(tenant, Grant(tenant, Auditor, RoleReference.Auditor, "/"));
             await grants.AppendAsync(tenant, Grant(tenant, Auditor, member, "/"));
             return provider;

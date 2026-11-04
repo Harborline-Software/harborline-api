@@ -183,7 +183,12 @@ public sealed class LayoutSurfaceHost(
         => (blocks ?? []).Any(block => block.RelatedRelationship is { Length: > 0 } || DeclaresRelatedBinding(block.Children));
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
-    private static readonly AuthorizationOperation LayoutOpen = AuthorizationOperation.Parse("layout:open");
+    /// <summary>
+    /// layout-eng-26, T-724 ruling 76: the operation that opens a surface. The platform resolver does not read
+    /// <see cref="ILayoutAccess.CanOpen"/>, so a route that serves a surface must refuse on this same operation
+    /// and record first (owner ruling of 2026-11-04, T-735).
+    /// </summary>
+    internal static readonly AuthorizationOperation LayoutOpen = AuthorizationOperation.Parse("layout:open");
 
     private sealed class NoTrace : ILayoutDecisionTrace
     {
