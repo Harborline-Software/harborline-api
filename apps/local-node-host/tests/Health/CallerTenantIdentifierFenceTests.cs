@@ -61,8 +61,13 @@ public sealed class CallerTenantIdentifierFenceTests
                     },
                 }),
             };
-            using (var accepted = await client.PostAsJsonAsync(path, Body()))
+            foreach (var kind in new[] { "AssetTypeDefinition", "assettypedefinition" })
+            {
+                var body = Body();
+                body["contents"]![0]!["kind"] = kind;
+                using var accepted = await client.PostAsJsonAsync(path, body);
                 Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+            }
 
             var mismatch = Body();
             mismatch["contents"]![0]!["content"]!["envelope"]!["tenant"] = "another-session-tenant";
@@ -73,6 +78,9 @@ public sealed class CallerTenantIdentifierFenceTests
             var wrongKind = Body();
             wrongKind["contents"]![0]!["kind"] = "FormDefinition";
             var elsewhere = new[] { mismatch, nonString, legacy, wrongKind }.ToList();
+            var nestedArray = Body();
+            nestedArray["extra"] = Body()["contents"]!.DeepClone();
+            elsewhere.Add(nestedArray);
             foreach (var spelling in TenantSpellings)
             {
                 using var query = new HttpRequestMessage(HttpMethod.Post,
