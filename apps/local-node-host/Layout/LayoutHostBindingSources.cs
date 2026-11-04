@@ -5,7 +5,6 @@ using System.Text.Json.Nodes;
 
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
@@ -115,15 +114,16 @@ internal static class InstalledLayoutSurfaces
         return matches.Count == 1 ? matches[0] : null;
     }
 
-    // A seed is immutable, so its parse is too: each distinct seed is parsed once per process rather than on every
-    // request. The key is the seed's verified content address (merkle-checked at install), so a cached parse answers
-    // only for the bytes it was made from. The caches hold one entry per distinct seed this process has served.
-    private static readonly ConcurrentDictionary<Cid, LayoutDefinition?> s_surfaces = new();
-    private static readonly ConcurrentDictionary<Cid, (string? Id, RecordTypeDocument? Document)> s_recordTypes = new();
+    // A seed is immutable, so its parse is too: each distinct seed body is parsed once per process rather than on every
+    // request. The key is the canonical body itself, not its content address, so a cached parse can only ever answer for
+    // the exact bytes it was made from, however the seed item was built. The caches hold one entry per distinct body.
+    private static readonly ConcurrentDictionary<string, LayoutDefinition?> s_surfaces = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, (string? Id, RecordTypeDocument? Document)> s_recordTypes =
+        new(StringComparer.Ordinal);
 
     private static bool TryParse(PackSeedItem item, out LayoutDefinition definition)
     {
-        definition = s_surfaces.GetOrAdd(item.ContentAddress, static (_, json) =>
+        definition = s_surfaces.GetOrAdd(item.CanonicalJson, static json =>
         {
             try
             {
@@ -133,26 +133,26 @@ internal static class InstalledLayoutSurfaces
             {
                 return null;
             }
-        }, item.CanonicalJson)!;
+        })!;
         return definition is not null;
     }
 
     private static RecordTypeDocument? TryParseRecordType(PackSeedItem item, string recordTypeId)
     {
-        var (id, document) = s_recordTypes.GetOrAdd(item.ContentAddress, static (_, seed) =>
+        var (id, document) = s_recordTypes.GetOrAdd(item.CanonicalJson, static (json, kind) =>
         {
             try
             {
-                var recordsId = PackContentReferenceExtractor.RecordsId(seed.Kind, JsonNode.Parse(seed.CanonicalJson));
+                var recordsId = PackContentReferenceExtractor.RecordsId(kind, JsonNode.Parse(json));
                 return recordsId is { Length: > 0 }
-                    ? (recordsId, RecordTypeDefinitionJson.Deserialize(Encoding.UTF8.GetBytes(seed.CanonicalJson)))
+                    ? (recordsId, RecordTypeDefinitionJson.Deserialize(Encoding.UTF8.GetBytes(json)))
                     : (recordsId, null);
             }
             catch (JsonException)
             {
                 return (null, null);
             }
-        }, item);
+        }, item.Kind);
         return id == recordTypeId ? document : null;
     }
 }
