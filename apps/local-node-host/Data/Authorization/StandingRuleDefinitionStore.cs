@@ -105,7 +105,7 @@ public static class StandingRuleDefinitionJson
         WireStanding Standing,
         string RecordType,
         string[] InputFields,
-        Harborline.Contracts.Forms.RuleDefinition Predicate);
+        Harborline.Contracts.Rules.RuleDefinition Predicate);
 
     private sealed record WireStanding(string Name);
 

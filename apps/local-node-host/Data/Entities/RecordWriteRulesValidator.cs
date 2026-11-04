@@ -13,7 +13,7 @@ using Harborline.Foundation.RuleEngine.Compilation;
 using Harborline.Foundation.RuleEngine.Records;
 
 using FormRule = Harborline.Api.Foundation.Forms.Models.RuleDefinition;
-using PlatformRule = Harborline.Contracts.Forms.RuleDefinition;
+using PlatformRule = Harborline.Contracts.Rules.RuleDefinition;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -121,11 +121,11 @@ public sealed class RecordWriteRulesValidator(
         var candidate = new PlatformRule
         {
             Id = rule.Id,
-            Tier = Enum.Parse<global::Harborline.Contracts.Forms.RuleTier>(rule.Tier.ToString()),
-            Scope = global::Harborline.Contracts.Forms.RuleScope.Schema,
+            Tier = Enum.Parse<global::Harborline.Contracts.Rules.RuleTier>(rule.Tier.ToString()),
+            Scope = global::Harborline.Contracts.Rules.RuleScope.Schema,
             ScopeTarget = rule.ScopeTarget,
             Expression = rule.Expression,
-            Action = global::Harborline.Contracts.Forms.RuleActionKind.Validate,
+            Action = global::Harborline.Contracts.Rules.RuleActionKind.Validate,
         };
         try
         {

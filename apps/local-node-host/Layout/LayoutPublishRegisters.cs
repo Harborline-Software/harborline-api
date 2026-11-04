@@ -3,10 +3,10 @@ using System.Text.Json;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Blocks.LayoutRuntime;
 using Harborline.Contracts.Fields;
-using ContractRuleActionKind = Harborline.Contracts.Forms.RuleActionKind;
-using ContractRuleDefinition = Harborline.Contracts.Forms.RuleDefinition;
-using ContractRuleScope = Harborline.Contracts.Forms.RuleScope;
-using ContractRuleTier = Harborline.Contracts.Forms.RuleTier;
+using ContractRuleActionKind = Harborline.Contracts.Rules.RuleActionKind;
+using ContractRuleDefinition = Harborline.Contracts.Rules.RuleDefinition;
+using ContractRuleScope = Harborline.Contracts.Rules.RuleScope;
+using ContractRuleTier = Harborline.Contracts.Rules.RuleTier;
 
 namespace Harborline.Api.LocalNodeHost.Layout;
 

@@ -192,14 +192,14 @@ public sealed class PackProjectionResourceLifetimeTests
     }
 
     private static StandingRuleDefinition Standing(string id) => new(id, "1.0.0", new StandingReference("handler"),
-        "matter", ["handler_id"], new Harborline.Contracts.Forms.RuleDefinition
+        "matter", ["handler_id"], new Harborline.Contracts.Rules.RuleDefinition
         {
             Id = id,
-            Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-            Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+            Tier = Harborline.Contracts.Rules.RuleTier.JsonLogic,
+            Scope = Harborline.Contracts.Rules.RuleScope.Schema,
             ScopeTarget = string.Empty,
             Expression = """{"==":[{"var":"handler_id"},"person-7"]}""",
-            Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+            Action = Harborline.Contracts.Rules.RuleActionKind.Validate,
         });
 
     private sealed class ObservedContext(DbContextOptions<ObservedContext> options) : DbContext(options)
