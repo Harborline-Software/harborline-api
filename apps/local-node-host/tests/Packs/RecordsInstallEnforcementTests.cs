@@ -345,6 +345,47 @@ public sealed class RecordsInstallEnforcementTests : IDisposable
         Assert.Equal("2.0.0", _store.GetWatermark(Tenant, "fleet-ops")!.Version);
     }
 
+    [Theory(DisplayName = "T-615 Q4: Released install forwards unsupported Records pointers and preserves other admission codes")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Released_install_maps_unsupported_records_and_generic_admission(bool records)
+    {
+        await using var fixture = await ReleasedPackAtomicFixture.CreateAsync();
+        IPackContentAdmission admission = records ? fixture.Admission : new WorkflowRefusingPackContentAdmission();
+        var engine = new PackInstaller(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), fixture.Reader,
+            fixture.Store, fixture.Store, admission, fixture.Audit, TestAuthorization.AllowGate());
+        var installer = new RecordingInstaller(engine, fixture.Harness.Store.PacksFactory);
+        var releases = new ReleasedPackInstaller(fixture.Proposals, new RecordsTypeReferenceUncheckedExporter(), installer, fixture.Node,
+            new Ed25519Verifier(), HostedPackInstallApiEndpoint.BuildTrustStore(fixture.Node, NullLogger.Instance),
+            PackRevocationList.Empty, fixture.Reader, TestPackGate.AllowAll());
+        (string Key, string Owner, string Kind, string Body)[] definitions = records
+            ? [("records/work-order", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition", ReleasedWorkOrder),
+               ("records/route", ReleasedPackAtomicFixture.ReleaseKey, "AssetTypeDefinition",
+                   ReleasedWorkOrder.Replace("release.work-order", "release.route", StringComparison.Ordinal))]
+            : [("workflows/refused", ReleasedPackAtomicFixture.ReleaseKey, "WorkflowDefinition", "{}")];
+        var digest = await fixture.OfferAsync(ReleasedPackAtomicFixture.Document("1.1.0", definitions,
+            (ReleasedPackAtomicFixture.Finance, "1.0.0")));
+        var live = fixture.LiveState();
+        var durable = await fixture.DurableStateAsync();
+        var outbox = await fixture.OutboxCountAsync();
+
+        var outcome = await releases.InstallAsync(fixture.Tenant, digest,
+            TestAuthorization.Write(fixture.Tenant, ReleasedPackAtomicFixture.Principal, ReleasedPackAtomicFixture.Frozen));
+
+        Assert.False(outcome.Succeeded);
+        Assert.False(outcome.Installed);
+        (string Code, string Target)[] expected = records
+            ? [("pack.install.refused.records_admission_unsupported", "/contents/0/contentBase64"),
+               ("pack.install.refused.records_admission_unsupported", "/contents/1/contentBase64")]
+            : [("pack.install.refused.admission", "releasedPackage")];
+        Assert.Equal(expected, outcome.Refusals.Select(refusal => (refusal.Code, refusal.Target)));
+        Assert.Equal((1, 0, 0), (installer.Installs, installer.Activations, installer.Narrowings));
+        Assert.Equal(live, fixture.LiveState());
+        Assert.Equal(durable, await fixture.DurableStateAsync());
+        Assert.Equal(outbox, await fixture.OutboxCountAsync());
+        Assert.Empty(fixture.Audit.Successes());
+    }
+
     [Fact(DisplayName = "goal 3 T-ATOM: a Released cross-package pin commits nothing, audits one refusal and never breaks glass")]
     public async Task A_released_cross_package_pin_commits_nothing()
     {
