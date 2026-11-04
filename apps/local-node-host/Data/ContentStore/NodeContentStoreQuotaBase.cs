@@ -6,6 +6,14 @@ using Microsoft.Win32.SafeHandles;
 namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 
 /// <summary>Q22: caller-available bytes on the store's volume plus its allocated physical bytes.</summary>
+/// <remarks>
+/// Measured on every call: <see cref="DriveInfo.AvailableFreeSpace"/> (<c>f_bavail * f_frsize</c>) or Windows
+/// <c>GetDiskFreeSpaceEx</c> caller bytes, plus each store file's allocated size (Unix <c>st_blocks * 512</c>, Windows
+/// <c>FILE_STANDARD_INFO.AllocationSize</c>). .NET exposes no allocated-size API, so Unix reads <c>fstat</c>
+/// directly; <c>st_blocks</c> sits at offset 104 in the 64-bit-inode macOS <c>struct stat</c> and at 64 in both the
+/// glibc x86_64 and the generic aarch64 layouts, and a test checks the result against <c>stat(1)</c>. Database
+/// allocation, including free pages, is counted rather than plaintext or sparse logical length.
+/// </remarks>
 public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) : IContentStoreQuotaBase
 {
     public long GetQuotaBaseBytes()
@@ -31,7 +39,7 @@ public sealed class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) :
         }
     }
 
-    private static long AllocatedBytes(SafeFileHandle file)
+    internal static long AllocatedBytes(SafeFileHandle file)
     {
         if (OperatingSystem.IsWindows())
         {

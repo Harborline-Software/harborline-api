@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using System.Security.Cryptography;
 using Harborline.Api.LocalNodeHost.Data.ContentStore;
 using Harborline.Foundation.Assets.Common;
@@ -121,10 +124,55 @@ public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposabl
         var afterFree = new DriveInfo(storage.DirectoryPath).AvailableFreeSpace;
         Assert.InRange(baseline, Math.Min(beforeFree, afterFree), Math.Max(beforeFree, afterFree) + 1024 * 1024);
         // A sparse logical gigabyte must not be counted as a physical gigabyte (Q22).
-        using (var sparse = File.Create(Path.Combine(storage.DirectoryPath, "allocation-probe"))) sparse.SetLength(1L << 30);
+        using (var sparse = File.Create(Path.Combine(storage.DirectoryPath, "allocation-probe")))
+        {
+            MarkSparse(sparse);
+            sparse.SetLength(1L << 30);
+        }
         var sparseFree = new DriveInfo(storage.DirectoryPath).AvailableFreeSpace;
         Assert.InRange(quota.GetQuotaBaseBytes() - sparseFree, 0, 16 * 1024 * 1024);
         File.Delete(Path.Combine(storage.DirectoryPath, "allocation-probe"));
+    }
+
+    [Fact]
+    public void Allocated_bytes_match_the_operating_system_block_count_for_dense_and_sparse_files()
+    {
+        Directory.CreateDirectory(_path);
+        // Dense: one byte past 1 MiB, so allocation rounds up to a block and differs from st_size.
+        var dense = Path.Combine(_path, "dense.bin");
+        var bytes = new byte[(1 << 20) + 1];
+        RandomNumberGenerator.Fill(bytes);
+        using (var stream = new FileStream(dense, FileMode.Create)) { stream.Write(bytes); stream.Flush(true); }
+        // Sparse: one written byte, 64 MiB logical length.
+        var sparse = Path.Combine(_path, "sparse.bin");
+        using (var stream = new FileStream(sparse, FileMode.Create)) { MarkSparse(stream); stream.WriteByte(1); stream.SetLength(64L << 20); stream.Flush(true); }
+        foreach (var file in new[] { dense, sparse })
+        {
+            long measured;
+            using (var handle = File.OpenHandle(file)) measured = NodeContentStoreQuotaBase.AllocatedBytes(handle);
+            if (OperatingSystem.IsWindows())
+            {
+                // GetFileInformationByHandleEx is the documented API; with the sparse marker, the 64 MiB probe allocates
+                // at most one 1 MiB run and the dense file at least its written length.
+                Assert.InRange(measured, file == dense ? bytes.Length : 1, file == dense ? bytes.Length + (1 << 20) : 1 << 20);
+                continue;
+            }
+            // Independent oracle: stat(1)'s allocated block count, never the struct offsets under test.
+            Assert.Equal(StatAllocatedBytes(file), measured);
+        }
+    }
+
+    private static long StatAllocatedBytes(string file)
+    {
+        var start = OperatingSystem.IsMacOS()
+            ? new ProcessStartInfo("stat", ["-f", "%b 512", file])
+            : new ProcessStartInfo("stat", ["-c", "%b %B", file]);
+        start.RedirectStandardOutput = true;
+        using var process = Process.Start(start)!;
+        var fields = process.StandardOutput.ReadToEnd().Trim().Split(' ');
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+        return long.Parse(fields[0], CultureInfo.InvariantCulture) * long.Parse(fields[1], CultureInfo.InvariantCulture);
     }
 
     [Fact]
@@ -156,6 +204,22 @@ public sealed class NodeContentStoreTests(ITestOutputHelper output) : IDisposabl
         // Measurement only; DES-0037 gate-host qualification is the separately ruled follow-on.
         Assert.All(promotion.Concat(duplicate), value => Assert.True(value > 0));
     }
+
+    // NTFS allocates clusters on SetLength unless the file is first marked sparse (FSCTL_SET_SPARSE,
+    // https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_set_sparse). Unix filesystems
+    // used here leave unwritten ranges unallocated without a marker.
+    private static void MarkSparse(FileStream stream)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        const uint FsctlSetSparse = 0x000900C4;
+        Assert.True(DeviceIoControl(stream.SafeFileHandle, FsctlSetSparse, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero),
+            $"FSCTL_SET_SPARSE failed: {Marshal.GetLastPInvokeError()}");
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeviceIoControl(SafeFileHandle device, uint code, IntPtr inBuffer, uint inSize,
+        IntPtr outBuffer, uint outSize, out uint returned, IntPtr overlapped);
 
     public void Dispose() { if (Directory.Exists(_path)) Directory.Delete(_path, true); }
 }

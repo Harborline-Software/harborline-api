@@ -6,6 +6,18 @@ using Microsoft.Data.Sqlite;
 namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 
 /// <summary>Single-writer, encrypted SQLite backing for the producer's unit of work.</summary>
+/// <remarks>
+/// <para>Each producer <c>Save(ContentStoreChange)</c> runs under <see cref="SyncRoot"/> and writes exactly the named
+/// entries in one SQLite transaction (<c>synchronous=EXTRA</c>, rollback journal, <c>fullfsync</c> on macOS), so SQLite
+/// performs the journal synchronisation and atomic commit (https://sqlite.org/atomiccommit.html). Disposal of an
+/// uncommitted transaction rolls back and the producer restores memory (CWE-460). There is no shutdown save.</para>
+/// <para>The database is keyed in SQLCipher's raw-key form from bytes HKDF-derived by
+/// <see cref="NodeContentStoreComposition"/>, and refuses to open unless the native library reports a
+/// <c>cipher_version</c>. A lifetime OS file lease keeps one writer per store directory, so no second process caches
+/// divergent quota or owner state (CWE-362, CWE-367); network filesystems are not supported. Tenant and content ids
+/// are SQL parameters, never path components (CWE-22). No item-limit, quota-fraction or expiry default is supplied:
+/// DES-0054 assigns those to DES-0037.</para>
+/// </remarks>
 public sealed class NodeContentStoreStorage : IContentStoreStorage, IDisposable
 {
     private readonly SqliteConnection _database;
