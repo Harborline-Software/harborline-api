@@ -50,7 +50,7 @@ for (const file of files('*.csproj')) {
 }
 ok('PackageReference central-pin check')
 
-const allowed = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'MS-PL', 'PostgreSQL'])
+const allowed = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'MS-PL', 'PostgreSQL', 'BlueOak-1.0.0'])
 const devOnly = new Map([['BlazingStory', 'R-0058']])
 // Ids whose nuspec carries no licence expression. Each names the control record that holds the decision.
 const licenceExceptions = new Map([['JsonSchema.Net', 'T-458: binaries ship under an Open Source Maintenance Fee EULA, source MIT; decision held for the user']])
