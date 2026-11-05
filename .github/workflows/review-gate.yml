@@ -129,6 +129,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_GROUP_SHA: ${{ github.event.merge_group.head_sha }}
           MERGE_GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: bash .github/review-gate-queue.sh
 
   # A PR the gate just passed, with nothing risky: may it merge on its own? Watch-only unless AUTO_MERGE is `arm`.

@@ -13,7 +13,10 @@ import {spawnSync} from 'node:child_process'
 const here = new URL('.', import.meta.url).pathname
 const HEAD = 'a'.repeat(40)
 const GROUP = 'c'.repeat(40)
-const REF = `refs/heads/gh-readonly-queue/main/pr-7-${HEAD}`
+// The queue's ref ends in the sha the group was built on (merge_group.base_sha), not the PR head: seen on this repo's
+// own queue runs, where pr-460's ref ended in main's tip at the time, not in PR 460's head.
+const BASE = 'b'.repeat(40)
+const REF = `refs/heads/gh-readonly-queue/main/pr-7-${BASE}`
 
 // Serves GETs from $FIX (one file per endpoint), logs every call to $LOG, and accepts status posts and merges.
 const stub = `#!/usr/bin/env bash
@@ -80,13 +83,22 @@ function groupStatus(r) {
   assert.equal(posts.length, 1, r.out)
   return [/state=(\w+)/.exec(posts[0])[1], /description=(.*?) -f target_url/.exec(posts[0])[1]]
 }
-const queue = (fixtures, ref = REF, fail) => run('review-gate-queue.sh',
-  {env: {MERGE_GROUP_SHA: GROUP, MERGE_GROUP_REF: ref}, fixtures, fail})
+const queue = (fixtures, ref = REF, fail, env = {}) => run('review-gate-queue.sh', {env: {MERGE_GROUP_SHA: GROUP,
+  MERGE_GROUP_REF: ref, MERGE_GROUP_BASE_REF: 'refs/heads/main', MERGE_GROUP_BASE_SHA: BASE, ...env}, fixtures, fail})
 
 test('queue: a pass the gate workflow set on the PR head carries to the group commit', () => {
   const r = queue({'pr.json': prRecord(), 'statuses.json': [gateStatus()]})
   assert.equal(r.code, 0, r.out)
   assert.deepEqual(groupStatus(r), ['success', 'Carried from PR #7 at aaaaaaa: Passed by Codex'])
+  assert.ok(r.calls.some(c => c.includes(`commits/${HEAD}/statuses`)), r.out)
+  assert.ok(!r.calls.some(c => c.includes(`commits/${BASE}/statuses`)), r.out)
+})
+
+test('queue: the head comes from the PR, never from the ref', () => {
+  const other = 'd'.repeat(40)
+  const r = queue({'pr.json': prRecord({head: {sha: other, repo: {full_name: 'o/r'}}}), 'statuses.json': [gateStatus()]})
+  assert.deepEqual(groupStatus(r), ['success', 'Carried from PR #7 at ddddddd: Passed by Codex'])
+  assert.ok(r.calls.some(c => c.includes(`commits/${other}/statuses`)), r.out)
 })
 
 test('queue: a pass posted from a personal token never carries', () => {
@@ -99,16 +111,26 @@ test('queue: only the newest review-gate status counts', () => {
   assert.deepEqual(groupStatus(r), ['failure', "PR #7's review-gate on aaaaaaa is pending"])
 })
 
-test('queue: no review-gate on the head, a moved head or a closed PR fails the group', () => {
+test('queue: no review-gate on the head, a closed PR, another base or an unreadable head fails the group', () => {
   assert.equal(groupStatus(queue({'pr.json': prRecord(), 'statuses.json': []}))[0], 'failure')
-  assert.equal(groupStatus(queue({'pr.json': prRecord({head: {sha: 'b'.repeat(40), repo: {full_name: 'o/r'}}}),
-    'statuses.json': [gateStatus()]}))[0], 'failure')
   assert.equal(groupStatus(queue({'pr.json': prRecord({state: 'closed'}), 'statuses.json': [gateStatus()]}))[0], 'failure')
+  assert.equal(groupStatus(queue({'pr.json': prRecord({base: {ref: 'dev', repo: {default_branch: 'main'}}}),
+    'statuses.json': [gateStatus()]}))[0], 'failure')
+  assert.equal(groupStatus(queue({'pr.json': prRecord({head: {sha: null, repo: {full_name: 'o/r'}}}),
+    'statuses.json': [gateStatus()]}))[0], 'failure')
+})
+
+test("queue: a ref that disagrees with the event's base fails without reading any PR", () => {
+  for (const env of [{MERGE_GROUP_BASE_SHA: 'e'.repeat(40)}, {MERGE_GROUP_BASE_REF: 'refs/heads/dev'}]) {
+    const r = queue({'pr.json': prRecord(), 'statuses.json': [gateStatus()]}, REF, undefined, env)
+    assert.deepEqual(groupStatus(r), ['failure', "Merge queue ref does not match the group's base"], r.out)
+    assert.ok(!r.calls.some(c => c.includes('/pulls/')), r.out)
+  }
 })
 
 test('queue: a ref that is not a merge queue ref fails without reading any PR', () => {
-  for (const ref of ['refs/heads/main', `refs/heads/gh-readonly-queue/main/pr-7-${'a'.repeat(39)}`,
-    `refs/heads/feature/pr-7-${HEAD}`]) {
+  for (const ref of ['refs/heads/main', `refs/heads/gh-readonly-queue/main/pr-7-${'b'.repeat(39)}`,
+    `refs/heads/feature/pr-7-${BASE}`]) {
     const r = queue({'pr.json': prRecord(), 'statuses.json': [gateStatus()]}, ref)
     assert.equal(groupStatus(r)[0], 'failure', ref)
     assert.ok(!r.calls.some(c => c.includes('/pulls/')), ref)
@@ -116,8 +138,9 @@ test('queue: a ref that is not a merge queue ref fails without reading any PR', 
 })
 
 test('queue: a base branch with slashes still parses', () => {
-  const r = queue({'pr.json': prRecord(), 'statuses.json': [gateStatus()]},
-    `refs/heads/gh-readonly-queue/release/2026/pr-7-${HEAD}`)
+  const r = queue({'pr.json': prRecord({base: {ref: 'release/2026', repo: {default_branch: 'main'}}}),
+    'statuses.json': [gateStatus()]}, `refs/heads/gh-readonly-queue/release/2026/pr-7-${BASE}`, undefined,
+    {MERGE_GROUP_BASE_REF: 'refs/heads/release/2026'})
   assert.equal(groupStatus(r)[0], 'success', r.out)
 })
 
