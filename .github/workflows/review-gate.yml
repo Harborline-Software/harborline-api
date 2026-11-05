@@ -33,6 +33,7 @@
 # whether it may merge on its own. Watch-only until the owner sets the repository variable AUTO_MERGE to `arm`: it
 # only reports "would arm". In arm mode it turns on auto-merge for that exact head with a token from the merge app
 # (variable MERGE_APP_CLIENT_ID, secret MERGE_APP_KEY), because the workflow token can't add a PR to a merge queue.
+# The app needs Contents and Pull requests (write) and Commit statuses (read) on the repository.
 # Setting AUTO_MERGE back to anything else stops all arming; PRs already armed keep their auto-merge until it is
 # turned off on each.
 name: review-gate
@@ -161,6 +162,7 @@ jobs:
           private-key: ${{ secrets.MERGE_APP_KEY }}
           permission-contents: write
           permission-pull-requests: write
+          permission-statuses: read
       - name: Arm auto-merge, or report that it would
         env:
           GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
