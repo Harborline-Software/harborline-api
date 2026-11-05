@@ -117,7 +117,7 @@ public static class LayoutSurfaceRoutes
             {
                 var resolution = await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
                     relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
-                    tenant, NodeGatePrincipal.Of(principal), requestId, ct, started).ConfigureAwait(false);
+                    tenant, NodeGatePrincipal.Of(principal), requestId, started, ct).ConfigureAwait(false);
                 return Results.Json(LayoutSurfaceResponse.Of(surface.Definition, resolution));
             }
             catch (LayoutAuditDegradedException)

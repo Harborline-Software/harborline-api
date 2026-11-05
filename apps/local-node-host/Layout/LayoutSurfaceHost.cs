@@ -91,8 +91,8 @@ public sealed class LayoutSurfaceHost(
         TenantId tenant,
         ActorId principal,
         string requestId,
-        CancellationToken ct = default,
-        long? startedAt = null)
+        long? startedAt = null,
+        CancellationToken ct = default)
     {
         var started = startedAt ?? time.GetTimestamp();
         // Audit-degraded mode reads node audit health only: the decision is made before any target is
