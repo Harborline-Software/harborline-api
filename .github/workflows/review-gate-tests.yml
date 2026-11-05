@@ -1,13 +1,17 @@
-# Runs the review-gate tests on a PR that changes the gate's script, its path lists or the tests. The gate itself
-# (review-gate.yml) always runs from the base branch, so this is where a change to its rules gets exercised before
-# it lands. Read-only: it never sets the review-gate status.
+# Runs the review-gate tests on a PR that changes the gate's scripts (the gate, its merge-queue carry-over and its
+# auto-merge step), their path lists or the tests. The gate itself (review-gate.yml) always runs from the base
+# branch, so this is where a change to its rules gets exercised before it lands. Read-only: it never sets the
+# review-gate status.
 name: review-gate-tests
 
 on:
   pull_request:
     paths:
       - .github/review-gate.sh
+      - .github/review-gate-queue.sh
+      - .github/review-gate-arm.sh
       - .github/review-gate.test.mjs
+      - .github/review-gate-automerge.test.mjs
       - .github/review-risky-paths
       - .github/review-exempt-paths
       - .github/workflows/review-gate-tests.yml
@@ -30,4 +34,4 @@ jobs:
           sparse-checkout: .github
           persist-credentials: false
       - name: Test the review-gate rules
-        run: node --test .github/review-gate.test.mjs
+        run: node --test .github/review-gate.test.mjs .github/review-gate-automerge.test.mjs

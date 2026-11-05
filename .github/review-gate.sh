@@ -311,8 +311,14 @@ desc=${desc:0:140}
 
 echo "PR $PR head $HEAD: $state: $desc (claude=$claude_state codex=$codex_code/$codex_security coderabbit=${rabbit:-none} risky=$risky needs_review=$needs_review)"
 if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
+# The auto-merge job in review-gate.yml reads these, so a later job never has to re-judge the PR. They are written
+# only once the status stands on the head, so the job can't act on a verdict that was never posted.
+emit() {
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then printf 'state=%s\nrisky=%s\nhead=%s\n' "$state" "$risky" "$HEAD" >>"$GITHUB_OUTPUT"; fi
+}
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
-if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; exit 0; fi
+if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; emit; exit 0; fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
 posted=true
+emit
