@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -367,6 +368,22 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 _ = await response.Content.ReadAsByteArrayAsync();
             };
         }, h.Pipeline.Appender.IdleAsync, "route", output);
+    }
+
+    [Fact(DisplayName = "layout-eng-31 T-735: the response floor counts from the start of the route, so the route's own lookups are inside the deadline")]
+    public async Task The_floor_counts_the_routes_own_work()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.FromMilliseconds(200));
+        Assert.Equal(HealthStatus.Healthy, (await h.Pipeline.HealthAsync()).Status);
+
+        // The root lookup alone outruns the floor. Were the floor counted from the host, it would not overrun.
+        h.Roots.Cost = TimeSpan.FromMilliseconds(300);
+        using var response = await h.GetAsync(Member, SurfacePack.Invoice, Root);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var alert = await h.Pipeline.HealthAsync();
+        Assert.Equal(HealthStatus.Degraded, alert.Status);
+        Assert.Equal(1L, alert.Data["floorOverruns"]);
     }
 
     [Fact(DisplayName = "layout-eng-31 T-735: a denial made at the surface route reaches the denial reader route for a principal holding audit:read and records:read")]

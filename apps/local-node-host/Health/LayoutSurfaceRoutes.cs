@@ -37,7 +37,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <para>
 /// <b>Related targets (DES-0052 layout-eng-31).</b> The relationship map comes from the Records reference fields the
 /// root's Record Type declares in the surface pack's signed closure (layout-ck-28, layout-ck-39); the lookups run
-/// inside the host's floor through its traversal callbacks. A missing and a denied target resolve to the same
+/// inside the host's floor through its traversal callbacks, and that floor counts from the start of this handler. A missing and a denied target resolve to the same
 /// absent block with the same status, so nothing on the wire says which it was. The response carries no request
 /// or correlation id: the denial trace is keyed by the caller's own <c>X-Correlation-ID</c> when it sends one.
 /// </para>
@@ -68,6 +68,8 @@ public static class LayoutSurfaceRoutes
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
+            // The response floor counts from here, so everything below that takes a varying time is inside the deadline.
+            var started = time.GetTimestamp();
             http.Response.Headers.CacheControl = "no-store";
             var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (principal is null || principal.TenantId.IsSystemSentinel)
@@ -115,7 +117,7 @@ public static class LayoutSurfaceRoutes
             {
                 var resolution = await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
                     relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
-                    tenant, NodeGatePrincipal.Of(principal), requestId, ct).ConfigureAwait(false);
+                    tenant, NodeGatePrincipal.Of(principal), requestId, ct, started).ConfigureAwait(false);
                 return Results.Json(LayoutSurfaceResponse.Of(surface.Definition, resolution));
             }
             catch (LayoutAuditDegradedException)

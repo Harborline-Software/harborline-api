@@ -349,6 +349,9 @@ internal static class LayoutDenialTestKit
 
         public int Lookups { get; private set; }
 
+        /// <summary>CPU time each lookup spends, with no timer involved.</summary>
+        public TimeSpan Cost { get; set; }
+
         public void Add(string recordId, string recordTypeId, string valuesJson)
             => _records[recordId] = new LayoutRootRecord(recordTypeId,
                 LayoutHostBindingSources.ValuesOf(JsonDocument.Parse(valuesJson).RootElement.Clone()));
@@ -356,6 +359,8 @@ internal static class LayoutDenialTestKit
         public ValueTask<LayoutRootRecord?> FindAsync(TenantId tenant, string recordId, CancellationToken ct = default)
         {
             Lookups++;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed < Cost) Thread.SpinWait(64);
             return ValueTask.FromResult(_records.GetValueOrDefault(recordId));
         }
     }
