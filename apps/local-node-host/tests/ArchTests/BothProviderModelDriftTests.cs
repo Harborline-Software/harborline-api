@@ -54,6 +54,7 @@ public sealed class BothProviderModelDriftTests
         new BankingEntityModule(),
         new PeopleEntityModule(),
         new DocsEntityModule(),
+        new Harborline.Api.LocalNodeHost.Data.ContentStore.ContentStoreEntityModule(),
     ];
 
     // ── Model builders ─────────────────────────────────────────────────────
@@ -222,7 +223,7 @@ public sealed class BothProviderModelDriftTests
     /// The explicit zero-column observation below makes the vacuity visible rather
     /// than silently green.
     /// </remarks>
-    [Fact(DisplayName = "C2: SQLite post-config sweep rewrites bytea → BLOB (forward-coverage; 0 bytea columns today)")]
+    [Fact(DisplayName = "C2: SQLite post-config sweep rewrites bytea → BLOB ")]
     public void SqliteModel_ByteaColumnsAreBlob()
     {
         var sqliteModel = BuildSqliteModel();
@@ -263,12 +264,8 @@ public sealed class BothProviderModelDriftTests
                 string.Join("\n", violations));
         }
 
-        // Forward-coverage marker: the current module set owns NO bytea columns,
-        // so this assertion is vacuous by design. If a future module introduces a
-        // module-owned bytea column, this observed-count assertion will need to be
-        // raised (and the assertion above starts doing real work). Documented as
-        // a non-blocking C2 wording correction (verdict 2026-06-13, condition 1).
-        Assert.Equal(0, byteaColumnsObserved);
+        // The content store's two item tables each own four: the wrapped key, its nonce and tag, and the nonce prefix.
+        Assert.Equal(8, byteaColumnsObserved);
     }
 
     [Fact(DisplayName = "C2: SQLite model has no PG-quoted filter predicates")]
