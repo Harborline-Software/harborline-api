@@ -18,6 +18,9 @@ namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 /// </remarks>
 public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext> contexts) : IContentBookkeeping
 {
+    // A reader kept the last checkpoint from finishing, so a deleted key may still be in the WAL. The next commit tries again.
+    private volatile bool _checkpointOwed;
+
     /// <inheritdoc />
     public async ValueTask<IContentBookkeepingTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
     {
@@ -45,13 +48,23 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         return new Session(context);
     }
 
-    /// <summary>Ends a reclamation batch by moving the WAL into the database and truncating it, so no copy of a deleted key stays there (ADR 0114 decision 4).</summary>
-    public async ValueTask CheckpointAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Ends a reclamation batch by moving the WAL into the database and truncating it, so no copy of a deleted key stays there
+    /// (ADR 0114 decision 4). False means a reader held it past the wait, which SQLite reports in its result row and not as an
+    /// error; the next commit on this port tries again.
+    /// </summary>
+    public async ValueTask<bool> CheckpointAsync(CancellationToken cancellationToken = default)
     {
         var context = await contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (context.ConfigureAwait(false))
         {
-            await CheckpointAsync(context, cancellationToken).ConfigureAwait(false);
+            await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await using var result = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var finished = await result.ReadAsync(cancellationToken).ConfigureAwait(false) && result.GetInt64(0) == 0;
+            _checkpointOwed = !finished;
+            return finished;
         }
     }
 
@@ -169,9 +182,6 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
             row.TraceId, row.OperationId, row.PrincipalId, new(row.OwnerRecord, row.OwnerElement));
 
     private static DateTimeOffset Instant(long ticks) => new(ticks, TimeSpan.Zero);
-
-    private static async ValueTask CheckpointAsync(LocalNodeDbContext context, CancellationToken cancellationToken) =>
-        await context.Database.ExecuteSqlRawAsync("PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken).ConfigureAwait(false);
 
     private class Session(LocalNodeDbContext context) : IContentBookkeepingSession
     {
@@ -397,14 +407,15 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         public async ValueTask<bool> CommitAsync(CancellationToken cancellationToken = default)
         {
             await fence.CommitAsync(cancellationToken).ConfigureAwait(false);
-            if (!Reclaimed) return true;
+            if (!Reclaimed && !owner._checkpointOwed) return true;
             try
             {
                 await owner.CheckpointAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch (SqliteException)
             {
-                // The removal is committed and must not read as failed (CWE-460); the next batch's checkpoint covers this one.
+                // The removal is committed and must not read as failed (CWE-460), so the next commit tries again.
+                owner._checkpointOwed = true;
             }
 
             return true;

@@ -575,6 +575,47 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         Assert.Equal(0, new FileInfo(database + "-wal").Exists ? new FileInfo(database + "-wal").Length : 0);
     }
 
+    [Fact]
+    public async Task Clause_4_a_checkpoint_a_reader_blocks_reports_it_and_the_next_commit_finishes_the_erasure()
+    {
+        var directory = Path.Combine(_node.DataDirectory, "plain");
+        Directory.CreateDirectory(directory);
+        var database = Path.Combine(directory, "plain.db");
+        var options = new DbContextOptionsBuilder<LocalNodeDbContext>()
+            .UseSqlite($"Data Source={database};Pooling=False")
+            .AddInterceptors(new PragmasOnly("PRAGMA busy_timeout = 100; PRAGMA secure_delete = ON;"))
+            .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning))
+            .Options;
+        IHarborlineEntityModule[] modules = [new ContentStoreEntityModule(), new AuditEventEntityModule()];
+        var contexts = new Factory(options, modules);
+        await using (var context = contexts.CreateDbContext()) await context.Database.MigrateAsync();
+        var storage = new NodeContentStoreStorage(contexts, directory);
+        var bookkeeping = (NodeContentBookkeeping)storage.Bookkeeping;
+        var store = Store(storage: storage);
+        var reference = await Commit(store, await Put(store));
+        var key = (await bookkeeping.FindItemAsync(new(Tenant, reference.ContentId)))!.WrappedDataKey;
+
+        await using (var reader = new SqliteConnection($"Data Source={database};Pooling=False"))
+        {
+            await reader.OpenAsync();
+            using var snapshot = reader.BeginTransaction(deferred: true);
+            await using (var read = reader.CreateCommand())
+            {
+                read.CommandText = "SELECT count(*) FROM content_store_items;";
+                read.Transaction = snapshot;
+                await read.ExecuteScalarAsync();
+            }
+
+            Assert.True(await store.RemoveReferenceAsync(Tenant, reference, HoldStatus.None, "disposal", Write()));
+            Assert.False(await bookkeeping.CheckpointAsync());
+        }
+
+        await Put(store);
+        Assert.False(ContainsKey(database, key));
+        Assert.Equal(0, new FileInfo(database + "-wal").Exists ? new FileInfo(database + "-wal").Length : 0);
+        Assert.True(await bookkeeping.CheckpointAsync());
+    }
+
     private static bool ContainsKey(string database, byte[] key)
     {
         foreach (var path in new[] { database, database + "-wal" })
@@ -589,19 +630,19 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         return false;
     }
 
-    private sealed class PragmasOnly : DbConnectionInterceptor
+    private sealed class PragmasOnly(string pragmas = SqlCipherConnectionInterceptor.ConnectionPragmas) : DbConnectionInterceptor
     {
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = SqlCipherConnectionInterceptor.ConnectionPragmas;
+            command.CommandText = pragmas;
             command.ExecuteNonQuery();
         }
 
         public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = SqlCipherConnectionInterceptor.ConnectionPragmas;
+            command.CommandText = pragmas;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
