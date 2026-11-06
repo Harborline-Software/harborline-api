@@ -421,6 +421,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
             [PackContentKind.Layout] = ("envelope.contract", "acme.surface", LayoutContent(new { major = 2, minor = 0 })),
             [PackContentKind.Resource] = ("envelope.contract", "acme.surface", PlatformWindowContent()),
             [PackContentKind.Bookable] = ("envelope.contract", "acme.surface", PlatformWindowContent()),
+            [PackContentKind.ReleasedNavigationDefinition] = ("released navigation wire; refused as unsupported until T-584/api-installs-released-navigation", null, null),
         };
         Assert.Equal(Enum.GetValues<PackContentKind>().OrderBy(kind => kind), fixtures.Keys.OrderBy(kind => kind));
         foreach (var registered in PackSeedProjector.RegisteredCases)

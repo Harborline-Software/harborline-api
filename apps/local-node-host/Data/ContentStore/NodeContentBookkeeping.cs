@@ -175,10 +175,8 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
     private class Session(LocalNodeDbContext context) : IContentBookkeepingSession
     {
-        // The node audit trail's sentinel tenant: a sweep spans tenants, and an integrity episode's row names none (Q36).
-        private const string NodeTenant = Financial.StaticNodeTenantContext.LocalTenantId;
+        private readonly SortedSet<string> _tenants = new(StringComparer.Ordinal);
         private ContentStoreOperation? _operation;
-        private string? _tenant;
 
         protected bool Reclaimed { get; private set; }
         protected LocalNodeDbContext Context => context;
@@ -208,36 +206,51 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
             // The chain has no column for these, and copying them into the payload is forbidden, so nothing is dropped silently.
             if (!audit.AuthoritySnapshot.IsEmpty || audit.OriginatorId is not null)
                 throw new InvalidOperationException("The content store's audit row cannot carry an authority snapshot or an originator.");
-            var tenant = operation is ContentStoreOperation.Put or ContentStoreOperation.Commit or ContentStoreOperation.RemoveReference
-                ? _tenant ?? throw new InvalidOperationException("A tenant's content-store write named no tenant.")
-                : NodeTenant;
+            if (_tenants.Count == 0)
+            {
+                // A sweep that only deletes bytes no entry names touched no tenant's rows, so no tenant's chain has anything to record.
+                if (operation == ContentStoreOperation.SweepExpired) return;
+                throw new InvalidOperationException("A content-store write named no tenant.");
+            }
+
             var eventType = "ContentStore." + operation;
             var occurredAt = DateTimeOffset.Parse(audit.RecordedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal);
+            // The chain is per tenant, and the column scopes who may read the row (Q36); the payload names no tenant or content id.
+            // Only a sweep spans tenants, so it leaves one row in each chain it touched.
             var payload = JsonSerializer.Serialize(new { event_type = eventType, evidence = Convert.ToBase64String(audit.Payload.Span) });
-            var previous = await context.Set<NodeAuditEventRow>().FromSql($"""
-                SELECT * FROM node_audit_events WHERE "TenantId" = {tenant} ORDER BY rowid DESC LIMIT 1
-                """).AsNoTracking().FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            context.Set<NodeAuditEventRow>().Add(new NodeAuditEventRow
+            foreach (var tenant in _tenants)
             {
-                AuditId = audit.AuditId, TenantId = tenant, EventType = eventType, OccurredAt = occurredAt, Actor = audit.ActorId, Payload = payload, PrevHash = previous?.Hash,
-                Hash = NodeAuditHashChain.ComputeHash(previous?.Hash, audit.AuditId, eventType, audit.ActorId, tenant, occurredAt, payload),
-            });
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                var auditId = _tenants.Count == 1 ? audit.AuditId : audit.AuditId + ":" + tenant;
+                var previous = await context.Set<NodeAuditEventRow>().FromSql($"""
+                    SELECT * FROM node_audit_events WHERE "TenantId" = {tenant} ORDER BY rowid DESC LIMIT 1
+                    """).AsNoTracking().FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                context.Set<NodeAuditEventRow>().Add(new NodeAuditEventRow
+                {
+                    AuditId = auditId, TenantId = tenant, EventType = eventType, OccurredAt = occurredAt, Actor = audit.ActorId, Payload = payload, PrevHash = previous?.Hash,
+                    Hash = NodeAuditHashChain.ComputeHash(previous?.Hash, auditId, eventType, audit.ActorId, tenant, occurredAt, payload),
+                });
+                await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            _tenants.Clear();
         }
 
         public ValueTask<ContentStoreItem?> FindItemAsync(ContentStorageItemKey key, CancellationToken cancellationToken = default) =>
             ReadItemAsync(context, key, cancellationToken);
 
         // The transaction already holds the node's write lock, so the row stays held until it ends.
-        public ValueTask<ContentStoreItem?> FindItemForUpdateAsync(ContentStorageItemKey key, CancellationToken cancellationToken = default) =>
-            ReadItemAsync(context, key, cancellationToken);
+        public ValueTask<ContentStoreItem?> FindItemForUpdateAsync(ContentStorageItemKey key, CancellationToken cancellationToken = default)
+        {
+            _tenants.Add(key.TenantId.Value);
+            return ReadItemAsync(context, key, cancellationToken);
+        }
 
         public async ValueTask<ContentStoreItem?> FindStagedAsync(Guid stageId, CancellationToken cancellationToken = default)
         {
             var row = await context.Set<ContentStagedRow>().AsNoTracking().FirstOrDefaultAsync(staged => staged.ItemKey == stageId, cancellationToken).ConfigureAwait(false);
             if (row is null) return null;
-            _tenant = row.TenantId; // A commit past its expiry only removes the staged row, and its audit still belongs to that tenant.
+            _tenants.Add(row.TenantId); // A commit past its expiry only removes the staged row, and its audit still belongs to that tenant.
             return ToItem(row, []);
         }
 
@@ -247,7 +260,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         public async ValueTask AddStagedAsync(ContentStoreItem item, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(item);
-            _tenant = item.Tenant.Value;
+            _tenants.Add(item.Tenant.Value);
             await context.Database.ExecuteSqlAsync($"""
                 INSERT INTO content_store_staged ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State")
                 VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State})
@@ -259,7 +272,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
         public async ValueTask<ContentQuotaReservation> TryReserveQuotaAsync(TenantId tenant, string record, long bytes, long recordLimit, long tenantLimit, CancellationToken cancellationToken = default)
         {
-            _tenant = tenant.Value;
+            _tenants.Add(tenant.Value);
             if (!await TryAddAsync(tenant.Value, false, record, bytes, recordLimit, cancellationToken).ConfigureAwait(false))
                 return new(ContentQuotaGrain.Record, await CountAsync(tenant.Value, false, record, cancellationToken).ConfigureAwait(false) + bytes);
             if (await TryAddAsync(tenant.Value, true, "", bytes, tenantLimit, cancellationToken).ConfigureAwait(false)) return new(null, 0);
@@ -269,7 +282,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
         public async ValueTask ReleaseQuotaAsync(TenantId tenant, string record, long bytes, CancellationToken cancellationToken = default)
         {
-            _tenant = tenant.Value;
+            _tenants.Add(tenant.Value);
             await SubtractAsync(tenant.Value, false, record, bytes, cancellationToken).ConfigureAwait(false);
             await SubtractAsync(tenant.Value, true, "", bytes, cancellationToken).ConfigureAwait(false);
         }
@@ -277,7 +290,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         public async ValueTask<ContentStoreItem?> TryCreateItemAsync(ContentStoreItem item, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(item);
-            _tenant = item.Tenant.Value;
+            _tenants.Add(item.Tenant.Value);
             var created = await context.Database.ExecuteSqlAsync($"""
                 INSERT INTO content_store_items ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State")
                 VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State})
@@ -294,7 +307,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
         public async ValueTask<bool> AddOwnerAsync(ContentStorageItemKey key, ContentOwner owner, CancellationToken cancellationToken = default)
         {
-            _tenant = key.TenantId.Value;
+            _tenants.Add(key.TenantId.Value);
             var itemKey = await ItemKeyAsync(key, cancellationToken).ConfigureAwait(false);
             if (itemKey is null) return false;
             await InsertOwnerAsync(itemKey.Value, owner, cancellationToken).ConfigureAwait(false);
@@ -303,7 +316,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
         public async ValueTask<bool> RemoveOwnerAsync(ContentStorageItemKey key, ContentOwner owner, CancellationToken cancellationToken = default)
         {
-            _tenant = key.TenantId.Value;
+            _tenants.Add(key.TenantId.Value);
             var itemKey = await ItemKeyAsync(key, cancellationToken).ConfigureAwait(false);
             if (itemKey is null) return false;
             var occurrence = await context.Set<ContentOwnerRow>()
@@ -315,7 +328,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
         public async ValueTask<bool> DeleteItemIfUnownedAsync(ContentStorageItemKey key, CancellationToken cancellationToken = default)
         {
-            _tenant = key.TenantId.Value;
+            _tenants.Add(key.TenantId.Value);
             var owners = context.Set<ContentOwnerRow>();
             return await context.Set<ContentItemRow>()
                 .Where(row => row.TenantId == key.TenantId.Value && row.ContentId == key.ContentId.Value && !owners.Any(owner => owner.ItemKey == row.ItemKey))
@@ -326,6 +339,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         {
             ArgumentNullException.ThrowIfNull(entry);
             Reclaimed = true;
+            _tenants.Add(entry.TenantId.Value);
             await context.Database.ExecuteSqlAsync($"""
                 INSERT INTO content_store_reclamations ("ContentId", "TenantId", "Cause", "Run") VALUES ({entry.ContentId.Value}, {entry.TenantId.Value}, {entry.Cause}, {entry.Run})
                 """, cancellationToken).ConfigureAwait(false);
@@ -334,6 +348,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         public async ValueTask SetIntegrityAsync(ContentIntegrityEntry entry, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(entry);
+            _tenants.Add(entry.TenantId.Value);
             await context.Database.ExecuteSqlAsync($"""
                 INSERT INTO content_store_integrity ("TenantId", "ItemKey", "FirstSeenUtcTicks", "LastSeenUtcTicks", "Count", "SegmentIndex", "Active", "TraceId", "OperationId", "PrincipalId", "OwnerRecord", "OwnerElement")
                 VALUES ({entry.TenantId.Value}, {entry.ItemKey}, {entry.FirstSeenUtc.UtcTicks}, {entry.LastSeenUtc.UtcTicks}, {entry.Count}, {entry.SegmentIndex}, {entry.Active}, {entry.TraceId}, {entry.OperationId}, {entry.PrincipalId}, {entry.Owner.Record}, {entry.Owner.Element})

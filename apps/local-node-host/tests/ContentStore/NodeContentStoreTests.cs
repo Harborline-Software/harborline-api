@@ -430,6 +430,8 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         await Sweep(store);
         Assert.Null(await _node.Storage.Bytes.ReadSegmentAsync(key, 0));
         Assert.Empty(ContentFiles());
+        await using var context = await _node.Contexts.CreateDbContextAsync();
+        Assert.False(await context.Set<NodeAuditEventRow>().AnyAsync(row => row.EventType == "ContentStore.SweepExpired"));
     }
 
     [Fact]
@@ -628,7 +630,23 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
     }
 
     [Fact]
-    public async Task Clause_6_an_integrity_episodes_audit_row_names_the_reader_and_no_tenant()
+    public async Task Clause_6_a_sweep_across_two_tenants_leaves_one_row_in_each_tenants_chain()
+    {
+        var store = Store();
+        var other = new TenantId("other-tenant");
+        await Put(store);
+        await store.PutAsync(other, new MemoryStream("world"u8.ToArray()), "text/plain", null, Write());
+        _clock.Advance(Expiry + TimeSpan.FromSeconds(1));
+        Assert.Equal(2, await Sweep(store));
+
+        await using var context = await _node.Contexts.CreateDbContextAsync();
+        var rows = await context.Set<NodeAuditEventRow>().AsNoTracking().Where(row => row.EventType == "ContentStore.SweepExpired").ToListAsync();
+        Assert.Equal(["other-tenant", "test-tenant"], rows.Select(row => row.TenantId).Order(StringComparer.Ordinal));
+        Assert.All(rows, row => Assert.Equal("sys.scheduler", row.Actor));
+    }
+
+    [Fact]
+    public async Task Clause_6_an_integrity_episodes_audit_row_names_the_reader_and_its_payload_names_no_tenant()
     {
         var store = Store();
         var reference = await Commit(store, await Put(store));
@@ -640,7 +658,7 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
 
         await using var context = await _node.Contexts.CreateDbContextAsync();
         var row = await context.Set<NodeAuditEventRow>().AsNoTracking().SingleAsync(audit => audit.EventType == "ContentStore.IntegrityFailure");
-        Assert.Equal("local", row.TenantId);
+        Assert.Equal("test-tenant", row.TenantId);
         Assert.Equal("principal.reader", row.Actor);
         Assert.DoesNotContain(Tenant.Value, row.Payload, StringComparison.Ordinal);
         Assert.DoesNotContain(reference.ContentId.Value, row.Payload, StringComparison.Ordinal);
