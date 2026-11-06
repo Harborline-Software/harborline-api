@@ -7,7 +7,19 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Packs.Dcp;
+using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Admission;
+using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Trust;
+using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.Packs.Serialization;
+using Harborline.Api.Foundation.Packs.Trust;
+using Harborline.Api.Foundation.Packs.Validation;
+using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Layout;
@@ -52,10 +64,12 @@ internal static class LayoutDenialTestKit
         ],
         [], [], [], null, []);
 
-    internal static async Task<List<AuditRecord>> RowsAsync(IAuditTrail trail)
+    internal static Task<List<AuditRecord>> RowsAsync(IAuditTrail trail) => RowsAsync(trail, Tenant);
+
+    internal static async Task<List<AuditRecord>> RowsAsync(IAuditTrail trail, TenantId tenant)
     {
         var rows = new List<AuditRecord>();
-        await foreach (var row in trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
+        await foreach (var row in trail.QueryAsync(new AuditQuery(tenant))) rows.Add(row);
         return rows;
     }
 
@@ -178,6 +192,209 @@ internal static class LayoutDenialTestKit
         {
             Db.Dispose();
             _keys.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// T-735: a signed fixture pack carrying Layout surfaces and the Records Record Types their related blocks
+    /// traverse, exported, verified, installed and activated through the real pack engine. No released package
+    /// carries a Layout surface yet, so the route tests install this one.
+    /// </summary>
+    /// <remarks>
+    /// Oracles: the Record Type bodies are literals in the Records grammar, the same shape as
+    /// <c>RecordsInstallEnforcementTests</c>' in-pack Dispatch and Route types; the relationship keys are the
+    /// literal <c>{record_type_id}.{field_key}</c> spelling the T-735 owner ruling builds the map from.
+    /// </remarks>
+    internal static class SurfacePack
+    {
+        internal const string PackKey = "acme.finance";
+        internal const string Version = "1.0.0";
+        internal const string InvoiceType = "finance.invoice";
+        internal const string PartyType = "finance.party";
+        internal const string OwnerKey = "finance.invoice.owner";
+
+        /// <summary>The surface with an owner card related through the single-target <c>owner</c> reference.</summary>
+        internal const string Invoice = "invoice";
+
+        /// <summary>A related block over <c>approvers</c>, a many-target reference.</summary>
+        internal const string ApproversSurface = "invoice-approvers";
+
+        /// <summary>A related block over <c>supplier</c>, a field that is not a reference.</summary>
+        internal const string PlainFieldSurface = "invoice-plain-field";
+
+        /// <summary>A related block over a field the Record Type does not declare.</summary>
+        internal const string UnknownFieldSurface = "invoice-unknown-field";
+
+        /// <summary>The owner relationship authored again inside the owner card, where the scope is not the root.</summary>
+        internal const string NestedSurface = "invoice-nested";
+
+        /// <summary>The owner relationship authored inside a repeating block, where the scope is one row.</summary>
+        internal const string RepeatedRelatedSurface = "invoice-repeat-related";
+
+        /// <summary>The host's field sources: a repeating collection, dotted paths, an undeclared field and a query.</summary>
+        internal const string SourcesSurface = "invoice-sources";
+
+        /// <summary>The owner card, in a pack whose closure holds the Record Type only through its dependency.</summary>
+        internal const string DependencySurface = "invoice-from-dependency";
+
+        /// <summary>The owner card, in a pack whose closure declares the root's Record Type twice.</summary>
+        internal const string RedeclaredSurface = "invoice-redeclared";
+
+        private const string Party =
+            """{"class_id":"finance.parties","envelope":{"contract":{"major":1,"minor":0},"package_id":"acme.finance","section":"finance","tenant":"tenant-a"},"fields":[{"display_name":"Name","field_key":"name"}],"name":"Party","record_class":"master","record_type_id":"finance.party"}""";
+
+        private const string InvoiceRecordType =
+            """{"class_id":"finance.documents","envelope":{"contract":{"major":1,"minor":0},"package_id":"acme.finance","section":"finance","tenant":"tenant-a"},"fields":[{"display_name":"Supplier","field_key":"supplier"},{"display_name":"Owner","field_key":"owner","reference":{"cardinality":"one","on_delete":"block","parent":false,"target_type_id":"finance.party"}},{"display_name":"Approvers","field_key":"approvers","reference":{"cardinality":"many","on_delete":"block","parent":false,"target_type_id":"finance.party"}}],"name":"Invoice","record_class":"transactional","record_type_id":"finance.invoice"}""";
+
+        /// <summary>Exports, installs and activates the pack and its consumer for <paramref name="tenant"/> into a fresh store.</summary>
+        internal static async Task<InMemoryPackInstallStore> InstallAsync(TenantId tenant)
+        {
+            var store = new InMemoryPackInstallStore();
+            await InstallOneAsync(store, tenant, PackKey,
+                [
+                    Records("finance.party", Party),
+                    Records("finance.invoice", InvoiceRecordType),
+                    Layout("finance.layout.invoice", Invoice, OwnerCard(OwnerKey, [Field("owner-name", "name")]), Field("supplier", "supplier")),
+                    Layout("finance.layout.approvers", ApproversSurface, OwnerCard("finance.invoice.approvers", [Field("owner-name", "name")])),
+                    Layout("finance.layout.plain", PlainFieldSurface, OwnerCard("finance.invoice.supplier", [Field("owner-name", "name")])),
+                    Layout("finance.layout.unknown", UnknownFieldSurface, OwnerCard("finance.invoice.payee", [Field("owner-name", "name")])),
+                    Layout("finance.layout.nested", NestedSurface,
+                        OwnerCard(OwnerKey, [OwnerCard(OwnerKey, [Field("owner-name", "name")]) with { Id = "inner-card" }])),
+                    Layout("finance.layout.repeat-related", RepeatedRelatedSurface,
+                        Lines([OwnerCard(OwnerKey, [Field("owner-name", "name")])])),
+                    Layout("finance.layout.sources", SourcesSurface,
+                        Lines([Field("line-amount", "amount")]),
+                        Field("customer-name", "customer.name"),
+                        Field("customer-missing", "customer.nickname"),
+                        Field("undeclared", "not_a_field"),
+                        new LayoutBlock("view", "layout.table", new LayoutQueryBinding("finance.open-invoices"), [])),
+                ], []);
+            // The surface is in a consumer; the Record Type it binds through is only in the pack it depends on.
+            await InstallOneAsync(store, tenant, "acme.surfaces",
+                [Layout("surfaces.layout.invoice", DependencySurface, OwnerCard(OwnerKey, [Field("owner-name", "name")]), Field("supplier", "supplier"))],
+                [new PackDependencyRef(PackKey, Version)]);
+            return store;
+        }
+
+        /// <summary>A second Active pack carrying a surface identity <see cref="InstallAsync"/> already installed.</summary>
+        internal static Task InstallDuplicateSurfaceAsync(InMemoryPackInstallStore store, TenantId tenant) => InstallOneAsync(store, tenant, "acme.duplicate",
+            [Layout("duplicate.layout.invoice", Invoice, OwnerCard(OwnerKey, [Field("owner-name", "name")]))], []);
+
+        /// <summary>A consumer whose own body redeclares the Record Type its dependency declares, so its closure declares it twice.</summary>
+        internal static Task InstallRedeclaringPackAsync(InMemoryPackInstallStore store, TenantId tenant) => InstallOneAsync(store, tenant, "acme.redeclaring",
+            [
+                Records("redeclaring.party", Party.Replace("acme.finance", "acme.redeclaring", StringComparison.Ordinal)),
+                Records("redeclaring.invoice", InvoiceRecordType.Replace("acme.finance", "acme.redeclaring", StringComparison.Ordinal)),
+                Layout("redeclaring.layout.invoice", RedeclaredSurface, OwnerCard(OwnerKey, [Field("owner-name", "name")])),
+            ],
+            [new PackDependencyRef(PackKey, Version)]);
+
+        private static async Task InstallOneAsync(InMemoryPackInstallStore store, TenantId tenant, string packKey,
+            IReadOnlyList<PackContentSource> contents, IReadOnlyList<PackDependencyRef> dependencies)
+        {
+            using var key = KeyPair.Generate();
+            var codec = new PackFileCodec();
+            var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+                new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
+                codec, timeProvider: TimeProvider.System);
+            var request = new PackExportRequest(packKey, Version, "Acme finance", "T-735 Layout surface fixture",
+                PackScopeTier.Horizontal, contents, dependencies, [], 1, Dcp: DomainComplianceProfile.General("test-author"),
+                VerifiedProducers: store.ListInstalled(tenant));
+            var export = await exporter.ExportAsync(request, new Ed25519Signer(key));
+            Assert.True(export.Succeeded, string.Join("; ", export.Validation.Errors.Select(error => $"{error.Code} {error.Target}")));
+
+            var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), store,
+                new WorkflowRefusingPackContentAdmission(), new InMemoryPackInstallAudit(), Tests.Authorization.TestAuthorization.AllowGate(),
+                layoutCapabilities: new Dictionary<string, string> { ["platform.layout"] = "1.0.0" })
+            {
+                RecordsAdmission = Packs.RecordsInstallClosureGateTests.Records().AdmitInstallAsync,
+            };
+            var context = new PackInstallContext(tenant,
+                new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, key.PrincipalId, 1, TrustRootStatus.Current)]),
+                PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(At), TimeSpan.FromDays(30), Principal: "test-operator");
+            var outcome = await installer.InstallAsync(export.FileBytes!, context);
+            Assert.True(outcome.Installed, string.Join("; ", outcome.RefusalCodes));
+            store.Activate(tenant, packKey, Version);
+        }
+
+        /// <summary>An owner card: a stack container whose children resolve in the related record's scope.</summary>
+        internal static LayoutBlock OwnerCard(string relationship, IReadOnlyList<LayoutBlock> children) => new(
+            "owner-card", "layout.stack", new LayoutStaticBinding(JsonDocument.Parse("\"Owner\"").RootElement.Clone()), children,
+            Container: new LayoutContainer(LayoutContainerKind.Stack), RelatedRelationship: relationship);
+
+        /// <summary>A repeating block over the record's <c>lines</c>: its children resolve once per row.</summary>
+        private static LayoutBlock Lines(IReadOnlyList<LayoutBlock> children) => new(
+            "lines", "layout.list", new LayoutRecordFieldBinding("lines"), children,
+            Container: new LayoutContainer(LayoutContainerKind.Stack), Repeating: true);
+
+        private static LayoutBlock Field(string id, string field) => new(id, "layout.field", new LayoutRecordFieldBinding(field), []);
+
+        private static PackContentSource Records(string key, string body)
+            => new(key, PackContentKind.AssetTypeDefinition, Version, JsonNode.Parse(body)!);
+
+        private static PackContentSource Layout(string key, string identity, params LayoutBlock[] blocks) => new(
+            key, PackContentKind.Layout, Version, JsonNode.Parse(LayoutDefinitionJson.SerializeCanonical(new LayoutDefinition(
+                new LayoutDefinitionEnvelope(identity, Version, "layout-tenant", LayoutCascadeLayer.TenantConfiguration,
+                    JsonSerializer.SerializeToElement(new { source = "t-735" }), "standard", false,
+                    [new LayoutDefinitionRequirement("platform.layout", "1.0.0")], new DefinitionContractVersion(1, 0)),
+                1, LayoutMedium.Screen, LayoutIntent.Observe,
+                blocks,
+                [], [], [], null, [])))!);
+    }
+
+    /// <summary>Root records by id; the route reads one only after the caller may read it.</summary>
+    internal sealed class FixtureRoots : ILayoutRootRecordSource
+    {
+        private readonly Dictionary<string, LayoutRootRecord> _records = new(StringComparer.Ordinal);
+
+        public int Lookups { get; private set; }
+
+        /// <summary>CPU time each lookup spends, with no timer involved.</summary>
+        public TimeSpan Cost { get; set; }
+
+        public void Add(string recordId, string recordTypeId, string valuesJson)
+            => _records[recordId] = new LayoutRootRecord(recordTypeId,
+                LayoutHostBindingSources.ValuesOf(JsonDocument.Parse(valuesJson).RootElement.Clone()));
+
+        public ValueTask<LayoutRootRecord?> FindAsync(TenantId tenant, string recordId, CancellationToken ct = default)
+        {
+            Lookups++;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed < Cost) Thread.SpinWait(64);
+            return ValueTask.FromResult(_records.GetValueOrDefault(recordId));
+        }
+    }
+
+    /// <summary>
+    /// A Records instance store stand-in: the related records it holds, a switch that hides them all (a missing
+    /// target), and a count of the lookups the route made.
+    /// </summary>
+    internal sealed class FixtureRelatedRecords : ILayoutRelatedRecordSource
+    {
+        private readonly Dictionary<LayoutRecordReference, IReadOnlyDictionary<string, JsonNode?>> _records = [];
+        private int _lookups;
+
+        public bool Present { get; set; } = true;
+
+        public int Lookups => Volatile.Read(ref _lookups);
+
+        public void Add(LayoutRecordReference target, string valuesJson)
+            => _records[target] = LayoutHostBindingSources.ValuesOf(JsonDocument.Parse(valuesJson).RootElement.Clone());
+
+        /// <summary>Lookups made from anywhere but the platform resolver's walk, that is before the host ran.</summary>
+        public int OutsideResolver => Volatile.Read(ref _outside);
+
+        private int _outside;
+
+        public IReadOnlyDictionary<string, JsonNode?>? Find(TenantId tenant, LayoutRecordReference target)
+        {
+            Interlocked.Increment(ref _lookups);
+            // The host's traversal callbacks run inside LayoutBindingResolver.Resolve, so a lookup made inside the
+            // host's floor has it on the stack; a pre-load before the host does not.
+            if (!new System.Diagnostics.StackTrace().GetFrames().Any(frame =>
+                    frame.GetMethod()?.DeclaringType == typeof(LayoutBindingResolver)))
+                Interlocked.Increment(ref _outside);
+            return Present ? _records.GetValueOrDefault(target) : null;
         }
     }
 }

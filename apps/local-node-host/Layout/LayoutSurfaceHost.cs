@@ -79,6 +79,9 @@ public sealed class LayoutSurfaceHost(
     /// Resolves <paramref name="definition"/> for <paramref name="principal"/> in <paramref name="requestId"/>.
     /// <paramref name="relationships"/> maps each declared relationship to its traversal, which returns
     /// <see langword="null"/> when the relationship has no target; an unmapped relationship is undeclared.
+    /// <paramref name="startedAt"/> is the <see cref="TimeProvider.GetTimestamp"/> the response floor counts from. A
+    /// route passes the moment its handler began, so its own decisions and lookups are inside the deadline rather
+    /// than adding their jitter ahead of it (T-735). Null counts from this call.
     /// </summary>
     public async Task<LayoutBindingResolution> ResolveAsync(
         LayoutDefinition definition,
@@ -88,9 +91,10 @@ public sealed class LayoutSurfaceHost(
         TenantId tenant,
         ActorId principal,
         string requestId,
+        long? startedAt = null,
         CancellationToken ct = default)
     {
-        var started = time.GetTimestamp();
+        var started = startedAt ?? time.GetTimestamp();
         // Audit-degraded mode reads node audit health only: the decision is made before any target is
         // looked up, from the definition and the node, never from this request's lookups.
         if (options.AuditDegradedMode && DeclaresRelatedBinding(definition.Blocks)
@@ -183,7 +187,12 @@ public sealed class LayoutSurfaceHost(
         => (blocks ?? []).Any(block => block.RelatedRelationship is { Length: > 0 } || DeclaresRelatedBinding(block.Children));
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
-    private static readonly AuthorizationOperation LayoutOpen = AuthorizationOperation.Parse("layout:open");
+    /// <summary>
+    /// layout-eng-26, T-724 ruling 76: the operation that opens a surface. The platform resolver does not read
+    /// <see cref="ILayoutAccess.CanOpen"/>, so a route that serves a surface must refuse on this same operation
+    /// and record first (owner ruling of 2026-11-04, T-735).
+    /// </summary>
+    internal static readonly AuthorizationOperation LayoutOpen = AuthorizationOperation.Parse("layout:open");
 
     private sealed class NoTrace : ILayoutDecisionTrace
     {
