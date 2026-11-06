@@ -6,6 +6,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Migrations;
 public partial class AddContentStoreBookkeeping : Migration
 {
     private static readonly string[] ItemTables = ["content_store_items", "content_store_staged"];
+    private static readonly string[] ItemIdentity = ["TenantId", "ContentId"];
 
     protected override void Up(MigrationBuilder migrationBuilder)
     {
@@ -31,7 +32,7 @@ public partial class AddContentStoreBookkeeping : Migration
                 constraints: table => table.PrimaryKey("PK_" + name, row => row.ItemKey));
         }
 
-        migrationBuilder.CreateIndex("IX_content_store_items_TenantId_ContentId", "content_store_items", new[] { "TenantId", "ContentId" }, unique: true);
+        migrationBuilder.CreateIndex("IX_content_store_items_TenantId_ContentId", "content_store_items", ItemIdentity, unique: true);
         migrationBuilder.CreateIndex("IX_content_store_staged_CreatedUtcTicks", "content_store_staged", "CreatedUtcTicks");
 
         migrationBuilder.CreateTable(
