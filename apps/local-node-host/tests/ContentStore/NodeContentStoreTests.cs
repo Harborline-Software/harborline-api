@@ -406,6 +406,10 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         foreign[0] ^= 1;
         await File.WriteAllBytesAsync(path, foreign);
         Assert.Null(await _node.Storage.Bytes.ReadSegmentAsync(key, 0));
+        var oversized = bytes.ToArray();
+        BitConverter.TryWriteBytes(oversized.AsSpan(8), int.MaxValue);
+        await File.WriteAllBytesAsync(path, oversized);
+        Assert.Null(await _node.Storage.Bytes.ReadSegmentAsync(key, 0));
     }
 
     [Fact]

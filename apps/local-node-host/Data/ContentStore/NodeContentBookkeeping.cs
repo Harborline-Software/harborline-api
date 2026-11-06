@@ -176,7 +176,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
     private class Session(LocalNodeDbContext context) : IContentBookkeepingSession
     {
         // The node audit trail's sentinel tenant: a sweep spans tenants, and an integrity episode's row names none (Q36).
-        private const string NodeTenant = "local";
+        private const string NodeTenant = Financial.StaticNodeTenantContext.LocalTenantId;
         private ContentStoreOperation? _operation;
         private string? _tenant;
 

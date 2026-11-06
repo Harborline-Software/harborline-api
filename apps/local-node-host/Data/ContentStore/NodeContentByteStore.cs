@@ -78,13 +78,14 @@ public sealed partial class NodeContentByteStore : IContentByteStore
             var header = new byte[Magic.Length + FrameHeaderBytes];
             if (!await ReadAllAsync(stream, header, cancellationToken).ConfigureAwait(false) || !header.AsSpan(0, Magic.Length).SequenceEqual(Magic)) return null;
             var (firstCiphertext, firstTag) = Lengths(header.AsSpan(Magic.Length));
-            if (firstCiphertext < 0 || firstTag < 0) return null;
+            if (firstCiphertext < 0 || firstTag < 0 || stream.Length - Magic.Length - FrameHeaderBytes < (long)firstCiphertext + firstTag) return null;
             var frame = (long)FrameHeaderBytes + firstCiphertext + firstTag;
             stream.Seek(Magic.Length + index * frame, SeekOrigin.Begin);
             var lengths = new byte[FrameHeaderBytes];
             if (!await ReadAllAsync(stream, lengths, cancellationToken).ConfigureAwait(false)) return null;
             var (ciphertextLength, tagLength) = Lengths(lengths);
-            if (ciphertextLength < 0 || ciphertextLength > firstCiphertext || tagLength != firstTag) return null;
+            // Checked against the file, so a corrupt length never sizes a buffer.
+            if (ciphertextLength < 0 || ciphertextLength > firstCiphertext || tagLength != firstTag || stream.Length - stream.Position < (long)ciphertextLength + tagLength) return null;
             var ciphertext = new byte[ciphertextLength];
             var tag = new byte[tagLength];
             if (!await ReadAllAsync(stream, ciphertext, cancellationToken).ConfigureAwait(false) || !await ReadAllAsync(stream, tag, cancellationToken).ConfigureAwait(false)) return null;

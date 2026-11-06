@@ -116,7 +116,7 @@ public sealed class PackContentKindRegistryConsumptionTests
 
     [Theory]
     [InlineData(20)]
-    [InlineData(21)]
+    [InlineData(22)]
     [InlineData(-1)]
     [InlineData(int.MinValue)]
     [InlineData(int.MaxValue)]
