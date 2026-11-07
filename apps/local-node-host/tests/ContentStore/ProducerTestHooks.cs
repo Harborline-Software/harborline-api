@@ -1,35 +1,137 @@
+using System.Buffers.Binary;
 using System.Collections;
+using System.Globalization;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using Harborline.Api.LocalNodeHost.Data.ContentStore;
+using Harborline.Api.LocalNodeHost.Tests.ContentStore;
 using Harborline.Foundation.Assets.Common;
-using Harborline.Foundation.ContentStore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Harborline.Foundation.ContentStore.Tests;
 
-// Bridge the producer's existing friend-assembly-only attack hooks without changing the shared probes.
+// The producer's attack hooks reach into its in-memory backing, so here each does the same damage to the node's rows and files.
 internal static class ProducerTestHooks
 {
+    private const int MagicBytes = 8;
+    private const int FrameHeaderBytes = 8;
+
+    public sealed record DurableKeyMaterial(Func<byte[]> ReadWrappedKey, Func<ICollection> ReadSegments)
+    {
+        // Read after an erase: a row or a file that is gone reads as empty, and one that survived fails the test's assertion.
+        public byte[] WrappedDataKey => ReadWrappedKey();
+        public ICollection Segments => ReadSegments();
+    }
+
     public static (byte[] ContentIdKey, byte[] DataKeyWrapKey) DeriveSubkeys(byte[] key, TenantId tenant) =>
         ((byte[], byte[]))typeof(InMemoryContentStore).GetMethod("DeriveSubkeys", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [key, tenant])!;
-    private static object? Invoke(InMemoryContentStore store, string name, params object[] args) =>
-        typeof(InMemoryContentStore).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic, args.Select(a => a.GetType()).ToArray())!.Invoke(store, args);
-    private static IContentStoreStorage Storage(InMemoryContentStore store) =>
-        (IContentStoreStorage)typeof(InMemoryContentStore).GetField("_storage", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
-    private static void Tamper(InMemoryContentStore store, string name, TenantId tenant, ContentId id, params object[] tail)
+
+    private static T Field<T>(InMemoryContentStore store, string name) =>
+        (T)typeof(InMemoryContentStore).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
+
+    private static IContentBookkeeping Bookkeeping(InMemoryContentStore store) => Field<IContentBookkeeping>(store, "_bookkeeping");
+
+    private static string PathOf(InMemoryContentStore store, Guid itemKey)
     {
-        var backing = Storage(store);
-        lock (backing.SyncRoot)
-        {
-            Invoke(store, name, [tenant, id, .. tail]);
-            // Simulate changed bytes on disk too, rather than relying on shutdown to persist them.
-            backing.Save(new(ContentStoreOperation.Commit, [new(tenant, id)], [], [], []));
-        }
+        var name = itemKey.ToString("N", CultureInfo.InvariantCulture);
+        return Path.Combine(Field<NodeContentByteStore>(store, "_bytes").DirectoryPath, name[..2], name);
     }
-    public static void CorruptCiphertext(this InMemoryContentStore store, TenantId tenant, ContentId id, int segment) => Tamper(store, nameof(CorruptCiphertext), tenant, id, segment);
-    public static void CorruptWrapTag(this InMemoryContentStore store, TenantId tenant, ContentId id) => Tamper(store, nameof(CorruptWrapTag), tenant, id);
-    public static void RewrapWithContentIdSubkey(this InMemoryContentStore store, TenantId tenant, ContentId id) => Tamper(store, nameof(RewrapWithContentIdSubkey), tenant, id);
-    public static void DropLastSegmentKeepingLength(this InMemoryContentStore store, TenantId tenant, ContentId id) => Tamper(store, nameof(DropLastSegmentKeepingLength), tenant, id);
-    public static void TruncateLastSegment(this InMemoryContentStore store, TenantId tenant, ContentId id) => Tamper(store, nameof(TruncateLastSegment), tenant, id);
-    public static ContentStoreItem StorageItem(this InMemoryContentStore store, TenantId tenant, ContentId id) => (ContentStoreItem)Invoke(store, nameof(StorageItem), tenant, id)!;
-    public static (byte[] WrappedDataKey, ICollection Segments) KeyMaterial(this InMemoryContentStore store, TenantId tenant, ContentId id) => ((byte[], ICollection))Invoke(store, nameof(KeyMaterial), tenant, id)!;
-    public static (byte[] WrappedDataKey, ICollection Segments) KeyMaterial(this InMemoryContentStore store, Guid stage) => ((byte[], ICollection))Invoke(store, nameof(KeyMaterial), stage)!;
+
+    public static async ValueTask<ContentStoreItem> StorageItemAsync(this InMemoryContentStore store, TenantId tenant, ContentId id) =>
+        await Bookkeeping(store).FindItemAsync(new(tenant, id)) ?? throw new KeyNotFoundException();
+
+    private static long FrameBytes(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        return FrameHeaderBytes + BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(MagicBytes)) + BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(MagicBytes + 4));
+    }
+
+    public static async ValueTask CorruptCiphertextAsync(this InMemoryContentStore store, TenantId tenant, ContentId id, int segment)
+    {
+        var path = PathOf(store, (await store.StorageItemAsync(tenant, id)).StageId);
+        var offset = MagicBytes + segment * FrameBytes(path) + FrameHeaderBytes;
+        using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite);
+        file.Position = offset;
+        var value = file.ReadByte();
+        file.Position = offset;
+        file.WriteByte((byte)(value ^ 1));
+    }
+
+    public static async ValueTask CorruptWrapTagAsync(this InMemoryContentStore store, TenantId tenant, ContentId id)
+    {
+        var item = await store.StorageItemAsync(tenant, id);
+        var tag = item.WrapTag.ToArray();
+        tag[0] ^= 1;
+        await SetKeyAsync(store, tenant, id, item.WrappedDataKey, tag);
+    }
+
+    public static async ValueTask RewrapWithContentIdSubkeyAsync(this InMemoryContentStore store, TenantId tenant, ContentId id)
+    {
+        var item = await store.StorageItemAsync(tenant, id);
+        var (contentIdKey, wrapKey) = DeriveSubkeys(Field<ITenantContentKeyProvider>(store, "_keys").GetKey(tenant), tenant);
+        var associated = Encoding.ASCII.GetBytes(item.ContentId.Value);
+        var dataKey = new byte[32];
+        using (var wrapper = new AesGcm(wrapKey, 16)) wrapper.Decrypt(item.WrapNonce, item.WrappedDataKey, item.WrapTag, dataKey, associated);
+        var wrapped = new byte[32];
+        var tag = new byte[16];
+        using (var wrong = new AesGcm(contentIdKey, 16)) wrong.Encrypt(item.WrapNonce, dataKey, wrapped, tag, associated);
+        await SetKeyAsync(store, tenant, id, wrapped, tag);
+    }
+
+    public static async ValueTask DropLastSegmentKeepingLengthAsync(this InMemoryContentStore store, TenantId tenant, ContentId id) =>
+        DropLastFrame(PathOf(store, (await store.StorageItemAsync(tenant, id)).StageId));
+
+    public static async ValueTask TruncateLastSegmentAsync(this InMemoryContentStore store, TenantId tenant, ContentId id)
+    {
+        var item = await store.StorageItemAsync(tenant, id);
+        var segments = DropLastFrame(PathOf(store, item.StageId));
+        await using var context = await NodeContentTestStore.ContextsOf(Bookkeeping(store)).CreateDbContextAsync();
+        await context.Set<ContentItemRow>().Where(row => row.ItemKey == item.StageId)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.Length, segments * item.SegmentSize));
+    }
+
+    public static async ValueTask<DurableKeyMaterial> KeyMaterialAsync(this InMemoryContentStore store, TenantId tenant, ContentId id) =>
+        Material(store, (await store.StorageItemAsync(tenant, id)).StageId);
+
+    public static DurableKeyMaterial KeyMaterial(this InMemoryContentStore store, Guid stage) => Material(store, stage);
+
+    private static DurableKeyMaterial Material(InMemoryContentStore store, Guid itemKey) => new(
+        () =>
+        {
+            using var context = NodeContentTestStore.ContextsOf(Bookkeeping(store)).CreateDbContext();
+            return context.Set<ContentItemRow>().Where(row => row.ItemKey == itemKey).Select(row => row.WrappedDataKey).FirstOrDefault()
+                ?? context.Set<ContentStagedRow>().Where(row => row.ItemKey == itemKey).Select(row => row.WrappedDataKey).FirstOrDefault()
+                ?? [];
+        },
+        () => File.Exists(PathOf(store, itemKey)) ? new[] { PathOf(store, itemKey) } : Array.Empty<string>());
+
+    // Everything the node retains for items: each row's values and each file's bytes.
+    public static async ValueTask<List<object>> RetainedAsync(this InMemoryContentStore store)
+    {
+        await using var context = await NodeContentTestStore.ContextsOf(Bookkeeping(store)).CreateDbContextAsync();
+        var rows = new List<ContentItemColumns>();
+        rows.AddRange(await context.Set<ContentItemRow>().AsNoTracking().ToListAsync());
+        rows.AddRange(await context.Set<ContentStagedRow>().AsNoTracking().ToListAsync());
+        var retained = rows.SelectMany(row => new object[] { row.TenantId, row.ContentId, row.MediaType, row.WrappedDataKey, row.WrapNonce, row.WrapTag, row.NoncePrefix }).ToList();
+        var directory = Field<NodeContentByteStore>(store, "_bytes").DirectoryPath;
+        retained.AddRange(Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Select(File.ReadAllBytes));
+        return retained;
+    }
+
+    private static long DropLastFrame(string path)
+    {
+        var frame = FrameBytes(path);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Write);
+        var complete = (file.Length - MagicBytes - 1) / frame;
+        file.SetLength(MagicBytes + complete * frame);
+        return complete;
+    }
+
+    private static async ValueTask SetKeyAsync(InMemoryContentStore store, TenantId tenant, ContentId id, byte[] wrapped, byte[] tag)
+    {
+        await using var context = await NodeContentTestStore.ContextsOf(Bookkeeping(store)).CreateDbContextAsync();
+        await context.Set<ContentItemRow>().Where(row => row.TenantId == tenant.Value && row.ContentId == id.Value)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.WrappedDataKey, wrapped).SetProperty(row => row.WrapTag, tag));
+    }
 }
