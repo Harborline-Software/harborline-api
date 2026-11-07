@@ -27,7 +27,9 @@ public sealed partial class NodeContentByteStore : IContentByteStore
     public NodeContentByteStore(string directory)
     {
         DirectoryPath = Path.GetFullPath(directory);
+        var created = !Directory.Exists(DirectoryPath);
         Directory.CreateDirectory(DirectoryPath);
+        if (created) SyncDirectory(Path.GetDirectoryName(DirectoryPath)!);
     }
 
     /// <summary>The content directory.</summary>

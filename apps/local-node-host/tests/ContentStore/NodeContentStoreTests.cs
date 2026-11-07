@@ -247,6 +247,65 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await repeated.StageOperationAsync(operation));
     }
 
+    [Fact]
+    public async Task Clause_1_removing_a_staged_entry_and_the_name_check_touch_only_the_named_item()
+    {
+        var store = Store();
+        var removed = await Put(store, Text(2, 'a'));
+        var kept = await Put(store, Text(2, 'b'));
+        var bookkeeping = _node.Storage.Bookkeeping;
+        Assert.True(await bookkeeping.NamesBytesAsync(removed));
+        Assert.False(await bookkeeping.NamesBytesAsync(Guid.NewGuid()));
+
+        await using (var opened = await bookkeeping.BeginTransactionAsync())
+        {
+            IKernelPreparedTransaction<ContentStoreOperation, bool> transaction = opened;
+            Assert.True(await opened.RemoveStagedAsync(removed));
+            Assert.False(await opened.RemoveStagedAsync(removed));
+            await transaction.CommitAsync();
+        }
+
+        Assert.Equal(1, bookkeeping.StagedCount);
+        Assert.False(await bookkeeping.NamesBytesAsync(removed));
+        Assert.True(await bookkeeping.NamesBytesAsync(kept));
+        await Commit(store, kept);
+        Assert.Equal(0, bookkeeping.StagedCount);
+        Assert.True(await bookkeeping.NamesBytesAsync(kept));
+    }
+
+    [Fact]
+    public async Task Clause_1_removing_a_repeated_owner_takes_one_occurrence_and_keeps_the_order()
+    {
+        var store = Store();
+        var first = await Commit(store, await Put(store), "record", "x");
+        await Commit(store, await Put(store), "record", "y");
+        await Commit(store, await Put(store), "record", "x");
+        await store.RemoveReferenceAsync(Tenant, first, HoldStatus.None, "disposal", Write());
+        var item = await _node.Storage.Bookkeeping.FindItemAsync(new(Tenant, first.ContentId));
+        Assert.Equal([new ContentOwner("record", "y"), new ContentOwner("record", "x")], item!.Owners);
+    }
+
+    [Fact]
+    public async Task Clause_2_two_joined_writes_for_two_tenants_each_leave_one_row_in_their_own_chain()
+    {
+        var store = Store();
+        var other = new TenantId("other-tenant");
+        await using (var context = await _node.Contexts.CreateDbContextAsync())
+        {
+            await KernelTransactionBoundary.ExecutePreparedAsync<ContentStoreOperation, bool>(async _ =>
+            {
+                var session = NodeContentBookkeeping.Join(context);
+                await store.PutAsync(Tenant, new MemoryStream(Text(2, 'a')), "text/plain", null, Write(transaction: session));
+                await store.PutAsync(other, new MemoryStream(Text(2, 'b')), "text/plain", null, Write(transaction: session));
+                return CallerCommand(ContentStoreOperation.Put);
+            }, new CallerPort(context));
+        }
+
+        await using var read = await _node.Contexts.CreateDbContextAsync();
+        var rows = await read.Set<NodeAuditEventRow>().AsNoTracking().Where(row => row.EventType == "ContentStore.Put").ToListAsync();
+        Assert.Equal(["other-tenant", "test-tenant"], rows.Select(row => row.TenantId).Order(StringComparer.Ordinal));
+    }
+
     private sealed class CallerPort(LocalNodeDbContext context) : IKernelPreparedTransactionPort<ContentStoreOperation, bool>
     {
         public async ValueTask<IKernelPreparedTransaction<ContentStoreOperation, bool>> BeginAsync(CancellationToken cancellationToken = default) =>
@@ -610,9 +669,18 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
             Assert.False(await bookkeeping.CheckpointAsync());
         }
 
+        // Closing the last connection checkpoints by itself, so this one stays open and only the retry can empty the WAL.
+        await using var open = new SqliteConnection($"Data Source={database};Pooling=False");
+        await open.OpenAsync();
+        await using (var attach = open.CreateCommand())
+        {
+            attach.CommandText = "SELECT count(*) FROM content_store_items;";
+            await attach.ExecuteScalarAsync();
+        }
+
         await Put(store);
         Assert.False(ContainsKey(database, key));
-        Assert.Equal(0, new FileInfo(database + "-wal").Exists ? new FileInfo(database + "-wal").Length : 0);
+        Assert.Equal(0, new FileInfo(database + "-wal").Length);
         Assert.True(await bookkeeping.CheckpointAsync());
     }
 
