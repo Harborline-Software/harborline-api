@@ -592,6 +592,11 @@ public sealed class FormEngine : IFormEngine
             }
 
             // INV-S4: one Mint record per save, naming the encrypted fields.
+            // T-1148: the create has committed, so the caller's cancellation no longer reaches the audit.
+            // A request cancelled or disconnected here would otherwise leave a committed instance (and a
+            // store the policy audits) with no Mint row. Making the row commit with the instance is
+            // T-1148 acceptance line 5, which waits on T-616.
+            var auditCt = CancellationToken.None;
             using var auditPayload = BuildMintAuditPayload(header, encryptedFields, snapshot);
             var signedAudit = await _auditSigner.SignAsync(
                 new Harborline.Api.Kernel.Audit.AuditPayload(new Dictionary<string, object?>
@@ -608,9 +613,9 @@ public sealed class FormEngine : IFormEngine
                 }),
                 submittedAt,
                 Guid.NewGuid(),
-                ct).ConfigureAwait(false);
+                auditCt).ConfigureAwait(false);
             await AppendMintAuditAsync(
-                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision, ct,
+                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision, auditCt,
                 new AuditDefinitionStamp(header.DefinitionId, header.DefinitionVersion))
                 .ConfigureAwait(false);
 
