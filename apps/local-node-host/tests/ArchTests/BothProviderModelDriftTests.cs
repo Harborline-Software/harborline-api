@@ -206,24 +206,17 @@ public sealed class BothProviderModelDriftTests
     }
 
     /// <summary>
-    /// C2 bytea→BLOB sweep — <b>FORWARD-COVERAGE ONLY (currently a vacuous set).</b>
+    /// C2 bytea→BLOB sweep over the module-owned bytea columns.
     /// </summary>
     /// <remarks>
-    /// As of the ADR 0114/0115 cohort-1a.2 module set there are ZERO
-    /// <c>HasColumnType("bytea")</c> columns owned by any shared entity module
-    /// (the migration emits 358 TEXT, 0 BLOB; the only binary-ish column,
-    /// <c>raw_provider_blob</c>, is a <c>string</c>→TEXT, and the fleet's one real
-    /// bytea — <c>TenantRegistration.TeamPublicKey</c> — is configured inline in
-    /// the Bridge control-plane DbContext, not contributed by a shared module, so
-    /// it never reaches the local node). This assertion therefore iterates an
-    /// EMPTY set today: it guards the sweep's bytea branch against a FUTURE
-    /// module-owned bytea column, but proves nothing about the current model.
-    /// Per the .NET-architect SPOT-CHECK (verdict 2026-06-13, condition 1) it is
-    /// annotated as forward-coverage; the corrected tally is "358 TEXT, 0 BLOB".
-    /// The explicit zero-column observation below makes the vacuity visible rather
-    /// than silently green.
+    /// Until T-521 no shared entity module owned a <c>HasColumnType("bytea")</c> column, so this
+    /// assertion iterated an empty set and was annotated forward-coverage (.NET-architect spot-check,
+    /// 2026-06-13, condition 1). T-521/content-store-bookkeeping-in-node-model adds the first eight:
+    /// <c>WrappedDataKey</c>, <c>WrapNonce</c>, <c>WrapTag</c> and <c>NoncePrefix</c> on each of
+    /// <c>content_store_staged</c> and <c>content_store_items</c> (ADR 0114 decision 1). The explicit
+    /// count below keeps the set from silently going back to empty.
     /// </remarks>
-    [Fact(DisplayName = "C2: SQLite post-config sweep rewrites bytea → BLOB ")]
+    [Fact(DisplayName = "C2: SQLite post-config sweep rewrites bytea → BLOB")]
     public void SqliteModel_ByteaColumnsAreBlob()
     {
         var sqliteModel = BuildSqliteModel();
