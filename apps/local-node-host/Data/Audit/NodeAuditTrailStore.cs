@@ -117,7 +117,9 @@ internal static class NodeAuditRecordJson
         string? TargetKind,
         string? TargetId,
         string? TargetScope,
-        string? Act);
+        string? Act,
+        string? DefinitionId = null,
+        string? DefinitionVersion = null);
 
     private sealed record StoredRecord(Guid AuditId, string TenantId, string EventType, DateTimeOffset OccurredAt, Stored Body);
 
@@ -135,7 +137,9 @@ internal static class NodeAuditRecordJson
             record.Target?.RecordKind,
             record.Target?.RecordId,
             record.Target?.Scope.Value,
-            record.Act?.ToString())));
+            record.Act?.ToString(),
+            record.Definition?.DefinitionId,
+            record.Definition?.Version)));
 
     internal static AuditRecord Read(string json)
     {
@@ -155,7 +159,8 @@ internal static class NodeAuditRecordJson
             body.TargetKind is null
                 ? (AuthorizationTarget?)null
                 : new AuthorizationTarget(body.TargetKind, body.TargetId!, ScopeExpression.Parse(body.TargetScope!)),
-            body.Act is null ? (PermissionAtom?)null : PermissionAtom.Parse(body.Act));
+            body.Act is null ? (PermissionAtom?)null : PermissionAtom.Parse(body.Act),
+            body.DefinitionId is null ? null : new AuditDefinitionStamp(body.DefinitionId, body.DefinitionVersion!));
     }
 
     internal static string WritePayload(SignedOperation<AuditPayload> payload) => JsonSerializer.Serialize(payload);

@@ -512,7 +512,7 @@ public sealed class FormEngine : IFormEngine
             ? (DefinitionCoordinates?)null
             : await _bindingResolver.ResolveAsync(formDef, submittedAt, ct).ConfigureAwait(false);
 
-        var (storedBody, encryptedFields) =
+        var (storedBody, encryptedFields, storeAuditedFields) =
             await ProtectFieldsAsync(formDef, candidateForStore, token, instanceId, authority.At, ct).ConfigureAwait(false);
 
         // D3 (ADR 0140 amendment 2026-07-01): the conditional visibility/derived-state
@@ -599,6 +599,9 @@ public sealed class FormEngine : IFormEngine
                     ["entity_id"] = entityId.ToString(),
                     ["operation"] = Op.Mint.ToString(),
                     ["encrypted_fields"] = encryptedFields.ToArray(),
+                    // T-1148: the fields whose store the policy audits, by name and never by value
+                    // (platform-package-ck-20), folded into this one row instead of a separate store row.
+                    ["store_audited_fields"] = storeAuditedFields.ToArray(),
                     ["submission"] = auditPayload.RootElement.Clone(),
                     ["correlation_id"] = authority.CorrelationId?.ToString("D"),
                     ["request_fingerprint"] = requestFingerprint,
@@ -607,7 +610,8 @@ public sealed class FormEngine : IFormEngine
                 Guid.NewGuid(),
                 ct).ConfigureAwait(false);
             await AppendMintAuditAsync(
-                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision, ct)
+                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision, ct,
+                new AuditDefinitionStamp(header.DefinitionId, header.DefinitionVersion))
                 .ConfigureAwait(false);
 
             // F-CLOCK: surface the engine's OWN submit instant so a post-submit projection stamps its
@@ -699,7 +703,8 @@ public sealed class FormEngine : IFormEngine
         CapabilityToken token,
         DateTimeOffset submittedAt,
         AuthorizationDecision authorizationDecision,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        AuditDefinitionStamp? definition = null)
     {
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(signedAudit);
@@ -715,7 +720,8 @@ public sealed class FormEngine : IFormEngine
                 Array.Empty<AttestingSignature>(),
                 Actor: MintActor(token),
                 Target: MintTarget(form, token),
-                Act: MintAct(form, token)),
+                Act: MintAct(form, token),
+                Definition: definition),
             authorizationDecision,
             ct);
     }
@@ -1850,18 +1856,20 @@ public sealed class FormEngine : IFormEngine
     /// default-secure (tenant-DEK encrypt). Without the seam this falls back to the
     /// legacy <see cref="EncryptSensitiveFieldsAsync"/> path (byte-identical).
     /// </summary>
-    private async Task<(JsonDocument Body, IReadOnlyList<string> EncryptedFields)> ProtectFieldsAsync(
+    private async Task<(JsonDocument Body, IReadOnlyList<string> EncryptedFields, IReadOnlyList<string> StoreAuditedFields)> ProtectFieldsAsync(
         FormDefinition formDef, JsonDocument candidate, CapabilityToken token, EntityId entityId,
         DateTimeOffset recordCreatedAt, CancellationToken ct)
     {
         if (!GovernanceEnabled)
         {
-            return await EncryptSensitiveFieldsAsync(formDef.Overlay, candidate, token.Tenant, ct)
+            var (legacyBody, legacyEncrypted) = await EncryptSensitiveFieldsAsync(formDef.Overlay, candidate, token.Tenant, ct)
                 .ConfigureAwait(false);
+            return (legacyBody, legacyEncrypted, Array.Empty<string>());
         }
 
         var overlay = formDef.Overlay;
         var encryptedFields = new List<string>();
+        var storeAuditedFields = new List<string>();
         var buffer = new ArrayBufferWriter<byte>();
 
         using (var writer = new Utf8JsonWriter(buffer))
@@ -1915,6 +1923,7 @@ public sealed class FormEngine : IFormEngine
                     Subject: null);
 
                 var outcome = await _enforcer!.StoreAsync(storeCtx, ct).ConfigureAwait(false);
+                if (outcome.Audited) storeAuditedFields.Add(name);
 
                 if (outcome.Encrypted && outcome.Cipher is { } cipher)
                 {
@@ -1933,7 +1942,7 @@ public sealed class FormEngine : IFormEngine
         }
 
         var body = JsonDocument.Parse(buffer.WrittenMemory);
-        return (body, encryptedFields);
+        return (body, encryptedFields, storeAuditedFields);
     }
 
     private async Task<(JsonDocument Body, IReadOnlyList<string> EncryptedFields)> EncryptSensitiveFieldsAsync(
