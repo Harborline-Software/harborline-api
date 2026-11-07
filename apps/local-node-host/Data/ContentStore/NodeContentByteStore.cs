@@ -40,10 +40,9 @@ public sealed partial class NodeContentByteStore : IContentByteStore
     {
         var path = PathOf(itemKey);
         if (File.Exists(path)) throw new IOException("An item's bytes are write-once.");
-        var directory = Path.GetDirectoryName(path)!;
-        var created = !Directory.Exists(directory);
-        Directory.CreateDirectory(directory);
-        if (created) SyncDirectory(DirectoryPath);
+        // Always synced: another upload may have just created this shard and not synced it yet.
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        SyncDirectory(DirectoryPath);
         var stream = new FileStream(path + Temporary, FileMode.CreateNew, FileAccess.Write, FileShare.Read | FileShare.Delete, 0, FileOptions.Asynchronous);
         try
         {
