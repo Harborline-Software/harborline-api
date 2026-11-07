@@ -642,7 +642,8 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         var database = Path.Combine(directory, "plain.db");
         var options = new DbContextOptionsBuilder<LocalNodeDbContext>()
             .UseSqlite($"Data Source={database};Pooling=False")
-            .AddInterceptors(new PragmasOnly("PRAGMA busy_timeout = 100; PRAGMA secure_delete = ON;"))
+            // The production 30-second wait, so the bound on the post-commit checkpoint is what keeps this test short.
+            .AddInterceptors(new PragmasOnly("PRAGMA busy_timeout = 30000; PRAGMA secure_delete = ON;"))
             .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning))
             .Options;
         IHarborlineEntityModule[] modules = [new ContentStoreEntityModule(), new AuditEventEntityModule()];
@@ -665,8 +666,11 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
                 await read.ExecuteScalarAsync();
             }
 
+            var removal = Stopwatch.StartNew();
             Assert.True(await store.RemoveReferenceAsync(Tenant, reference, HoldStatus.None, "disposal", Write()));
             Assert.False(await bookkeeping.CheckpointAsync());
+            // Both checkpoints, the commit's and this one, wait about a second each, never the connection's 30.
+            Assert.InRange(removal.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(10));
         }
 
         // Closing the last connection checkpoints by itself, so this one stays open and only the retry can empty the WAL.

@@ -133,7 +133,10 @@ public sealed partial class NodeContentByteStore : IContentByteStore
     /// <summary>
     /// Flushes a file to the device. .NET's <see cref="FileStream.Flush(bool)"/> asks for <c>F_FULLFSYNC</c> on macOS (dotnet/runtime
     /// <c>pal_io.c</c>, <c>SystemNative_FSync</c>), and plain <c>fsync</c> there would stop at the drive's cache, so macOS also asks
-    /// directly rather than rest durability on a runtime detail. Answers whether that direct request succeeded.
+    /// directly rather than rest durability on a runtime detail. Answers whether that direct request succeeded. False is not a lost
+    /// write: <c>Flush(true)</c> has already flushed and raised any I/O error, and where a file system does not support
+    /// <c>F_FULLFSYNC</c> (a network volume) the runtime and SQLite (<c>os_unix.c</c>, <c>full_fsync</c>) both fall back to
+    /// <c>fsync</c>, so this does not refuse the write either.
     /// </summary>
     internal static bool FlushToDevice(FileStream stream)
     {
@@ -178,6 +181,9 @@ public sealed partial class NodeContentByteStore : IContentByteStore
         try
         {
             if (Sync(descriptor) != 0) throw new Win32Exception();
+            // On macOS fsync stops at the drive's cache, and the item's row commits right after this rename, so ask the drive to
+            // flush too (fcntl(2), F_FULLFSYNC). A file system without it keeps the fsync that just succeeded, as the runtime does.
+            if (OperatingSystem.IsMacOS()) _ = FullFsyncDescriptor(descriptor, FullFsyncCommand);
         }
         finally
         {
@@ -187,6 +193,8 @@ public sealed partial class NodeContentByteStore : IContentByteStore
 
     [LibraryImport("libc", EntryPoint = "fcntl", SetLastError = true)]
     private static partial int FullFsync(SafeFileHandle file, int command);
+    [LibraryImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static partial int FullFsyncDescriptor(int descriptor, int command);
     [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Open(string path, int flags);
     [LibraryImport("libc", EntryPoint = "fsync", SetLastError = true)]

@@ -53,6 +53,10 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
     /// (ADR 0114 decision 4). False means a reader held it past the wait, which SQLite reports in its result row and not as an
     /// error; the next commit on this port tries again.
     /// </summary>
+    /// <remarks>
+    /// A commit runs this after it has committed, so it waits for a reader at most <see cref="CheckpointWaitMilliseconds"/>, not
+    /// the connection's 30-second <c>busy_timeout</c>, and puts that timeout back before the connection is reused.
+    /// </remarks>
     public async ValueTask<bool> CheckpointAsync(CancellationToken cancellationToken = default)
     {
         var context = await contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -60,13 +64,30 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
         {
             await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using var command = context.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-            await using var result = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            var finished = await result.ReadAsync(cancellationToken).ConfigureAwait(false) && result.GetInt64(0) == 0;
-            _checkpointOwed = !finished;
-            return finished;
+            // Microsoft.Data.Sqlite retries SQLITE_BUSY until the command timeout, in seconds, so that is bounded too.
+            command.CommandTimeout = 1;
+            command.CommandText = "PRAGMA busy_timeout;";
+            var prior = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            command.CommandText = $"PRAGMA busy_timeout = {CheckpointWaitMilliseconds};";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                await using var result = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                var finished = await result.ReadAsync(cancellationToken).ConfigureAwait(false) && result.GetInt64(0) == 0;
+                _checkpointOwed = !finished;
+                return finished;
+            }
+            finally
+            {
+                command.CommandText = string.Create(CultureInfo.InvariantCulture, $"PRAGMA busy_timeout = {prior};");
+                await command.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
+
+    /// <summary>How long the post-commit checkpoint waits for a reader before it is left owed.</summary>
+    internal const int CheckpointWaitMilliseconds = 1000;
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<ContentStoreItem>> StagedCreatedAtOrBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
