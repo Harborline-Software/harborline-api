@@ -173,7 +173,7 @@ public sealed partial class NodeContentByteStore : IContentByteStore
         await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false) == buffer.Length;
 
     // fsync on a file does not cover its directory entry (fsync(2)), so a rename is durable only after this. Windows has no equivalent.
-    private static void SyncDirectory(string directory)
+    internal static void SyncDirectory(string directory)
     {
         if (OperatingSystem.IsWindows()) return;
         var descriptor = Open(directory, 0);

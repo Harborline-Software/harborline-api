@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "22491171929b455ac09cdca4b01a8f65eb9c4039",
-  "recordedAt": "2026-11-06 (M11: exact platform PR 421 merge commit 22491171, which T-521 content-store-bookkeeping-in-node-model needs for the producer's bookkeeping and byte ports. It also includes platform PRs 412, 418, 420, 413, 417, 372, 371 and the T-1137 change, none of which changes an API call site. The complete exact-pin feed and the host build passed locally on Windows; the gate result is on API PR 465.)",
+  "commit": "19fecde80938b148444161736518fa958c0d2201",
+  "recordedAt": "2026-11-08 (M11: exact platform PR 423 merge commit 19fecde8, which T-521 content-store-epoch-key-store needs for the content store's epoch key port, IContentBookkeepingSession.PinEpochAsync and RetireEpochIfUnnamedAsync. It also includes platform PRs 415 (T-491 typed ScheduleDefinition), 419 (T-493), 416 (T-594) and 414 (T-1035).)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
@@ -13,7 +13,8 @@
     "Consume T-1091's structural missing-binding_kind refusal (owner ruling Q9, 2026-10-18) so API #429's final consumer can prove a Layout binding without binding_kind is refused as layout.definition.body_invalid instead of escaping as 500.",
     "Consume Q16 Layout binding object admission from platform PR 326 at its actual merge commit so API #429 can preserve Platform refusal code, pointer and target while accepting escaped exact binding_kind names. Producer identities and all36 assembly pairs remain unchanged; host enablement and owner holds remain in force.",
     "Consume platform PR 421 (T-521/content-store-host-transaction), so the node backs the producer's bookkeeping and byte ports.",
-    "Consume platform PR 399 (T-564), so rule contracts resolve through Harborline.Contracts.Rules instead of Forms, and pin platform PR 409 merge commit 5b4fdf09 as the base T-521 content-store-durable-host builds on. The namespace change is mechanical, with no host behavior change."
+    "Consume platform PR 399 (T-564), so rule contracts resolve through Harborline.Contracts.Rules instead of Forms, and pin platform PR 409 merge commit 5b4fdf09 as the base T-521 content-store-durable-host builds on. The namespace change is mechanical, with no host behavior change.",
+    "Consume platform PR 423 (T-521/content-store-epoch-wrap-key), so the node backs the content store's epoch key port and rotates epoch keys."
   ],
   "producers": {
     "Harborline.Blocks.ActivityTimeline": "Harborline.Blocks.ActivityTimeline.dll",

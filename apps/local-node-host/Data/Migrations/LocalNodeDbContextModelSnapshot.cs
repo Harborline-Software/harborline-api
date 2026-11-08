@@ -27,6 +27,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("ItemKey").HasColumnType("TEXT");
                 b.Property<string>("ContentId").IsRequired().HasColumnType("TEXT");
                 b.Property<long>("CreatedUtcTicks").HasColumnType("INTEGER");
+                b.Property<Guid>("EpochId").HasColumnType("TEXT");
                 b.Property<long>("Length").HasColumnType("INTEGER");
                 b.Property<string>("MediaType").IsRequired().HasColumnType("TEXT");
                 b.Property<byte[]>("NoncePrefix").IsRequired().HasColumnType("BLOB");
@@ -37,6 +38,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<byte[]>("WrapTag").IsRequired().HasColumnType("BLOB");
                 b.Property<byte[]>("WrappedDataKey").IsRequired().HasColumnType("BLOB");
                 b.HasKey("ItemKey");
+                b.HasIndex("TenantId", "EpochId");
                 b.HasIndex("TenantId", "ContentId").IsUnique();
                 b.ToTable("content_store_items");
             });
@@ -46,6 +48,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("ItemKey").HasColumnType("TEXT");
                 b.Property<string>("ContentId").IsRequired().HasColumnType("TEXT");
                 b.Property<long>("CreatedUtcTicks").HasColumnType("INTEGER");
+                b.Property<Guid>("EpochId").HasColumnType("TEXT");
                 b.Property<long>("Length").HasColumnType("INTEGER");
                 b.Property<string>("MediaType").IsRequired().HasColumnType("TEXT");
                 b.Property<byte[]>("NoncePrefix").IsRequired().HasColumnType("BLOB");
@@ -56,6 +59,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<byte[]>("WrapTag").IsRequired().HasColumnType("BLOB");
                 b.Property<byte[]>("WrappedDataKey").IsRequired().HasColumnType("BLOB");
                 b.HasKey("ItemKey");
+                b.HasIndex("TenantId", "EpochId");
                 b.HasIndex("CreatedUtcTicks");
                 b.ToTable("content_store_staged");
             });
@@ -108,6 +112,14 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.Property<string>("TraceId").IsRequired().HasColumnType("TEXT");
                 b.HasKey("TenantId", "ItemKey");
                 b.ToTable("content_store_integrity");
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.ContentStore.ContentEpochRow", b =>
+            {
+                b.Property<string>("TenantId").HasColumnType("TEXT");
+                b.Property<Guid>("EpochId").HasColumnType("TEXT");
+                b.HasKey("TenantId", "EpochId");
+                b.ToTable("content_store_epochs");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.ContentStore.ContentOperationRow", b =>
