@@ -420,5 +420,5 @@ public static class DeclarativeWorkflowInterpreterCodes
 public sealed class WorkflowGateUnenforcedException(string message) : InvalidOperationException(message)
 {
     /// <summary>The stable refusal code (a localizing client keys off this).</summary>
-    public string Code => DeclarativeWorkflowInterpreterCodes.GateUnenforced;
+    public string Code { get; } = DeclarativeWorkflowInterpreterCodes.GateUnenforced;
 }
