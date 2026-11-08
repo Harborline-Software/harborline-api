@@ -44,8 +44,6 @@ public enum AdmittedInstantExemption
 {
     /// <summary>Configuration verification decides in its isolated candidate world at the request's fixture instant.</summary>
     ConfigurationRehearsal = 1,
-    /// <summary>Roster sync reads install-root authority at the device-signed roster <c>IssuedAt</c> (ADR-0053).</summary>
-    SignedRosterIssuedAt = 2,
 }
 
 /// <summary>

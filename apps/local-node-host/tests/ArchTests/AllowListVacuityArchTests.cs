@@ -205,6 +205,9 @@ public sealed class AllowListVacuityArchTests
         ["AuthorizationDefinitionWriteFenceTests.ContainerWriteVerbs"] =
             "the EF container-write method names the ck-10 fence scans FOR, not an exception list; a verb it "
             + "does not hold excuses nothing, and the planted bypass proves the listed verbs are seen",
+        ["RosterSkewWindowFenceTests.Allowed"] =
+            "the T-1056 inventory of time literals where signed roster time is compared, compared with the "
+            + "discovered per-file counts in both directions, so a stale or excusing row is red",
         ["AllowListVacuityArchTests.SelfVerifying"] =
             "this classification map itself; the stale-entry assertion below keeps it exact",
         ["AuthorizationGateArchTests.ReflectedReadAllowList"] =
