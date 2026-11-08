@@ -52,8 +52,9 @@ public sealed class CatalogueTests
     [Fact]
     public void Every_Pack_Content_Kind_Has_A_Sealed_Platform_System_Record_Type()
     {
+        // Kind 21 is named at the pin, and the seed the node installs does not carry it until T-584/api-installs-released-navigation.
         var expected = Enum.GetValues<PackContentKind>()
-            .Where(kind => kind != PackContentKind.RecordType)
+            .Where(kind => kind is not (PackContentKind.RecordType or PackContentKind.ReleasedNavigationDefinition))
             .ToArray();
         var actualKinds = SystemRecordType.All.Select(type => type.Kind).ToArray();
 

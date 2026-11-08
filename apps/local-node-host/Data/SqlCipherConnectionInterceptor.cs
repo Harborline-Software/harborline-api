@@ -83,6 +83,10 @@ public sealed class SqlCipherConnectionInterceptor : DbConnectionInterceptor
             .ConfigureAwait(false);
     }
 
+    // Every node connection waits out another writer (ADR 0113) and overwrites what it deletes (ADR 0114 decision 4).
+    // Thirty seconds matches Microsoft.Data.Sqlite's Default Timeout, the provider's own retry, which api production code leaves at its default.
+    internal const string ConnectionPragmas = "PRAGMA busy_timeout = 30000; PRAGMA secure_delete = ON;";
+
     private void ApplyKeyAndVerify(DbConnection connection)
     {
         // PRAGMA key in raw-key hex form — see SqlCipherEncryptedStore.OpenAsync.
@@ -107,6 +111,10 @@ public sealed class SqlCipherConnectionInterceptor : DbConnectionInterceptor
                 "The local-node financial store could not be opened with the derived key " +
                 "(SC-1 fail-closed: refusing to read or create a plaintext store).", ex);
         }
+
+        using var pragmas = connection.CreateCommand();
+        pragmas.CommandText = ConnectionPragmas;
+        pragmas.ExecuteNonQuery();
     }
 
     private async Task ApplyKeyAndVerifyAsync(
@@ -131,6 +139,10 @@ public sealed class SqlCipherConnectionInterceptor : DbConnectionInterceptor
                 "The local-node financial store could not be opened with the derived key " +
                 "(SC-1 fail-closed: refusing to read or create a plaintext store).", ex);
         }
+
+        await using var pragmas = connection.CreateCommand();
+        pragmas.CommandText = ConnectionPragmas;
+        await pragmas.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private static bool IsInvalidKeyError(SqliteException ex)
