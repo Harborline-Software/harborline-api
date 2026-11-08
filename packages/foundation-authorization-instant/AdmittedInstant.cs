@@ -54,8 +54,6 @@ public sealed record AdmittedInstant
 /// <summary>The decision instants T-1015 slice 1 leaves owed. Each is reclassified or removed by slice 3.</summary>
 public enum AdmittedInstantExemption
 {
-    /// <summary>Roster sync reads install-root authority at the device-signed roster <c>IssuedAt</c> (ADR-0053).</summary>
-    SignedRosterIssuedAt = 2,
 }
 
 /// <summary>

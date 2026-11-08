@@ -117,8 +117,7 @@ public sealed class NodeRosterRecord
     public string ReceiveAttestationSignatureB64Url { get; set; } = string.Empty;
 
     /// <summary>The existing sync HELLO clock-skew allowance bounds retrospective ordering.</summary>
-    public static readonly TimeSpan ReceiveTimeWindow = TimeSpan.FromSeconds(
-        Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkewSeconds);
+    public static readonly TimeSpan ReceiveTimeWindow = Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkew;
 
     /// <summary>Legacy rows retain signed order until the receive-attestation wire cutover.</summary>
     public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received) =>

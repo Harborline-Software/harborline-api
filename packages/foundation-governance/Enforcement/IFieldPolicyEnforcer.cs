@@ -120,7 +120,7 @@ public sealed record RetainedRecord(AuditEventClass Class, DateTimeOffset Create
 /// <param name="Encrypted">True when the field was encrypted at rest.</param>
 /// <param name="Cipher">The envelope, when <see cref="Encrypted"/>; else null. The caller persists this (or the cleartext) inside the txn.</param>
 /// <param name="Retention">The retention verdict (clock), when a Retain effect fired; else null.</param>
-/// <param name="Audited">True when a store audit record was appended.</param>
+/// <param name="Audited">True when the field's policy audits its store. The enforcer appends nothing: the caller names the field in the one authorized row it writes for the act (T-1148).</param>
 /// <param name="AppliedEffects">The effects applied, in order (observability / tests).</param>
 public sealed record FieldStoreOutcome(
     bool Encrypted,

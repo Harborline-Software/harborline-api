@@ -154,9 +154,11 @@ public sealed class CascadeDefaultsTests
         var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
         var policy = provider.GetRequiredService<IAspectResolver>().ResolvePolicy(form, "packJson");
         Assert.NotNull(policy.Effect(EffectKind.Audit, Trigger.Store));
-        await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("{}"),
+        var stored = await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("{}"),
             Tenant, new("writer"), new("harborline", "node", "record"), TestAuthorization.At, "US"));
-        await audit.Received().AppendAsync(Arg.Is<AuditAppend>(entry => entry.Justification == "spine-2 store"), Arg.Any<CancellationToken>());
+        // T-1148: the enforcer reports the store audit and appends nothing; FormEngine names the field in its Mint row.
+        Assert.True(stored.Audited);
+        await audit.DidNotReceive().AppendAsync(Arg.Any<AuditAppend>(), Arg.Any<CancellationToken>());
     }
 
     private static readonly TenantId Tenant = new("defaults-tenant");
@@ -471,7 +473,7 @@ public sealed class CascadeDefaultsTests
         Assert.Equal(0, fixture.Defaults.Resolve(Tenant, Package, "contact", "title").Values.Masking!.RevealLast);
     }
 
-    [Fact]
+    [Fact(DisplayName = "T-1148 A1, A2, A3: a tracked field's store is named in the one authorized Mint row, with all four stamps and the submit's correlation id")]
     public async Task FormEngine_enforces_unclassified_masking_and_store_audit_defaults()
     {
         using var fixture = new Fixture();
@@ -498,13 +500,120 @@ public sealed class CascadeDefaultsTests
         var token = await provider.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, now);
         var engine = provider.GetRequiredService<IFormEngine>();
         using var candidate = JsonDocument.Parse("""{"title":"12345678"}""");
-        var receipt = await engine.SaveWithReceiptAsync(new("contact"), candidate, token,
-            TestAuthorization.FormWrite(token, new("contact"), now), CancellationToken.None);
+        var authority = TestAuthorization.FormWrite(token, new("contact"), now);
+        var receipt = await engine.SaveWithReceiptAsync(new("contact"), candidate, token, authority, CancellationToken.None);
         var view = await engine.RenderAsync(new("contact"), receipt.InstanceId, token, CancellationToken.None);
         var title = view.Sections.SelectMany(section => section.Fields).Single(field => field.Name == "title");
         Assert.True(title.IsReadable);
         Assert.Equal("****5678", title.Value!.Value.GetString());
-        await audit.Received().AppendAsync(Arg.Is<AuditAppend>(entry => entry.Justification == "spine-2 store"), Arg.Any<CancellationToken>());
+
+        // A1: no store row outside the kernel trail, and exactly one Mint row naming the audited field by name only.
+        await audit.DidNotReceive().AppendAsync(Arg.Any<AuditAppend>(), Arg.Any<CancellationToken>());
+        var mints = await MintRowsAsync(provider, receipt.InstanceId.ToString());
+        var mint = Assert.Single(mints);
+        Assert.Equal(["title"], (string[])mint.Payload.Payload.Body["store_audited_fields"]!);
+        Assert.DoesNotContain("12345678", System.Text.Json.JsonSerializer.Serialize(mint.Payload.Payload.Body), StringComparison.Ordinal);
+        // A2: actor, authority, definition id and version (typed), and the server's time; FormatVersion stays 0.
+        Assert.Equal(new ActorId("reader"), mint.Actor);
+        Assert.NotNull(mint.AuthoritySnapshot);
+        Assert.Equal(new Harborline.Api.Kernel.Audit.AuditDefinitionStamp("contact", "1.0.0"), mint.Definition);
+        Assert.Equal(authority.At, mint.OccurredAt);
+        Assert.Equal(0, mint.FormatVersion);
+        // A3: the submit's correlation id is the join key, and there is no second row to join.
+        Assert.Equal(authority.CorrelationId?.ToString("D"), mint.Payload.Payload.Body["correlation_id"]);
+    }
+
+    [Fact(DisplayName = "T-1148 A4: a failed create leaves no audit row of any kind")]
+    public async Task A_failed_create_leaves_no_store_or_mint_audit_row()
+    {
+        using var fixture = new Fixture();
+        var body = Body.Replace("\"trackChanges\":false", "\"trackChanges\":true", StringComparison.Ordinal);
+        fixture.Install("1.0.0", body, includeForm: true);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        var services = new ServiceCollection();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        var failingWriter = Substitute.For<Harborline.Api.Foundation.Forms.Engine.IAuthorizedFormEntityWriter>();
+        failingWriter.CreateAsync(default!, default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs<Task<EntityId>>(_ => throw new InvalidOperationException("create failed"));
+        services.AddSingleton(failingWriter);
+        services.AddTestAuthorizationGate().AddTestNodeForms();
+        services.AddSingleton<IFormDefinitionStore>(fixture.Forms);
+        services.AddSingleton<ISchemaRegistry>(fixture.Schemas);
+        services.AddSingleton<ICascadeDefaultsProjection>(fixture.Defaults);
+        var audit = Substitute.For<IAuditLog>();
+        services.AddSingleton(audit);
+        using var provider = services.BuildServiceProvider();
+        var now = TimeProvider.System.GetUtcNow();
+        var bearer = await provider.GetRequiredService<IFormCapabilityIssuer>().IssueAsync(Tenant, new("reader"),
+            ["tax.roles/default-reader"], [FormCapabilityAction.Read, FormCapabilityAction.Write], now.AddHours(1));
+        var token = await provider.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, now);
+        using var candidate = JsonDocument.Parse("""{"title":"12345678"}""");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetRequiredService<IFormEngine>().SaveWithReceiptAsync(
+            new("contact"), candidate, token, TestAuthorization.FormWrite(token, new("contact"), now), CancellationToken.None));
+
+        await audit.DidNotReceive().AppendAsync(Arg.Any<AuditAppend>(), Arg.Any<CancellationToken>());
+        Assert.Empty(await MintRowsAsync(provider, null));
+    }
+
+    [Fact(DisplayName = "T-1148: a request cancelled after the create commits still records its Mint row naming the audited store")]
+    public async Task A_cancellation_after_the_create_does_not_drop_the_mint_row()
+    {
+        using var fixture = new Fixture();
+        var body = Body.Replace("\"trackChanges\":false", "\"trackChanges\":true", StringComparison.Ordinal);
+        fixture.Install("1.0.0", body, includeForm: true);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        var services = new ServiceCollection();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        using var request = new CancellationTokenSource();
+        var committed = new EntityId("harborline", "node", "t1148-committed");
+        var writer = Substitute.For<Harborline.Api.Foundation.Forms.Engine.IAuthorizedFormEntityWriter>();
+        writer.CreateAsync(default!, default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs(_ =>
+            {
+                // The create commits, then the caller cancels before the audit is written.
+                request.Cancel();
+                return Task.FromResult(committed);
+            });
+        services.AddSingleton(writer);
+        services.AddTestAuthorizationGate().AddTestNodeForms();
+        services.AddSingleton<IFormDefinitionStore>(fixture.Forms);
+        services.AddSingleton<ISchemaRegistry>(fixture.Schemas);
+        services.AddSingleton<ICascadeDefaultsProjection>(fixture.Defaults);
+        services.AddSingleton(Substitute.For<IAuditLog>());
+        using var provider = services.BuildServiceProvider();
+        var now = TimeProvider.System.GetUtcNow();
+        var bearer = await provider.GetRequiredService<IFormCapabilityIssuer>().IssueAsync(Tenant, new("reader"),
+            ["tax.roles/default-reader"], [FormCapabilityAction.Read, FormCapabilityAction.Write], now.AddHours(1));
+        var token = await provider.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, now);
+        using var candidate = JsonDocument.Parse("""{"title":"12345678"}""");
+
+        await provider.GetRequiredService<IFormEngine>().SaveWithReceiptAsync(
+            new("contact"), candidate, token, TestAuthorization.FormWrite(token, new("contact"), now), request.Token);
+
+        var mint = Assert.Single(await MintRowsAsync(provider, committed.ToString()));
+        Assert.Equal(["title"], (string[])mint.Payload.Payload.Body["store_audited_fields"]!);
+    }
+
+    private static async Task<List<Harborline.Api.Kernel.Audit.AuditRecord>> MintRowsAsync(IServiceProvider provider, string? entityId)
+    {
+        var rows = new List<Harborline.Api.Kernel.Audit.AuditRecord>();
+        await foreach (var row in provider.GetRequiredService<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>()
+            .QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(Tenant)))
+        {
+            if (row.EventType.Value == "Forms.InstanceMinted"
+                && (entityId is null || (string?)row.Payload.Payload.Body["entity_id"] == entityId))
+                rows.Add(row);
+        }
+        return rows;
     }
 
     [Theory]
