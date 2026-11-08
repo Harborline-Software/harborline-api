@@ -5,38 +5,41 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 
-/// <summary>Q22: caller-available bytes on the store's volume plus its allocated physical bytes.</summary>
+/// <summary>Q22: caller-available bytes on the store's volume plus the allocated bytes of the files under <c>content/</c>, staged ones included (ADR 0114 decision 5).</summary>
 /// <remarks>
 /// Measured on every call: <see cref="DriveInfo.AvailableFreeSpace"/> (<c>f_bavail * f_frsize</c>) or Windows
 /// <c>GetDiskFreeSpaceEx</c> caller bytes, plus each store file's allocated size (Unix <c>st_blocks * 512</c>, Windows
 /// <c>FILE_STANDARD_INFO.AllocationSize</c>). .NET exposes no allocated-size API, so Unix reads <c>fstat</c>
 /// directly; <c>st_blocks</c> sits at offset 104 in the 64-bit-inode macOS <c>struct stat</c> and at 64 in both the
-/// glibc x86_64 and the generic aarch64 layouts, and a test checks the result against <c>stat(1)</c>. Database
-/// allocation, including free pages, is counted rather than plaintext or sparse logical length.
+/// glibc x86_64 and the generic aarch64 layouts, and a test checks the result against <c>stat(1)</c>. Allocation is
+/// counted rather than plaintext or sparse logical length.
 /// </remarks>
 public sealed partial class NodeContentStoreQuotaBase(NodeContentStoreStorage storage) : IContentStoreQuotaBase
 {
     public long GetQuotaBaseBytes()
     {
-        lock (storage.SyncRoot)
+        var directory = storage.DirectoryPath;
+        long available;
+        if (OperatingSystem.IsWindows())
         {
-            var directory = storage.DirectoryPath;
-            long available;
-            if (OperatingSystem.IsWindows())
+            if (!GetDiskFreeSpaceEx(directory, out var caller, out _, out _)) throw new Win32Exception();
+            available = checked((long)caller);
+        }
+        else available = new DriveInfo(directory).AvailableFreeSpace; // .NET uses f_bavail * f_frsize.
+        long allocated = 0;
+        foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+        {
+            try
             {
-                if (!GetDiskFreeSpaceEx(directory, out var caller, out _, out _)) throw new Win32Exception();
-                available = checked((long)caller);
-            }
-            else available = new DriveInfo(directory).AvailableFreeSpace; // .NET uses f_bavail * f_frsize.
-            long allocated = 0;
-            foreach (var path in Directory.EnumerateFiles(directory))
-            {
-                if (Path.GetFileName(path) == "writer.lock") continue; // Empty lease file, no data allocation.
                 using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 allocated = checked(allocated + AllocatedBytes(file));
             }
-            return checked(available + allocated);
+            catch (FileNotFoundException)
+            {
+                // A sweep or a rename took it after the listing, so it is counted at most once.
+            }
         }
+        return checked(available + allocated);
     }
 
     internal static long AllocatedBytes(SafeFileHandle file)

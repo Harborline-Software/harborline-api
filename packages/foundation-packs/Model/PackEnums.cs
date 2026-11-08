@@ -84,6 +84,10 @@ public enum PackContentKind
     /// never an allocation or other runtime booking data (S-3).</summary>
     Resource = 18,
 
+    /// <summary>The platform seed's released navigation (platform PR 412). The registry names it shipped from this pin on, so it
+    /// is here at its pinned value; admitting and installing it is T-584/api-installs-released-navigation.</summary>
+    ReleasedNavigationDefinition = 21,
+
     /// <summary>A Booking bookable definition. It is declarative booking policy/content,
     /// never a hold, allocation, or other executable/runtime booking data (S-3).</summary>
     Bookable = 19,
