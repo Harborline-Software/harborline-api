@@ -62,7 +62,10 @@ public sealed class SignedRosterRehostGrantProvider(
                 payload.ReplacementPublicKey != Convert.ToBase64String(replacement.PublicKey)) reason = "rehost.wrong_replacement";
             else if (requiredActs.Count == 0 || requiredActs.Any(act => !payload.Acts.Contains(act, StringComparer.Ordinal)) ||
                 payload.Acts.Any(act => act is not (ReadCanonical or PromoteHome))) reason = "rehost.out_of_scope";
-            else if (signed.IssuedAt > now) reason = "rehost.not_yet_valid";
+            // T-1056 / R-0149 decision 1 (ruled A): a device-signed IssuedAt may lead the server by at most the one fleet
+            // skew window, HandshakeProtocol.HelloTimestampSkewSeconds; beyond it the grant is not yet valid (RFC 7519
+            // 4.1.5 "small leeway"; RFC 4120 3.2.3 KRB_AP_ERR_TKT_NYV).
+            else if (signed.IssuedAt > now + Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkew) reason = "rehost.not_yet_valid";
             else if (payload.ExpiresAt <= now || payload.ExpiresAt <= signed.IssuedAt) reason = "rehost.expired";
         }
         await using var db = await contexts.CreateDbContextAsync(ct);

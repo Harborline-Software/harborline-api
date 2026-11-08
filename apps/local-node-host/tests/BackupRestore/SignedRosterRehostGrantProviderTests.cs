@@ -53,7 +53,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         TestAuthorization.Gate(allow, r => { gateCalls++; observed = r; }),
         new AuthorizationRefusalAudit(trail, founder, NullLogger<AuthorizationRefusalAudit>.Instance), clock);
 
-    private async Task<RosterSignedRehostGrant> Grant(string change = "")
+    private async Task<RosterSignedRehostGrant> Grant(string change = "", TimeSpan? issuedAhead = null)
     {
         var payload = new RehostGrantPayload(Tenant, "old", replacement.NodeId,
             Convert.ToBase64String(replacement.PublicKey), [SignedRosterRehostGrantProvider.ReadCanonical], At.AddMinutes(5));
@@ -69,7 +69,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
             _ => payload
         };
         var issuer = change == "issuer_unadmitted" ? new Ed25519Signer(KeyPair.Generate()) : member;
-        var signed = await issuer.SignAsync(payload, change == "not_yet_valid" ? At.AddMinutes(1) : At, Guid.NewGuid());
+        var signed = await issuer.SignAsync(payload, issuedAhead is { } ahead ? At + ahead : change == "not_yet_valid" ? At.AddMinutes(1) : At, Guid.NewGuid());
         if (change == "invalid_signature") signed = signed with { Payload = payload with { ReplacedNodeId = "tampered" } };
         return new RosterSignedRehostGrant(change == "malformed" ? "arbitrary-nonblank" : JsonSerializer.Serialize(signed));
     }
@@ -110,6 +110,22 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         await Refuses(await Grant(change), reason);
         Assert.Equal(0, gateCalls);
         Assert.Null(observed);
+    }
+
+    [Fact(DisplayName = "T-1056: a grant issued up to the one 30 s skew window ahead of the server is accepted")]
+    public async Task AGrantIssuedWithinTheSkewWindowIsAccepted()
+    {
+        // R-0149 decision 1 (ruled A): at most ±30 s, the sync handshake's HelloTimestampSkewSeconds. The edge is admitted.
+        var decision = await Redeem(await Grant(issuedAhead: Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkew));
+        Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
+    }
+
+    [Fact(DisplayName = "T-1056: a grant issued beyond the 30 s skew window is refused as not yet valid")]
+    public async Task AGrantIssuedBeyondTheSkewWindowIsRefused()
+    {
+        // Outside the leeway the value is refused, not re-ordered (RFC 7519 4.1.5; RFC 4120 3.2.3, KRB_AP_ERR_TKT_NYV).
+        await Refuses(await Grant(issuedAhead: Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkew + TimeSpan.FromSeconds(1)), "not_yet_valid");
+        Assert.Equal(0, gateCalls);
     }
 
     [Theory]
