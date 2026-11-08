@@ -2,20 +2,38 @@
 # Shared repository gate lock. Source this file, then call gate_lock_acquire <command>.
 # The lock lives in git's common directory so linked worktrees serialize with the main worktree.
 
-_gate_lock_process_start() {
-  local pid=$1
+# Sets GATE_LOCK_PROCESS_START to the process's start identity, or empty when it cannot be read.
+# Builtins and a redirect only, no command substitution: the wait loops call this every second, and
+# a `$(...)` there reopens the bash 5.2 window described at _gate_lock_take_stale (T-1096).
+_gate_lock_read_process_start() {
+  local pid=$1 stat line scratch
+  local -a fields
+  GATE_LOCK_PROCESS_START=""
   if [ -r "/proc/$pid/stat" ]; then
-    sed 's/^.*) //' "/proc/$pid/stat" | awk '{ print $20 }'
+    IFS= read -r stat < "/proc/$pid/stat" || [ -n "$stat" ] || return 0
+    # Field 22 (starttime): the 20th field after the last ") ", which ends the command name.
+    read -r -a fields <<< "${stat##*) }"
+    GATE_LOCK_PROCESS_START=${fields[19]:-}
   else
-    ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//'
+    scratch="${TMPDIR:-/tmp}/harborline-gate-lock.$$.$RANDOM$RANDOM.start"
+    ps -p "$pid" -o lstart= > "$scratch" 2>/dev/null
+    IFS= read -r line < "$scratch" || true
+    rm -f "$scratch"
+    GATE_LOCK_PROCESS_START=${line#"${line%%[![:space:]]*}"}
   fi
 }
 
+# Prints the start identity. Kept for callers that capture it once, such as acquisition and tests.
+_gate_lock_process_start() {
+  _gate_lock_read_process_start "$1"
+  [ -z "$GATE_LOCK_PROCESS_START" ] || printf '%s\n' "$GATE_LOCK_PROCESS_START"
+}
+
 _gate_lock_is_same_process() {
-  local pid=$1 expected_start=$2 actual_start
+  local pid=$1 expected_start=$2
   [ -n "$pid" ] && [ -n "$expected_start" ] && kill -0 "$pid" 2>/dev/null || return 1
-  actual_start=$(_gate_lock_process_start "$pid") || return 1
-  [ -n "$actual_start" ] && [ "$actual_start" = "$expected_start" ]
+  _gate_lock_read_process_start "$pid"
+  [ -n "$GATE_LOCK_PROCESS_START" ] && [ "$GATE_LOCK_PROCESS_START" = "$expected_start" ]
 }
 
 _gate_lock_nonce() {
