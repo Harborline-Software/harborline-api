@@ -39,6 +39,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.AssetRegistry;
 public sealed class AssetRegistryEntityCreateAuthorizationOrderTests
 {
     [Theory]
+    [Trait("Holds", "T-1084-A1")]
     [InlineData("tenant-type")]
     [InlineData("missing-type")]
     [InlineData("bound-type")]
