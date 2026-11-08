@@ -22,6 +22,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "harborline.local-node.audit",
         "harborline.local-node.audit-outbox",
         "harborline.local-node.bank-account-create-keys",
+        "harborline.local-node.content-store",
         "harborline.local-node.definition-archives",
         "harborline.local-node.form-submit-outbox",
         "harborline.local-node.home-epoch",
@@ -51,6 +52,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20261002221104_AddBankAccountCreateKeys",
         "20261003000000_AddFormSubmitProjectionDefinition",
         "20261029000000_AddDefinitionArchiveMarks",
+        "20261106000000_AddContentStoreBookkeeping",
     ];
 
     [Fact]

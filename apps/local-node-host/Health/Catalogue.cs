@@ -92,9 +92,12 @@ public sealed record SystemRecordType(
     bool Sealed,
     CatalogueProvenance Provenance)
 {
-    /// <summary>Every pack content kind is a sealed platform record type.</summary>
+    /// <summary>
+    /// Every pack content kind the node's platform seed declares is a sealed platform record type. The seed the node installs does
+    /// not carry kind 21 yet; T-584/api-installs-released-navigation takes in the seed that does, and removes this exclusion.
+    /// </summary>
     public static IReadOnlyList<SystemRecordType> All { get; } = Enum.GetValues<PackContentKind>()
-        .Where(kind => kind != PackContentKind.RecordType)
+        .Where(kind => kind is not (PackContentKind.RecordType or PackContentKind.ReleasedNavigationDefinition))
         .Select(kind => new SystemRecordType(
             kind,
             kind.ToString(),

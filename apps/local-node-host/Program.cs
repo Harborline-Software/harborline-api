@@ -2332,12 +2332,11 @@ builder.Services.AddNodeKnowledgeGraphSearch();
 // LATER item (see the ADR 0055 amendment CP-safety follow-up); nothing on this path loads an
 // externally-supplied definition. Registered before SharedHostedWebApp so routes are mapped before Kestrel.
 
-// T-521: the content store's durable backing (SQLCipher, keyed from the at-rest root) and its Q22 quota base,
+// T-521: the content store's durable backing (bookkeeping in local-node.db, bytes as files in content/) and its Q22 quota base,
 // supplied through the producer's IContentStoreStorage and IContentStoreQuotaBase ports on every role.
 Harborline.Api.LocalNodeHost.Data.ContentStore.NodeContentStoreComposition.AddNodeContentStore(
     builder.Services,
-    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"),
-    keyHierarchy.AtRestRootKey.Span);
+    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"));
 
 // ── PERS-1 — STORAGE-ROLE durable, mandatory-envelope-at-rest blob store (ADR 0137 D4 / C-3; ADR 0127 seam) ──
 //

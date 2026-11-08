@@ -67,21 +67,43 @@ public sealed class FileInstallIdentityProviderTests : IDisposable
         Assert.Single(identities.Distinct());
     }
 
-    // link(2): creates newPath only if it does not exist, atomically, and fails with EEXIST
-    // otherwise. File.Copy(overwrite: false) is the atomic create-if-absent this box has.
+    // link(2) makes newPath appear, already complete, only if it does not exist, and fails with EEXIST otherwise.
+    // File.Copy alone is not that: it creates newPath before it writes the bytes, so on Linux a concurrent launcher
+    // read an empty record and refused it (T-348; verify-shared on api PR 465, 2026-11-07). So copy privately, then
+    // publish whole: the real link(2) off Windows, and on Windows a rename that does not replace (MoveFileEx without
+    // MOVEFILE_REPLACE_EXISTING), which is also what the provider itself does there.
     private static int SimulatedUnixLink(string oldPath, string newPath)
     {
-        try
+        var staged = $"{newPath}.{Guid.NewGuid():N}.link";
+        File.Copy(oldPath, staged);
+        int result;
+        var errno = 0;
+        if (!OperatingSystem.IsWindows())
         {
-            File.Copy(oldPath, newPath, overwrite: false);
-            return 0;
+            result = Link(staged, newPath);
+            errno = Marshal.GetLastPInvokeError();
         }
-        catch (IOException) when (File.Exists(newPath))
+        else
         {
-            Marshal.SetLastPInvokeError(17);
-            return -1;
+            try
+            {
+                File.Move(staged, newPath, overwrite: false);
+                return 0;
+            }
+            catch (IOException) when (File.Exists(newPath))
+            {
+                result = -1;
+                errno = 17; // EEXIST
+            }
         }
+
+        File.Delete(staged);
+        Marshal.SetLastPInvokeError(errno);
+        return result;
     }
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int Link(string oldPath, string newPath);
 
     [Fact]
     public async Task UnixPublish_WhenAnotherWriterPublishesInsideTheWindow_ObservesOneInstallIdentity()

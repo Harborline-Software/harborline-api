@@ -1,35 +1,34 @@
-using Harborline.Api.LocalNodeHost.Data.ContentStore;
 using Harborline.Foundation.ContentStore;
 using Harborline.Foundation.ContentStore.Tests;
+using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ContentStore;
 
+// The producer's section 9 and restart tests on the node's backing (clause 5). It reads a process-wide meter, so it runs apart.
+[Collection("Node content store")]
 public sealed class DurableContentStoreContract : ContentStoreTests, IDisposable
 {
-    private readonly List<NodeContentStoreStorage> _opened = [];
-    private readonly List<string> _directories = [];
-    private static readonly byte[] Key = Enumerable.Repeat((byte)0x52, 32).ToArray();
+    private readonly List<NodeContentTestStore> _stores = [];
+
     protected override IContentStoreStorage CreateStorage()
     {
-        var path = Path.Combine(Path.GetTempPath(), "t521-" + Guid.NewGuid().ToString("N"));
-        _directories.Add(path);
-        var storage = new NodeContentStoreStorage(path, Key);
-        _opened.Add(storage);
-        return storage;
+        var store = NodeContentTestStore.Create();
+        _stores.Add(store);
+        return store.Storage;
     }
+
     protected override IContentStoreStorage RestartStorage(IContentStoreStorage storage)
     {
-        var old = (NodeContentStoreStorage)storage;
-        var path = old.DirectoryPath;
-        old.Dispose();
-        _opened.Remove(old);
-        var reopened = new NodeContentStoreStorage(path, Key);
-        _opened.Add(reopened);
-        return reopened;
+        var index = _stores.FindIndex(store => ReferenceEquals(store.Storage, storage));
+        _stores[index] = _stores[index].Restart();
+        return _stores[index].Storage;
     }
+
     public void Dispose()
     {
-        foreach (var storage in _opened) storage.Dispose();
-        foreach (var directory in _directories) Directory.Delete(directory, true);
+        foreach (var store in _stores) store.Dispose();
     }
 }
+
+[CollectionDefinition("Node content store", DisableParallelization = true)]
+public sealed class NodeContentStoreCollection;
