@@ -19,6 +19,8 @@ public static class NodeContentStoreComposition
         services.AddSingleton(provider => new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), dataDirectory));
         services.AddSingleton<IContentStoreStorage>(provider => provider.GetRequiredService<NodeContentStoreStorage>());
         services.AddSingleton<IContentStoreQuotaBase, NodeContentStoreQuotaBase>();
+        services.AddSingleton<ITenantContentKeyProvider>(provider =>
+            new NodeTenantContentKeyProvider(provider.GetRequiredService<Harborline.Api.Foundation.Recovery.TenantKey.IVersionedTenantKeyProvider>()));
         return services;
     }
 }

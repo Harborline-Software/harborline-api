@@ -41,7 +41,7 @@ public sealed partial class NodeContentStoreTests
 
         Assert.Equal(epoch.EpochId, item.EpochId);
         Assert.Equal(epoch.EpochId, await RowEpoch(item.StageId));
-        Assert.Equal(new[] { epoch.EpochId.ToString("N") + ".epoch", "current" },
+        Assert.Equal(new[] { epoch.EpochId.ToString("N") + ".epoch", "current" }.Order(StringComparer.Ordinal).ToArray(),
             Directory.EnumerateFiles(EpochDirectory).Select(path => Path.GetFileName(path)!).Order(StringComparer.Ordinal).ToArray());
         Assert.Equal(epoch.EpochId.ToString("N"), await File.ReadAllTextAsync(Path.Combine(EpochDirectory, "current")));
         await _node.Storage.Bookkeeping.CheckpointAsyncOrSkip();
