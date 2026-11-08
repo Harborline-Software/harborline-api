@@ -231,9 +231,12 @@ public sealed class VerificationRunner
     private async ValueTask<Observed> ExecuteCreateAsync(VerificationCandidateWorld candidate,
         VerificationFixture fixture, string recordType, JsonObject values, CancellationToken cancellationToken)
     {
-        await using var world = await candidate.OpenAsync(fixture, cancellationToken).ConfigureAwait(false);
+        // T-1056 (R2): the case's one rehearsal instant, read from the injected declared clock, and converted to a
+        // decision instant only here and in the candidate world (pinned by AdmittedInstantArchTests).
+        var rehearsal = RehearsalInstant.Read(_fixtureClock(fixture.Instant));
+        await using var world = await candidate.OpenAsync(fixture, rehearsal, cancellationToken).ConfigureAwait(false);
         var authority = new AuthorizationWriteContext(new ActorId(fixture.Actor), world.Tenant,
-            AdmittedInstant.Exempt(fixture.Instant, AdmittedInstantExemption.ConfigurationRehearsal));
+            AdmittedInstant.ForRehearsal(rehearsal));
         var decision = await world.Gate.DecideAsync(authority.Request(RecordsWrite,
             AuthorizationGate.RecordKindFor(RecordsWrite), recordType), cancellationToken).ConfigureAwait(false);
         if (decision.Verdict != AuthorizationVerdict.Allowed)
