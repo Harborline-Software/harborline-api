@@ -615,8 +615,8 @@ public sealed class FormEngine : IFormEngine
                 Guid.NewGuid(),
                 auditCt).ConfigureAwait(false);
             await AppendMintAuditAsync(
-                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision, auditCt,
-                new AuditDefinitionStamp(header.DefinitionId, header.DefinitionVersion))
+                _authorizedAudit, signedAudit, form, token, submittedAt, authorizationDecision,
+                new AuditDefinitionStamp(header.DefinitionId, header.DefinitionVersion), auditCt)
                 .ConfigureAwait(false);
 
             // F-CLOCK: surface the engine's OWN submit instant so a post-submit projection stamps its
@@ -708,8 +708,8 @@ public sealed class FormEngine : IFormEngine
         CapabilityToken token,
         DateTimeOffset submittedAt,
         AuthorizationDecision authorizationDecision,
-        CancellationToken ct = default,
-        AuditDefinitionStamp? definition = null)
+        AuditDefinitionStamp? definition = null,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(audit);
         ArgumentNullException.ThrowIfNull(signedAudit);
