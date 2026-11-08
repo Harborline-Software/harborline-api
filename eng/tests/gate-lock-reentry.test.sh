@@ -96,7 +96,11 @@ if [ "${1:-all}" = all ] || [ "$1" = stale ]; then
     kill -0 "$HARBORLINE_GATE_LOCK_OWNER_PID" 2>/dev/null && exit 23
     exec bash "$test_script" stub stale
   ) > "$fixture/out" 2>&1
-  check 'stale nonce cannot reuse' 143 "$?"
+  status=$?
+  # 143 must come from the watchdog's TERM trap. A trap lost to a parse error lets the stub run on,
+  # and once it re-ran this whole script and exited 0 (T-1096), so neither may pass or fail here.
+  if grep -Eq 'unexpected EOF|gate-lock reentry:' "$fixture/out"; then status=1; fi
+  check 'stale nonce cannot reuse' 143 "$status"
 fi
 printf 'gate-lock reentry: %s failures\n' "$fails"
 [ "$fails" -eq 0 ]
