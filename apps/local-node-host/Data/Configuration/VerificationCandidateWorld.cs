@@ -122,9 +122,10 @@ internal sealed class VerificationCandidateWorld
     /// disposed with the case: no grant, role or binding a case installs can reach the next one.
     /// </summary>
     internal async ValueTask<VerificationAuthorityWorld> OpenAsync(VerificationFixture fixture,
-        CancellationToken cancellationToken)
+        RehearsalInstant rehearsalInstant, CancellationToken cancellationToken)
     {
-        var rehearsal = AdmittedInstant.Exempt(fixture.Instant, AdmittedInstantExemption.ConfigurationRehearsal);
+        // T-1056 (R2): the rehearsal's declared instant becomes a decision instant only inside this isolated world.
+        var rehearsal = AdmittedInstant.ForRehearsal(rehearsalInstant);
         // Nothing here constructs a gate or reads a closure: the module composes the REAL gate over
         // its own real readers, and the only thing registered ahead of it is the roster fact the
         // fixture declares. Ticket 199's fence says production may not mint an authorization closure

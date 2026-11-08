@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
@@ -86,7 +87,9 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         _store = new DurablePackInstallStore(_db.Factory);
         var gate = TestPackGate.AllowAll();
         _target = new ConfigurationActivationTarget(_db.Factory, _store, gate, evidence: null);
-        _runner = new VerificationRunner(_target, _store, new FrozenClock(Frozen), static instant => new FrozenClock(instant));
+        // The fixture clock is the host's declared clock (DeclaredInstantTimeProvider in Program.cs), which is the only clock a
+        // RehearsalInstant is read from (T-1056); the runner's own clock stays the real, non-declared one.
+        _runner = new VerificationRunner(_target, _store, new FrozenClock(Frozen), static instant => new DeclaredFixtureClock(instant));
         _tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
         var activeTeam = new StaticActiveTeamAccessor(new TeamContext(TeamA, "Team A",
             new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
@@ -717,6 +720,12 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         _store.Commit(new PackInstallTransaction(_tenant, pack,
             new PackInstallWatermark(packKey, "1.0.0", new Dictionary<string, int>()), []));
         _store.Activate(_tenant, packKey, "1.0.0");
+    }
+
+    private sealed class DeclaredFixtureClock(DateTimeOffset instant) : TimeProvider, IDeclaredInstantClock
+    {
+        public DateTimeOffset DeclaredInstant => instant;
+        public override DateTimeOffset GetUtcNow() => instant;
     }
 
     private sealed class FrozenClock(DateTimeOffset instant) : TimeProvider
