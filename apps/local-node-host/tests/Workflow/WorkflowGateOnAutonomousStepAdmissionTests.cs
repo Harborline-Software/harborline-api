@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Harborline.Api.Blocks.Workflow.Durable;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 
 using Xunit;
@@ -73,6 +74,24 @@ public sealed class WorkflowGateOnAutonomousStepAdmissionTests
         Element(authored, "actions", "a-post-bill")["requiredStandings"] = new JsonArray("assigned-approver");
 
         Assert.True(Validate(authored).IsValid);
+    }
+
+    [Fact(DisplayName = "T-1176 Q1: a pack importing a workflow with a gate on an autonomous step is refused at install")]
+    public void A_pack_import_with_a_gate_on_an_autonomous_step_is_refused()
+    {
+        // Pack install runs the SAME validator authoring uses (PackWorkflowAdmissionAdapter), so an imported definition
+        // meets the same rule; a definition already stored is re-admitted on load and refused there.
+        var authored = Seed();
+        Element(authored, "transitions", "t-match")["requiredRoles"] = new JsonArray("sys.platform-roles/auditor");
+        var item = new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
+            "pkg.fixture", NodeThreeWayMatchWorkflowSeed.DefinitionKey,
+            Harborline.Api.Foundation.Packs.Model.PackContentKind.WorkflowDefinition,
+            NodeThreeWayMatchWorkflowSeed.Version, authored.ToJsonString());
+
+        var result = new Harborline.Api.LocalNodeHost.Health.PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator())
+            .Admit([item], new TenantId(Tenant));
+
+        Assert.Contains(result.Refusals, r => r.Code == Code);
     }
 
     private static JsonObject Seed()
