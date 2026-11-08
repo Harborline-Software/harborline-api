@@ -52,6 +52,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// <param name="Actor">The typed actor the record attributes the act to. Authorized append requires it to equal the carried decision principal.</param>
 /// <param name="Target">The typed authorization target this record describes. Authorized append compares record kind and id with the carried decision.</param>
 /// <param name="Act">The exact scoped permission atom this record describes. Authorized append requires it to equal the carried decision act.</param>
+/// <param name="Definition">The definition id and version the audited act ran under (DES-0041 open ruling 5: a typed field beside the other stamps of provenance-and-audit-ck-1). <see cref="FormatVersion"/> stays <c>0</c>.</param>
 public sealed record AuditRecord(
     Guid AuditId,
     TenantId TenantId,
@@ -63,7 +64,8 @@ public sealed record AuditRecord(
     AuthoritySnapshot? AuthoritySnapshot = null,
     ActorId? Actor = null,
     AuthorizationTarget? Target = null,
-    PermissionAtom? Act = null) : IMustHaveTenant
+    PermissionAtom? Act = null,
+    AuditDefinitionStamp? Definition = null) : IMustHaveTenant
 {
     /// <summary>
     /// The current persisted format version. <c>0</c> indicates the format is
@@ -81,3 +83,23 @@ public sealed record AuditRecord(
 /// </summary>
 /// <param name="Body">Type-specific payload body. Treated as opaque by the audit substrate; consumers (compliance projections, retention reporters) interpret it.</param>
 public sealed record AuditPayload(IReadOnlyDictionary<string, object?> Body);
+
+/// <summary>
+/// The definition an audited act ran under: its id and its exact version (DES-0041 open ruling 5, resolved:
+/// a typed field on <see cref="AuditRecord"/> rather than a payload key, so a reader never parses it out of
+/// an event-specific body).
+/// </summary>
+/// <param name="DefinitionId">The definition's stable id.</param>
+/// <param name="Version">The exact version the act ran under.</param>
+public sealed record AuditDefinitionStamp(string DefinitionId, string Version)
+{
+    /// <summary>The id, which must be non-empty.</summary>
+    public string DefinitionId { get; } = string.IsNullOrWhiteSpace(DefinitionId)
+        ? throw new ArgumentException("An audit definition stamp needs a definition id.", nameof(DefinitionId))
+        : DefinitionId;
+
+    /// <summary>The version, which must be non-empty.</summary>
+    public string Version { get; } = string.IsNullOrWhiteSpace(Version)
+        ? throw new ArgumentException("An audit definition stamp needs a version.", nameof(Version))
+        : Version;
+}
