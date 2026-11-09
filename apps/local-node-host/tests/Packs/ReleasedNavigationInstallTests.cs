@@ -71,6 +71,20 @@ public sealed class ReleasedNavigationInstallTests
         Assert.Equal("/navigation_entries/0/editor_destination_id", refusal.Pointer);
     }
 
+    [Fact]
+    public void Duplicate_navigation_entries_across_definitions_are_refused()
+    {
+        var second = Definition.Replace("test.navigation", "test.navigation-two", StringComparison.Ordinal);
+        var refusal = Assert.Single(PackReleasedNavigationAdmission.Validate(
+        [
+            new("test.pack", "test.navigation", PackContentKind.ReleasedNavigationDefinition, "1.0.0", Definition),
+            new("test.pack", "test.navigation-two", PackContentKind.ReleasedNavigationDefinition, "1.0.0", second),
+        ]));
+        Assert.Equal("test.navigation-two", refusal.ContentKey);
+        Assert.Equal("released-navigation.member.invalid", refusal.Code);
+        Assert.Equal("/navigation_entries/entry", refusal.Pointer);
+    }
+
     private static async Task<(PackInstaller Installer, PackInstallContext Context, InMemoryPackInstallStore Store, byte[] Bytes, KeyPair Key)> FixtureAsync(string json, bool host)
     {
         var key = KeyPair.Generate();

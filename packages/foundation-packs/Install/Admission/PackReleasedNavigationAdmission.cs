@@ -13,6 +13,7 @@ public static class PackReleasedNavigationAdmission
     {
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = new List<PackAdmissionRefusal>();
+        var entries = new List<ReleasedNavigationDefinitionPackageEntry>();
         foreach (var item in composed.Where(item => item.Kind == PackContentKind.ReleasedNavigationDefinition))
         {
             PlatformPackageContent content;
@@ -31,13 +32,14 @@ public static class PackReleasedNavigationAdmission
                     "Released navigation could not be read.") { Pointer = "/" });
                 continue;
             }
-            var entries = new[] { new ReleasedNavigationDefinitionPackageEntry(item.Key, item.Version, content) };
-            try { ReleasedNavigationLookup.Install(entries); }
-            catch (DefinitionRefusalException exception)
-            {
-                refusals.AddRange(exception.Refusals.Select(refusal => new PackAdmissionRefusal(
-                    item.Key, refusal.Code, "Released navigation was refused at install.") { Pointer = refusal.Pointer }));
-            }
+            entries.Add(new(item.Key, item.Version, content));
+        }
+        try { ReleasedNavigationLookup.Install(entries); }
+        catch (DefinitionRefusalException exception)
+        {
+            refusals.AddRange(exception.Refusals.Select(refusal => new PackAdmissionRefusal(
+                entries.First(entry => $"{entry.DefinitionId}@{entry.Version}" == refusal.Target).DefinitionId,
+                refusal.Code, "Released navigation was refused at install.") { Pointer = refusal.Pointer }));
         }
         return refusals;
     }
