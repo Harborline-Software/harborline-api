@@ -452,6 +452,39 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         Assert.Contains("definition.contract.out_of_window", DeclaredCodeValues());
     }
 
+    [Fact]
+    public void Caught_released_navigation_refusals_use_the_producer_catalogue()
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException",
+            tryBody: "ReleasedNavigationLookup.Install(entries);",
+            bindings: "var entries = new System.Collections.Generic.List<ReleasedNavigationDefinitionPackageEntry>();");
+        var resolution = ResolveCode(code, document, [document], "probe");
+        Assert.Contains("released-navigation.definition.invalid", resolution.Values);
+        Assert.Contains("released-navigation.editor-destination.missing", resolution.Values);
+        Assert.DoesNotContain("layout.definition.body_invalid", resolution.Values);
+    }
+
+    [Theory]
+    [InlineData("UnrelatedProducer.Install(entries);")]
+    [InlineData("ReleasedNavigationLookup.Install(UnrelatedProducer.Entries());")]
+    [InlineData("UnrelatedProducer.Prepare(); ReleasedNavigationLookup.Install(entries);")]
+    public void Untrusted_released_navigation_producers_are_rejected(string tryBody)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", tryBody: tryBody,
+            bindings: "var entries = new System.Collections.Generic.List<ReleasedNavigationDefinitionPackageEntry>();");
+        Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+    }
+
+    [Theory]
+    [InlineData("Alias", "using Harborline.Blocks.BuilderDefinitions; using Alias = Harborline.Blocks.BuilderDefinitions.ReleasedNavigationLookup;", "")]
+    [InlineData("ReleasedNavigationLookup", "using Harborline.Blocks.BuilderDefinitions;", "static class ReleasedNavigationLookup { }")]
+    public void Released_navigation_aliases_and_shadows_do_not_establish_provenance(string producer, string imports, string declaration)
+    {
+        var (document, code) = DefinitionRefusalProjectionProbe("DefinitionRefusalException", declaration, imports,
+            producer + ".Install(entries);", bindings: "var entries = new System.Collections.Generic.List<ReleasedNavigationDefinitionPackageEntry>();");
+        Assert.Throws<Xunit.Sdk.XunitException>(() => ResolveCode(code, document, [document], "probe"));
+    }
+
     [Theory]
     [InlineData("UnrelatedException", "class UnrelatedException : System.Exception { public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; } = []; }")]
     [InlineData("DefinitionRefusalException", "class DefinitionRefusalException : System.Exception { public System.Collections.Generic.IReadOnlyList<DefinitionRefusal> Refusals { get; } = []; }")]
@@ -1570,14 +1603,17 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                 {
                     Expression: MemberAccessExpressionSyntax
                     {
-                        Name: IdentifierNameSyntax { Identifier.ValueText: "Admit" },
+                        Name: IdentifierNameSyntax producerMethod,
                         Expression: var producer,
                     },
                 } producerCall,
             })
             throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
 
-        var producerType = typeof(LayoutPackHostAdmission);
+        var navigation = producerMethod.Identifier.ValueText == "Install";
+        if (!navigation && producerMethod.Identifier.ValueText != "Admit")
+            throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
+        var producerType = navigation ? typeof(ReleasedNavigationLookup) : typeof(LayoutPackHostAdmission);
         var producerSpelling = producer.ToString().Replace("global::", string.Empty, StringComparison.Ordinal);
         var trustedProducer = producerSpelling == producerType.FullName
             || (producerSpelling == producerType.Name && imports.Any(import => import.Alias is null
@@ -1603,24 +1639,26 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                 QueryContinuationSyntax continuation => continuation.Identifier.ValueText == receiverName,
                 _ => false,
             });
-        if (!trustedProducer || producerShadowed || valueShadowed || producerCall.ArgumentList.Arguments.Count != 3
+        if (!trustedProducer || producerShadowed || valueShadowed || producerCall.ArgumentList.Arguments.Count != (navigation ? 1 : 3)
             || producerCall.ArgumentList.Arguments.Any(parameter => parameter.NameColon is not null
                 || parameter.RefKindKeyword.RawKind != 0 || parameter.Expression is not IdentifierNameSyntax identifierArgument
                 || !IsBoundLayoutAdmissionArgument(identifierArgument)))
             throw new Xunit.Sdk.XunitException($"Untrusted Layout refusal producer at {site}.");
 
-        var admit = producerType.GetMethod(nameof(LayoutPackHostAdmission.Admit),
-            [typeof(IEnumerable<LayoutDefinitionPackageEntry>), typeof(IReadOnlyDictionary<string, string>), typeof(LayoutHostRegisters)]);
+        var admit = navigation
+            ? producerType.GetMethod(nameof(ReleasedNavigationLookup.Install), [typeof(IEnumerable<ReleasedNavigationDefinitionPackageEntry>)])
+            : producerType.GetMethod(nameof(LayoutPackHostAdmission.Admit),
+                [typeof(IEnumerable<LayoutDefinitionPackageEntry>), typeof(IReadOnlyDictionary<string, string>), typeof(LayoutHostRegisters)]);
         Assert.NotNull(admit);
         Assert.True(admit.IsStatic);
-        Assert.Equal(typeof(void), admit.ReturnType);
+        Assert.Equal(navigation ? typeof(ReleasedNavigationLookup) : typeof(void), admit.ReturnType);
         Assert.Equal(typeof(IReadOnlyList<DefinitionRefusal>),
             exceptionType.GetProperty(nameof(DefinitionRefusalException.Refusals))?.PropertyType);
         Assert.Equal(typeof(string), typeof(DefinitionRefusal).GetProperty(nameof(DefinitionRefusal.Code))?.PropertyType);
-        var values = typeof(LayoutDefinitionCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+        var values = (navigation ? typeof(ReleasedNavigationDefinitionCodes) : typeof(LayoutDefinitionCodes)).GetFields(BindingFlags.Public | BindingFlags.Static)
             .Where(field => field.FieldType == typeof(string) && field.IsLiteral)
             .Select(field => (string)field.GetRawConstantValue()!)
-            .Append(PackInstallCodes.RefusedContractOutOfWindow)
+            .Concat(navigation ? [] : [PackInstallCodes.RefusedContractOutOfWindow])
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var catalogue = DeclaredCodeValues();
@@ -1932,7 +1970,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                || type == typeof(FormDefinitionCodes)
                || type == typeof(CatalogueFieldSourceCodes)
                || type == typeof(WorkflowAdmissionCodes)
-               || type == typeof(LayoutDefinitionCodes));
+               || type == typeof(LayoutDefinitionCodes)
+               || type == typeof(ReleasedNavigationDefinitionCodes));
 
     private static HashSet<string> DeclaredCodeValues()
         => DeclaredCodeMembers()

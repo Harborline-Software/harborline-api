@@ -15,6 +15,7 @@ public static class PackReleasedNavigationAdmission
         var refusals = new List<PackAdmissionRefusal>();
         foreach (var item in composed.Where(item => item.Kind == PackContentKind.ReleasedNavigationDefinition))
         {
+            PlatformPackageContent content;
             try
             {
                 var bytes = Encoding.UTF8.GetBytes(item.CanonicalJson);
@@ -22,13 +23,16 @@ public static class PackReleasedNavigationAdmission
                 if (definition.NavigationEntries is null || definition.EditorDestinations is null
                     || definition.SurfaceCatalogue?.Surfaces is null)
                     throw new JsonException("Released navigation collections are required.");
-                ReleasedNavigationLookup.Install([new(item.Key, item.Version, PlatformPackageContent.PresentJson(bytes))]);
+                content = PlatformPackageContent.PresentJson(bytes);
             }
             catch (JsonException)
             {
                 refusals.Add(new(item.Key, ReleasedNavigationDefinitionCodes.DefinitionInvalid,
                     "Released navigation could not be read.") { Pointer = "/" });
+                continue;
             }
+            var entries = new[] { new ReleasedNavigationDefinitionPackageEntry(item.Key, item.Version, content) };
+            try { ReleasedNavigationLookup.Install(entries); }
             catch (DefinitionRefusalException exception)
             {
                 refusals.AddRange(exception.Refusals.Select(refusal => new PackAdmissionRefusal(
