@@ -104,6 +104,7 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant));
+        refusals.AddRange(PackReleasedNavigationAdmission.Validate(composed));
         refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.CascadeDefaults)
             .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
                 "CascadeDefaults requires the governance projection and its admission validator.")));

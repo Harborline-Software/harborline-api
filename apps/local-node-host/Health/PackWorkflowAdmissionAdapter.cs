@@ -69,6 +69,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant, _roleGateAdmission));
+        refusals.AddRange(PackReleasedNavigationAdmission.Validate(composed));
         refusals.AddRange(_catalogueFields.Validate(composed));
         var coordinates = new HashSet<(string Package, string? Type, string? Field)>();
         var defaultPolicies = new List<(PackComposedItem Item, CascadeDefaults Seed, CascadeDefaults Composed)>();

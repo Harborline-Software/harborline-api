@@ -11,6 +11,17 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 public sealed class PackContentKindRegistryConsumptionTests
 {
     [Fact]
+    public void Released_navigation_is_the_shipped_kind_21_in_the_navigation_pillar()
+    {
+        var kind = Assert.Single(PackContentKindRegistry.Kinds, row => row.Name == "ReleasedNavigationDefinition");
+        Assert.Equal(21, kind.Value);
+        Assert.Equal(PackContentKindStatus.Shipped, kind.Status);
+        Assert.Equal("Navigation", kind.Pillar);
+        Assert.Equal(21, (int)PackContentKind.ReleasedNavigationDefinition);
+        Assert.Equal(3, (int)PackPillarMap.ForKind(PackContentKind.ReleasedNavigationDefinition));
+    }
+
+    [Fact]
     public void Pinned_registry_matches_its_actual_embedded_checked_in_export()
     {
         Assert.True(PackContentKindRegistry.VerifyCheckedInExport());
