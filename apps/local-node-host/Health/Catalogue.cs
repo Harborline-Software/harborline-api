@@ -105,39 +105,27 @@ public sealed record SystemRecordType(
             new CatalogueProvenance("harborline.platform", null, "platform")))
         .ToArray();
 
-    /// <summary>
-    /// Resolves the one compiled descriptor set through the active platform pack's carried catalogue.
-    /// The seed supplies lifecycle and provenance; it never supplies a second schema.
-    /// </summary>
+    /// <summary>Returns the compiled descriptors with provenance from valid platform declarations.</summary>
     public static IReadOnlyList<SystemRecordType> FromActivePlatformPack(InstalledPack? platform)
     {
-        if (platform is null
-            || platform.Lifecycle != PackLifecycleState.Active
-            || !string.Equals(platform.PackKey, "harborline.platform", StringComparison.Ordinal))
+        var carried = new HashSet<string>(StringComparer.Ordinal);
+        if (platform is not null && platform.Lifecycle == PackLifecycleState.Active
+            && string.Equals(platform.PackKey, "harborline.platform", StringComparison.Ordinal))
         {
-            return Array.Empty<SystemRecordType>();
+            foreach (var item in platform.SeedItems.Where(item => item.Kind == PackContentKind.RecordType))
+                if (!string.IsNullOrWhiteSpace(item.Key)
+                    && PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor)
+                    && PackSealedSystemTypeAdmission.IsCanonicalCatalogueKey(item.Key, descriptor!)
+                    && IsValidPlatformDeclaration(item))
+                    carried.Add(descriptor!.Name);
         }
 
-        var carried = new Dictionary<string, PackSeedItem>(StringComparer.Ordinal);
-        foreach (var item in platform.SeedItems.Where(item => item.Kind == PackContentKind.RecordType))
+        return All.Select(descriptor => descriptor with
         {
-            if (string.IsNullOrWhiteSpace(item.Key)
-                || !PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor)
-                || !PackSealedSystemTypeAdmission.IsCanonicalCatalogueKey(item.Key, descriptor!)
-                || !carried.TryAdd(descriptor!.Name, item))
-                return Array.Empty<SystemRecordType>();
-        }
-
-        if (carried.Count != All.Count) return Array.Empty<SystemRecordType>();
-
-        foreach (var descriptor in All)
-        {
-            if (!carried.TryGetValue(descriptor.Name, out var item) || !IsValidPlatformDeclaration(item))
-                return Array.Empty<SystemRecordType>();
-        }
-
-        var provenance = new CatalogueProvenance(platform.PackKey, platform.Version, "platform");
-        return All.Select(descriptor => descriptor with { Provenance = provenance }).ToArray();
+            Provenance = carried.Contains(descriptor.Name)
+                ? new CatalogueProvenance(platform!.PackKey, platform.Version, "platform")
+                : new CatalogueProvenance(null, null, "compiled"),
+        }).ToArray();
     }
 
     private static bool IsValidPlatformDeclaration(PackSeedItem item)
@@ -648,7 +636,7 @@ public static class CatalogueRoutes
             if (denied is not null)
                 return denied;
             var platform = packStore.GetActive(tenant, "harborline.platform");
-            // ck-1: the compiled floor first and unconditionally; the seed's sealed descriptors follow.
+            // The compiled bootstrap shapes precede the compiled sealed descriptors.
             return Results.Ok<object[]>([.. CompiledCatalogueType.All, .. SystemRecordType.FromActivePlatformPack(platform)]);
         });
     }

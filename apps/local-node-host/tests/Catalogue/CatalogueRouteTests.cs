@@ -181,7 +181,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
         var compiled = CompiledEntries(types);
-        Assert.Equal(3, types.GetArrayLength());
+        Assert.Equal(22, types.GetArrayLength());
         Assert.Equal(
             CompiledBootstrapCatalogue.Shapes.Select(shape => shape.Identity.Value).Order(StringComparer.Ordinal),
             compiled.Select(entry => entry.GetProperty("identity").GetString()!).Order(StringComparer.Ordinal));
@@ -249,12 +249,12 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Empty(_packStore.ListInstalled(_tenantA));
     }
 
-    [Fact(DisplayName = "M4: sealed catalogue types are absent before the platform seed is active")]
-    public async Task Sealed_Catalogue_Types_Are_Absent_Before_The_Platform_Seed_Is_Active()
+    [Fact(DisplayName = "Sealed catalogue types are compiled before the platform seed is active")]
+    public async Task Sealed_Catalogue_Types_Exist_Before_The_Platform_Seed_Is_Active()
     {
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Empty(SealedSeedEntries(types));
+        Assert.Equal(19, SealedSeedEntries(types).Length);
     }
 
     [Fact(DisplayName = "M4: activating the platform seed exposes its sealed catalogue types with the active version")]
@@ -284,8 +284,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         });
     }
 
-    [Fact(DisplayName = "M4: deactivating the platform seed removes its sealed catalogue types")]
-    public async Task Deactivated_Platform_Seed_Does_Not_Expose_Sealed_Catalogue_Types()
+    [Fact(DisplayName = "Deactivating the platform seed keeps compiled catalogue types")]
+    public async Task Deactivated_Platform_Seed_Keeps_Sealed_Catalogue_Types()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var deactivated = await _installer.DeactivateAsync(
@@ -296,11 +296,43 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Empty(SealedSeedEntries(types));
+        Assert.Equal(19, SealedSeedEntries(types).Length);
     }
 
-    [Fact(DisplayName = "M4: invalid active platform seed descriptors fail closed")]
-    public async Task Invalid_Active_Platform_Seed_Descriptors_Fail_Closed()
+    [Fact]
+    public async Task Missing_platform_declarations_keep_compiled_provenance()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var form = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
+        var partial = active with { SeedItems = [form] };
+
+        var types = SystemRecordType.FromActivePlatformPack(partial);
+        Assert.Equal(19, types.Count);
+        Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), types.Single(x => x.Name == "FormDefinition").Provenance);
+        Assert.All(types.Where(x => x.Name != "FormDefinition"), x => Assert.Equal(new CatalogueProvenance(null, null, "compiled"), x.Provenance));
+        var empty = SystemRecordType.FromActivePlatformPack(active with { SeedItems = [] });
+        Assert.Equal(19, empty.Count);
+        Assert.All(empty, x => Assert.Equal("compiled", x.Provenance.Kind));
+    }
+
+    [Fact]
+    public void No_platform_returns_all_compiled_descriptors()
+    {
+        var types = SystemRecordType.FromActivePlatformPack(null);
+        Assert.Equal(new[]
+        {
+            "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition",
+            "DataExchangeDefinition", "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "Layout", "Resource", "Bookable",
+        }, types.Select(x => x.Name));
+        Assert.All(types, x => Assert.Equal(new CatalogueProvenance(null, null, "compiled"), x.Provenance));
+    }
+
+    [Fact(DisplayName = "Duplicate declarations keep the compiled catalogue")]
+    public async Task Duplicate_Active_Platform_Seed_Descriptors_Keep_Catalogue()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(
@@ -310,7 +342,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         var types = SystemRecordType.FromActivePlatformPack(duplicate);
 
-        Assert.Empty(types);
+        Assert.Equal(19, types.Count);
     }
 
     [Theory]
@@ -341,7 +373,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     [InlineData("Harborline.Platform.FormDefinition")]
     [InlineData("other.FormDefinition")]
     [InlineData("harborline.platform.UnknownDefinition")]
-    public async Task Noncanonical_or_unknown_catalogue_keys_fail_closed(string key)
+    public async Task Noncanonical_or_unknown_catalogue_keys_keep_compiled_catalogue(string key)
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
@@ -350,17 +382,17 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
                 ? item with { Key = key } : item).ToArray(),
         };
-        Assert.Empty(SystemRecordType.FromActivePlatformPack(variant));
+        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(variant).Count);
     }
 
     [Fact]
-    public async Task Mixed_legacy_and_qualified_aliases_of_one_compiled_identity_fail_closed()
+    public async Task Mixed_legacy_and_qualified_aliases_keep_compiled_catalogue()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
         var descriptor = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
         var mixed = active with { SeedItems = [.. active.SeedItems, descriptor with { Key = "FormDefinition" }] };
-        Assert.Empty(SystemRecordType.FromActivePlatformPack(mixed));
+        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(mixed).Count);
     }
 
     [Theory]
@@ -368,7 +400,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     [InlineData("wrong-kind")]
     [InlineData("invalid-body")]
     [InlineData("other-owner")]
-    public async Task Missing_wrong_or_invalid_descriptors_and_other_owners_keep_the_catalogue_empty(string defect)
+    public async Task Missing_wrong_or_invalid_descriptors_and_other_owners_keep_the_catalogue(string defect)
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
@@ -391,7 +423,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             "other-owner" => active with { PackKey = "other.publisher" },
             _ => throw new ArgumentOutOfRangeException(nameof(defect)),
         };
-        Assert.Empty(SystemRecordType.FromActivePlatformPack(variant));
+        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(variant).Count);
     }
 
     public async Task DisposeAsync()
@@ -546,7 +578,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         return rows;
     }
 
-    // The compiled bootstrap floor answers first; the seed's sealed descriptors follow when the platform pack is active.
+    // The compiled bootstrap shapes answer before the sealed descriptors.
     private static JsonElement[] CompiledEntries(JsonElement types)
         => types.EnumerateArray().Where(entry => entry.TryGetProperty("identity", out _)).ToArray();
 
