@@ -25,6 +25,30 @@ public sealed class LayoutPublishRegistersTests
         Assert.Same(LayoutValidationRuleRegistry.Released, Host().Build().ValidationRules);
     }
 
+    [Theory(DisplayName = "layout-bound-8: publish admission receives the selected validation-rule register")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PublishAdmissionReceivesTheSelectedValidationRuleRegister(bool supplyValidationRules)
+    {
+        LayoutHostRegisters? received = null;
+        var host = new LayoutPublishRegisters(
+            new(), new(SupplyValidationRules: supplyValidationRules),
+            (definition, registers, author) =>
+            {
+                received = registers;
+                LayoutDefinitionAdmission.ValidateForPublish(definition, registers, author);
+            });
+
+        host.ValidateForPublish(Sealed(CaptureSurface(new(true, []))), AllowAccess.Instance);
+
+        Assert.NotNull(received);
+        // T-1013 Claim scope: publish receives the released instance under its supply option.
+        if (supplyValidationRules)
+            Assert.Same(LayoutValidationRuleRegistry.Released, received.ValidationRules);
+        else
+            Assert.Null(received.ValidationRules);
+    }
+
     [Fact(DisplayName = "layout-bound-3: the host supplies released controls for publish and refuses an unregistered control")]
     public void ReleasedAndUnknownFieldControlsGoThroughTheHostPublishSeam()
     {

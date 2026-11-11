@@ -33,6 +33,17 @@ public sealed class LayoutPublishRegisters(
     LayoutPublishRegisterOptions? options = null)
 {
     private readonly LayoutPublishRegisterOptions _options = options ?? new();
+    private readonly Action<LayoutDefinition, LayoutHostRegisters, ILayoutAccess> _admit = LayoutDefinitionAdmission.ValidateForPublish;
+
+    // Lets the host boundary tests observe the admission input even when a released register is empty.
+    internal LayoutPublishRegisters(
+        LayoutPublishState state,
+        LayoutPublishRegisterOptions? options,
+        Action<LayoutDefinition, LayoutHostRegisters, ILayoutAccess> admit)
+        : this(state, options)
+    {
+        _admit = admit;
+    }
 
     /// <summary>Builds the actual platform admission input from this node's publish state.</summary>
     public LayoutHostRegisters Build()
@@ -55,7 +66,7 @@ public sealed class LayoutPublishRegisters(
 
     /// <summary>Runs the platform's one publish-time admission path against the host-built registers.</summary>
     public void ValidateForPublish(LayoutDefinition definition, ILayoutAccess author)
-        => LayoutDefinitionAdmission.ValidateForPublish(definition, Build(), author);
+        => _admit(definition, Build(), author);
 
     /// <summary>
     /// The render-time half of the seam: the platform's published-surface resolver over
