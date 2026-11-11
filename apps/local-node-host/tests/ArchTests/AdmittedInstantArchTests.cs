@@ -7,8 +7,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// <summary>
 /// T-1015 (DES-0029 ck-5 and ck-9, board finding F2): no public path builds a gate request from a raw instant.
 /// The request and the write context take only an <see cref="AdmittedInstant"/>; that type is minted from the
-/// kernel clock, and every production mint from a raw <see cref="DateTimeOffset"/> (a stored act's recorded
-/// instant, or a named owed exemption) is pinned here, so a new one fails until it is reviewed.
+/// kernel clock, and every production mint from a recorded act, a rehearsal instant, or capped roster authority
+/// is pinned here, so a new one fails until it is reviewed.
 /// </summary>
 public sealed class AdmittedInstantArchTests
 {
@@ -58,7 +58,7 @@ public sealed class AdmittedInstantArchTests
         // host's, ticket 216). The raw mints are internal, so no public path builds a request from a raw instant.
         Assert.Equal(["Read(TimeProvider)"], Factories(method => method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly));
         Assert.Equal(
-            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "ForRehearsal(RehearsalInstant)", "ForRosterAuthority(DateTimeOffset,AdmittedInstant,TimeSpan)", "FromRecordedAct(DateTimeOffset)"],
+            ["ForRehearsal(RehearsalInstant)", "ForRosterAuthority(DateTimeOffset,AdmittedInstant,TimeSpan)", "FromRecordedAct(DateTimeOffset)"],
             Factories(method => method.IsAssembly));
         Assert.Equal(ReviewedFriends, type.Assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName)
@@ -122,13 +122,11 @@ public sealed class AdmittedInstantArchTests
 
         var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
                 target => target.DeclaringType == typeof(AdmittedInstant)
-                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt) or nameof(AdmittedInstant.ForRehearsal) or nameof(AdmittedInstant.ForRosterAuthority))
-            .GroupBy(site => (site.Path, Kind: site.Target.Contains($".{nameof(AdmittedInstant.Exempt)}(", StringComparison.Ordinal)
-                ? nameof(AdmittedInstant.Exempt)
-                : site.Target.Contains($".{nameof(AdmittedInstant.ForRehearsal)}(", StringComparison.Ordinal)
-                    ? nameof(AdmittedInstant.ForRehearsal)
-                    : site.Target.Contains($".{nameof(AdmittedInstant.ForRosterAuthority)}(", StringComparison.Ordinal)
-                        ? nameof(AdmittedInstant.ForRosterAuthority) : nameof(AdmittedInstant.FromRecordedAct)))
+                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.ForRehearsal) or nameof(AdmittedInstant.ForRosterAuthority))
+            .GroupBy(site => (site.Path, Kind: site.Target.Contains($".{nameof(AdmittedInstant.ForRehearsal)}(", StringComparison.Ordinal)
+                ? nameof(AdmittedInstant.ForRehearsal)
+                : site.Target.Contains($".{nameof(AdmittedInstant.ForRosterAuthority)}(", StringComparison.Ordinal)
+                    ? nameof(AdmittedInstant.ForRosterAuthority) : nameof(AdmittedInstant.FromRecordedAct)))
             .Select(group => $"{group.Key.Path}	{group.Key.Kind}	{group.Count()}")
             .Order(StringComparer.Ordinal)
             .ToArray();
