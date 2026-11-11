@@ -121,7 +121,7 @@ public sealed class NodeRosterRecord
 
     /// <summary>Legacy rows retain signed order until the receive-attestation wire cutover.</summary>
     public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received) =>
-        received is { } at && issued < at - ReceiveTimeWindow ? at : issued;
+        RosterReceiveAttestationSigning.BoundedOrderTime(issued, received, ReceiveTimeWindow);
 
     /// <summary>Current-wire records may advance their signed order no farther than the attested receipt skew.</summary>
     internal static bool IsWithinReceiveTimeWindow(DateTimeOffset issued, DateTimeOffset received) =>

@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
@@ -273,6 +274,7 @@ internal sealed class PairingTokenGatedAdmitter
         _diag.TokenRedeemStep("pairing-redeemed-single-use");
 
         var newRoster = wire.Roster;
+        NodeRosterRecord[] receiptRows = [];
 
         // (6) The live roster must still be the one the decision was anchored to before anything commits.
         if (_roster.Resolve(binding.Anchor) is null)
@@ -307,6 +309,12 @@ internal sealed class PairingTokenGatedAdmitter
             RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
             stageWithRecord: async (write, token) =>
             {
+                // Read the sponsor's durable evidence, including this save's pending admission.
+                // CRDT backfills may have a different in-memory receipt; never re-date stored evidence.
+                receiptRows = [.. await write.Set<NodeRosterRecord>()
+                    .Where(row => row.TeamId == newRoster.TeamId.ToString("D"))
+                    .ToArrayAsync(token).ConfigureAwait(false),
+                    .. write.ChangeTracker.Entries<NodeRosterRecord>().Select(entry => entry.Entity)];
                 await _sodAudit.Within(write).RecordMemberAdmittedAsync(
                     tenantId: new TenantId(binding.Membership.TenantId),
                     teamId: newRoster.TeamId.ToString("D"),
@@ -352,7 +360,15 @@ internal sealed class PairingTokenGatedAdmitter
         }
 
         var response = WireEnrollment.BuildResponse(
-            newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys);
+            newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
+            receiptRows.Where(row => row.ReceivedAtUtc is not null)
+                .GroupBy(row => row.SignatureB64Url, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group =>
+                {
+                    var row = group.First();
+                    return new RosterReceiveAttestation(row.WireFormatVersion, row.ReceivedByPartyId,
+                        row.ReceivedByPublicKey, row.ReceivedAtUtc!.Value, row.ReceiveAttestationSignatureB64Url);
+                }, StringComparer.Ordinal));
         _diag.AdmitOutcome(accepted: true, reason: null, request.JoiningPartyId);
         return PairingAdmitOutcome.Accept(response);
     }

@@ -17,6 +17,10 @@ public sealed record RosterReceiveAttestationRecord(int FormatVersion, string No
 /// <summary>Creates and verifies canonical Ed25519 receive attestations.</summary>
 public static class RosterReceiveAttestationSigning
 {
+    /// <summary>Legacy records keep signed order; a retrospective record beyond the window orders at its receipt.</summary>
+    public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received, TimeSpan window) =>
+        received is { } at && issued < at - window ? at : issued;
+
     /// <summary>Stable refusal recorded when a peer signs a receive attestation in another wire format.</summary>
     public const string WireFormatUnsupportedRefusal = "roster_wire_format_unsupported";
     public static RosterReceiveAttestation Sign(IOperationSigner signer, string nodePartyId, string recordId,

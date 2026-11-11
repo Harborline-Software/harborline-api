@@ -111,7 +111,7 @@ public sealed class RosterAuthorityBindingTests
         // B is "chain": it joined through "admin", not through the genesis root, so its adoption stands or
         // falls on the admitter's grant - read here through the SAME composed binding the projection uses.
         var plan = WireEnrollment.ValidateAndPlanAdoption(
-            response, response.Anchor, signers.ChainKey, "chain", new Ed25519Verifier(), authority);
+            response, response.Anchor, signers.ChainKey, "chain", new Ed25519Verifier(), authority, At, TimeSpan.FromSeconds(30));
 
         Assert.Equal(admitterGranted, plan.Succeeded);
         if (!admitterGranted) Assert.Equal("joiner_not_in_roster", plan.FailureReason);

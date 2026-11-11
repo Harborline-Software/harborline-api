@@ -22,6 +22,8 @@ public sealed class RosterSkewWindowFenceTests
     /// <summary>Every time literal allowed where signed roster time is compared, by file, with the reviewed reason.</summary>
     private static readonly (string Path, string Expression, int Count, string Reason)[] Allowed =
     [
+        ("packages/foundation-identity-atlas/Enrollment/AdmissionToken.cs", "TimeSpan.FromMinutes(15)", 1,
+            "Existing invite token default lifetime (AdmissionToken.Mint), not roster skew."),
         ("apps/local-node-host/BackupRestore/SignedRosterRehostGrantProvider.cs", "now.AddMinutes(5)", 1,
             "now.AddMinutes(5) is the issued grant's lifetime (ExpiresAt), not a skew allowance."),
         ("apps/local-node-host/Data/Identity/AccountSetupInvitationIssuer.cs", "TimeSpan.FromHours(24)", 1, "Account setup invitation lifetime."),
@@ -84,6 +86,17 @@ public sealed class RosterSkewWindowFenceTests
         Assert.Matches(@"AdmittedInstant\.ForRosterAuthority\(at,\s*admittedAt,\s*HandshakeProtocol\.HelloTimestampSkew\)", source);
     }
 
+    [Fact]
+    public void EnrollmentPassesItsInstantAndTheHandshakeWindow()
+    {
+        var source = StripComments(File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "apps", "local-node-host", "Enrollment", "NodeWireEnrollmentClient.cs")));
+        Assert.Matches(@"var at = _clock\.GetUtcNow\(\);", source);
+        Assert.Matches(@"WireEnrollment\.BuildRequest\([\s\S]*?_principalSigner,\s*at,", source);
+        Assert.Matches(@"WireEnrollment\.ValidateAndPlanAdoption\([^;]*_rosterAuthority,\s*at,\s*HandshakeProtocol\.HelloTimestampSkew\)", source);
+        Assert.Single(Regex.Matches(source, @"_clock\.GetUtcNow\("));
+    }
+
     [Theory]
     [InlineData("Data/Identity", "private const int RosterSkewSeconds = 31;")]
     [InlineData("Data/Identity", "private const int Tolerance = 31;")]
@@ -103,14 +116,15 @@ public sealed class RosterSkewWindowFenceTests
     [InlineData("Data/Identity", "private static readonly TimeSpan RosterSkew = TimeSpan.FromSeconds(31);")]
     [InlineData("Data/Identity", "private object Duration() => global::System.TimeSpan.FromSeconds(31);")]
     [InlineData("BackupRestore", "private object Duration() => new System.TimeSpan(0, 0, 31);")]
+    [InlineData("packages/foundation-identity-atlas/Enrollment", "private const int RosterSkewSeconds = 31;")]
     [InlineData("Data/Roster", "private const int RosterSkewSeconds = 31;")]
     [InlineData("BackupRestore/Nested", "private const int RosterSkewSeconds = 31;")]
     public void APlantedSecondSkewIsDiscovered(string directory, string declaration)
     {
         var root = Path.Combine(Path.GetTempPath(), $"T-1056-skew-{Guid.NewGuid():N}");
-        foreach (var scope in new[] { "Data/Roster", "Data/Identity", "BackupRestore", directory })
-            Directory.CreateDirectory(Path.Combine(root, "apps", "local-node-host", scope));
-        var folder = Path.Combine(root, "apps", "local-node-host", directory);
+        foreach (var scope in ScopeDirectories().Append(directory))
+            Directory.CreateDirectory(ScopePath(root, scope));
+        var folder = ScopePath(root, directory);
         try
         {
             File.WriteAllText(Path.Combine(folder, "Planted.cs"), $"using TS = System.TimeSpan; class Planted {{ {declaration} }}");
@@ -126,14 +140,15 @@ public sealed class RosterSkewWindowFenceTests
     [InlineData("Data/Roster")]
     [InlineData("Data/Identity")]
     [InlineData("BackupRestore")]
+    [InlineData("packages/foundation-identity-atlas/Enrollment")]
     public void AMissingScopeDirectoryFailsClosed(string missing)
     {
         var root = Path.Combine(Path.GetTempPath(), $"T-1056-skew-{Guid.NewGuid():N}");
-        foreach (var directory in new[] { "Data/Roster", "Data/Identity", "BackupRestore" })
-            Directory.CreateDirectory(Path.Combine(root, "apps", "local-node-host", directory));
+        foreach (var directory in ScopeDirectories())
+            Directory.CreateDirectory(ScopePath(root, directory));
         try
         {
-            Directory.Delete(Path.Combine(root, "apps", "local-node-host", missing));
+            Directory.Delete(ScopePath(root, missing));
             Assert.Throws<DirectoryNotFoundException>(() => Scan(root));
         }
         finally
@@ -142,10 +157,16 @@ public sealed class RosterSkewWindowFenceTests
         }
     }
 
+    private static string[] ScopeDirectories() =>
+        ["Data/Roster", "Data/Identity", "BackupRestore", "packages/foundation-identity-atlas/Enrollment"];
+
+    private static string ScopePath(string root, string directory) => directory.StartsWith("packages/", StringComparison.Ordinal)
+        ? Path.Combine(root, directory) : Path.Combine(root, "apps", "local-node-host", directory);
+
     private static string[] Scan(string root)
     {
-        var files = new[] { "Data/Roster", "Data/Identity", "BackupRestore" }
-            .Select(directory => Path.Combine(root, "apps", "local-node-host", directory))
+        var files = ScopeDirectories()
+            .Select(directory => ScopePath(root, directory))
             .SelectMany(directory => Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories));
         return files
             .SelectMany(file => CSharpSyntaxTree.ParseText(File.ReadAllText(file)).GetRoot().DescendantNodes()

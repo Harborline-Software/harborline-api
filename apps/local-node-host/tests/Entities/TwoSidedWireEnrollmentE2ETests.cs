@@ -1,3 +1,5 @@
+using NSubstitute;
+using Harborline.Api.Kernel.Runtime.Teams;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -70,6 +72,211 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// </remarks>
 public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
 {
+    // Oracles: the fixture's fixed enrollment/receipt instants and R-0149's literal 30-second edge.
+    [Theory]
+    [InlineData(false, 30, true)]
+    [InlineData(false, 31, false)]
+    [InlineData(true, 30, true)]
+    [InlineData(true, 31, false)]
+    public void EnrollmentRefusesForwardTimeBeyondItsReference(bool carried, int seconds, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var reference = carried ? EnrollmentTimeFixture.At.AddMinutes(-1) : EnrollmentTimeFixture.At;
+        var duplicate = f.Admission("joiner", f.Joiner.PrincipalId, reference.AddSeconds(seconds));
+        var response = f.WithRecord(duplicate, carried ? f.Receipt(duplicate, reference) : null);
+        var plan = f.Adopt(response);
+        Assert.Equal(accepted, plan.Succeeded);
+        if (!accepted) Assert.Equal("roster.record.order_time_future", plan.FailureReason);
+        else
+        {
+            var baseline = f.Adopt(f.Response);
+            Assert.True(baseline.Succeeded);
+            Assert.Equal(baseline.Roster!.Members.Select(m => m.PartyId).Order(),
+                plan.Roster!.Members.Select(m => m.PartyId).Order());
+            Assert.Equal(f.Joiner.PrincipalId, plan.Roster.PublicKeyOf("joiner"));
+            Assert.Equal(duplicate.Admission.IssuedAt,
+                response.Admissions.Last().Admission.IssuedAt);
+        }
+    }
+
+    [Fact]
+    public void EnrollmentRefusesAForwardRevocation()
+    {
+        using var f = new EnrollmentTimeFixture();
+        var signed = RosterSigning.SignRevocation(f.Signer, f.Team, "joiner", "founder",
+            EnrollmentTimeFixture.At.AddSeconds(31), Guid.NewGuid());
+        var plan = f.Adopt(f.Response with
+        {
+            Revocations = [new(f.Team.ToString("D"), "joiner", signed)],
+        });
+        Assert.False(plan.Succeeded);
+        Assert.Equal("roster.record.order_time_future", plan.FailureReason);
+    }
+
+    [Theory]
+    [InlineData("time")]
+    [InlineData("signature")]
+    [InlineData("format")]
+    [InlineData("outsider")]
+    [InlineData("wrong-key")]
+    public void EnrollmentNeverFallsBackFromAnInvalidReceipt(string corruption)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var record = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At);
+        var receipt = f.Receipt(record, EnrollmentTimeFixture.At);
+        receipt = corruption switch
+        {
+            "time" => receipt with { ReceivedAt = EnrollmentTimeFixture.At.AddSeconds(1) },
+            "signature" => receipt with { Signature = "invalid" },
+            "format" => receipt with { FormatVersion = 3 },
+            "outsider" => RosterReceiveAttestationSigning.Sign(f.Signer, "outsider",
+                $"admission:guest:{record.Admission.Nonce:D}", EnrollmentTimeFixture.At, record.Admission.Nonce),
+            "wrong-key" => RosterReceiveAttestationSigning.Sign(new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other),
+                "founder", $"admission:guest:{record.Admission.Nonce:D}", EnrollmentTimeFixture.At, record.Admission.Nonce),
+            _ => throw new ArgumentOutOfRangeException(nameof(corruption)),
+        };
+        var plan = f.Adopt(f.WithRecord(record, receipt));
+        Assert.False(plan.Succeeded);
+        Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EnrollmentBackdatedConflictUsesReceiptOrderExactlyAsProjection(bool carried)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var earlier = f.Admission("target", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var planted = f.Admission("target", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddMinutes(-2));
+        var receipt = f.Receipt(planted, EnrollmentTimeFixture.At);
+        var response = f.WithRecord(earlier, null);
+        response = response with { Admissions = [.. response.Admissions,
+            new(planted.TeamId, planted.PartyId, planted.PublicKey.ToBase64Url(), planted.Admission, carried ? receipt : null)] };
+        var plan = f.Adopt(response);
+        Assert.True(plan.Succeeded, plan.FailureReason);
+        Assert.Equal(carried ? f.Joiner.PrincipalId : f.Other.PrincipalId, plan.Roster!.PublicKeyOf("target"));
+
+        var records = f.Roster.EnumerateAdmissions().Concat([earlier, planted]).ToArray();
+        var rows = records.Select(a => NodeRosterRecord.FromCrdtState(carried && a == planted
+            ? RosterRecordCrdtState.FromAdmission(a).AttestReceipt(f.Signer, "founder", EnrollmentTimeFixture.At)
+            : RosterRecordCrdtState.FromAdmission(a))).ToArray();
+        var projection = MemberRoster.FromSyncedRecords(records, [], Verifier, NodeRosterRecord.OrderTimes(rows), at: EnrollmentTimeFixture.At);
+        Assert.Equal(carried ? EnrollmentTimeFixture.At : planted.Admission.IssuedAt,
+            NodeRosterRecord.OrderTimes(rows)(planted.Admission.Signature, planted.Admission.IssuedAt));
+        Assert.Equal(projection.PublicKeyOf("target"), plan.Roster.PublicKeyOf("target"));
+    }
+
+    [Fact]
+    public void EnrollmentBuilderCarriesVerbatimReceiptAndCodecPreservesItAndLegacyAbsence()
+    {
+        using var f = new EnrollmentTimeFixture();
+        var admission = f.Roster.EnumerateAdmissions().Single(a => a.PartyId == "joiner");
+        var stored = RosterRecordCrdtState.FromAdmission(admission)
+            .AttestReceipt(f.Signer, "founder", EnrollmentTimeFixture.At.AddSeconds(-5));
+        var row = NodeRosterRecord.FromCrdtState(stored);
+        var receipt = NodeRosterRecord.ToCrdtState(row).ReceiveAttestationOrNull()!;
+        var response = WireEnrollment.BuildResponse(f.Roster, f.Transport, f.Keys,
+            receiveAttestations: new Dictionary<string, RosterReceiveAttestation> { [admission.Admission.Signature] = receipt });
+        var wire = response.Admissions.Single(a => a.PartyId == "joiner");
+        Assert.Equal(stored.WireFormatVersion, wire.ReceiveAttestation!.FormatVersion);
+        Assert.Equal(EnrollmentTimeFixture.At.AddSeconds(-5), wire.ReceiveAttestation.ReceivedAt);
+        Assert.Equal("founder", wire.ReceiveAttestation.NodePartyId);
+        Assert.Equal(f.Signer.IssuerId.ToBase64Url(), wire.ReceiveAttestation.NodePublicKey);
+        Assert.Equal(row.ReceiveAttestationSignatureB64Url, wire.ReceiveAttestation.Signature);
+        Assert.Null(response.Admissions.Single(a => a.PartyId == "founder").ReceiveAttestation);
+        var decoded = EnrollmentWireCodec.DecodeResponse(EnrollmentWireCodec.EncodeResponse(response));
+        Assert.Equal(receipt, decoded.Admissions.Single(a => a.PartyId == "joiner").ReceiveAttestation);
+        Assert.True(f.Adopt(decoded).Succeeded);
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(EnrollmentWireCodec.EncodeResponse(f.Response))!;
+        foreach (var record in legacy["admissions"]!.AsArray()) record!.AsObject().Remove("receiveAttestation");
+        var legacyDecoded = EnrollmentWireCodec.DecodeResponse(System.Text.Encoding.UTF8.GetBytes(legacy.ToJsonString()));
+        Assert.All(legacyDecoded.Admissions, a => Assert.Null(a.ReceiveAttestation));
+        Assert.True(f.Adopt(legacyDecoded).Succeeded);
+    }
+
+    [Fact]
+    public async Task ProductionSponsorCopiesDurableReceiptEvenWhenProjectionHasRedatedBackfill()
+    {
+        var a = NewNode("receipt-sponsor", "receipt-team");
+        var b = NewNode("receipt-joiner", "receipt-joiner-team");
+        var directory = Path.Combine(Path.GetTempPath(), $"harborline-receipt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        _tempDirs.Add(directory);
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<NodeLocalRosterDbContext>(options =>
+            options.UseSqlite($"Data Source={Path.Combine(directory, "roster.db")};Pooling=False"));
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        var genesis = a.Roster.Current.EnumerateAdmissions().Single();
+        var stored = RosterRecordCrdtState.FromAdmission(genesis)
+            .AttestReceipt(a.Signer.Signer, a.PartyId, EnrollmentTimeFixture.At);
+        await using (var write = await factory.CreateDbContextAsync())
+        {
+            await write.Database.EnsureCreatedAsync();
+            write.Set<NodeRosterRecord>().Add(NodeRosterRecord.FromCrdtState(stored));
+            await write.SaveChangesAsync();
+        }
+        await using var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(),
+            factory, Verifier, a.Signer.Signer, NullLogger<RosterCrdtProjection>.Instance, a.Roster);
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default);
+        Assert.NotEqual(EnrollmentTimeFixture.At, projection.Snapshot().Single().ReceiveAttestationOrNull()!.ReceivedAt);
+
+        var teamServices = new ServiceCollection();
+        teamServices.AddSingleton<INodeIdentityProvider>(new InMemoryNodeIdentityProvider(a.TeamScopedIdentity(a.Roster.Current.TeamId)));
+        await using var teamProvider = teamServices.BuildServiceProvider();
+        var active = Substitute.For<IActiveTeamAccessor>();
+        active.Active.Returns(new TeamContext(new TeamId(a.Roster.Current.TeamId), "receipt team", teamProvider, TimeProvider.System));
+        var audit = Substitute.For<IEnrollmentCompensatingControlRecorder>();
+        audit.Within(Arg.Any<object>()).Returns(audit);
+        var admitter = new WireEnrollmentAdmitter(a.Coordinator, a.Roster, a.Signer.Signer, a.PartyId,
+            Verifier, projection, audit, active);
+        var invite = a.Coordinator.CreateInvite(TeamTrustAnchor.FromRoster(a.Roster.Current));
+        var request = WireEnrollment.BuildRequest(invite.TokenId, b.PartyId,
+            b.TransportKeyForTeam(a.Roster.Current.TeamId), b.Signer.Signer, TimeProvider.System.GetUtcNow(), Guid.NewGuid());
+        var result = await admitter.AdmitAsync(request, default);
+        Assert.True(result.Accepted, result.RejectReason);
+        var carried = result.Response!.Admissions.Single(record => record.PartyId == a.PartyId).ReceiveAttestation;
+        Assert.Equal(stored.ReceiveAttestationOrNull(), carried);
+        Assert.Equal(EnrollmentTimeFixture.At, carried!.ReceivedAt);
+        Assert.NotNull(result.Response.Admissions.Single(record => record.PartyId == b.PartyId).ReceiveAttestation);
+    }
+
+    private sealed class EnrollmentTimeFixture : IDisposable
+    {
+        internal static readonly DateTimeOffset At = DateTimeOffset.Parse("2026-11-11T12:00:00Z");
+        private readonly KeyPair _founder = KeyPair.Generate();
+        internal readonly KeyPair Joiner = KeyPair.Generate();
+        internal readonly KeyPair Other = KeyPair.Generate();
+        internal readonly Guid Team = Guid.Parse("10560000-0000-0000-0000-000000000001");
+        internal readonly Harborline.Api.Foundation.Crypto.Ed25519Signer Signer;
+        internal readonly MemberRoster Roster;
+        internal readonly byte[] Transport;
+        internal readonly Dictionary<string, byte[]> Keys;
+        internal readonly EnrollmentResponse Response;
+        internal EnrollmentTimeFixture()
+        {
+            Signer = new(_founder);
+            Roster = MemberRoster.Genesis(Team, "founder", Signer, Verifier, At.AddMinutes(-3), Guid.NewGuid())
+                .Admit("founder", Signer, "joiner", Joiner.PrincipalId, PermissionSet.Empty,
+                    Verifier, At.AddMinutes(-2), Guid.NewGuid());
+            Transport = Signer.IssuerId.AsSpan().ToArray();
+            Keys = new(StringComparer.Ordinal) { ["founder"] = Transport, ["joiner"] = Joiner.PrincipalId.AsSpan().ToArray() };
+            Response = WireEnrollment.BuildResponse(Roster, Transport, Keys);
+        }
+        internal MemberAdmissionRecord Admission(string party, PrincipalId key, DateTimeOffset issued) =>
+            new(Team.ToString("D"), party, key, RosterSigning.SignAdmission(Signer, Team, party, key,
+                "founder", false, issued, Guid.NewGuid()));
+        internal RosterReceiveAttestation Receipt(MemberAdmissionRecord record, DateTimeOffset received) =>
+            RosterReceiveAttestationSigning.Sign(Signer, "founder", $"admission:{record.PartyId}:{record.Admission.Nonce:D}",
+                received, record.Admission.Nonce);
+        internal EnrollmentResponse WithRecord(MemberAdmissionRecord record, RosterReceiveAttestation? receipt) =>
+            Response with { Admissions = [.. Response.Admissions,
+                new(record.TeamId, record.PartyId, record.PublicKey.ToBase64Url(), record.Admission, receipt)] };
+        internal EnrollmentAdoptionPlan Adopt(EnrollmentResponse response) => WireEnrollment.ValidateAndPlanAdoption(
+            response, Response.Anchor, Joiner.PrincipalId, "joiner", Verifier, null, At, TimeSpan.FromSeconds(30));
+        public void Dispose() { _founder.Dispose(); Joiner.Dispose(); Other.Dispose(); }
+    }
+
     private readonly List<IAsyncDisposable> _cleanup = new();
     private readonly List<string> _tempDirs = new();
 
