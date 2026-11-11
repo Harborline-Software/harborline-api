@@ -30,6 +30,7 @@ Tests in `apps/local-node-host/tests/Authorization/RosterGateDecisionTests.cs`:
 | Unreadable roster refuses an otherwise allowed ordinary act | `Unreadable_roster_refuses_an_ordinary_act_the_grants_allow` |
 | False caller constraints cannot widen | `Caller_supplied_false_constraints_cannot_widen_the_gate_derived_roster` |
 | Caller denial is cleared | `Caller_supplied_deny_is_ignored_and_only_gate_derived_denials_reach_the_decision` |
+| A real kernel attenuation denial survives | `Role_attenuation_checks_each_required_scope_inside_the_gate` asserts denied scope cases and literal `authorization.grant.attenuation_failed` |
 | Roster and denial setters are kernel-only | `Only_the_kernel_can_set_roster_facts_on_a_gate_request`, `Only_the_kernel_can_set_a_grant_refusal_on_a_gate_request` |
 | All three decision entry points derive the same facts | `All_decision_entry_points_replace_forged_roster_and_deny_with_kernel_derivation` (ordinary, membership, prospective) |
 
@@ -181,3 +182,44 @@ The final restored Release build passed with zero errors. The expanded suite pas
 Restored TRX SHA-256: 4F818B30B4DA779358197BB01236402F97B6846E7B4749B1AC13763E957EBA36.
 
 Native gate execution follows on the clean committed candidate. No full native-gate pass is claimed by the focused suite.
+
+## Native gate blocked: configured NAS registry
+
+The unchanged `bash eng/verify.sh` ran against candidate tree
+`70060d76d599d2970d22c2e8be62941a1584fb9d`. Both native focused modes passed:
+**108 tests without coverage and 108 with coverage, zero failures**. Native
+preflight reported `all prerequisites OK; quality=true; focused=passed`.
+
+The gate then waited in the boundaries step's ESLint canary at
+`pnpm install --frozen-lockfile --ignore-scripts` in `packages/contracts`.
+A separate read-only `pnpm view @microsoft/eslint-formatter-sarif version`
+through the unchanged registry reported:
+
+```text
+[WARN] GET https://nas.taildefd38.ts.net:4873/@microsoft%2Feslint-formatter-sarif error (ETIMEDOUT). Will retry in 10 seconds. 2 retries left.
+```
+
+The thread-owned stalled install and diagnostic were stopped after this
+corroboration. The gate's own cleanup removed its temporary ESLint canary;
+the tracked tree was clean afterward. This was an aborted dependency install,
+not an ESLint assertion failure. Its final output was:
+
+```text
+eslint canary FAIL — pnpm install --frozen-lockfile failed in packages/contracts
+FAILED: boundaries
+  command: bash eng/verify-boundaries.sh
+  No receipt written. Fix this and re-run: bash eng/verify.sh
+```
+
+Native log SHA-256:
+`0CBAA84D50E0DADDF4A9D96F14CC79BD4FE7CD40E58F4C92C488D688EAA855EB`.
+The process used the installed Git Bash and Rust tools, isolated pinned platform
+and quality checkouts, the existing control checkout, and MSBuild's
+`RestoreConfigFile` pointing to repository `nuget.config` to avoid a machine-wide
+Telerik feed. No user config, registry, audit setup, gate or threshold was edited.
+
+**Open execution prerequisite:** restore reachability of the configured NAS
+registry, then rerun the full native gate. Rule 4 forbids changing that registry;
+no registry fallback or gate waiver was taken. No full native-gate receipt,
+push, draft PR, external review or PR check-watch is claimed. The tested changes
+remain committed on the requested slice branch for resumption.
