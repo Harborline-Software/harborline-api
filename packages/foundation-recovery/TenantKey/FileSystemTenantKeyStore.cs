@@ -1,15 +1,29 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
 namespace Harborline.Api.Foundation.Recovery.TenantKey;
 
 /// <summary>Persists wrapped tenant-key hierarchy records in an install-owned directory.</summary>
 public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
 {
     private readonly string _rootDirectory;
+    private readonly Func<string, FileStream> _createStream;
+    private readonly Action<string> _syncDirectory;
 
     /// <summary>Construct an opaque record store rooted at an install-owned directory.</summary>
     public FileSystemTenantKeyStore(string rootDirectory)
+        : this(rootDirectory, path => new FileStream(
+            path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true), SyncDirectory)
+    {
+    }
+
+    internal FileSystemTenantKeyStore(
+        string rootDirectory, Func<string, FileStream> createStream, Action<string> syncDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         _rootDirectory = Path.GetFullPath(rootDirectory);
+        _createStream = createStream;
+        _syncDirectory = syncDirectory;
     }
 
     /// <inheritdoc />
@@ -37,25 +51,59 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
         CancellationToken ct)
     {
         var path = GetRecordPath(slot);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await using var stream = new FileStream(
-                path,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 4096,
-                useAsync: true);
-            await stream.WriteAsync(wrappedKey, ct).ConfigureAwait(false);
-            await stream.FlushAsync(ct).ConfigureAwait(false);
-            return true;
+            await using (var stream = _createStream(temporary))
+            {
+                await stream.WriteAsync(wrappedKey, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                stream.Flush(flushToDisk: true);
+            }
+
+            var created = true;
+            try
+            {
+                File.Move(temporary, path, overwrite: false);
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                created = false;
+            }
+
+            for (var ancestor = new DirectoryInfo(directory); ancestor is not null; ancestor = ancestor.Parent)
+                _syncDirectory(ancestor.FullName);
+            return created;
         }
-        catch (IOException) when (File.Exists(path))
+        finally
         {
-            return false;
+            File.Delete(temporary);
         }
     }
+
+    private static void SyncDirectory(string directory)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var descriptor = Open(directory, 0);
+        if (descriptor < 0) throw new Win32Exception();
+        try
+        {
+            if (Sync(descriptor) != 0) throw new Win32Exception();
+        }
+        finally
+        {
+            _ = Close(descriptor);
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int flags);
+    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static extern int Sync(int descriptor);
+    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static extern int Close(int descriptor);
 
     /// <inheritdoc />
     public Task DeleteAsync(string slot, CancellationToken ct)

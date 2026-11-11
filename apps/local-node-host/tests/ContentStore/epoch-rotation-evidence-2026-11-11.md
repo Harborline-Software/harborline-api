@@ -136,3 +136,64 @@ The final TRX is `directory-final-tests/directory-final.trx`; build/test logs ar
 identity for its gate-lock self-tests; the unchanged command passed natively. No registry/audit configuration,
 test threshold or warning policy was changed. The previously reproduced clean-main audit-service failures and
 outstanding Linux/Windows host evidence remain as recorded above; no full gate or Stryker score is claimed.
+
+## 2026-11-11 — tenant wrapping-key durability review repair
+
+Control #1316 merged as `f61408b293230495ac92759be0b816d8bc5352f1`, widening this slice's touches under
+M11's acceptance 1/3/8 ruling. Codex P1 `discussion_r4538753294` correctly identified that an epoch key's
+durability cannot compensate for a buffered-only tenant wrapping key in a different directory branch.
+
+`FileSystemTenantKeyStore.TryCreateAsync` now writes a unique same-directory temporary file, calls
+`FileStream.Flush(flushToDisk: true)`, closes it and atomically publishes it without overwriting another
+creator's record. It syncs the leaf directory and every ancestor through the existing filesystem root
+before returning, including an already-visible hierarchy left by an interrupted creation. A losing creator
+also completes that directory barrier before returning false. File-flush and directory-sync failures escape;
+only a final-path collision in the rename is treated as an existing record. Temporary files are cleaned up.
+The public constructor, interface, record paths and other callers are unchanged. The host's native helper
+cannot be called from the lower-layer recovery package without reversing its dependency; the shared store
+therefore uses the same libc open/fsync/close pattern locally. Windows retains the file flush and atomic
+publication, with no directory-fsync equivalent, as in the existing epoch writer.
+
+The new `CryptoShred/FileSystemTenantKeyStoreTests.cs` has 11 cases. Its oracles are the slice's acceptance 3,
+ADR 0116 decision 5 and M11's dated Log literal: temp file, disk flush, atomic publication, then parent fsync,
+with no success after a failed flush. An internal stream factory lets a real FileStream subclass observe the
+actual `Flush(bool)` call, perform the real base flush, or inject a disk-flush failure; no public test API or
+project/friend-assembly configuration was added. Directory callbacks record the literal parent chain while
+performing native syncs. Coverage also pins fresh/interrupted hierarchy handling, failure propagation even
+when a record already exists, create-once concurrency, cancellation cleanup, read/delete/prefix behavior and
+existing slot validation. The callback tests are deterministic ordering/failure evidence, not power-cut tests.
+
+Before the repair, the native regression run failed 7/11 cases (`red.log`); the repaired run passed 11/11
+(`green.log`). Three hand mutations were run separately against the real store and then restored:
+
+| Mutation | Change | Killing regression | Result |
+| --- | --- | --- | --- |
+| F1 | Replace `Flush(true)` with `await FlushAsync(ct)` only | `Acceptance_3_flushes_to_disk_before_atomic_publication_and_directory_sync` and `Acceptance_3_a_disk_flush_failure_prevents_publication_and_success` | 2 failed, 9 passed |
+| F2 | Sync only the leaf, omitting its parents | Both fresh/interrupted parent-chain cases and both existing/new-record parent-sync-failure cases | 4 failed, 7 passed |
+| F3 | Permit the final rename to overwrite an existing key | `Concurrent_creators_keep_one_complete_winner_and_clean_up_temporary_files` | 1 failed, 10 passed |
+
+Logs are in this thread's scratch directory `/private/tmp/t521-tenant-durability-20261111`, named
+`mutation-F1.log`, `mutation-F2.log` and `mutation-F3.log`. These are hand mutations, not a Stryker score.
+In particular F1 proves the actual stream call requests a disk flush rather than a buffered-only flush;
+it does not simulate a device that lies about persistence.
+
+After restoring the source, `dotnet build apps/local-node-host/tests/tests.csproj -c Release
+--disable-build-servers -m:1` passed with zero errors and two existing CA1031 warnings in unchanged recovery
+files. `dotnet test` with `--no-build --no-restore` and filter
+`FullyQualifiedName~CryptoShred|FullyQualifiedName~ContentStore|FullyQualifiedName~ArchTests|FullyQualifiedName~LocalNodePatternAModuleCatalogTests`
+passed 701/701, zero skipped, including all 13 real process-crash cases. The TRX is
+`final-tests/tenant-durability-final.trx`; logs are `final-build.log` and `final-tests.log` in that scratch directory.
+No final affected-test failure required a clean-main comparison. API main `a83d7588122ac1ec6c4bbc3e94be60477eba22b1`
+was merged normally; its platform pin is older than this slice's required `2d820840`, which remains unchanged.
+Linux/Windows host execution and hardware power-cut evidence remain unclaimed. The PR stays draft and the
+existing host-enablement hold remains in place.
+
+Final fast checks passed: `bash eng/verify-boundaries.sh` (including its preflight/guard self-tests),
+`HARBORLINE_CONTROL_REPO=/Users/chris/Projects/Harborline/harborline-control bash eng/identity-r3-scan.sh`
+(5,774 tracked files, zero unexempted hits), contract generation `--check`, all 32 codegen guard cases and
+`git diff --check`. The boundary self-tests could not identify their processes in the sandbox and passed on
+the unchanged native retry. The VSTest socket was likewise blocked in the sandbox; the authorized native
+retry produced the red/green/mutation results above. Logs are `fast-boundaries.log`, `fast-identity.log`,
+`fast-codegen.log` and `fast-codegen-tests.log`. No dependency, registry, audit, threshold, warning-policy or
+test-skip configuration changed; no full exact-clone/quality/Stryker gate is claimed. The prior audit-service
+failure remains historical evidence at main `c231e44787065285e43788995c2b08173c45b302`, not a new audit result for this head.
