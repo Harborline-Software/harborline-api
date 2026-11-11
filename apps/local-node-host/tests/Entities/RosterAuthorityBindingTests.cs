@@ -231,6 +231,34 @@ public sealed class RosterAuthorityBindingTests
         Assert.Equal(2, clock.Reads);
     }
 
+    [Fact]
+    public async Task Local_publish_does_not_lend_its_instant_to_push_triggered_inbound_apply()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock);
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var admittedAt = AdmittedInstant.Read(clock);
+        var genesis = signers.Local.EnumerateAdmissions().Single(admission => admission.Admission.IsGenesis);
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        await using var db = store.CreateRosterContext();
+        raw.Mutate(schema => schema.PushMany(db.RosterRecords.AsNoTracking().ToList().Select(NodeRosterRecord.ToCrdtState)));
+        var delta = raw.EncodeDelta(ReadOnlyMemory<byte>.Empty);
+        Task? gossip = null;
+        projection.LocalDeltaProduced += (_, _) => gossip = Task.Run(() =>
+            projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta, default));
+
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default,
+            admittedAt: admittedAt);
+        Assert.NotNull(gossip);
+        await gossip;
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Equal(2, clock.Reads);
+    }
+
     private static async Task AssertAuthorityReadAsync(
         bool revoke, int issuedAhead, int receivedAhead, bool allowed, bool rebuilding)
     {
@@ -320,6 +348,7 @@ public sealed class RosterAuthorityBindingTests
             .ReadAsync(Tenant, AdmittedInstant.FromRecordedAct(At.AddSeconds(60)), default);
         Assert.Contains(later.Members, member => member.PartyId == "admin");
         if (!accepted) Assert.DoesNotContain(later.Members, member => member.PartyId == "chain");
+        else Assert.Contains(later.Members, member => member.PartyId == "chain");
     }
 
     [Fact]

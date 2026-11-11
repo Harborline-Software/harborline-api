@@ -351,12 +351,13 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         _localPublishInstant.Value = admittedAt;
         try
         {
-            _projection.Mutate(schema => schema.ReplaceOrPush(replaceIndex, record));
+            _projection.Mutate(schema => schema.ReplaceOrPush(replaceIndex, record), signalLocalDelta: false);
         }
         finally
         {
             _localPublishInstant.Value = previousInstant;
         }
+        _projection.SignalLocalDeltaProduced();
     }
 
     // ── Adopt-time own-team supersession (BLOCKER-2: dual-genesis convergence poison) ─────────────────────
