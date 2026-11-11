@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Harborline.Api.LocalNodeHost.Layout;
@@ -38,8 +40,9 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <b>Related targets (DES-0052 layout-eng-31).</b> The relationship map comes from the Records reference fields the
 /// root's Record Type declares in the surface pack's signed closure (layout-ck-28, layout-ck-39); the lookups run
 /// inside the host's floor through its traversal callbacks, and that floor counts from the start of this handler. A missing and a denied target resolve to the same
-/// absent block with the same status, so nothing on the wire says which it was. The response carries no request
-/// or correlation id: the denial trace is keyed by the caller's own <c>X-Correlation-ID</c> when it sends one.
+/// absent block with the same status, so nothing on the wire says which it was. The response body carries no request
+/// or correlation id; root-read receipts use audit headers. The denial trace is keyed by the caller's own
+/// <c>X-Correlation-ID</c> when it sends one.
 /// </para>
 /// </remarks>
 public static class LayoutSurfaceRoutes
@@ -57,7 +60,8 @@ public static class LayoutSurfaceRoutes
         IPackInstallStore packs,
         ILayoutRootRecordSource roots,
         ILayoutRelatedRecordSource related,
-        TimeProvider time)
+        TimeProvider time,
+        AuthorizedActAudit audit)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(host);
@@ -65,6 +69,7 @@ public static class LayoutSurfaceRoutes
         ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(related);
         ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(audit);
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
@@ -85,8 +90,10 @@ public static class LayoutSurfaceRoutes
                 .ConfigureAwait(false);
             if (cannotOpen is not null)
                 return cannotOpen;
+            AuthorizationDecision? accepted = null;
             var cannotRead = await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct)
+                    http, authority, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false);
             if (cannotRead is not null)
                 return cannotRead;
@@ -118,6 +125,14 @@ public static class LayoutSurfaceRoutes
                 var resolution = await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
                     relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
                     tenant, NodeGatePrincipal.Of(principal), requestId, started, ct).ConfigureAwait(false);
+                var receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted!,
+                    new Dictionary<string, object?> { ["recordId"] = recordId }, ct).ConfigureAwait(false);
+                if (receipt is { } auditId)
+                {
+                    http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
+                    if (accepted!.Request.CorrelationId is { } correlation)
+                        http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+                }
                 return Results.Json(LayoutSurfaceResponse.Of(surface.Definition, resolution));
             }
             catch (LayoutAuditDegradedException)
