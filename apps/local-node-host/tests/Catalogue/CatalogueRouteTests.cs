@@ -382,7 +382,11 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
                 ? item with { Key = key } : item).ToArray(),
         };
-        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(variant).Count);
+        var types = SystemRecordType.FromActivePlatformPack(variant);
+        Assert.Equal(19, types.Count);
+        Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
+        Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
     }
 
     [Fact]
@@ -423,7 +427,13 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             "other-owner" => active with { PackKey = "other.publisher" },
             _ => throw new ArgumentOutOfRangeException(nameof(defect)),
         };
-        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(variant).Count);
+        var types = SystemRecordType.FromActivePlatformPack(variant);
+        Assert.Equal(19, types.Count);
+        Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
+        Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
+            Assert.Equal(defect == "other-owner"
+                ? new CatalogueProvenance(null, null, "compiled")
+                : new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
     }
 
     public async Task DisposeAsync()
