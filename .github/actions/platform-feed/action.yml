@@ -132,6 +132,16 @@ runs:
           echo "::error title=platform-feed test failed::eng/tests/platform-feed.test.mjs failed; the feed build did not run"
           exit 1
         fi
+    # The pack runs with cwd .platform, whose global.json pins the platform's own SDK with rollForward
+    # disable. setup-dotnet adds it to the same install directory, so the API's SDK stays installed and
+    # the API's global.json still selects it. Zip, not tar: on Windows a Git usr\bin tar on PATH reads
+    # the C: in the archive path as a remote host.
+    - name: Install the pinned platform's SDK beside the API's
+      uses: actions/setup-dotnet@v6
+      env:
+        DOTNET_INSTALL_SKIP_TAR: '1'
+      with:
+        global-json-file: .platform/global.json
     - name: Build the local package feed
       shell: bash
       env:

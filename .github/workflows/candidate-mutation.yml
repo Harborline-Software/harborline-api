@@ -53,6 +53,11 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 11.0.100
+      # build-local-feed packs with cwd harborline-platform, whose global.json pins its own SDK.
+      - name: Install the pinned platform's SDK beside the API's
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: harborline-platform/global.json
       - name: Execute trusted bounded preset
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
