@@ -88,6 +88,7 @@
         "documentType": "invoice",
         "recordType": { "type": "invoice", "version": "1" },
         "locale": { "kind": "fixed", "tag": "en-US" },
+        "contract": { "major": 1, "minor": 0 },
         "style": { "brandName": "Harborline Software" },
         "structure": [
           {
