@@ -178,7 +178,7 @@ internal static class LayoutDenialTestKit
 
         public LocalNodeDb Db { get; } = new();
         public IAuditTrail Trail { get; } = trail;
-        public AuthorizedActAudit AcceptedActs => new(new AuthorityCapturingAuditTrail(Trail),
+        public AuthorizedActAudit AcceptedActs => new((IAuthorizedAuditTrail)Trail,
             new Ed25519Signer(_keys), NullLogger<AuthorizedActAudit>.Instance);
         public LayoutDenialAlarms Alarms { get; } = new();
         public NodeEfLayoutDenialOutbox Outbox => _outbox ??= new(Db, NullLogger<NodeEfLayoutDenialOutbox>.Instance);
