@@ -135,6 +135,17 @@ public sealed class NodeRosterRecord
         return (signature, issued) => BoundedOrderTime(issued, receipts.GetValueOrDefault(signature));
     }
 
+    internal static IReadOnlyDictionary<string, RosterReceiveAttestation> ReceiveAttestationsBySignature(
+        IEnumerable<NodeRosterRecord> rows) =>
+        rows.Where(row => row.WireFormatVersion == RosterWireFormat.CurrentVersion && row.ReceivedAtUtc is not null)
+            .GroupBy(row => row.SignatureB64Url, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group =>
+            {
+                var row = group.First();
+                return new RosterReceiveAttestation(row.WireFormatVersion, row.ReceivedByPartyId,
+                    row.ReceivedByPublicKey, row.ReceivedAtUtc!.Value, row.ReceiveAttestationSignatureB64Url);
+            }, StringComparer.Ordinal);
+
     /// <summary>Project a converged CRDT snapshot into its durable read-model row.</summary>
     public static NodeRosterRecord FromCrdtState(RosterRecordCrdtState s)
     {

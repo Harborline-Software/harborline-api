@@ -361,14 +361,7 @@ internal sealed class PairingTokenGatedAdmitter
 
         var response = WireEnrollment.BuildResponse(
             newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
-            receiptRows.Where(row => row.ReceivedAtUtc is not null)
-                .GroupBy(row => row.SignatureB64Url, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group =>
-                {
-                    var row = group.First();
-                    return new RosterReceiveAttestation(row.WireFormatVersion, row.ReceivedByPartyId,
-                        row.ReceivedByPublicKey, row.ReceivedAtUtc!.Value, row.ReceiveAttestationSignatureB64Url);
-                }, StringComparer.Ordinal));
+            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows));
         _diag.AdmitOutcome(accepted: true, reason: null, request.JoiningPartyId);
         return PairingAdmitOutcome.Accept(response);
     }

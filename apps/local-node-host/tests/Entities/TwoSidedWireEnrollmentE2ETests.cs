@@ -134,6 +134,77 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    public void EnrollmentOrdersOnlyMillisecondAlignedSignedRecords(bool revocation, int addedTicks)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var record = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var response = f.WithRecord(record, null);
+        if (revocation)
+        {
+            var signed = RosterSigning.SignRevocation(f.Signer, f.Team, "guest", "founder",
+                EnrollmentTimeFixture.At, Guid.NewGuid());
+            signed = signed with { IssuedAt = signed.IssuedAt.AddTicks(addedTicks) };
+            Assert.True(RosterSigning.VerifyRevocation(f.Team, "guest", signed, Verifier));
+            response = response with { Revocations = [new(f.Team.ToString("D"), "guest", signed)] };
+        }
+        else
+        {
+            record = record with { Admission = record.Admission with
+                { IssuedAt = record.Admission.IssuedAt.AddTicks(addedTicks) } };
+            Assert.True(RosterSigning.VerifyAdmission(f.Team, "guest", f.Other.PrincipalId, record.Admission, Verifier));
+            response = f.WithRecord(record, null);
+        }
+        var plan = f.Adopt(response);
+        Assert.Equal(addedTicks == 0, plan.Succeeded);
+        if (addedTicks != 0) Assert.Equal("malformed_roster_record", plan.FailureReason);
+        else Assert.Equal(!revocation, plan.Roster!.Contains("guest"));
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(false, -14)]
+    [InlineData(true, 14)]
+    public void EnrollmentRefusesReceiptsWhoseWindowExceedsTheTimeRange(bool maximum, int offsetHours)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var record = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At);
+        var offset = TimeSpan.FromHours(offsetHours);
+        var received = new DateTimeOffset(maximum ? DateTime.MaxValue : DateTime.MinValue, offset);
+        var receipt = f.Receipt(record, received);
+        receipt = receipt with { ReceivedAt = receipt.ReceivedAt.ToOffset(offset) };
+        Assert.True(RosterReceiveAttestationSigning.Verify($"admission:guest:{record.Admission.Nonce:D}",
+            record.Admission.Nonce, receipt, Verifier));
+        var plan = f.Adopt(f.WithRecord(record, receipt));
+        Assert.False(plan.Succeeded);
+        Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void EnrollmentRefusesIssuedTimesWhoseWindowExceedsTheTimeRange(bool revocation, bool maximum)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var issued = maximum ? DateTimeOffset.MaxValue : DateTimeOffset.MinValue;
+        var record = f.Admission("guest", f.Other.PrincipalId, issued);
+        var response = revocation ? f.Response with
+        {
+            Revocations = [new(f.Team.ToString("D"), "guest",
+                RosterSigning.SignRevocation(f.Signer, f.Team, "guest", "founder", issued, Guid.NewGuid()))],
+        } : f.WithRecord(record, null);
+        var plan = f.Adopt(response);
+        Assert.False(plan.Succeeded);
+        Assert.Equal("roster.record.order_time_future", plan.FailureReason);
+    }
+
+    [Theory]
     [InlineData("time")]
     [InlineData("signature")]
     [InlineData("format")]
@@ -359,8 +430,10 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         Assert.True(f.Adopt(legacyDecoded).Succeeded);
     }
 
-    [Fact]
-    public async Task ProductionSponsorCopiesDurableReceiptEvenWhenProjectionHasRedatedBackfill()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionSponsorCopiesDurableReceiptEvenWhenProjectionHasRedatedBackfill(bool legacy)
     {
         var a = NewNode("receipt-sponsor", "receipt-team");
         var b = NewNode("receipt-joiner", "receipt-joiner-team");
@@ -378,7 +451,13 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         await using (var write = await factory.CreateDbContextAsync())
         {
             await write.Database.EnsureCreatedAsync();
-            write.Set<NodeRosterRecord>().Add(NodeRosterRecord.FromCrdtState(stored));
+            var row = NodeRosterRecord.FromCrdtState(stored);
+            if (legacy)
+            {
+                row.WireFormatVersion = 0;
+                row.ReceiveAttestationSignatureB64Url = string.Empty;
+            }
+            write.Set<NodeRosterRecord>().Add(row);
             await write.SaveChangesAsync();
         }
         await using var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(),
@@ -396,14 +475,22 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         var admitter = new WireEnrollmentAdmitter(a.Coordinator, a.Roster, a.Signer.Signer, a.PartyId,
             Verifier, projection, audit, active);
         var invite = a.Coordinator.CreateInvite(TeamTrustAnchor.FromRoster(a.Roster.Current));
+        var at = TimeProvider.System.GetUtcNow();
         var request = WireEnrollment.BuildRequest(invite.TokenId, b.PartyId,
-            b.TransportKeyForTeam(a.Roster.Current.TeamId), b.Signer.Signer, TimeProvider.System.GetUtcNow(), Guid.NewGuid());
+            b.TransportKeyForTeam(a.Roster.Current.TeamId), b.Signer.Signer, at, Guid.NewGuid());
         var result = await admitter.AdmitAsync(request, default);
         Assert.True(result.Accepted, result.RejectReason);
         var carried = result.Response!.Admissions.Single(record => record.PartyId == a.PartyId).ReceiveAttestation;
-        Assert.Equal(stored.ReceiveAttestationOrNull(), carried);
-        Assert.Equal(EnrollmentTimeFixture.At, carried!.ReceivedAt);
+        if (legacy) Assert.Null(carried);
+        else
+        {
+            Assert.Equal(stored.ReceiveAttestationOrNull(), carried);
+            Assert.Equal(EnrollmentTimeFixture.At, carried!.ReceivedAt);
+        }
         Assert.NotNull(result.Response.Admissions.Single(record => record.PartyId == b.PartyId).ReceiveAttestation);
+        var plan = WireEnrollment.ValidateAndPlanAdoption(result.Response, TeamTrustAnchor.FromRoster(a.Roster.Current),
+            b.Signer.Signer.IssuerId, b.PartyId, Verifier, null, at, TimeSpan.FromSeconds(30));
+        Assert.True(plan.Succeeded, plan.FailureReason);
     }
 
     private sealed class EnrollmentTimeFixture : IDisposable

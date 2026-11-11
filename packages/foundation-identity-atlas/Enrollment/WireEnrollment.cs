@@ -344,15 +344,26 @@ public static class WireEnrollment
         if (!Guid.TryParse(response.TeamId, out var teamId))
             return EnrollmentAdoptionPlan.Failed("malformed_team_id");
 
+        var lastBoundableTick = DateTimeOffset.MaxValue.Ticks - window.Ticks;
+        bool CanBound(DateTimeOffset instant) =>
+            instant.Ticks >= window.Ticks && instant.Ticks <= lastBoundableTick
+            && instant.UtcTicks >= window.Ticks && instant.UtcTicks <= lastBoundableTick;
+        if (!CanBound(at))
+            return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
+
         // Verify the evidence before it can influence ordering. Attester trust uses the strict
         // order-point prefix below, never the final roster or the sponsor's key hints.
         foreach (var record in response.Admissions)
         {
+            if (record.Admission.IssuedAt != DateTimeOffset.FromUnixTimeMilliseconds(record.Admission.IssuedAt.ToUnixTimeMilliseconds()))
+                return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
             if (record.ReceiveAttestation is { } receipt
-                && !RosterReceiveAttestationSigning.Verify(
+                && (!CanBound(receipt.ReceivedAt) || !RosterReceiveAttestationSigning.Verify(
                     $"admission:{record.PartyId}:{record.Admission.Nonce:D}",
-                    record.Admission.Nonce, receipt, verifier))
+                    record.Admission.Nonce, receipt, verifier)))
                 return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
+            if (!CanBound(record.Admission.IssuedAt))
+                return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
             var reference = record.ReceiveAttestation?.ReceivedAt ?? at;
             if (record.Admission.IssuedAt > reference + window)
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
@@ -364,6 +375,10 @@ public static class WireEnrollment
         }
         foreach (var record in response.Revocations)
         {
+            if (record.Signed.IssuedAt != DateTimeOffset.FromUnixTimeMilliseconds(record.Signed.IssuedAt.ToUnixTimeMilliseconds()))
+                return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
+            if (!CanBound(record.Signed.IssuedAt))
+                return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
             if (record.Signed.IssuedAt > at + window)
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
         }
