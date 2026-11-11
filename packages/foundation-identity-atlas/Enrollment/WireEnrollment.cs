@@ -356,6 +356,11 @@ public static class WireEnrollment
             var reference = record.ReceiveAttestation?.ReceivedAt ?? at;
             if (record.Admission.IssuedAt > reference + window)
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
+            // Match sync insertion: even valid receive evidence cannot advance this act's roster
+            // ordering beyond its admitted instant plus the same window.
+            if (RosterReceiveAttestationSigning.BoundedOrderTime(record.Admission.IssuedAt,
+                    record.ReceiveAttestation?.ReceivedAt, window) > at + window)
+                return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
         }
         foreach (var record in response.Revocations)
         {

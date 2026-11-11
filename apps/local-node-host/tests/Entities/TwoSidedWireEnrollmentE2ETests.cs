@@ -99,6 +99,26 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData(-120, 30, true)]
+    [InlineData(-120, 31, false)]
+    [InlineData(10, 31, true)]
+    [InlineData(31, 31, false)]
+    public void EnrollmentBoundsReceiptDerivedOrderAtItsAct(int issuedSeconds, int receivedSeconds, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var earlier = f.Admission("target", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var planted = f.Admission("target", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(issuedSeconds));
+        var receipt = f.Receipt(planted, EnrollmentTimeFixture.At.AddSeconds(receivedSeconds));
+        var response = f.WithRecord(earlier, null);
+        response = response with { Admissions = [.. response.Admissions,
+            new(planted.TeamId, planted.PartyId, planted.PublicKey.ToBase64Url(), planted.Admission, receipt)] };
+        var plan = f.Adopt(response);
+        Assert.Equal(accepted, plan.Succeeded);
+        if (accepted) Assert.Equal(f.Joiner.PrincipalId, plan.Roster!.PublicKeyOf("target"));
+        else Assert.Equal("roster.record.order_time_future", plan.FailureReason);
+    }
+
     [Fact]
     public void EnrollmentRefusesAForwardRevocation()
     {
