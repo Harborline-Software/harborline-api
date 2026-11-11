@@ -202,9 +202,9 @@ public static class WorkflowDefinitionRoutes
                 body = await JsonSerializer.DeserializeAsync<JsonElement>(
                     http.Request.Body, cancellationToken: ct).ConfigureAwait(false);
             }
-            catch (JsonException ex)
+            catch (JsonException)
             {
-                return Results.BadRequest(new { error = $"Malformed request body: {ex.Message}" });
+                return Results.BadRequest(new { code = "workflow_definition.malformed_request_body" });
             }
 
             if (body.ValueKind != JsonValueKind.Object)
@@ -233,7 +233,7 @@ public static class WorkflowDefinitionRoutes
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
-                return Results.BadRequest(new { error = $"malformed workflow definition: {ex.Message}" });
+                return Results.BadRequest(new { code = "workflow_definition.malformed_request_body" });
             }
 
             // Register maps this exact wire inside the lifecycle, admits that model, then persists this wire.
@@ -249,39 +249,34 @@ public static class WorkflowDefinitionRoutes
             }
             catch (GateReferenceShapeException ex)
             {
-                // T-691: ex.Message echoes the rejected token; answer the form route's refusal shape.
-                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish, ex.Code,
+                    WorkflowAuthoringC3Wire.GateShape(body, ex), new { field = ex.Field });
             }
             catch (WorkflowGateLaneException ex)
             {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish, ex.Code,
+                    WorkflowAuthoringC3Wire.GateLane(body, ex), new { field = ex.Field, index = ex.Index });
             }
             catch (ArgumentException ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return Results.BadRequest(new { code = "workflow_definition.definition_invalid", detail = new { parameter = ex.ParamName } });
             }
             catch (WorkflowAdmissionException ex)
             {
-                // Surface the stable, locale-independent code (client localizes off the CODE) — the fleet's
-                // "validation errors are codes, not English literals" rule.
-                var first = ex.Result.Violations.Count > 0 ? ex.Result.Violations[0] : default;
-                return Results.UnprocessableEntity(new { error = ex.Message, code = first.Code, locator = first.Locator });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish,
+                    ex.Result.Violations.Select(violation => new DefinitionRefusal(violation.Code,
+                        WorkflowAuthoringC3Wire.Locator(body, violation.Locator))).ToArray());
             }
             catch (RoleGateAdmissionException ex)
             {
-                return Results.UnprocessableEntity(new
-                {
-                    error = ex.Message,
-                    code = ex.Code,
-                    definition = ex.Finding.DefinitionId,
-                    gate = ex.Finding.Gate,
-                    role = ex.Finding.Subject,
-                    rule = ex.Finding.Rule,
-                });
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish, ex.Code,
+                    WorkflowAuthoringC3Wire.Gate(body, ex.Finding.Gate, ex.Finding.Rule),
+                    new { gate = ex.Finding.Gate, rule = ex.Finding.Rule });
             }
             catch (DefinitionProvenanceException ex)
             {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code });
+                // The workflow read surface returns authored JSON, not the stored envelope's cascadeLayer.
+                return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish, ex.Code, "");
             }
             catch (WorkflowDefinitionConflictException)
             {
