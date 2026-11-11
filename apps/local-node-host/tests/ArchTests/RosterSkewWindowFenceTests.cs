@@ -146,11 +146,16 @@ public sealed class RosterSkewWindowFenceTests
     [Theory]
     [InlineData("Data/Identity", "private const int RosterSkewSeconds = 31;")]
     [InlineData("Data/Identity", "private const int Tolerance = 31;")]
+    [InlineData("Data/Identity", "private const int Tolerance = (int)31;")]
+    [InlineData("Data/Identity", "private static readonly TimeSpan Grace = new(0, 0, 31);")]
     [InlineData("Data/Identity", "private static readonly int Drift = 31;")]
     [InlineData("Data/Identity", "private int Grace { get; } = 31;")]
     [InlineData("Data/Identity", "private int Grace => 31;")]
     [InlineData("Data/Identity", "private bool Check(double tolerance = 31) => false;")]
     [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta.TotalSeconds > 31;")]
+    [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta.TotalSeconds is > 31;")]
+    [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta is { TotalSeconds: > 31 };")]
+    [InlineData("Data/Identity", "private object Duration() => TS.FromSeconds(31);")]
     [InlineData("Data/Identity", "private object Duration() => FromSeconds(31);")]
     [InlineData("Data/Identity", "private static readonly TimeSpan RosterSkew = TimeSpan.FromSeconds(31);")]
     [InlineData("Data/Identity", "private object Duration() => global::System.TimeSpan.FromSeconds(31);")]
@@ -165,7 +170,7 @@ public sealed class RosterSkewWindowFenceTests
         var folder = Path.Combine(root, "apps", "local-node-host", directory);
         try
         {
-            File.WriteAllText(Path.Combine(folder, "Planted.cs"), $"class Planted {{ {declaration} }}");
+            File.WriteAllText(Path.Combine(folder, "Planted.cs"), $"using TS = System.TimeSpan; class Planted {{ {declaration} }}");
             Assert.NotEmpty(Scan(root));
         }
         finally
@@ -212,11 +217,18 @@ public sealed class RosterSkewWindowFenceTests
     private static bool IsTimeLiteral(SyntaxNode node) => node switch
     {
         InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax member } =>
-            IsTimeSpan(member.Expression.ToString()) && member.Name.Identifier.ValueText.StartsWith("From", StringComparison.Ordinal)
+            IsTimeSpan(member.Expression.ToString(), node) && member.Name.Identifier.ValueText.StartsWith("From", StringComparison.Ordinal)
             || member.Name.Identifier.ValueText is "AddSeconds" or "AddMinutes" or "AddHours" or "AddMilliseconds" or "AddTicks",
         InvocationExpressionSyntax { Expression: IdentifierNameSyntax name } =>
             name.Identifier.ValueText is "FromDays" or "FromHours" or "FromMinutes" or "FromSeconds" or "FromMilliseconds" or "FromMicroseconds" or "FromTicks",
-        ObjectCreationExpressionSyntax creation => IsTimeSpan(creation.Type.ToString()),
+        ObjectCreationExpressionSyntax creation => IsTimeSpan(creation.Type.ToString(), node),
+        ImplicitObjectCreationExpressionSyntax creation => creation.Ancestors().Select(ancestor => ancestor switch
+        {
+            VariableDeclarationSyntax variable => variable.Type,
+            PropertyDeclarationSyntax property => property.Type,
+            MethodDeclarationSyntax method => method.ReturnType,
+            _ => null,
+        }).FirstOrDefault(type => type is not null) is { } type && IsTimeSpan(type.ToString(), node),
         VariableDeclaratorSyntax { Initializer: { } initializer } variable =>
             IsNumber(initializer.Value)
             || Regex.IsMatch(variable.Identifier.ValueText, "Skew|Leeway|Window|Seconds", RegexOptions.IgnoreCase)
@@ -230,8 +242,14 @@ public sealed class RosterSkewWindowFenceTests
                 or SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression
                 or SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression
             && binary.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Any(member =>
-                member.Name.Identifier.ValueText is "TotalDays" or "TotalHours" or "TotalMinutes" or "TotalSeconds" or "TotalMilliseconds" or "TotalMicroseconds" or "Ticks")
+                IsTimeUnit(member.Name.Identifier.ValueText))
             && binary.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
+        IsPatternExpressionSyntax pattern =>
+            (pattern.Expression.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>()
+                .Any(member => IsTimeUnit(member.Name.Identifier.ValueText))
+            || pattern.Pattern.DescendantNodes().OfType<SubpatternSyntax>()
+                .Any(property => property.NameColon is { } name && IsTimeUnit(name.Name.Identifier.ValueText)))
+            && pattern.Pattern.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
         _ => false,
     };
 
@@ -240,11 +258,19 @@ public sealed class RosterSkewWindowFenceTests
         LiteralExpressionSyntax literal => literal.IsKind(SyntaxKind.NumericLiteralExpression),
         PrefixUnaryExpressionSyntax unary => IsNumber(unary.Operand),
         ParenthesizedExpressionSyntax parenthesized => IsNumber(parenthesized.Expression),
+        CastExpressionSyntax cast => IsNumber(cast.Expression),
         BinaryExpressionSyntax binary => IsNumber(binary.Left) && IsNumber(binary.Right),
         _ => false,
     };
 
-    private static bool IsTimeSpan(string name) => name is "TimeSpan" or "System.TimeSpan" or "global::System.TimeSpan";
+    private static bool IsTimeUnit(string name) => name is "TotalDays" or "TotalHours" or "TotalMinutes"
+        or "TotalSeconds" or "TotalMilliseconds" or "TotalMicroseconds" or "Ticks";
+
+    private static bool IsTimeSpan(string name, SyntaxNode context) =>
+        name is "TimeSpan" or "System.TimeSpan" or "global::System.TimeSpan"
+        || context.SyntaxTree.GetRoot().DescendantNodes().OfType<UsingDirectiveSyntax>().Any(directive =>
+            directive.Alias?.Name.Identifier.ValueText == name
+            && directive.Name?.ToString() is "System.TimeSpan" or "global::System.TimeSpan");
 
     private static string StripComments(string source)
         => Regex.Replace(Regex.Replace(source, @"/\*.*?\*/", string.Empty, RegexOptions.Singleline), @"//[^\n]*", string.Empty);
