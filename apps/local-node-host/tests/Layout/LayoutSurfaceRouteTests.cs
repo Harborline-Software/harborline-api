@@ -503,6 +503,30 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal("layout.surface.relationship_undeclared", await CodeAsync(response));
     }
 
+    [Theory(DisplayName = "T-735/binding-source-closure layout-ck-39: only an exposed dependency Record Type binds at the route")]
+    [InlineData(false, HttpStatusCode.UnprocessableEntity)]
+    [InlineData(true, HttpStatusCode.OK)]
+    public async Task Only_an_exposed_dependency_record_type_binds(bool exposed, HttpStatusCode expectedStatus)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero, exposeRecordTypes: exposed);
+
+        using var response = await h.GetAsync(Member, "invoice-from-dependency", "invoice-7");
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        if (exposed)
+        {
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(["owner-card=\"Owner\"", "owner-name=\"Contoso\"", "supplier=\"Fabrikam\""], Blocks(body.RootElement));
+            Assert.Empty(body.RootElement.GetProperty("refusals").EnumerateArray());
+            Assert.Equal(1, h.Related.Lookups);
+        }
+        else
+        {
+            Assert.Equal("layout.surface.relationship_undeclared", await CodeAsync(response));
+            Assert.Equal(0, h.Related.Lookups);
+        }
+    }
+
     [Fact(DisplayName = "T-735: a surface identity two Active packs carry refuses with layout.surface.ambiguous and is not chosen between")]
     public async Task A_surface_two_active_packs_carry_refuses()
     {
@@ -657,7 +681,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public FixtureRelatedRecords Related { get; }
 
         public static async Task<Host> CreateAsync(TimeSpan floor, ILayoutRelatedRecordSource? relatedSource = null,
-            ILayoutRootRecordSource? rootSource = null)
+            ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true)
         {
             var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
             var authorization = await SeededAuthorizationAsync(tenant);
@@ -670,7 +694,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var time = new FixedTime(At);
             var surfaces = new LayoutSurfaceHost(gate, pipeline.Outbox, pipeline.Appender, pipeline.Alarms, time,
                 NullLogger.Instance, options);
-            var packs = await SurfacePack.InstallAsync(tenant);
+            var packs = await SurfacePack.InstallAsync(tenant, exposeRecordTypes);
             var roots = new FixtureRoots();
             roots.Add(Root, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.party","id":"party-19"}}""");

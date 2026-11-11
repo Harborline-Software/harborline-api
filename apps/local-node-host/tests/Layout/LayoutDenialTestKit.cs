@@ -247,7 +247,7 @@ internal static class LayoutDenialTestKit
             """{"class_id":"finance.documents","envelope":{"contract":{"major":1,"minor":0},"package_id":"acme.finance","section":"finance","tenant":"tenant-a"},"fields":[{"display_name":"Supplier","field_key":"supplier"},{"display_name":"Owner","field_key":"owner","reference":{"cardinality":"one","on_delete":"block","parent":false,"target_type_id":"finance.party"}},{"display_name":"Approvers","field_key":"approvers","reference":{"cardinality":"many","on_delete":"block","parent":false,"target_type_id":"finance.party"}}],"name":"Invoice","record_class":"transactional","record_type_id":"finance.invoice"}""";
 
         /// <summary>Exports, installs and activates the pack and its consumer for <paramref name="tenant"/> into a fresh store.</summary>
-        internal static async Task<InMemoryPackInstallStore> InstallAsync(TenantId tenant)
+        internal static async Task<InMemoryPackInstallStore> InstallAsync(TenantId tenant, bool exposeRecordTypes = true)
         {
             var store = new InMemoryPackInstallStore();
             await InstallOneAsync(store, tenant, PackKey,
@@ -268,7 +268,10 @@ internal static class LayoutDenialTestKit
                         Field("customer-missing", "customer.nickname"),
                         Field("undeclared", "not_a_field"),
                         new LayoutBlock("view", "layout.table", new LayoutQueryBinding("finance.open-invoices"), [])),
-                ], []);
+                ], [], exposeRecordTypes
+                    ? [new PackExposedDefinition("finance.invoice", "1.0.0", "sha256:" + new string('a', 64)),
+                       new PackExposedDefinition("finance.party", "1.0.0", "sha256:" + new string('b', 64))]
+                    : null);
             // The surface is in a consumer; the Record Type it binds through is only in the pack it depends on.
             await InstallOneAsync(store, tenant, "acme.surfaces",
                 [Layout("surfaces.layout.invoice", DependencySurface, OwnerCard(OwnerKey, [Field("owner-name", "name")]), Field("supplier", "supplier"))],
@@ -290,7 +293,8 @@ internal static class LayoutDenialTestKit
             [new PackDependencyRef(PackKey, Version)]);
 
         private static async Task InstallOneAsync(InMemoryPackInstallStore store, TenantId tenant, string packKey,
-            IReadOnlyList<PackContentSource> contents, IReadOnlyList<PackDependencyRef> dependencies)
+            IReadOnlyList<PackContentSource> contents, IReadOnlyList<PackDependencyRef> dependencies,
+            IReadOnlyList<PackExposedDefinition>? exposedDefinitions = null)
         {
             using var key = KeyPair.Generate();
             var codec = new PackFileCodec();
@@ -299,7 +303,10 @@ internal static class LayoutDenialTestKit
                 codec, timeProvider: TimeProvider.System);
             var request = new PackExportRequest(packKey, Version, "Acme finance", "T-735 Layout surface fixture",
                 PackScopeTier.Horizontal, contents, dependencies, [], 1, Dcp: DomainComplianceProfile.General("test-author"),
-                VerifiedProducers: store.ListInstalled(tenant));
+                VerifiedProducers: store.ListInstalled(tenant),
+                Exposes: exposedDefinitions?.Select(entry => entry.DefinitionKey).ToArray(),
+                InterfaceVersion: exposedDefinitions is null ? null : 1,
+                ExposedDefinitions: exposedDefinitions);
             var export = await exporter.ExportAsync(request, new Ed25519Signer(key));
             Assert.True(export.Succeeded, string.Join("; ", export.Validation.Errors.Select(error => $"{error.Code} {error.Target}")));
 
