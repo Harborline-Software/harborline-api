@@ -61,14 +61,14 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         var fixture = BuildRoster();
         await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture)));
 
-        var beforeRestart = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
+        var beforeRestart = await NewReader().ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
         Assert.True(beforeRestart.Contains(fixture.MemberParty));
         Assert.True(beforeRestart.ValidatesToGenesis(Verifier));
 
         SqliteConnection.ClearAllPools();
         var restartedFactory = new TestRosterContextFactory(_connectionString);
         var afterRestart = await new VerifiedTenantRosterReader(restartedFactory, Verifier)
-            .ReadAsync(Tenant(), CancellationToken.None);
+            .ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
 
         Assert.Equal(Team, afterRestart.TeamId);
         Assert.Equal(beforeRestart.Members.Select(member => member.PartyId).Order(),
@@ -103,7 +103,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
             .Append(ToRow(revocation, fixture)));
 
-        var verified = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
+        var verified = await NewReader().ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
 
         Assert.True(verified.Contains(fixture.FounderParty));
         Assert.False(verified.Contains(fixture.MemberParty));
@@ -210,7 +210,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
 
         for (var i = 0; i < 100; i++)
         {
-            var pendingRead = reader.ReadAsync(Tenant(), CancellationToken.None);
+            var pendingRead = reader.ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
             await activeTeam.SetActiveAsync(
                 new RuntimeTeamId(i % 2 == 0 ? Team : OtherTeam),
                 CancellationToken.None);
@@ -223,13 +223,46 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
 
     private VerifiedTenantRosterReader NewReader() => new(_factory, Verifier);
 
+    [Fact]
+    public async Task StartupRead_AdmitsOneKernelClockInstantForGenesisProof()
+    {
+        var factory = new TestRosterContextFactory(
+            $"Data Source={Path.Combine(_directory, "startup.db")};Pooling=False");
+        var fixture = BuildRoster();
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.RosterRecords.Add(ToRow(fixture.Admissions.Single(admission => admission.Admission.IsGenesis), fixture));
+            await db.SaveChangesAsync();
+        }
+        var clock = new CountingClock();
+
+        var roster = await DurableGenesisIdentity.ReadAsync(factory, Team, fixture.FounderSigner.IssuerId,
+            Verifier, clock, CancellationToken.None);
+
+        Assert.NotNull(roster);
+        Assert.True(roster.Contains(fixture.FounderParty));
+        Assert.Equal(1, clock.Reads);
+    }
+
+    [Fact]
+    public void ReadAsync_RequiresTheActsAdmittedInstant()
+    {
+        var read = Assert.Single(typeof(IVerifiedTenantRosterReader).GetMethods());
+        Assert.Equal([typeof(TenantId), typeof(AdmittedInstant), typeof(CancellationToken)],
+            read.GetParameters().Select(parameter => parameter.ParameterType));
+    }
+
     [Theory]
     [Trait("HandMutant", "T-1056-cap-removal")]
-    [InlineData(31, 31, false)]
-    [InlineData(0, 60, false)]
-    [InlineData(30, 30, true)]
+    [InlineData(31, 31, false, false)]
+    [InlineData(0, 60, false, false)]
+    [InlineData(30, 30, true, false)]
+    [InlineData(31, 31, false, true)]
+    [InlineData(0, 60, false, true)]
+    [InlineData(30, 30, true, true)]
     public async Task ReadAsync_UsesTheCallersAdmittedInstantForPlantedAndWindowEdgeAuthority(
-        int issuedAhead, int receivedAhead, bool allowed)
+        int issuedAhead, int receivedAhead, bool allowed, bool startup)
     {
         var founder = new Ed25519Signer(KeyPair.Generate());
         var admin = new Ed25519Signer(KeyPair.Generate());
@@ -247,15 +280,18 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         var admittedAt = AdmittedInstant.Read(clock);
 
         var reader = new VerifiedTenantRosterReader(_factory, Verifier, authority);
+        Task<MemberRoster> ReadAsync() => startup
+            ? reader.ReadPartialAsync(Tenant(), founder.IssuerId, admittedAt, CancellationToken.None)
+            : reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None);
         if (allowed)
         {
-            var rebuilt = await reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None);
+            var rebuilt = await ReadAsync();
             Assert.True(rebuilt.Contains("planted"));
         }
         else
         {
             var refused = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
-                () => reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None));
+                ReadAsync);
             Assert.Equal(VerifiedTenantRosterRefusal.Orphan, refused.Refusal);
         }
         Assert.Contains(IssuedAt.AddSeconds(30), authority.Reads);
@@ -289,7 +325,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     private async Task AssertRefusalAsync(VerifiedTenantRosterRefusal expected, TenantId tenant)
     {
         var exception = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
-            () => NewReader().ReadAsync(tenant, CancellationToken.None));
+            () => NewReader().ReadAsync(tenant, AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None));
         Assert.Equal(expected, exception.Refusal);
     }
 

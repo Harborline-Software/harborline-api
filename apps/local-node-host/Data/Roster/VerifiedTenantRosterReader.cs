@@ -32,9 +32,6 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         _authority = authority;
     }
 
-    /// <inheritdoc />
-    public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => ReadCoreAsync(team, false, ct);
-
     /// <summary>Rebuild the durable roster within the caller's already-admitted act.</summary>
     public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct)
     {
@@ -45,7 +42,9 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
     public Task<MemberRoster> ReadAtAsync(TenantId team, DateTimeOffset at, CancellationToken ct) =>
         ReadCoreAsync(team, false, ct, at: at);
 
-    internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal, CancellationToken ct) => ReadCoreAsync(team, true, ct, derivedPrincipal);
+    internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal,
+        AdmittedInstant admittedAt, CancellationToken ct) =>
+        ReadCoreAsync(team, true, ct, derivedPrincipal, admittedAt: admittedAt);
 
     // A live fold already has its install identity. Preserve partial adoption's durable anchor and
     // orphan checks without re-running the boot-only proof that chooses that install identity.

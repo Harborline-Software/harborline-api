@@ -22,10 +22,22 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
     private static readonly ActorId Founder = new("founder");
 
     [Fact]
+    public async Task Roster_read_uses_the_gates_admitted_instant()
+    {
+        var instant = AdmittedInstant.FromRecordedAct(Now);
+        var rosters = new FixedRosterReader(MemberRoster.Empty());
+        var reader = new NodeAuthorizationRosterConstraintReader(new NullPartyReader(), rosters);
+
+        await reader.ReadAsync(Founder, Tenant, instant);
+
+        Assert.Same(instant, rosters.LastInstant);
+    }
+
+    [Fact]
     [Trait("Holds", "kernel-core-ck-11")]
     public async Task A_principal_with_no_team_registry_is_never_recorded_as_a_registry_member()
     {
-        var inputs = await Reader(registry: null).ReadAsync(Founder, Tenant, Now);
+        var inputs = await Reader(registry: null).ReadAsync(Founder, Tenant, AdmittedInstant.FromRecordedAct(Now));
 
         Assert.NotNull(inputs);
         Assert.False(inputs.RegistryMember);
@@ -41,7 +53,7 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
     {
         var memberships = teams.Select(team => Membership(team == "this" ? Team : OtherTeam)).ToArray();
 
-        var inputs = await Reader(new FixedRegistry(memberships)).ReadAsync(Founder, Tenant, Now);
+        var inputs = await Reader(new FixedRegistry(memberships)).ReadAsync(Founder, Tenant, AdmittedInstant.FromRecordedAct(Now));
 
         Assert.NotNull(inputs);
         Assert.Equal(expected, inputs.RegistryMember);
@@ -53,7 +65,7 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
     {
         var reader = new NodeAuthorizationRosterConstraintReader(new NullPartyReader(), new RefusingRosterReader());
 
-        Assert.Null(await reader.ReadAsync(Founder, Tenant, Now));
+        Assert.Null(await reader.ReadAsync(Founder, Tenant, AdmittedInstant.FromRecordedAct(Now)));
 
         var decision = await TestAuthorization.Gate(_ => true, reader).DecideAsync(
             new AuthorizationWriteContext(Founder, Tenant, AdmittedInstant.FromRecordedAct(Now))
@@ -83,12 +95,18 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
 
     private sealed class FixedRosterReader(MemberRoster roster) : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => Task.FromResult(roster);
+        internal AdmittedInstant? LastInstant { get; private set; }
+
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct)
+        {
+            LastInstant = admittedAt;
+            return Task.FromResult(roster);
+        }
     }
 
     private sealed class RefusingRosterReader : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) =>
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) =>
             throw new VerifiedTenantRosterRefusedException(VerifiedTenantRosterRefusal.MissingGenesis, "no genesis");
     }
 

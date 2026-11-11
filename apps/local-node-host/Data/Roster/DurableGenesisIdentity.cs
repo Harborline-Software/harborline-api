@@ -1,12 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.Time;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
 /// <summary>Reads the install's signed genesis before the host can publish any roster or transport state.</summary>
+[ClockAuthority("T-650/T-690: boot genesis proof admits one startup act on the host kernel clock.")]
 public static class DurableGenesisIdentity
 {
     /// <summary>Stable startup refusal when the install's derived signing identity disagrees with its log.</summary>
@@ -21,8 +24,10 @@ public static class DurableGenesisIdentity
         Guid tenantId,
         PrincipalId derivedPrincipal,
         IOperationVerifier verifier,
+        TimeProvider timeProvider,
         CancellationToken ct)
     {
+        var admittedAt = AdmittedInstant.Read(timeProvider);
         await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
         await db.Database.MigrateAsync(ct).ConfigureAwait(false);
         var canonicalTeam = tenantId.ToString("D");
@@ -34,7 +39,7 @@ public static class DurableGenesisIdentity
         try
         {
             stored = await new VerifiedTenantRosterReader(factory, verifier)
-                .ReadPartialAsync(new TenantId(canonicalTeam), derivedPrincipal, ct).ConfigureAwait(false);
+                .ReadPartialAsync(new TenantId(canonicalTeam), derivedPrincipal, admittedAt, ct).ConfigureAwait(false);
         }
         catch (VerifiedTenantRosterRefusedException ex)
         {

@@ -101,7 +101,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
         var roster = new MutableRosterReader(GenesisRoster());
         var context = Context();
 
-        await (await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster)).ExecuteAsync(context);
+        await (await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, new FixedTimeProvider(Now))).ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
     }
@@ -114,12 +114,13 @@ public sealed class SelectedSessionEffectivePermissionsTests
     public async Task Bootstrap_Bearer_Gets_The_Chain_Root_Floor()
     {
         var roster = new MutableRosterReader(GenesisRoster());
+        var clock = new FixedTimeProvider(Now);
         var context = Context();
         context.Features.Set(SharedHostedWebApp.BootstrapBearerRequestPrincipal.Instance);
 
         var permissions = await ReadBodyAsync(
             context,
-            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, ActiveTeam(TeamId)));
+            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, clock, ActiveTeam(TeamId)));
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         // The chain root's authority is its genesis self-admission, the same rule the replicated rebuild
@@ -128,6 +129,8 @@ public sealed class SelectedSessionEffectivePermissionsTests
             PermissionCompositions.Owner.Permissions.Order(StringComparer.Ordinal),
             permissions.Order(StringComparer.Ordinal));
         Assert.Contains(TeamRolePermissions.MembersManage, permissions);
+        Assert.Equal(Now, Assert.IsType<AdmittedInstant>(roster.LastInstant).Value);
+        Assert.Equal(1, clock.Reads);
     }
 
     [Fact(DisplayName =
@@ -142,7 +145,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
 
         var permissions = await ReadBodyAsync(
             context,
-            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, ActiveTeam(TeamId)));
+            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, new FixedTimeProvider(Now), ActiveTeam(TeamId)));
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         Assert.Empty(permissions);
@@ -158,7 +161,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
 
         // Active is null — there is no tenant to project, and the branch must not fall back to a
         // configured, first, or well-known team. Refusal is the only correct answer.
-        await (await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, ActiveTeam(null)))
+        await (await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, new FixedTimeProvider(Now), ActiveTeam(null)))
             .ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
@@ -182,6 +185,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
         await (await SelectedSessionIdentityRoutes.PermissionsAsync(
             context,
             roster,
+            new FixedTimeProvider(Now),
             ActiveTeam(TeamId))).ExecuteAsync(context);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
@@ -210,7 +214,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
 
         var permissions = await ReadBodyAsync(
             context,
-            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, ActiveTeam(TeamId)));
+            await SelectedSessionIdentityRoutes.PermissionsAsync(context, roster, new FixedTimeProvider(Now), ActiveTeam(TeamId)));
 
         // The chain root's floor, not the member's — the request said "member" in three places and the node
         // ignored all three.
@@ -312,7 +316,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
             context.Request.Headers.Cookie = $"{WebSessionCookieNames.Selected}=selected-handle";
             context.Features.Set(_principal);
 
-            var result = await SelectedSessionIdentityRoutes.PermissionsAsync(context, _roster);
+            var result = await SelectedSessionIdentityRoutes.PermissionsAsync(context, _roster, new FixedTimeProvider(Now));
             await result.ExecuteAsync(context);
             return new ResponseBody(context.Response.StatusCode, await PermissionsOfBodyAsync(context));
         }
@@ -375,7 +379,13 @@ public sealed class SelectedSessionEffectivePermissionsTests
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        internal int Reads { get; private set; }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            Reads++;
+            return now;
+        }
     }
 
     private sealed class StubActiveTeamAccessor : IActiveTeamAccessor
@@ -415,10 +425,15 @@ public sealed class SelectedSessionEffectivePermissionsTests
     private sealed class MutableRosterReader(MemberRoster current) : IVerifiedTenantRosterReader
     {
         internal MemberRoster Current { get; set; } = current;
+        internal AdmittedInstant? LastInstant { get; private set; }
 
         public Task<MemberRoster> ReadAsync(
             TenantId tenantId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Current);
+            AdmittedInstant admittedAt,
+            CancellationToken cancellationToken = default)
+        {
+            LastInstant = admittedAt;
+            return Task.FromResult(Current);
+        }
     }
 }

@@ -996,7 +996,7 @@ public sealed class KernelClockIntegrationTests
         {
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var roster = await Services.GetRequiredService<IVerifiedTenantRosterReader>()
-                .ReadAsync(tenant, CancellationToken.None);
+                .ReadAsync(tenant, AdmittedInstant.Read(_clock), CancellationToken.None);
             var admin = roster.Members.Single(member =>
                 roster.PermissionsOf(member.PartyId)!.Contains(TeamRolePermissions.MembersManage));
             var adminParty = new PartyId(admin.PartyId);

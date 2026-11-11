@@ -48,12 +48,12 @@ public sealed class RosterAuthorityBindingTests
         if (!admitterGranted)
         {
             var refusal = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
-                () => reader.ReadAsync(Tenant, default));
+                () => reader.ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default));
             Assert.Contains("not reachable", refusal.Message, StringComparison.Ordinal);
             return;
         }
 
-        var rebuilt = await reader.ReadAsync(Tenant, default);
+        var rebuilt = await reader.ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
         Assert.Contains(rebuilt.Members, m => m.PartyId == "admin");
         Assert.Contains(rebuilt.Members, m => m.PartyId == "chain");
     }
@@ -65,7 +65,7 @@ public sealed class RosterAuthorityBindingTests
         var signers = await SeedChainAsync(store, Admitter);
         await using var host = ComposedHost(store, signers.Founder);
 
-        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, default);
+        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
 
         Assert.Contains(rebuilt.Members, member => member.PartyId == "chain");
     }
@@ -83,7 +83,7 @@ public sealed class RosterAuthorityBindingTests
             revokeChain: true);
         await using var host = ComposedHost(store, signers.Founder);
 
-        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, default);
+        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
 
         // The admission stands either way; the signed revocation is applied only when the revoker's grant
         // carries members:revoke, and is dropped otherwise.

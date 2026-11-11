@@ -153,7 +153,7 @@ internal sealed class AccountSetupInvitationIssuer(
         MemberRoster roster;
         try
         {
-            roster = await _rosterReader.ReadAsync(tenant, cancellationToken).ConfigureAwait(false);
+            roster = await _rosterReader.ReadAsync(tenant, authority.Instant, cancellationToken).ConfigureAwait(false);
         }
         catch (VerifiedTenantRosterRefusedException)
         {
