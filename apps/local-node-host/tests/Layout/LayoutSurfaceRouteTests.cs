@@ -133,6 +133,58 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(0, h.Related.OutsideResolver);
     }
 
+    [Theory(DisplayName = "T-735/binding-source-closure T-1079: a served root records one RecordRead with the caller, root and optional correlation")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_served_root_records_one_read_receipt(bool correlated)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        var correlation = correlated ? Guid.Parse("73500000-0000-4000-8000-000000000001") : (Guid?)null;
+
+        using var response = await h.GetAsync(new ActorId("member-735"), "invoice", "invoice-7", correlation);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var row = Assert.Single(await RowsAsync(h.Pipeline.Trail, h.Tenant));
+        Assert.Equal("RecordRead", row.EventType.Value);
+        Assert.Equal("member-735", row.Actor!.Value.Value);
+        Assert.Equal("invoice-7", row.Target!.Value.RecordId);
+        Assert.Equal("records:read", row.Act!.Value.Operation.Value);
+        Assert.Equal("invoice-7", row.Payload.Payload.Body["recordId"]);
+        Assert.NotNull(row.AuthoritySnapshot);
+        Assert.Equal(row.AuditId.ToString("D"), Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Id")));
+        if (correlated)
+        {
+            Assert.Equal("73500000-0000-4000-8000-000000000001", row.Payload.Payload.Body["correlation_id"]);
+            Assert.Equal("73500000-0000-4000-8000-000000000001",
+                Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Correlation")));
+        }
+        else
+        {
+            Assert.False(row.Payload.Payload.Body.ContainsKey("correlation_id"));
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+        }
+    }
+
+    [Theory(DisplayName = "T-735/binding-source-closure layout-eng-31: a missing or denied root records no RecordRead")]
+    [InlineData("member-735", "invoice-404", HttpStatusCode.NotFound)]
+    [InlineData("opener-only-735", "invoice-7", HttpStatusCode.Forbidden)]
+    [InlineData("opener-only-735", "invoice-404", HttpStatusCode.Forbidden)]
+    [InlineData("reader-only-735", "invoice-7", HttpStatusCode.Forbidden)]
+    public async Task A_missing_or_denied_root_records_no_read_receipt(string caller, string root, HttpStatusCode expectedStatus)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var response = await h.GetAsync(new ActorId(caller), "invoice", root);
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.DoesNotContain(await RowsAsync(h.Pipeline.Trail, h.Tenant), row => row.EventType.Value == "RecordRead");
+        if (expectedStatus == HttpStatusCode.NotFound)
+        {
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+        }
+    }
+
     [Fact(DisplayName = "T-735: an unknown surface refuses with layout.surface.unknown")]
     public async Task An_unknown_surface_refuses_with_a_stable_code()
     {
@@ -315,9 +367,10 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(member, viewer);
         using var body = JsonDocument.Parse(member.Body);
         Assert.Equal(["supplier=\"Fabrikam\""], Blocks(body.RootElement));
-        // No target was found, so the gate was never asked about one and nothing was traced.
+        // No target was found, so the gate was never asked about one and no related denial was traced.
         await h.Pipeline.Appender.IdleAsync();
-        Assert.Empty(await RowsAsync(h.Pipeline.Trail, h.Tenant));
+        Assert.Equal(["RecordRead", "RecordRead"],
+            (await RowsAsync(h.Pipeline.Trail, h.Tenant)).Select(row => row.EventType.Value));
     }
 
     [Fact(DisplayName = "layout-eng-31 T-735: over HTTP, a missing and a denied related target give an unauthorized caller the same status and body bytes")]
@@ -328,7 +381,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         h.Related.Present = false;
         var missing = await h.ReadAsync(Viewer, SurfacePack.Invoice, Root);
         await h.Pipeline.Appender.IdleAsync();
-        Assert.Empty(await RowsAsync(h.Pipeline.Trail, h.Tenant));
+        Assert.Equal("RecordRead", Assert.Single(await RowsAsync(h.Pipeline.Trail, h.Tenant)).EventType.Value);
         h.Related.Present = true;
         var denied = await h.ReadAsync(Viewer, SurfacePack.Invoice, Root);
         await h.Pipeline.Appender.IdleAsync();
@@ -336,7 +389,9 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(HttpStatusCode.OK, missing.Status);
         Assert.Equal(missing, denied);
         // The denied path is real: the target exists, the gate refused it and the trace recorded it.
-        Assert.Single(await RowsAsync(h.Pipeline.Trail, h.Tenant));
+        var rows = await RowsAsync(h.Pipeline.Trail, h.Tenant);
+        Assert.Equal(2, rows.Count(row => row.EventType.Value == "RecordRead"));
+        Assert.Equal("LayoutRelatedDenied", Assert.Single(rows, row => row.EventType.Value != "RecordRead").EventType.Value);
         // The control: a caller who may read the target sees it, so the equality above is not vacuous.
         var allowed = await h.ReadAsync(Member, SurfacePack.Invoice, Root);
         Assert.NotEqual(denied.Body, allowed.Body);
@@ -503,6 +558,30 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal("layout.surface.relationship_undeclared", await CodeAsync(response));
     }
 
+    [Theory(DisplayName = "T-735/binding-source-closure layout-ck-39: only an exposed dependency Record Type binds at the route")]
+    [InlineData(false, HttpStatusCode.UnprocessableEntity)]
+    [InlineData(true, HttpStatusCode.OK)]
+    public async Task Only_an_exposed_dependency_record_type_binds(bool exposed, HttpStatusCode expectedStatus)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero, exposeRecordTypes: exposed);
+
+        using var response = await h.GetAsync(Member, "invoice-from-dependency", "invoice-7");
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        if (exposed)
+        {
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(["owner-card=\"Owner\"", "owner-name=\"Contoso\"", "supplier=\"Fabrikam\""], Blocks(body.RootElement));
+            Assert.Empty(body.RootElement.GetProperty("refusals").EnumerateArray());
+            Assert.Equal(1, h.Related.Lookups);
+        }
+        else
+        {
+            Assert.Equal("layout.surface.relationship_undeclared", await CodeAsync(response));
+            Assert.Equal(0, h.Related.Lookups);
+        }
+    }
+
     [Fact(DisplayName = "T-735: a surface identity two Active packs carry refuses with layout.surface.ambiguous and is not chosen between")]
     public async Task A_surface_two_active_packs_carry_refuses()
     {
@@ -657,7 +736,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public FixtureRelatedRecords Related { get; }
 
         public static async Task<Host> CreateAsync(TimeSpan floor, ILayoutRelatedRecordSource? relatedSource = null,
-            ILayoutRootRecordSource? rootSource = null)
+            ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true)
         {
             var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
             var authorization = await SeededAuthorizationAsync(tenant);
@@ -670,7 +749,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var time = new FixedTime(At);
             var surfaces = new LayoutSurfaceHost(gate, pipeline.Outbox, pipeline.Appender, pipeline.Alarms, time,
                 NullLogger.Instance, options);
-            var packs = await SurfacePack.InstallAsync(tenant);
+            var packs = await SurfacePack.InstallAsync(tenant, exposeRecordTypes);
             var roots = new FixtureRoots();
             roots.Add(Root, SurfacePack.InvoiceType,
                 """{"supplier":"Fabrikam","owner":{"type":"finance.party","id":"party-19"}}""");
@@ -684,6 +763,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var builder = WebApplication.CreateBuilder();
             TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddSingleton(gate);
+            builder.Services.AddSingleton(pipeline.AcceptedActs);
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
@@ -702,7 +782,8 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 }
                 await next(http);
             });
-            LayoutSurfaceRoutes.Map(app.MapSelectedSessionProductGroup(), surfaces, packs, rootSource ?? roots, relatedSource ?? related, time);
+            LayoutSurfaceRoutes.Map(app.MapSelectedSessionProductGroup(), surfaces, packs, rootSource ?? roots, relatedSource ?? related,
+                time, app.Services.GetRequiredService<AuthorizedActAudit>());
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();

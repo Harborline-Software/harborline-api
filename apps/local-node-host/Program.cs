@@ -582,7 +582,7 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
 
         storedGenesisRoster = await DurableGenesisIdentity.ReadAsync(
             rosterFactory,
-            genesisTeamId, genesisSigner.Signer.IssuerId, genesisVerifier, CancellationToken.None);
+            genesisTeamId, genesisSigner.Signer.IssuerId, genesisVerifier, rootTimeProvider, CancellationToken.None);
 
         if (storedGenesisRoster is null)
         {

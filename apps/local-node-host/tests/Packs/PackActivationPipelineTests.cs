@@ -38,6 +38,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// and the store's state, not only the returned outcome.
 /// Refusal-code oracles are literal public contract values, independent of production constants.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class PackActivationPipelineTests
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-0000000005b5");

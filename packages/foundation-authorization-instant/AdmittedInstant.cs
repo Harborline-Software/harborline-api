@@ -30,6 +30,18 @@ public sealed record AdmittedInstant
     internal static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
 
     /// <summary>
+    /// Caps replicated roster authority at the caller's admitted act plus its reviewed skew window.
+    /// Internal; AdmittedInstantArchTests pins the sole host caller that supplies the handshake window.
+    /// </summary>
+    internal static AdmittedInstant ForRosterAuthority(
+        DateTimeOffset boundedOrderTime, AdmittedInstant admittedAt, TimeSpan skew)
+    {
+        ArgumentNullException.ThrowIfNull(admittedAt);
+        var cap = admittedAt.Value + skew;
+        return new(boundedOrderTime < cap ? boundedOrderTime : cap);
+    }
+
+    /// <summary>
     /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
     /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
     /// </summary>

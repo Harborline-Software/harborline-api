@@ -14,6 +14,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// ck-10 S4 (DES-0029, ADR 0038): bank-account create, archive and opening balance run the six stages through
 /// <see cref="WritePipeline.RunAsync"/>. Each refusal stops the write at its own stage and writes nothing.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class BankAccountWritePipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);

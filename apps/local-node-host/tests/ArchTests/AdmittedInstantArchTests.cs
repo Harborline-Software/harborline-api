@@ -20,7 +20,9 @@ public sealed class AdmittedInstantArchTests
         ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "ForRehearsal", 1,
             "T-1056 (R2): verification decides the rehearsed create at the rehearsal instant read from the declared clock."),
         ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "FromRecordedAct", 1,
-            "T-1056: roster authority is read as of a record's bounded order time (attested receipt, IssuedAt within the one skew window), L143."),
+            "Insert eligibility wraps the validated record time; capped read sites bypass this mint and retain ForRosterAuthority."),
+        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "ForRosterAuthority", 1,
+            "T-1056: replication caps every authority read at min(bounded order time, the act's admitted instant plus the handshake window)."),
         ("apps/local-node-host/Layout/LayoutDenialOutbox.cs", "FromRecordedAct", 1,
             "The appender replays a stored denial at the OccurredAt the server clock wrote into its outbox row."),
         ("packages/foundation-packs/Install/PackProjectionAuthority.cs", "FromRecordedAct", 1,
@@ -56,7 +58,7 @@ public sealed class AdmittedInstantArchTests
         // host's, ticket 216). The raw mints are internal, so no public path builds a request from a raw instant.
         Assert.Equal(["Read(TimeProvider)"], Factories(method => method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly));
         Assert.Equal(
-            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "ForRehearsal(RehearsalInstant)", "FromRecordedAct(DateTimeOffset)"],
+            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "ForRehearsal(RehearsalInstant)", "ForRosterAuthority(DateTimeOffset,AdmittedInstant,TimeSpan)", "FromRecordedAct(DateTimeOffset)"],
             Factories(method => method.IsAssembly));
         Assert.Equal(ReviewedFriends, type.Assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName)
@@ -120,11 +122,13 @@ public sealed class AdmittedInstantArchTests
 
         var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
                 target => target.DeclaringType == typeof(AdmittedInstant)
-                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt) or nameof(AdmittedInstant.ForRehearsal))
+                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt) or nameof(AdmittedInstant.ForRehearsal) or nameof(AdmittedInstant.ForRosterAuthority))
             .GroupBy(site => (site.Path, Kind: site.Target.Contains($".{nameof(AdmittedInstant.Exempt)}(", StringComparison.Ordinal)
                 ? nameof(AdmittedInstant.Exempt)
                 : site.Target.Contains($".{nameof(AdmittedInstant.ForRehearsal)}(", StringComparison.Ordinal)
-                    ? nameof(AdmittedInstant.ForRehearsal) : nameof(AdmittedInstant.FromRecordedAct)))
+                    ? nameof(AdmittedInstant.ForRehearsal)
+                    : site.Target.Contains($".{nameof(AdmittedInstant.ForRosterAuthority)}(", StringComparison.Ordinal)
+                        ? nameof(AdmittedInstant.ForRosterAuthority) : nameof(AdmittedInstant.FromRecordedAct)))
             .Select(group => $"{group.Key.Path}	{group.Key.Kind}	{group.Count()}")
             .Order(StringComparer.Ordinal)
             .ToArray();

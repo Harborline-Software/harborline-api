@@ -274,7 +274,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         var before = JsonSerializer.Serialize(await RowsAsync());
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DurableGenesisIdentity.ReadAsync(
             factory, Guid.Parse(Tenant), signer.Signer.IssuerId, new Ed25519Verifier(),
-            CancellationToken.None));
+            provider.GetRequiredService<TimeProvider>(), CancellationToken.None));
         Assert.StartsWith("genesis_log_legacy_format:", error.Message);
         Assert.Contains("Re-initialise this development install", error.Message);
         Assert.Contains("stop the host, delete local-node.db and its -wal and -shm sidecars from the data directory", error.Message);

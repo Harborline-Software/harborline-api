@@ -486,7 +486,7 @@ public sealed class AccountSetupInvitationIssuerTests
 
     private sealed class FixedRosterReader(MemberRoster roster) : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) =>
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) =>
             Task.FromResult(roster);
     }
 

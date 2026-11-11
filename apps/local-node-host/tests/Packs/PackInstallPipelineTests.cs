@@ -30,6 +30,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// through <see cref="WritePipeline.RunAsync"/>. Every case asserts the stages the real installer entered and
 /// the store's state, not only the returned outcome.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class PackInstallPipelineTests : IDisposable
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-0000000005c5");

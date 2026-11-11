@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -60,14 +61,14 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         var fixture = BuildRoster();
         await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture)));
 
-        var beforeRestart = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
+        var beforeRestart = await NewReader().ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
         Assert.True(beforeRestart.Contains(fixture.MemberParty));
         Assert.True(beforeRestart.ValidatesToGenesis(Verifier));
 
         SqliteConnection.ClearAllPools();
         var restartedFactory = new TestRosterContextFactory(_connectionString);
         var afterRestart = await new VerifiedTenantRosterReader(restartedFactory, Verifier)
-            .ReadAsync(Tenant(), CancellationToken.None);
+            .ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
 
         Assert.Equal(Team, afterRestart.TeamId);
         Assert.Equal(beforeRestart.Members.Select(member => member.PartyId).Order(),
@@ -102,7 +103,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
             .Append(ToRow(revocation, fixture)));
 
-        var verified = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
+        var verified = await NewReader().ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
 
         Assert.True(verified.Contains(fixture.FounderParty));
         Assert.False(verified.Contains(fixture.MemberParty));
@@ -209,7 +210,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
 
         for (var i = 0; i < 100; i++)
         {
-            var pendingRead = reader.ReadAsync(Tenant(), CancellationToken.None);
+            var pendingRead = reader.ReadAsync(Tenant(), AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None);
             await activeTeam.SetActiveAsync(
                 new RuntimeTeamId(i % 2 == 0 ? Team : OtherTeam),
                 CancellationToken.None);
@@ -222,10 +223,149 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
 
     private VerifiedTenantRosterReader NewReader() => new(_factory, Verifier);
 
+    [Fact]
+    public async Task StartupRead_AdmitsOneKernelClockInstantForGenesisProof()
+    {
+        var factory = new TestRosterContextFactory(
+            $"Data Source={Path.Combine(_directory, "startup.db")};Pooling=False");
+        var fixture = BuildRoster();
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.RosterRecords.Add(ToRow(fixture.Admissions.Single(admission => admission.Admission.IsGenesis), fixture));
+            await db.SaveChangesAsync();
+        }
+        var clock = new CountingClock();
+
+        var roster = await DurableGenesisIdentity.ReadAsync(factory, Team, fixture.FounderSigner.IssuerId,
+            Verifier, clock, CancellationToken.None);
+
+        Assert.NotNull(roster);
+        Assert.True(roster.Contains(fixture.FounderParty));
+        Assert.Equal(1, clock.Reads);
+    }
+
+    [Fact]
+    public void ReadAsync_RequiresTheActsAdmittedInstant()
+    {
+        var read = Assert.Single(typeof(IVerifiedTenantRosterReader).GetMethods());
+        Assert.Equal([typeof(TenantId), typeof(AdmittedInstant), typeof(CancellationToken)],
+            read.GetParameters().Select(parameter => parameter.ParameterType));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(30)]
+    [InlineData(60)]
+    public async Task StartupRead_RemoteReceiptCannotAuthorizePlantedDelegation(int receivedAhead)
+    {
+        var factory = new TestRosterContextFactory(
+            $"Data Source={Path.Combine(_directory, "startup-planted.db")};Pooling=False");
+        var founder = new Ed25519Signer(KeyPair.Generate());
+        var admin = new Ed25519Signer(KeyPair.Generate());
+        var roster = MemberRoster.Genesis(Team, "founder", founder, Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("founder", founder, "admin", admin.IssuerId, PermissionCompositions.Owner,
+                Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("admin", admin, "planted", KeyPair.Generate().PrincipalId,
+                PermissionSet.Of(TeamRolePermissions.RecordsRead), Verifier, IssuedAt, Guid.NewGuid());
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.RosterRecords.AddRange(roster.EnumerateAdmissions().Select(admission =>
+                NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                    .AttestReceipt(founder, "founder", admission.PartyId == "planted"
+                        ? IssuedAt.AddSeconds(receivedAhead) : IssuedAt))));
+            await db.SaveChangesAsync();
+        }
+        var clock = new CountingClock();
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DurableGenesisIdentity.ReadAsync(factory, Team, founder.IssuerId, Verifier, clock, CancellationToken.None));
+
+        Assert.Equal(VerifiedTenantRosterRefusal.Orphan,
+            Assert.IsType<VerifiedTenantRosterRefusedException>(refusal.InnerException).Refusal);
+        Assert.Equal(1, clock.Reads);
+        await using var after = factory.CreateDbContext();
+        Assert.Equal(3, await after.RosterRecords.CountAsync());
+    }
+
+    [Theory]
+    [InlineData(31, 31, false, 0)]
+    [InlineData(0, 60, false, 0)]
+    [InlineData(30, 30, true, 0)]
+    [InlineData(31, 31, false, 1)]
+    [InlineData(0, 60, false, 1)]
+    [InlineData(30, 30, true, 1)]
+    [InlineData(31, 31, false, 2)]
+    [InlineData(0, 60, false, 2)]
+    [InlineData(30, 30, true, 2)]
+    public async Task ReadAsync_UsesTheCallersAdmittedInstantForPlantedAndWindowEdgeAuthority(
+        int issuedAhead, int receivedAhead, bool allowed, int readPath)
+    {
+        var founder = new Ed25519Signer(KeyPair.Generate());
+        var admin = new Ed25519Signer(KeyPair.Generate());
+        var permissions = PermissionSet.Of(Permission.MembersAdmit, TeamRolePermissions.RecordsRead);
+        var roster = MemberRoster.Genesis(Team, "founder", founder, Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("founder", founder, "admin", admin.IssuerId, permissions, Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("admin", admin, "planted", KeyPair.Generate().PrincipalId,
+                PermissionSet.Of(TeamRolePermissions.RecordsRead), Verifier,
+                IssuedAt.AddSeconds(issuedAhead), Guid.NewGuid());
+        await SeedAsync(roster.EnumerateAdmissions().Select(admission => NodeRosterRecord.FromCrdtState(
+            RosterRecordCrdtState.FromAdmission(admission).AttestReceipt(founder, "founder",
+                admission.PartyId == "planted" ? IssuedAt.AddSeconds(receivedAhead) : IssuedAt))));
+        var authority = new WindowedAuthority(IssuedAt.AddSeconds(receivedAhead), permissions);
+        var admittedAt = AdmittedInstant.FromRecordedAct(IssuedAt);
+
+        var reader = new VerifiedTenantRosterReader(_factory, Verifier, authority);
+        Task<MemberRoster> ReadAsync() => readPath switch
+        {
+            1 => reader.ReadPartialAsync(Tenant(), founder.IssuerId, admittedAt, CancellationToken.None),
+            2 => reader.ReadForRebuildAsync(Tenant(), admittedAt, CancellationToken.None),
+            _ => reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None),
+        };
+        if (allowed)
+        {
+            var rebuilt = await ReadAsync();
+            Assert.True(rebuilt.Contains("planted"));
+        }
+        else
+        {
+            var refused = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
+                ReadAsync);
+            Assert.Equal(VerifiedTenantRosterRefusal.Orphan, refused.Refusal);
+        }
+        Assert.Contains(IssuedAt.AddSeconds(30), authority.Reads);
+        Assert.All(authority.Reads, instant => Assert.True(instant <= IssuedAt.AddSeconds(30)));
+        Assert.DoesNotContain(IssuedAt.AddSeconds(60), authority.Reads);
+    }
+
+    private sealed class WindowedAuthority(DateTimeOffset startsAt, PermissionSet permissions) : IRosterAuthority
+    {
+        internal List<DateTimeOffset> Reads { get; } = [];
+
+        public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+        {
+            Reads.Add(at);
+            return partyId == "admin" && at >= startsAt
+                ? permissions : PermissionSet.Of(TeamRolePermissions.RecordsRead);
+        }
+    }
+
+    private sealed class CountingClock : TimeProvider
+    {
+        internal int Reads { get; private set; }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            Reads++;
+            return IssuedAt;
+        }
+    }
+
     private async Task AssertRefusalAsync(VerifiedTenantRosterRefusal expected, TenantId tenant)
     {
         var exception = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
-            () => NewReader().ReadAsync(tenant, CancellationToken.None));
+            () => NewReader().ReadAsync(tenant, AdmittedInstant.FromRecordedAct(IssuedAt), CancellationToken.None));
         Assert.Equal(expected, exception.Refusal);
     }
 
