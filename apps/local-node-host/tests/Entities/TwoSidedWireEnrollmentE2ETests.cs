@@ -186,6 +186,151 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         Assert.Equal(projection.PublicKeyOf("target"), plan.Roster.PublicKeyOf("target"));
     }
 
+    [Theory]
+    [InlineData(-11, true)]
+    [InlineData(-10, false)]
+    [InlineData(-9, false)]
+    public void EnrollmentChecksAttestersAtTheStrictBoundedOrderPoint(int attesterSeconds, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var attester = f.Admission("attester", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(attesterSeconds));
+        var record = f.Admission("guest", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddMinutes(-2));
+        var receipt = RosterReceiveAttestationSigning.Sign(
+            new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other), "attester",
+            $"admission:guest:{record.Admission.Nonce:D}", EnrollmentTimeFixture.At.AddSeconds(-10), record.Admission.Nonce);
+        var response = f.WithRecord(attester, null);
+        response = response with { Admissions = [.. response.Admissions,
+            new(record.TeamId, record.PartyId, record.PublicKey.ToBase64Url(), record.Admission, receipt)] };
+        foreach (var admissions in new[] { response.Admissions.ToArray(), response.Admissions.Reverse().ToArray() })
+        {
+            var plan = f.Adopt(response with { Admissions = admissions });
+            Assert.Equal(accepted, plan.Succeeded);
+            if (accepted) Assert.Equal(f.Joiner.PrincipalId, plan.Roster!.PublicKeyOf("guest"));
+            else Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void EnrollmentRejectsTheDeferredCircularReceiptButAcceptsAnEarlierLegacyAttester(bool selfAttested, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var earlier = f.Admission("target", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-40));
+        var later = f.Admission("target", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var signer = new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other);
+        var receipt = RosterReceiveAttestationSigning.Sign(signer, "target",
+            $"admission:target:{earlier.Admission.Nonce:D}", EnrollmentTimeFixture.At, earlier.Admission.Nonce);
+        var selfReceipt = selfAttested ? RosterReceiveAttestationSigning.Sign(signer, "target",
+            $"admission:target:{later.Admission.Nonce:D}", EnrollmentTimeFixture.At.AddSeconds(-10), later.Admission.Nonce) : null;
+        var response = f.WithRecord(earlier, receipt);
+        response = response with { Admissions = [.. response.Admissions,
+            new(later.TeamId, later.PartyId, later.PublicKey.ToBase64Url(), later.Admission, selfReceipt)] };
+        foreach (var admissions in new[] { response.Admissions.ToArray(), response.Admissions.Reverse().ToArray() })
+        {
+            var plan = f.Adopt(response with { Admissions = admissions });
+            Assert.Equal(accepted, plan.Succeeded);
+            if (accepted) Assert.Equal(f.Other.PrincipalId, plan.Roster!.PublicKeyOf("target"));
+            else Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+        }
+    }
+
+    [Theory]
+    [InlineData(-11, false)]
+    [InlineData(-10, true)]
+    [InlineData(-9, true)]
+    public void EnrollmentRejectsAnAttesterRevokedBeforeTheOrderPoint(int revokedSeconds, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var attester = f.Admission("attester", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-20));
+        var record = f.Admission("guest", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddMinutes(-2));
+        var receipt = RosterReceiveAttestationSigning.Sign(
+            new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other), "attester",
+            $"admission:guest:{record.Admission.Nonce:D}", EnrollmentTimeFixture.At.AddSeconds(-10), record.Admission.Nonce);
+        var revoked = RosterSigning.SignRevocation(f.Signer, f.Team, "attester", "founder",
+            EnrollmentTimeFixture.At.AddSeconds(revokedSeconds), Guid.NewGuid());
+        var response = f.WithRecord(attester, null);
+        response = response with { Admissions = [.. response.Admissions,
+            new(record.TeamId, record.PartyId, record.PublicKey.ToBase64Url(), record.Admission, receipt)],
+            Revocations = [new(f.Team.ToString("D"), "attester", revoked)] };
+        foreach (var admissions in new[] { response.Admissions.ToArray(), response.Admissions.Reverse().ToArray() })
+        {
+            var plan = f.Adopt(response with { Admissions = admissions });
+            Assert.Equal(accepted, plan.Succeeded);
+            if (accepted) Assert.False(plan.Roster!.Contains("attester"));
+            else Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void EnrollmentChecksTheGenesisReceiptAgainstTheInviteAnchor(bool outsider, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var genesis = f.Roster.EnumerateAdmissions().Single(record => record.Admission.IsGenesis);
+        var receipt = outsider ? RosterReceiveAttestationSigning.Sign(
+            new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Joiner), "joiner",
+            $"admission:founder:{genesis.Admission.Nonce:D}", genesis.Admission.IssuedAt, genesis.Admission.Nonce)
+            : f.Receipt(genesis, genesis.Admission.IssuedAt);
+        var response = f.Response with { Admissions = f.Response.Admissions.Select(record =>
+            record.Admission.IsGenesis ? record with { ReceiveAttestation = receipt } : record).ToArray() };
+        var plan = f.Adopt(response);
+        Assert.Equal(accepted, plan.Succeeded);
+        if (!accepted) Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+    }
+
+    [Fact]
+    public void EnrollmentRequiresTheInviteAnchorsGenesisRecord()
+    {
+        using var f = new EnrollmentTimeFixture();
+        var response = f.Response with { Admissions = f.Response.Admissions.Where(record => !record.Admission.IsGenesis).ToArray() };
+        var plan = f.Adopt(response);
+        Assert.False(plan.Succeeded);
+        Assert.Equal("roster_not_genesis_rooted", plan.FailureReason);
+    }
+
+    [Fact]
+    public void EnrollmentRefusesOneTickReceiptTamperingAtTheInclusiveBoundary()
+    {
+        using var f = new EnrollmentTimeFixture();
+        var earlier = f.Admission("target", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-30));
+        var later = f.Admission("target", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var receipt = f.Receipt(earlier, EnrollmentTimeFixture.At);
+        var response = f.WithRecord(later, null);
+        EnrollmentResponse WithReceipt(RosterReceiveAttestation carried) => response with
+        {
+            Admissions = [.. response.Admissions,
+                new(earlier.TeamId, earlier.PartyId, earlier.PublicKey.ToBase64Url(), earlier.Admission, carried)],
+        };
+        var honest = f.Adopt(WithReceipt(receipt));
+        Assert.True(honest.Succeeded, honest.FailureReason);
+        Assert.Equal(f.Joiner.PrincipalId, honest.Roster!.PublicKeyOf("target"));
+        var tampered = f.Adopt(WithReceipt(receipt with { ReceivedAt = receipt.ReceivedAt.AddTicks(1) }));
+        Assert.False(tampered.Succeeded);
+        Assert.Equal("roster.record.receive_attestation_invalid", tampered.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void EnrollmentRejectsConflictingReceiptsForTheSameAdmission(int? secondReceiptSeconds, bool accepted)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var record = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-10));
+        var response = f.WithRecord(record, f.Receipt(record, EnrollmentTimeFixture.At));
+        var duplicate = response.Admissions.Last() with { ReceiveAttestation = secondReceiptSeconds is { } seconds
+            ? f.Receipt(record, EnrollmentTimeFixture.At.AddSeconds(seconds)) : null };
+        response = response with { Admissions = [.. response.Admissions, duplicate] };
+        foreach (var admissions in new[] { response.Admissions.ToArray(), response.Admissions.Reverse().ToArray() })
+        {
+            var plan = f.Adopt(response with { Admissions = admissions });
+            Assert.Equal(accepted, plan.Succeeded);
+            if (!accepted) Assert.Equal("roster.record.receive_attestation_invalid", plan.FailureReason);
+        }
+    }
+
     [Fact]
     public void EnrollmentBuilderCarriesVerbatimReceiptAndCodecPreservesItAndLegacyAbsence()
     {

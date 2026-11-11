@@ -344,8 +344,8 @@ public static class WireEnrollment
         if (!Guid.TryParse(response.TeamId, out var teamId))
             return EnrollmentAdoptionPlan.Failed("malformed_team_id");
 
-        // Verify the evidence before it can influence ordering. Trust in its attester is checked
-        // against the independently rebuilt roster below, never against the sponsor's key hints.
+        // Verify the evidence before it can influence ordering. Attester trust uses the strict
+        // order-point prefix below, never the final roster or the sponsor's key hints.
         foreach (var record in response.Admissions)
         {
             if (record.ReceiveAttestation is { } receipt
@@ -367,8 +367,10 @@ public static class WireEnrollment
             if (record.Signed.IssuedAt > at + window)
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
         }
-        var receipts = response.Admissions.Where(a => a.ReceiveAttestation is not null)
-            .GroupBy(a => a.Admission.Signature, StringComparer.Ordinal)
+        var receiptGroups = response.Admissions.GroupBy(a => a.Admission.Signature, StringComparer.Ordinal).ToArray();
+        if (receiptGroups.Any(group => group.Select(record => record.ReceiveAttestation).Distinct().Skip(1).Any()))
+            return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
+        var receipts = receiptGroups.Where(group => group.First().ReceiveAttestation is not null)
             .ToDictionary(g => g.Key, g => g.First().ReceiveAttestation!.ReceivedAt, StringComparer.Ordinal);
         DateTimeOffset OrderTime(string signature, DateTimeOffset issued) =>
             RosterReceiveAttestationSigning.BoundedOrderTime(issued,
@@ -398,19 +400,29 @@ public static class WireEnrollment
             var revocations = response.Revocations
                 .Select(r => new MemberRevocationRecord(r.TeamId, r.RevokedPartyId, r.Signed))
                 .ToArray();
+            if (!admissions.Any(record => record.Admission.IsGenesis
+                    && string.Equals(record.TeamId, inviteAnchor.TeamId, StringComparison.Ordinal)
+                    && string.Equals(record.PartyId, inviteAnchor.GenesisPartyId, StringComparison.Ordinal)
+                    && string.Equals(record.PublicKey.ToBase64Url(), inviteAnchor.GenesisPublicKey, StringComparison.Ordinal)))
+                return EnrollmentAdoptionPlan.Failed("roster_not_genesis_rooted");
+            foreach (var record in response.Admissions.Where(record => record.ReceiveAttestation is not null)
+                         .OrderBy(record => OrderTime(record.Admission.Signature, record.Admission.IssuedAt)))
+            {
+                var receipt = record.ReceiveAttestation!;
+                var orderPoint = OrderTime(record.Admission.Signature, record.Admission.IssuedAt);
+                var prefix = MemberRoster.FromSyncedRecords(
+                    admissions.Where(admission => admission.Admission.IsGenesis
+                        || OrderTime(admission.Admission.Signature, admission.Admission.IssuedAt) < orderPoint),
+                    revocations.Where(revocation => OrderTime(revocation.Signed.Signature, revocation.Signed.IssuedAt) < orderPoint),
+                    verifier, OrderTime, authority, orderPoint);
+                if (!string.Equals(prefix.PublicKeyOf(receipt.NodePartyId)?.ToBase64Url(), receipt.NodePublicKey, StringComparison.Ordinal))
+                    return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
+            }
             rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, verifier, orderTime: OrderTime, authority: authority, at: at);
         }
         catch (FormatException)
         {
             return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
-        }
-
-        foreach (var receipt in response.Admissions.Select(a => a.ReceiveAttestation).OfType<RosterReceiveAttestation>())
-        {
-            if (!rebuilt.EnumerateAdmissions().Any(a =>
-                    string.Equals(a.PartyId, receipt.NodePartyId, StringComparison.Ordinal)
-                    && string.Equals(a.PublicKey.ToBase64Url(), receipt.NodePublicKey, StringComparison.Ordinal)))
-                return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
         }
 
         if (!rebuilt.ValidatesToGenesis(verifier))

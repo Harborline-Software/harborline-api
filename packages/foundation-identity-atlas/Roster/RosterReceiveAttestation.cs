@@ -60,6 +60,7 @@ public static class RosterReceiveAttestationSigning
         try
         {
             var at = DateTimeOffset.FromUnixTimeMilliseconds(attestation.ReceivedAt.ToUnixTimeMilliseconds());
+            if (attestation.ReceivedAt != at) return false;
             var payload = new RosterReceiveAttestationRecord(attestation.FormatVersion, attestation.NodePartyId,
                 attestation.NodePublicKey, recordId, at.ToString("O"));
             return verifier.Verify(new SignedOperation<RosterReceiveAttestationRecord>(payload,
