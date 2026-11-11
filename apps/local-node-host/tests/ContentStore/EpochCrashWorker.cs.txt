@@ -1,0 +1,60 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
+using Harborline.Api.Foundation.Persistence;
+using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.ContentStore;
+using Harborline.Api.LocalNodeHost.Data.Definitions;
+using Harborline.Foundation.Assets.Common;
+using Harborline.Foundation.ContentStore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+internal static class EpochCrashWorker
+{
+    private static async Task Main(string[] arguments)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSqlCipherLocalNodeDbContextWithStoreDek(Enumerable.Repeat((byte)0x52, 32).ToArray(), Path.Combine(arguments[0], "local-node.db"), pooling: false);
+        services.AddSingleton<IHarborlineEntityModule, ContentStoreEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, DefinitionArchiveEntityModule>();
+        using var provider = services.BuildServiceProvider();
+        var clock = new Clock(long.Parse(arguments[1], CultureInfo.InvariantCulture));
+        var storage = new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), arguments[0]);
+        var store = new InMemoryContentStore(new(300_000, 600_000, 600_000, TimeSpan.FromMinutes(1)), new Keys(), clock, storage);
+        Action<string> crash = step =>
+        {
+            if (step != arguments[2]) return;
+            File.WriteAllText(arguments[3], step);
+            Environment.Exit(73);
+        };
+        typeof(NodeContentEpochKeyStore).GetProperty("AfterDurableStep", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, crash);
+        using var rotation = new NodeContentKeyRotation(storage, new(), clock);
+        await rotation.RunAsync(new TenantId("test-tenant"), store, Evidence, batchSize: 1);
+    }
+
+    private static ContentStoreWrite Evidence()
+    {
+        var identity = Guid.NewGuid().ToString("N");
+        return new(new("command-" + identity, "key-" + identity, "fingerprint-" + identity),
+            new("audit-" + identity, "sys.scheduler", DateTimeOffset.UnixEpoch, ReadOnlyMemory<byte>.Empty));
+    }
+
+    private sealed class Keys : ITenantContentKeyProvider
+    {
+        public byte[] GetKey(TenantId tenant) => SHA256.HashData("fixed-test-root"u8);
+    }
+
+    private sealed class Clock(long ticks) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(ticks, TimeSpan.Zero);
+    }
+}

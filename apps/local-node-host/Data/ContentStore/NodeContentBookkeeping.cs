@@ -89,6 +89,25 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
     /// <summary>How long the post-commit checkpoint waits for a reader before it is left owed.</summary>
     internal const int CheckpointWaitMilliseconds = 1000;
 
+    internal async ValueTask RetireUnusedEpochAsync(TenantId tenant, Guid epochId, ContentStoreWrite write, CancellationToken cancellationToken)
+    {
+        var port = new RetirementPort(this);
+        await KernelTransactionBoundary.ExecutePreparedAsync(async token =>
+        {
+            if (!await port.Transaction!.RetireEpochIfUnnamedAsync(tenant, epochId, token).ConfigureAwait(false))
+                throw new ContentEpochInUseException(epochId);
+            return new KernelCommand<ContentStoreOperation>(write.Operation, ContentStoreOperation.EpochDestroy, write.Audit);
+        }, port, cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class RetirementPort(NodeContentBookkeeping bookkeeping) : IKernelPreparedTransactionPort<ContentStoreOperation, bool>
+    {
+        internal IContentBookkeepingTransaction? Transaction { get; private set; }
+
+        public async ValueTask<IKernelPreparedTransaction<ContentStoreOperation, bool>> BeginAsync(CancellationToken cancellationToken = default) =>
+            Transaction = await bookkeeping.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<ContentStoreItem>> StagedCreatedAtOrBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {

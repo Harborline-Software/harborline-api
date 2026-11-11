@@ -23,6 +23,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
     private const string Extension = ".epoch";
     private static readonly byte[] Magic = "HLCSEPK1"u8.ToArray();
     private readonly string _root;
+    internal static Action<string>? AfterDurableStep { get; set; }
     // ponytail: one node process writes this directory, so one gate orders the compare-and-switch; several writers need a file lock.
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -105,7 +106,9 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
             var directory = TenantDirectory(tenant);
             if (await ReadCurrentAsync(tenant, cancellationToken).ConfigureAwait(false) == epochId) File.Delete(CurrentPath(tenant));
             File.Delete(EpochPath(tenant, epochId));
+            AfterDurableStep?.Invoke("destroy:file-deleted");
             if (Directory.Exists(directory)) NodeContentByteStore.SyncDirectory(directory);
+            AfterDurableStep?.Invoke("destroy:directory-flushed");
         }
         finally
         {
@@ -128,7 +131,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         return Guid.TryParseExact(text, "N", out var current) ? current : throw new InvalidDataException("The current epoch file is unreadable.");
     }
 
-    private static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken)
+    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(directory);
@@ -140,15 +143,25 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
                 await stream.WriteAsync(contents, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 NodeContentByteStore.FlushToDevice(stream);
+                AfterFileStep(path, "file-flushed");
             }
 
             File.Move(temporary, path, overwrite: true);
+            AfterFileStep(path, "renamed");
             NodeContentByteStore.SyncDirectory(directory);
+            AfterFileStep(path, "directory-flushed");
         }
         finally
         {
             File.Delete(temporary);
         }
+    }
+
+    private static void AfterFileStep(string path, string step)
+    {
+        var kind = path.EndsWith(Extension, StringComparison.Ordinal) ? "epoch"
+            : Path.GetFileName(path) == CurrentName ? "current" : null;
+        if (kind is not null) AfterDurableStep?.Invoke(kind + ":" + step);
     }
 
     // One file: magic, then the nonce, tag and wrapped-key lengths, then the three, so a truncated file never decodes.
@@ -178,7 +191,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
     }
 
     // A tenant's directory is named by a hash of its id, so a tenant id never becomes a path.
-    private string TenantDirectory(TenantId tenant) =>
+    internal string TenantDirectory(TenantId tenant) =>
         Path.Combine(_root, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(tenant.Value))));
 
     private string EpochPath(TenantId tenant, Guid epochId) => Path.Combine(TenantDirectory(tenant), epochId.ToString("N") + Extension);

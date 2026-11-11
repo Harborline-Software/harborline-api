@@ -13,6 +13,30 @@ The node backs the platform content store's three ports (DES-0054, ADR 0113, ADR
 The content store's tenant key is the tenant's version-2 stored key (`NodeTenantContentKeyProvider`), which destroying the
 tenant's keys removes. Rotation settings bind from `LocalNode:ContentStore:KeyRotation` (`ContentKeyRotationSettings`).
 
+## Rotation and backup fencing
+
+`AddNodeContentStore` registers `content-key-rotation` beside `content-staging-sweep` in the execution-runtime registry.
+Its schedule trigger is `sys.sched.content-key-rotation`; the tenant-scoped `NodeContentKeyRotation.RunAsync` handler
+requires fresh `sys.scheduler` write evidence for each standalone transaction. This is the same registration seam as
+the producer's staging sweep, not a second timer or a new snapshot-backup service.
+
+The handler durably creates the new epoch before switching `current`, rewraps live and staged rows in bounded
+transactions, and requires a successful `TRUNCATE` checkpoint after each batch. Retirement fences new rows naming
+the old epoch, checkpoints that fence, and durably records a `.pending` timestamp before starting the waiting period.
+Only after that period and another successful checkpoint can it unlink the old key and sync its directory. Restart
+replays unfinished batches or retirement safely. `.created` timestamps and `last-rewrap` persist the rotation age and
+last measured rewrap duration beside the keys; an initial epoch without `.created` uses its file modification time.
+
+The storage singleton exposes `Backups.OpenAsync` (ADR 0127). A supported backup opens a handle before copying and
+disposes it on completion or failure. Any open handle blocks both epoch retirement/destruction and byte deletion;
+opening a handle is serialized with destruction, so checking the count cannot race a new backup. R1 opens no handles
+because it builds no snapshot backups. External file copies are not detected and are not supported recovery points.
+
+The tests under `tests/ContentStore` include an unencrypted SQLite remainder check, checkpoint/backup fences and
+child-process crash injection at the actual file and transaction boundaries. Process exit tests prove restart
+recovery, not power-cut durability: an operating system can retain unflushed data after a process exits. See
+`tests/ContentStore/epoch-rotation-evidence-2026-11-11.md` for the host coverage and hand-mutation results.
+
 ## Install notes
 
 - **Exclude `tenant-keys` and `content/` from antivirus scanning, search indexers and file-sync clients** (OneDrive,

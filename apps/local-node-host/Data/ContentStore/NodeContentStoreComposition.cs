@@ -1,4 +1,5 @@
 using Harborline.Foundation.ContentStore;
+using Harborline.Foundation.ExecutionRuntime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,9 +17,18 @@ public static class NodeContentStoreComposition
     public static IServiceCollection AddNodeContentStore(this IServiceCollection services, string dataDirectory, IConfiguration? configuration = null)
     {
         services.AddSingleton(configuration is null ? new ContentKeyRotationSettings() : ContentKeyRotationSettings.Bind(configuration));
+        services.AddSingleton(_ =>
+        {
+            var registry = new RunKindRegistry();
+            ContentStoreRunRegistration.Register(registry);
+            NodeContentKeyRotation.Register(registry);
+            return registry;
+        });
         services.AddSingleton(provider => new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), dataDirectory));
         services.AddSingleton<IContentStoreStorage>(provider => provider.GetRequiredService<NodeContentStoreStorage>());
         services.AddSingleton<IContentStoreQuotaBase, NodeContentStoreQuotaBase>();
+        services.AddSingleton(provider => new NodeContentKeyRotation(provider.GetRequiredService<NodeContentStoreStorage>(),
+            provider.GetRequiredService<ContentKeyRotationSettings>(), provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<ITenantContentKeyProvider>(provider =>
             new NodeTenantContentKeyProvider(provider.GetRequiredService<Harborline.Api.Foundation.Recovery.TenantKey.IVersionedTenantKeyProvider>()));
         return services;
