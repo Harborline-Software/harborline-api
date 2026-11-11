@@ -217,7 +217,7 @@ public sealed class RosterSkewWindowFenceTests
     private static bool IsTimeLiteral(SyntaxNode node) => node switch
     {
         InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax member } =>
-            IsTimeSpan(member.Expression.ToString(), node) && member.Name.Identifier.ValueText.StartsWith("From", StringComparison.Ordinal)
+            member.Name.Identifier.ValueText.StartsWith("From", StringComparison.Ordinal) && IsTimeSpan(member.Expression.ToString(), node)
             || member.Name.Identifier.ValueText is "AddSeconds" or "AddMinutes" or "AddHours" or "AddMilliseconds" or "AddTicks",
         InvocationExpressionSyntax { Expression: IdentifierNameSyntax name } =>
             name.Identifier.ValueText is "FromDays" or "FromHours" or "FromMinutes" or "FromSeconds" or "FromMilliseconds" or "FromMicroseconds" or "FromTicks",
