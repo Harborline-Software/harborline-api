@@ -8,6 +8,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Blocks.BuilderDefinitions;
@@ -100,12 +101,14 @@ internal static class InstalledLayoutSurfaces
     /// </summary>
     internal static RecordTypeDocument? RecordType(IPackInstallStore store, TenantId tenant, InstalledPack pack, string recordTypeId)
     {
-        var closure = new List<InstalledPack> { pack };
-        closure.AddRange(pack.Dependencies
+        var dependencies = pack.Dependencies
             .Select(dependency => store.GetVersion(tenant, dependency.Key, dependency.Version))
-            .OfType<InstalledPack>());
-        var matches = closure
-            .SelectMany(member => member.SeedItems)
+            .OfType<InstalledPack>()
+            .ToArray();
+        var exposures = RecordsInstallClosureGate.ReadExposures(pack.Dependencies, dependencies);
+        var matches = pack.SeedItems.Concat(exposures.Select(exposure => dependencies
+                .Single(producer => producer.PackKey == exposure.Exposure.PackageId)
+                .SeedItems.Single(item => item.Key == exposure.ContentKey)))
             .Where(item => item.Kind == PackContentKind.AssetTypeDefinition)
             .Select(item => TryParseRecordType(item, recordTypeId))
             .OfType<RecordTypeDocument>()
