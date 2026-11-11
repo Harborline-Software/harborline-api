@@ -1,12 +1,5 @@
-using System.Text.Json;
-
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Blocks.LayoutRuntime;
-using Harborline.Contracts.Fields;
-using ContractRuleActionKind = Harborline.Contracts.Rules.RuleActionKind;
-using ContractRuleDefinition = Harborline.Contracts.Rules.RuleDefinition;
-using ContractRuleScope = Harborline.Contracts.Rules.RuleScope;
-using ContractRuleTier = Harborline.Contracts.Rules.RuleTier;
 
 namespace Harborline.Api.LocalNodeHost.Layout;
 
@@ -39,47 +32,16 @@ public sealed class LayoutPublishRegisters(
     LayoutPublishState state,
     LayoutPublishRegisterOptions? options = null)
 {
-    /// <summary>The released text control shared with the node's Forms vocabulary.</summary>
-    public const string TextControlId = "text";
-
-    /// <summary>The released currency control shared with the node's Forms vocabulary.</summary>
-    public const string CurrencyControlId = "currency";
-
-    /// <summary>The node-owned validation rule available to Layout capture blocks.</summary>
-    public const string RequiredValueRuleId = "rules.value-required";
-
     private readonly LayoutPublishRegisterOptions _options = options ?? new();
-
-    /// <summary>
-    /// The released field-control catalogue, built once for the process. The platform's
-    /// <see cref="LayoutFieldControlRegistry"/> registers each control's parameter schema into a
-    /// process-wide <c>Json.Schema</c> registry keyed by the control id (T-733 finding): rebuilding
-    /// this registry on every publish call re-registers the same "text"/"currency" URIs and throws
-    /// <c>JsonSchemaException: Overwriting registered schemas is not permitted</c> on the second call.
-    /// The released catalogue never varies per request, so it is built once and reused.
-    /// </summary>
-    private static readonly LayoutFieldControlDescriptor[] ReleasedControls =
-    [
-        new(TextControlId, [FieldScalarValueShape.Text]),
-        new(CurrencyControlId, [FieldScalarValueShape.Number], JsonSerializer.SerializeToElement(new
-        {
-            type = "object",
-            properties = new { precision = new { type = "integer", minimum = 0 } },
-            additionalProperties = false,
-        })),
-    ];
-
-    private static readonly Lazy<LayoutFieldControlRegistry> ReleasedFieldControls =
-        new(() => new LayoutFieldControlRegistry(ReleasedControls));
 
     /// <summary>Builds the actual platform admission input from this node's publish state.</summary>
     public LayoutHostRegisters Build()
     {
-        var controls = _options.SupplyFieldControls ? ReleasedFieldControls.Value : null;
+        var controls = _options.SupplyFieldControls ? LayoutFieldControlRegistry.Released : null;
         var pages = _options.SupplyPages
             ? new LayoutPageRegistry(state.InstalledPackPageLayouts ?? [], state.InstalledPackPageMasters ?? [])
             : null;
-        var rules = _options.SupplyValidationRules ? new LayoutValidationRuleRegistry(ReleasedValidationRules) : null;
+        var rules = _options.SupplyValidationRules ? LayoutValidationRuleRegistry.Released : null;
 
         return new LayoutHostRegisters(
             LayoutBlockKindRegistry.Platform,
@@ -105,17 +67,4 @@ public sealed class LayoutPublishRegisters(
     /// <param name="store">The shared definition store the published surface is read from.</param>
     public LayoutPublishedSurfaceResolver RenderResolver(IVersionedDefinitionStore store)
         => new(store, registers: Build());
-
-    private static readonly ContractRuleDefinition[] ReleasedValidationRules =
-    [
-        new()
-        {
-            Id = RequiredValueRuleId,
-            Tier = ContractRuleTier.JsonSchema,
-            Scope = ContractRuleScope.Schema,
-            ScopeTarget = string.Empty,
-            Expression = "{\"minLength\":1}",
-            Action = ContractRuleActionKind.Validate,
-        },
-    ];
 }
