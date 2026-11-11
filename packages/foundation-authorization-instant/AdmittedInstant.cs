@@ -29,6 +29,10 @@ public sealed record AdmittedInstant
     /// </summary>
     internal static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
 
+    /// <summary>
+    /// Caps replicated roster authority at the caller's admitted act plus its reviewed skew window.
+    /// Internal; AdmittedInstantArchTests pins the sole host caller that supplies the handshake window.
+    /// </summary>
     internal static AdmittedInstant ForRosterAuthority(
         DateTimeOffset boundedOrderTime, AdmittedInstant admittedAt, TimeSpan skew)
     {

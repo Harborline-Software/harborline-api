@@ -188,6 +188,33 @@ public sealed class RosterAuthorityBindingTests
         Assert.Equal(1, clock.Reads);
     }
 
+    [Fact]
+    public async Task A_duplicate_genesis_refusal_reuses_the_reconciles_one_admitted_instant()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock, roster: new NodeTeamRoster(signers.Local));
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var alternate = MemberRoster.Genesis(Team, "alternate", new Ed25519Signer(KeyPair.Generate()),
+            new Ed25519Verifier(), At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(alternate.EnumerateAdmissions().Single())
+            .AttestReceipt(signers.Founder, "founder", At);
+        await using var db = store.CreateRosterContext();
+        var states = (await db.RosterRecords.ToListAsync()).Select(NodeRosterRecord.ToCrdtState).Append(candidate);
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        raw.Mutate(schema => schema.PushMany(states));
+
+        await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+            raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Null(projection.RebuildFailure);
+        Assert.Contains(projection.RefusalReports, refusal => refusal.Code == "roster.genesis.duplicate");
+        Assert.Equal(1, clock.Reads);
+    }
+
     private static async Task AssertAuthorityReadAsync(
         bool revoke, int issuedAhead, int receivedAhead, bool allowed, bool rebuilding)
     {
