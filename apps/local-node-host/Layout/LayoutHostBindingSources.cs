@@ -96,8 +96,8 @@ internal static class InstalledLayoutSurfaces
 
     /// <summary>
     /// DES-0052 layout-ck-39: the Record Type <paramref name="recordTypeId"/> as the surface pack's signed closure
-    /// declares it, that is the pack itself and the exact dependency versions it was signed against. Live catalogue
-    /// state is never read. Null when the closure declares it zero times or more than once.
+    /// declares it: its own seeds and the dependencies' signed exposures from RecordsInstallClosureGate.ReadExposures.
+    /// Live catalogue state is never read. Null when the closure declares it zero times or more than once.
     /// </summary>
     internal static RecordTypeDocument? RecordType(IPackInstallStore store, TenantId tenant, InstalledPack pack, string recordTypeId)
     {

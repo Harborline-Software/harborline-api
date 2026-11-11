@@ -73,7 +73,7 @@ public static class LayoutSurfaceRoutes
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
-            // The response floor counts from here, so everything below that takes a varying time is inside the deadline.
+            // The related-target floor starts here; the same root-read receipt follows it on every served path.
             var started = time.GetTimestamp();
             http.Response.Headers.CacheControl = "no-store";
             var principal = http.Features.Get<SelectedSessionRequestPrincipal>();

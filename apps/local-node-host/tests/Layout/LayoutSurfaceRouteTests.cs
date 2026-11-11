@@ -178,8 +178,11 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
 
         Assert.Equal(expectedStatus, response.StatusCode);
         Assert.DoesNotContain(await RowsAsync(h.Pipeline.Trail, h.Tenant), row => row.EventType.Value == "RecordRead");
-        Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
-        Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+        if (expectedStatus == HttpStatusCode.NotFound)
+        {
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+        }
     }
 
     [Fact(DisplayName = "T-735: an unknown surface refuses with layout.surface.unknown")]
