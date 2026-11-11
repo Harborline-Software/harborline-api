@@ -93,6 +93,26 @@ public sealed partial class WorkflowDefinitionRouteTests
             locator, "WorkflowDefinition refused at admission");
     }
 
+    [Theory(DisplayName = "C3 invalid schedule triggers resolve uniquely or identify the whole document")]
+    [InlineData("secret-schedule", "/triggers/3")]
+    [InlineData("a-post-je", "")]
+    [InlineData("Draft", "")]
+    [InlineData("t-approve", "")]
+    public async Task C3_ScheduleTriggerLocator(string locator, string pointer)
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        body["triggers"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = locator,
+            ["kind"] = "Schedule",
+            ["rrule"] = "secret-rrule",
+        });
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", body);
+        await AssertC3(response, "workflow.admission.schedule_rrule_invalid", pointer,
+            locator, "WorkflowDefinition refused at admission");
+        Assert.DoesNotContain("secret-rrule", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "C3 large admission batches preserve every violation and indexed pointer without publication")]
     public async Task C3_LargeAdmissionBatch()
     {
@@ -134,6 +154,9 @@ public sealed partial class WorkflowDefinitionRouteTests
     [Theory(DisplayName = "C3 admission unresolved or empty locator identifies the whole document")]
     [InlineData("secret-missing")]
     [InlineData("")]
+    [InlineData("a-post-je")]
+    [InlineData("t-approve")]
+    [InlineData("issued")]
     public async Task C3_UnresolvedLocator(string locator)
     {
         var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
@@ -147,7 +170,7 @@ public sealed partial class WorkflowDefinitionRouteTests
         else body["initialState"] = locator;
         using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", body);
         await AssertC3(response, "workflow.admission.initial_state_missing", "",
-            "secret-", "WorkflowDefinition refused at admission");
+            locator.Length == 0 ? "secret-" : locator, "WorkflowDefinition refused at admission");
     }
 
     [Theory(DisplayName = "C3 malformed or invalid body returns a safe section 10 code without publication")]

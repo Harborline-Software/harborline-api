@@ -16,7 +16,7 @@ internal static class WorkflowAuthoringC3Wire
         // A locator carries no collection, and ids may repeat across collections. Index the
         // document once; null marks an ambiguous id rather than selecting an unrelated element.
         var pointers = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var collection in new[] { "states", "transitions", "actions" })
+        foreach (var collection in new[] { "states", "transitions", "actions", "triggers" })
             foreach (var (item, pointer) in Elements(body, collection))
             {
                 ct.ThrowIfCancellationRequested();
@@ -31,7 +31,9 @@ internal static class WorkflowAuthoringC3Wire
         foreach (var violation in violations)
         {
             ct.ThrowIfCancellationRequested();
-            var pointer = !string.IsNullOrEmpty(violation.Locator)
+            // This locator names an absent state target, not a declared element in another collection.
+            var pointer = violation.Code != WorkflowAdmissionCodes.InitialStateMissing
+                && !string.IsNullOrEmpty(violation.Locator)
                 && pointers.TryGetValue(violation.Locator, out var resolved) ? resolved ?? "" : "";
             refusals.Add(new DefinitionRefusal(violation.Code, pointer));
         }
