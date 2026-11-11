@@ -22,13 +22,15 @@ public sealed class NodeAuthorizationRosterConstraintReaderTests
     private static readonly ActorId Founder = new("founder");
 
     [Fact]
-    public async Task Roster_read_uses_the_gates_admitted_instant()
+    public async Task Gate_roster_read_uses_the_requests_admitted_instant()
     {
         var instant = AdmittedInstant.FromRecordedAct(Now);
         var rosters = new FixedRosterReader(MemberRoster.Empty());
         var reader = new NodeAuthorizationRosterConstraintReader(new NullPartyReader(), rosters);
 
-        await reader.ReadAsync(Founder, Tenant, instant);
+        await TestAuthorization.Gate(_ => true, reader).DecideAsync(
+            new AuthorizationWriteContext(Founder, Tenant, instant)
+                .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "instant-proof"));
 
         Assert.Same(instant, rosters.LastInstant);
     }

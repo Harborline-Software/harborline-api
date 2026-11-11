@@ -254,6 +254,42 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(30)]
+    [InlineData(60)]
+    public async Task StartupRead_RemoteReceiptCannotAuthorizePlantedDelegation(int receivedAhead)
+    {
+        var factory = new TestRosterContextFactory(
+            $"Data Source={Path.Combine(_directory, "startup-planted.db")};Pooling=False");
+        var founder = new Ed25519Signer(KeyPair.Generate());
+        var admin = new Ed25519Signer(KeyPair.Generate());
+        var roster = MemberRoster.Genesis(Team, "founder", founder, Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("founder", founder, "admin", admin.IssuerId, PermissionCompositions.Owner,
+                Verifier, IssuedAt, Guid.NewGuid())
+            .Admit("admin", admin, "planted", KeyPair.Generate().PrincipalId,
+                PermissionSet.Of(TeamRolePermissions.RecordsRead), Verifier, IssuedAt, Guid.NewGuid());
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.RosterRecords.AddRange(roster.EnumerateAdmissions().Select(admission =>
+                NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                    .AttestReceipt(founder, "founder", admission.PartyId == "planted"
+                        ? IssuedAt.AddSeconds(receivedAhead) : IssuedAt))));
+            await db.SaveChangesAsync();
+        }
+        var clock = new CountingClock();
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DurableGenesisIdentity.ReadAsync(factory, Team, founder.IssuerId, Verifier, clock, CancellationToken.None));
+
+        Assert.Equal(VerifiedTenantRosterRefusal.Orphan,
+            Assert.IsType<VerifiedTenantRosterRefusedException>(refusal.InnerException).Refusal);
+        Assert.Equal(1, clock.Reads);
+        await using var after = factory.CreateDbContext();
+        Assert.Equal(3, await after.RosterRecords.CountAsync());
+    }
+
+    [Theory]
     [Trait("HandMutant", "T-1056-cap-removal")]
     [InlineData(31, 31, false, false)]
     [InlineData(0, 60, false, false)]

@@ -103,15 +103,15 @@
   },
   "apps/local-node-host/tests/Identity/UnattributedGrantCompositionTests.cs\tUnattributedGrantCompositionTests\tClearAllPools": {
     "Count": 2,
-    "TypeSha256": "dc03f4a707f79aaa11964b1556c72b3b2312512f355d87afda68866ca5761c7f",
+    "TypeSha256": "c318465f251b887badaf97df19c1a7eddbeaba33565352480f9b1ecae612280a",
     "Owner": "T-1031",
-    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established. Re-pinned 2026-10-05 for T-1015 (api #361): only decision-instant construction changed (AdmittedInstant); the pool cleanup and its count are untouched."
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established. Re-pinned 2026-10-05 for T-1015 (api #361): only decision-instant construction changed (AdmittedInstant); the pool cleanup and its count are untouched. Re-pinned 2026-11-11 for T-1056 (api #482): only decision-instant construction changed (AdmittedInstant); the pool cleanup and its count are untouched."
   },
   "apps/local-node-host/tests/Identity/VerifiedTenantRosterReaderTests.cs\tVerifiedTenantRosterReaderTests\tClearAllPools": {
     "Count": 2,
-    "TypeSha256": "0ce8c88f523f75a7fdef0058e602c0ea7fcc480e3a985185ca78d1c65e807138",
+    "TypeSha256": "1078c369187bba0d23f2c6f83563ca89d81875d4780810ce9b707bfa605b929b",
     "Owner": "T-1031",
-    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established. Re-pinned 2026-11-11 for T-1056 (api #482): only decision-instant construction changed (AdmittedInstant); the pool cleanup and its count are untouched."
   },
   "apps/local-node-host/tests/Maintenance/MaintenanceStoreTests.cs\tMaintenanceStoreTests\tClearAllPools": {
     "Count": 3,

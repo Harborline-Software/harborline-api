@@ -95,6 +95,7 @@ internal static class SelectedSessionIdentityRoutes
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(rosterReader);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(activeTeam);
         app.MapGet(
             PermissionsPath,
