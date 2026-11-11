@@ -331,6 +331,8 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
     [InlineData(PackContentKind.ScheduleDefinition, 1, 1, "acme.contract.schedule@1.0.0")]
     [InlineData(PackContentKind.DataExchangeDefinition, 2, 0, "acme.contract.exchange@1.0.0")]
     [InlineData(PackContentKind.DataExchangeDefinition, 1, 1, "acme.contract.exchange@1.0.0")]
+    [InlineData(PackContentKind.WorkflowDefinition, 2, 0, "acme.contract.workflow@1.0.0")]
+    [InlineData(PackContentKind.WorkflowDefinition, 1, 1, "acme.contract.workflow@1.0.0")]
     public async Task Install_refuses_each_native_definition_outside_the_literal_window(
         PackContentKind kind, int major, int minor, string expectedTarget)
     {
@@ -395,6 +397,24 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         await AssertNativeProjectedAsync(kind);
     }
 
+    [Theory(DisplayName = "T-1033: workflows install with literal 1.0 or the interim omitted declaration")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Install_valid_workflow_definitions(bool declaresContract)
+    {
+        var declared = declaresContract ? new DefinitionContractVersion(1, 0) : null;
+        var content = NativeContent(PackContentKind.WorkflowDefinition, declared);
+        AssertNativeMetadata(PackContentKind.WorkflowDefinition, content, declared);
+
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(NativePackBody(PackContentKind.WorkflowDefinition, content)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("acme.contract", Assert.Single(_store.ListInstalled(NodeTenantFor())).PackKey);
+    }
+
     [Fact(DisplayName = "T-1033: every current pack kind has an explicit wire classification and declared fixtures use the real check")]
     public void New_pack_kinds_require_an_explicit_wire_fixture_or_documented_boundary()
     {
@@ -402,7 +422,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         var fixtures = new Dictionary<PackContentKind, (string Shape, string? Key, JsonObject? Body)>
         {
             [PackContentKind.FormDefinition] = ("definitionEnvelope.contract", "acme.contract.form", NativeContent(PackContentKind.FormDefinition, new(2, 0))),
-            [PackContentKind.WorkflowDefinition] = ("authored workflow; lean mapper omits contract", null, null),
+            [PackContentKind.WorkflowDefinition] = ("envelope.contract", "acme.contract.workflow", NativeContent(PackContentKind.WorkflowDefinition, new(2, 0))),
             [PackContentKind.StandardsCatalog] = ("standards catalogue wire; outside declared-definition fixtures", null, null),
             [PackContentKind.NavWorkspaceConfig] = ("navigation workspace wire; outside declared-definition fixtures", null, null),
             [PackContentKind.CascadeDefaults] = ("cascade defaults wire; outside declared-definition fixtures", null, null),
@@ -444,8 +464,8 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         }
     }
 
-    [Fact(DisplayName = "T-1033: the existing workflow wire mapper omits declared contract metadata")]
-    public void Workflow_contract_mapping_is_an_explicit_remaining_boundary()
+    [Fact(DisplayName = "T-1033: the check reads the canonical workflow contract even though the lean model omits it")]
+    public void Workflow_contract_is_checked_from_canonical_wire_not_the_lean_model()
     {
         var authored = JsonSerializer.SerializeToElement(new
         {
@@ -461,7 +481,10 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         Assert.Null(model.Envelope.Contract);
         var item = new PackContentCanonicalizer().Canonicalize(
             new PackContentSource("acme.contract.workflow", PackContentKind.WorkflowDefinition, "1.0.0", wire));
-        Assert.Empty(PackContractWindowCheck.FindRefusals([item], new DefinitionContractWindow(1, 0, 1)));
+        var refusal = Assert.Single(PackContractWindowCheck.FindRefusals([item], new DefinitionContractWindow(1, 0, 1)));
+        Assert.Equal("definition.contract.out_of_window", refusal.Code);
+        Assert.Equal("/envelope/contract", refusal.Pointer);
+        Assert.Equal("acme.contract.workflow@1.0.0", refusal.Target);
     }
 
     [Theory(DisplayName = "T-1033: unreadable native declarations retain the interim no-window-refusal behavior")]
@@ -492,6 +515,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         PackContentKind.ViewDefinition => "acme.contract.view",
         PackContentKind.ScheduleDefinition => "acme.contract.schedule",
         PackContentKind.DataExchangeDefinition => "acme.contract.exchange",
+        PackContentKind.WorkflowDefinition => "acme.contract.workflow",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -543,6 +567,12 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
                 Settings = JsonSerializer.SerializeToElement(new { mapping = "contract" }),
             },
             PackContentKind.FormDefinition => PackProjectionTestFixture.FormContent("Contract form"),
+            PackContentKind.WorkflowDefinition => new
+            {
+                key, version = "1.0.0", tenant = NodeTenantFor().Value, envelope = NativeEnvelope(key, contract),
+                initialState = "Done", states = new[] { new { id = "Done", kind = "Terminal" } },
+                transitions = Array.Empty<object>(), triggers = Array.Empty<object>(), actions = Array.Empty<object>(),
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var content = JsonSerializer.SerializeToNode(definition, Json)!.AsObject();
@@ -575,6 +605,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
             PackContentKind.ViewDefinition => content.Deserialize<ViewDefinition>(Json)!.Envelope.Contract,
             PackContentKind.ScheduleDefinition => content.Deserialize<ScheduleDefinition>(Json)!.Envelope.Contract,
             PackContentKind.DataExchangeDefinition => content.Deserialize<DataExchangeDefinition>(Json)!.Envelope.Contract,
+            PackContentKind.WorkflowDefinition => content["envelope"]!["contract"]?.Deserialize<DefinitionContractVersion>(Json),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         Assert.Equal(expected, actual);
