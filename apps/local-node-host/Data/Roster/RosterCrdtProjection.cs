@@ -58,7 +58,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Roster;
 /// round (push-on-change keeps it short) but is NON-ZERO by design.
 /// </para>
 /// </remarks>
-[ClockAuthority("Out-of-act replication apply: dates refusals of unparseable inbound records from its own clock.")]
+[ClockAuthority("Out-of-act replication apply: admits one instant for capped authority reads and dates refusals of unparseable inbound records.")]
 public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProvider, IDeltaSink, IOwnTeamRosterSupersession, IAsyncDisposable
 {
     /// <summary>Logical CRDT document id for the roster doctype (shared across replicas).</summary>
@@ -576,6 +576,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
             try
             {
+                var admittedAt = AdmittedInstant.Read(_clock);
+                var authority = GrantStoreRosterAuthority.CapAt(_rosterAuthority?.Invoke(), admittedAt);
                 var inboundRefusals = new List<RebuildRefusal>();
                 Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null;
                 // (1) Durable reconcile — insert any record not already present (append-only, idempotent on id);
@@ -589,7 +591,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .ConfigureAwait(false);
 
                     // Durable rows are evidence for this fold, never fresh inbound refusal targets.
-                    var reader = new VerifiedTenantRosterReader(_contextFactory, _verifier, _rosterAuthority?.Invoke());
+                    var reader = new VerifiedTenantRosterReader(_contextFactory, _verifier, authority);
                     foreach (var tenant in existing.Values.Select(r => r.TeamId).Distinct(StringComparer.Ordinal))
                         await reader.ReadForRebuildAsync(new TenantId(tenant), ct).ConfigureAwait(false);
 
@@ -599,7 +601,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
                     orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
                     var toInsert = new List<NodeRosterRecord>();
-                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, ct).ConfigureAwait(false);
+                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, authority, admittedAt, ct).ConfigureAwait(false);
                     inboundRefusals.AddRange(refused.Values);
                     var changed = false;
                     foreach (var s in snapshot)
@@ -660,7 +662,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     _contextFactory, _nodeRoster.Current.TeamId, _verifier, ct).ConfigureAwait(false);
                 var rejectedIds = inboundRefusals.Select(r => r.RecordId).ToHashSet(StringComparer.Ordinal);
                 var acceptedSnapshot = snapshot.Where(s => !rejectedIds.Contains(s.RecordId)).ToArray();
-                var adopted = TryRebuildLiveRoster(acceptedSnapshot, anchor, inboundRefusals, orderTime);
+                var adopted = TryRebuildLiveRoster(acceptedSnapshot, authority, anchor, inboundRefusals, orderTime);
                 await ReconcileRefusalAuditAsync(adopted, acceptedSnapshot, anchor, inboundRefusals, ct).ConfigureAwait(false);
 
                 // (3) Ticket 290 — fold the administrator-authority log back onto the live roster. A revocation
@@ -802,9 +804,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// (an empty rebuilt roster), the node KEEPS its local genesis-seeded roster — it does not adopt an empty
     /// one (non-bricking).
     /// </summary>
-    public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot) => TryRebuildLiveRoster(snapshot);
+    public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot) =>
+        TryRebuildLiveRoster(snapshot, GrantStoreRosterAuthority.CapAt(_rosterAuthority?.Invoke(), AdmittedInstant.Read(_clock)));
 
-    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot, MemberAdmissionRecord? anchor = null, List<RebuildRefusal>? refusals = null,
+    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot, IRosterAuthority? authority, MemberAdmissionRecord? anchor = null, List<RebuildRefusal>? refusals = null,
         Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null)
     {
         if (_nodeRoster is null) return null; // minimal DI test — no live roster to push into.
@@ -863,7 +866,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         // THE TRUST ANCHOR: rebuild + validate. Forged/unsigned/orphan records are dropped here.
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _rosterAuthority?.Invoke());
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, authority);
 
         // Only the accepted admission may carry a live party's transport key. A dropped chain can name
         // the same party, but that does not let its unsigned routing field replace the valid binding.
@@ -984,7 +987,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // Relax new admissions from their signers outward; the CRDT list order is not causal order.
     private async Task<Dictionary<string, RebuildRefusal>> VerifyBeforeInsertAsync(
         IReadOnlyList<RosterRecordCrdtState> snapshot, Dictionary<string, NodeRosterRecord> existing,
-        Func<string, DateTimeOffset, DateTimeOffset> orderTime, CancellationToken ct)
+        Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt, CancellationToken ct)
     {
         var refused = new Dictionary<string, RebuildRefusal>(StringComparer.Ordinal);
         foreach (var tenant in snapshot.Where(s => !existing.ContainsKey(s.RecordId)).GroupBy(s => s.TeamId))
@@ -1005,7 +1008,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 var remaining = new List<RosterRecordCrdtState>();
                 foreach (var candidate in pending)
                 {
-                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime);
+                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority);
                     if (code is null)
                     {
                         evidence.Add(candidate);
@@ -1018,7 +1021,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             } while (grew && pending.Count > 0);
             foreach (var candidate in pending)
             {
-                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime)!;
+                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority)!;
                 var report = code == "roster.genesis.duplicate" ? GenesisRefusal(candidate).Report
                     : new AuthorizationRefusal(code, "Roster record refused",
                     "The record has no valid signature and eligible live signer in the durable genesis chain.",
@@ -1027,7 +1030,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 refused[candidate.RecordId] = new RebuildRefusal(candidate.RecordId, report,
                     candidate.Kind == RosterRecordKind.Revocation ? Permission.MembersRevoke : Permission.MembersAdmit,
                     new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
-                    NodeRosterRecord.IssuedAtOr(candidate, _clock.GetUtcNow()));
+                    NodeRosterRecord.IssuedAtOr(candidate, admittedAt.Value));
             }
         }
         return refused;
@@ -1035,7 +1038,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
     private string? VerifyInboundRecord(RosterRecordCrdtState candidate, List<RosterRecordCrdtState> evidence,
         IEnumerable<RosterRecordCrdtState> incoming, MemberAdmissionRecord? anchor, bool competingRoots,
-        Func<string, DateTimeOffset, DateTimeOffset> orderTime)
+        Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority)
     {
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
@@ -1082,9 +1085,6 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             .Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at
                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
                     || (r.Signed.Nonce == nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
-        var authority = _rosterAuthority?.Invoke();
-        // `at` is this record's bounded order time (above) - the instant its eligibility is judged at, and the
-        // instant the admitter's grant authority is read at. Deterministic on every node; no clock read here.
         var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime, authority, at);
         // The admitter/revoker must hold the operation's atom. The record no longer carries a permission set,
         // so the atom is read from the local grant store through IRosterAuthority (genesis keeps the root floor).

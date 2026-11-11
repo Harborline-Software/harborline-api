@@ -29,6 +29,14 @@ public sealed record AdmittedInstant
     /// </summary>
     internal static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
 
+    internal static AdmittedInstant ForRosterAuthority(
+        DateTimeOffset boundedOrderTime, AdmittedInstant admittedAt, TimeSpan skew)
+    {
+        ArgumentNullException.ThrowIfNull(admittedAt);
+        var cap = admittedAt.Value + skew;
+        return new(boundedOrderTime < cap ? boundedOrderTime : cap);
+    }
+
     /// <summary>
     /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
     /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
