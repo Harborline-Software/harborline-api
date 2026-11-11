@@ -76,6 +76,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly IOperationSigner _attestationSigner;
     private readonly string? _attestationPartyId;
     private readonly TimeProvider _clock;
+    private readonly AsyncLocal<AdmittedInstant?> _localPublishInstant = new();
     private readonly Lock _reportsGate = new();
     private readonly NodeTeamRoster? _nodeRoster;
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
@@ -274,7 +275,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     public async Task PublishLocalAsync(
         RosterRecordCrdtState record,
         CancellationToken ct,
-        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask>? stageWithRecord = null)
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask>? stageWithRecord = null,
+        AdmittedInstant? admittedAt = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         var issuedAt = NodeRosterRecord.FromCrdtState(record).IssuedAtUtc;
@@ -344,7 +346,16 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        _projection.Mutate(schema => schema.ReplaceOrPush(replaceIndex, record));
+        var previousInstant = _localPublishInstant.Value;
+        _localPublishInstant.Value = admittedAt;
+        try
+        {
+            _projection.Mutate(schema => schema.ReplaceOrPush(replaceIndex, record));
+        }
+        finally
+        {
+            _localPublishInstant.Value = previousInstant;
+        }
     }
 
     // ── Adopt-time own-team supersession (BLOCKER-2: dual-genesis convergence poison) ─────────────────────
@@ -568,7 +579,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private async Task ReconcileSchemaAsync(CancellationToken ct)
     {
             IReadOnlyList<RosterRecordCrdtState> snapshot = Snapshot();
-            var admittedAt = AdmittedInstant.Read(_clock);
+            var admittedAt = _localPublishInstant.Value ?? AdmittedInstant.Read(_clock);
             if (snapshot.Count == 0)
             {
                 await ReconcileRefusalAuditAsync(null, snapshot, null, [], admittedAt, ct).ConfigureAwait(false);

@@ -215,6 +215,26 @@ public sealed class RosterAuthorityBindingTests
         Assert.Equal(1, clock.Reads);
     }
 
+    [Fact]
+    public async Task Local_publish_reuses_its_act_instant_without_leaking_into_the_next_reconcile()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock);
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var admittedAt = AdmittedInstant.Read(clock);
+        var genesis = signers.Local.EnumerateAdmissions().Single(admission => admission.Admission.IsGenesis);
+
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default,
+            admittedAt: admittedAt);
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Equal(1, clock.Reads);
+        await projection.ReconcileAsync(default);
+        Assert.Equal(2, clock.Reads);
+    }
+
     private static async Task AssertAuthorityReadAsync(
         bool revoke, int issuedAhead, int receivedAhead, bool allowed, bool rebuilding)
     {

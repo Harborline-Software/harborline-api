@@ -1786,11 +1786,12 @@ public sealed class KernelClockIntegrationTests
     {
         public async Task PublishLocalAsync(
             RosterRecordCrdtState record,
+            AdmittedInstant admittedAt,
             Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
             CancellationToken cancellationToken)
         {
             if (interleaving == "projection") await barrier.ArriveAsync(cancellationToken);
-            await inner.PublishLocalAsync(record, stageWithRecord, cancellationToken);
+            await inner.PublishLocalAsync(record, admittedAt, stageWithRecord, cancellationToken);
             if (interleaving == "adoption") await barrier.ArriveAsync(cancellationToken);
         }
 
