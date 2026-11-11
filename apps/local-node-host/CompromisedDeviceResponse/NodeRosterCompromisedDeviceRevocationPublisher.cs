@@ -58,6 +58,7 @@ internal interface IRosterRevocationProjection
     /// </summary>
     Task PublishLocalAsync(
         RosterRecordCrdtState record,
+        AdmittedInstant admittedAt,
         Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
         CancellationToken cancellationToken);
 
@@ -69,9 +70,10 @@ internal sealed class RosterRevocationProjection(RosterCrdtProjection inner) : I
 {
     public Task PublishLocalAsync(
         RosterRecordCrdtState record,
+        AdmittedInstant admittedAt,
         Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
         CancellationToken cancellationToken) =>
-        inner.PublishLocalAsync(record, cancellationToken, stageWithRecord);
+        inner.PublishLocalAsync(record, cancellationToken, stageWithRecord, admittedAt);
 
     public IReadOnlyList<RosterRecordCrdtState> Snapshot() => inner.Snapshot();
 }
@@ -140,7 +142,7 @@ internal sealed class NodeRosterMemberRevocationAuthority(
                     // that write lock, and a refusal or a fault in any leg leaves all three unwritten. A refusal is
                     // clause 7's: the whole revocation refuses so the install is never left without an
                     // Administrator in force; the caller hands over first (ticket 211) and retries.
-                    await projection.PublishLocalAsync(state, async (write, token) =>
+                    await projection.PublishLocalAsync(state, admittedDecision.Request.Instant, async (write, token) =>
                     {
                         RequireRemovalApplied(await NodeAdministratorAuthority.StageRemovalUnderDecisionAsync(
                             write, tenant.Value, revokedPartyId, AdministratorAuthorityEvent.Revoked, reason,

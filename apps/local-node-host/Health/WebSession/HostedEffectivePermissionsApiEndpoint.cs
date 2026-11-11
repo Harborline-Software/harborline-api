@@ -19,6 +19,7 @@ namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 internal sealed class HostedEffectivePermissionsApiEndpoint(
     SharedHostedWebApp sharedApp,
     IVerifiedTenantRosterReader rosterReader,
+    TimeProvider timeProvider,
     IActiveTeamAccessor activeTeam) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
@@ -27,6 +28,7 @@ internal sealed class HostedEffectivePermissionsApiEndpoint(
             SelectedSessionIdentityRoutes.MapPermissions(
                 routes.MapSelectedSessionProductGroup(),
                 rosterReader,
+                timeProvider,
                 activeTeam));
         return Task.CompletedTask;
     }

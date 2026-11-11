@@ -64,7 +64,7 @@ public sealed class RosterPreInsertVerificationTests
         await f.Projection.DrainPendingReconcilesAsync();
         Assert.DoesNotContain(f.Projection.Snapshot(), r => r.RecordId == bad.RecordId);
         var reader = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
-        var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), default);
+        var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), AdmittedInstant.Read(f.Provider.GetRequiredService<TimeProvider>()), default);
         Assert.True(rebuilt.Contains("valid"));
         Assert.True(rebuilt.Contains("after-restart"));
         Assert.False(rebuilt.Contains("bad"));
@@ -148,7 +148,7 @@ public sealed class RosterPreInsertVerificationTests
         await f.MergeRawAsync([late]);
         Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == late.RecordId);
         var reader = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
-        var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), default);
+        var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), AdmittedInstant.Read(f.Provider.GetRequiredService<TimeProvider>()), default);
         Assert.Equal(earlierLegitimate, rebuilt.Contains("member"));
         Assert.Equal(!earlierLegitimate, rebuilt.Contains("founder"));
         Assert.Contains("roster.record.chain_ineligible", JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
@@ -422,7 +422,7 @@ public sealed class RosterPreInsertVerificationTests
 
         var tenant = new TenantId(Tenant.ToString("D"));
         var rosters = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
-        Assert.Equal(!tampered, (await rosters.ReadAsync(tenant, default)).Contains("stray"));
+        Assert.Equal(!tampered, (await rosters.ReadAsync(tenant, AdmittedInstant.Read(f.Provider.GetRequiredService<TimeProvider>()), default)).Contains("stray"));
         // The subject holds a (non-Administrator) members grant; only the roster edge can satisfy RequireMember.
         var gate = Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.Gate(_ => true,
             new NodeAuthorizationRosterConstraintReader(new NoPartyBinding(), rosters),
