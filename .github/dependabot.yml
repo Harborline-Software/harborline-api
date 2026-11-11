@@ -2,16 +2,23 @@ version: 2
 updates:
   - package-ecosystem: "nuget"
     directory: "/"
-    # The Microsoft .NET 11 preview package set moves together (EF Core must match the Npgsql provider's pinned
-    # preview: NU1107/NU1608; the preview.7 Blazor analyzers add BL0016/CS0618 under warnings-as-errors). It is
-    # bumped by hand as one reviewed change (ticket 243), never by a Dependabot group.
+    # The .NET package set moves together (EF Core must match the Npgsql provider: NU1107/NU1608), so it updates
+    # as one `dotnet` group. With .NET 11 GA (R-0182) the previews no longer move by hand (ticket 243); a new
+    # major (the next .NET release) still does, so majors of this set are ignored here.
     ignore:
       - dependency-name: "Microsoft.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Npgsql.*"
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
     groups:
+      dotnet:
+        patterns: ["Microsoft.*", "System.*", "Npgsql.*"]
       minor-and-patch:
         update-types: ["minor", "patch"]
   - package-ecosystem: "npm"

@@ -52,7 +52,7 @@ jobs:
           node-version: 24
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.100-rc.1.26425.128
+          dotnet-version: 11.0.100
       - name: Execute trusted bounded preset
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
