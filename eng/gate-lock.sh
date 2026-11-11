@@ -2,20 +2,38 @@
 # Shared repository gate lock. Source this file, then call gate_lock_acquire <command>.
 # The lock lives in git's common directory so linked worktrees serialize with the main worktree.
 
-_gate_lock_process_start() {
-  local pid=$1
+# Sets GATE_LOCK_PROCESS_START to the process's start identity, or empty when it cannot be read.
+# Builtins and a redirect only, no command substitution: the wait loops call this every second, and
+# a `$(...)` there reopens the bash 5.2 window described at _gate_lock_take_stale (T-1096).
+_gate_lock_read_process_start() {
+  local pid=$1 stat line scratch
+  local -a fields
+  GATE_LOCK_PROCESS_START=""
   if [ -r "/proc/$pid/stat" ]; then
-    sed 's/^.*) //' "/proc/$pid/stat" | awk '{ print $20 }'
+    IFS= read -r stat < "/proc/$pid/stat" || [ -n "$stat" ] || return 0
+    # Field 22 (starttime): the 20th field after the last ") ", which ends the command name.
+    read -r -a fields <<< "${stat##*) }"
+    GATE_LOCK_PROCESS_START=${fields[19]:-}
   else
-    ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//'
+    scratch="${TMPDIR:-/tmp}/harborline-gate-lock.$$.$RANDOM$RANDOM.start"
+    ps -p "$pid" -o lstart= > "$scratch" 2>/dev/null
+    IFS= read -r line < "$scratch" || true
+    rm -f "$scratch"
+    GATE_LOCK_PROCESS_START=${line#"${line%%[![:space:]]*}"}
   fi
 }
 
+# Prints the start identity. Kept for callers that capture it once, such as acquisition and tests.
+_gate_lock_process_start() {
+  _gate_lock_read_process_start "$1"
+  [ -z "$GATE_LOCK_PROCESS_START" ] || printf '%s\n' "$GATE_LOCK_PROCESS_START"
+}
+
 _gate_lock_is_same_process() {
-  local pid=$1 expected_start=$2 actual_start
+  local pid=$1 expected_start=$2
   [ -n "$pid" ] && [ -n "$expected_start" ] && kill -0 "$pid" 2>/dev/null || return 1
-  actual_start=$(_gate_lock_process_start "$pid") || return 1
-  [ -n "$actual_start" ] && [ "$actual_start" = "$expected_start" ]
+  _gate_lock_read_process_start "$pid"
+  [ -n "$GATE_LOCK_PROCESS_START" ] && [ "$GATE_LOCK_PROCESS_START" = "$expected_start" ]
 }
 
 _gate_lock_nonce() {
@@ -133,12 +151,16 @@ _gate_lock_signal() {
   exit "$status"
 }
 
+# No command substitution runs here before the takeover marker is held. Bash 5.2 runs a pending trap
+# while it re-parses a `$(...)` (eval.c parse_command, called from xparse_dolparen); the trap's action
+# is then parsed as if inside that `$(`, fails, and is lost, and the reader can resume the calling
+# script at the top level (T-1096). A refused takeover repeats, so it must not parse one each time.
 _gate_lock_take_stale() {
   local observed_pid=$GATE_LOCK_HOLDER_PID
   local observed_nonce_proof=$GATE_LOCK_HOLDER_NONCE_PROOF
   local observed_command=$GATE_LOCK_HOLDER_COMMAND
   local observed_started=$GATE_LOCK_HOLDER_STARTED
-  local tombstone="${HARBORLINE_GATE_LOCK_PATH}.tombstone.$$.$(_gate_lock_nonce)"
+  local tombstone
 
   _gate_lock_test_pause HARBORLINE_GATE_LOCK_TEST_PAUSE_AFTER_INSPECT
   mkdir "$HARBORLINE_GATE_LOCK_PATH/takeover" 2>/dev/null || return 1
@@ -148,6 +170,7 @@ _gate_lock_take_stale() {
      [ -n "$observed_nonce_proof" ] &&
      [ "$GATE_LOCK_HOLDER_NONCE_PROOF" = "$observed_nonce_proof" ] &&
      ! _gate_lock_is_same_process "$GATE_LOCK_HOLDER_PID" "$GATE_LOCK_HOLDER_PROCESS_START"; then
+    tombstone="${HARBORLINE_GATE_LOCK_PATH}.tombstone.$$.$(_gate_lock_nonce)"
     if _gate_lock_move_dir "$HARBORLINE_GATE_LOCK_PATH" "$tombstone"; then
       printf 'gate: taking over stale %s pid %s since %s\n' \
         "$observed_command" "$observed_pid" "$observed_started"
@@ -161,7 +184,7 @@ _gate_lock_take_stale() {
 
 gate_lock_acquire() {
   local gate_command=${1:?gate_lock_acquire requires a command name}
-  local gate_root gate_common now self_start started candidate last_wait=0
+  local gate_root gate_common self_start started candidate last_wait=0 waited=0
   gate_root=$(git rev-parse --show-toplevel) || return 1
   gate_common=$(git rev-parse --git-common-dir) || return 1
   case "$gate_common" in /*|[A-Za-z]:/*) ;; *) gate_common="$gate_root/$gate_common" ;; esac
@@ -206,8 +229,10 @@ gate_lock_acquire() {
     fi
 
     if _gate_lock_read; then
-      if ! _gate_lock_is_same_process "$GATE_LOCK_HOLDER_PID" "$GATE_LOCK_HOLDER_PROCESS_START"; then
-        _gate_lock_take_stale
+      # A refused takeover (another process holds the marker) backs off with the live-holder wait
+      # below rather than retrying at once, which spun at full CPU until the marker cleared.
+      if ! _gate_lock_is_same_process "$GATE_LOCK_HOLDER_PID" "$GATE_LOCK_HOLDER_PROCESS_START" &&
+        _gate_lock_take_stale; then
         continue
       fi
     elif [ -d "$HARBORLINE_GATE_LOCK_PATH" ]; then
@@ -217,11 +242,13 @@ gate_lock_acquire() {
     else
       continue
     fi
-    now=$(date +%s)
-    if [ "$last_wait" -eq 0 ] || [ $((now - last_wait)) -ge 60 ]; then
+    # The shell's own clock, not `$(date +%s)`: this loop runs every second, and a command
+    # substitution in it would reopen the window in _gate_lock_take_stale's comment.
+    if [ "$waited" -eq 0 ] || [ $((SECONDS - last_wait)) -ge 60 ]; then
       printf 'gate: waiting for %s pid %s since %s\n' \
         "$GATE_LOCK_HOLDER_COMMAND" "${GATE_LOCK_HOLDER_PID:-unknown}" "$GATE_LOCK_HOLDER_STARTED"
-      last_wait=$now
+      last_wait=$SECONDS
+      waited=1
     fi
     sleep 1
   done

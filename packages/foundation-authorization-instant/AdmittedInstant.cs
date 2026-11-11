@@ -33,6 +33,18 @@ public sealed record AdmittedInstant
     /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
     /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
     /// </summary>
+    /// <summary>
+    /// T-1056 (R-0149 decision 2, ruled R2): the one place a rehearsal instant becomes a decision instant, so the
+    /// isolated candidate world can run the real authority over its declared fixture time. Internal, and
+    /// <c>AdmittedInstantArchTests</c> pins its only callers to <c>VerificationCandidateWorld</c> and
+    /// <c>VerificationRunner</c>; the server clock stays the only authority for every other decision.
+    /// </summary>
+    internal static AdmittedInstant ForRehearsal(RehearsalInstant rehearsal)
+    {
+        ArgumentNullException.ThrowIfNull(rehearsal);
+        return new(rehearsal.Value);
+    }
+
     internal static AdmittedInstant Exempt(DateTimeOffset at, AdmittedInstantExemption exemption) =>
         Enum.IsDefined(exemption) ? new(at) : throw new ArgumentOutOfRangeException(nameof(exemption));
 
@@ -42,10 +54,6 @@ public sealed record AdmittedInstant
 /// <summary>The decision instants T-1015 slice 1 leaves owed. Each is reclassified or removed by slice 3.</summary>
 public enum AdmittedInstantExemption
 {
-    /// <summary>Configuration verification decides in its isolated candidate world at the request's fixture instant.</summary>
-    ConfigurationRehearsal = 1,
-    /// <summary>Roster sync reads install-root authority at the device-signed roster <c>IssuedAt</c> (ADR-0053).</summary>
-    SignedRosterIssuedAt = 2,
 }
 
 /// <summary>
@@ -53,4 +61,37 @@ public enum AdmittedInstantExemption
 /// rule evaluation's pinned clock. <see cref="AdmittedInstant.Read"/> refuses one, so a declared time can never
 /// become a decision instant, and <c>AdmittedInstantArchTests</c> requires every production clock to carry this.
 /// </summary>
-public interface IDeclaredInstantClock;
+public interface IDeclaredInstantClock
+{
+    /// <summary>
+    /// The instant this clock was declared at. Reading it is not a clock read: a declared clock reads no ambient time
+    /// and never advances (T-1056, so a rehearsal instant is taken from it without a kernel-clock read, T-650/T-690).
+    /// </summary>
+    DateTimeOffset DeclaredInstant { get; }
+}
+
+/// <summary>
+/// A configuration rehearsal's declared time (T-1056, R-0149 decision 2, ruled R2: "a rehearsal-only instant type that only
+/// the isolated candidate world can create and accept; the server clock stays the only authority for real decisions").
+/// It is read only from an injected declared clock (<see cref="IDeclaredInstantClock"/>, the host's
+/// <c>DeclaredInstantTimeProvider</c>), never from the kernel clock, so TimeProvider injection is kept and the type is
+/// the boundary on top of it (DES-0044 governance-ck-4, "declared deterministic simulators").
+/// </summary>
+public sealed record RehearsalInstant
+{
+    private RehearsalInstant(DateTimeOffset value) => Value = value;
+
+    public DateTimeOffset Value { get; }
+
+    /// <summary>
+    /// Reads the declared clock the composition injected for this rehearsal. A clock that is not declared (the kernel
+    /// clock) is refused: real time cannot pose as a rehearsal. Internal; <c>AdmittedInstantArchTests</c> pins the caller.
+    /// </summary>
+    internal static RehearsalInstant Read(TimeProvider declaredClock)
+    {
+        ArgumentNullException.ThrowIfNull(declaredClock);
+        return declaredClock is IDeclaredInstantClock declared
+            ? new(declared.DeclaredInstant)
+            : throw new ArgumentException("A rehearsal instant is read only from a declared-instant clock.", nameof(declaredClock));
+    }
+}

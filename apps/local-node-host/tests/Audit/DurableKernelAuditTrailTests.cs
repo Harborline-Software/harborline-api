@@ -52,6 +52,32 @@ public sealed class DurableKernelAuditTrailTests : IAsyncLifetime
         Assert.True(new Ed25519Verifier().Verify(record.Payload));
     }
 
+    [Fact(DisplayName = "T-1148 A2, A4: a record's typed definition stamp survives a restart")]
+    public async Task DefinitionStamp_RecordedBeforeRestart_IsReadAfterIt()
+    {
+        var tenant = new TenantId("tenant-t1148");
+        var auditId = Guid.NewGuid();
+        await using (var before = Host(_store))
+        {
+            var signer = before.GetRequiredService<IOperationSigner>();
+            var at = DateTimeOffset.Parse("2026-11-07T10:00:00Z");
+            var payload = await signer.SignAsync(
+                new AuditPayload(new Dictionary<string, object?> { ["store_audited_fields"] = new[] { "packJson" } }),
+                at, Guid.NewGuid());
+            await before.GetRequiredService<IAuditTrail>().AppendAsync(
+                new AuditRecord(auditId, tenant, AuditEventType.OwnershipTransferred, at, payload, [],
+                    Definition: new AuditDefinitionStamp("platform.pack.author", "1.0.1")));
+        }
+
+        await using var after = Host(SearchTestStore.Reopen(_store));
+        var page = await after.GetRequiredService<IAuditEventReader>().ListAsync(
+            tenant, new AuditEventReaderQuery(EventType: AuditEventType.OwnershipTransferred));
+
+        var record = Assert.Single(page.Records);
+        Assert.Equal(new AuditDefinitionStamp("platform.pack.author", "1.0.1"), record.Definition);
+        Assert.Equal(0, record.FormatVersion);
+    }
+
     [Fact(DisplayName = "T-986: appending a record whose audit id is already stored is a no-op, not a key violation")]
     public async Task DuplicateAppend_OfTheSameAuditId_KeepsOneRecord()
     {

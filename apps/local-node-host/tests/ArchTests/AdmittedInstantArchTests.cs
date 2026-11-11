@@ -15,12 +15,12 @@ public sealed class AdmittedInstantArchTests
     /// <summary>Every production raw-to-admitted mint, by file and factory, with the reviewed reason.</summary>
     private static readonly (string Path, string Kind, int Count, string Reason)[] ReviewedMints =
     [
-        ("apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs", "Exempt", 1,
-            "Owed (T-1015 slice 3): the verification candidate world seeds and installs at the fixture's rehearsal instant."),
-        ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "Exempt", 1,
-            "Owed (T-1015 slice 3): verification decides the rehearsed create at the fixture's rehearsal instant."),
-        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "Exempt", 1,
-            "Owed (T-1015 slice 3): roster sync reads install-root authority at the device-signed roster IssuedAt (ADR-0053)."),
+        ("apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs", "ForRehearsal", 1,
+            "T-1056 (R2): the isolated candidate world seeds and installs at the rehearsal instant read from the declared clock."),
+        ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "ForRehearsal", 1,
+            "T-1056 (R2): verification decides the rehearsed create at the rehearsal instant read from the declared clock."),
+        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "FromRecordedAct", 1,
+            "T-1056: roster authority is read as of a record's bounded order time (attested receipt, IssuedAt within the one skew window), L143."),
         ("apps/local-node-host/Layout/LayoutDenialOutbox.cs", "FromRecordedAct", 1,
             "The appender replays a stored denial at the OccurredAt the server clock wrote into its outbox row."),
         ("packages/foundation-packs/Install/PackProjectionAuthority.cs", "FromRecordedAct", 1,
@@ -56,7 +56,7 @@ public sealed class AdmittedInstantArchTests
         // host's, ticket 216). The raw mints are internal, so no public path builds a request from a raw instant.
         Assert.Equal(["Read(TimeProvider)"], Factories(method => method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly));
         Assert.Equal(
-            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "FromRecordedAct(DateTimeOffset)"],
+            ["Exempt(DateTimeOffset,AdmittedInstantExemption)", "ForRehearsal(RehearsalInstant)", "FromRecordedAct(DateTimeOffset)"],
             Factories(method => method.IsAssembly));
         Assert.Equal(ReviewedFriends, type.Assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName)
@@ -120,9 +120,11 @@ public sealed class AdmittedInstantArchTests
 
         var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
                 target => target.DeclaringType == typeof(AdmittedInstant)
-                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt))
+                    && target.Name is nameof(AdmittedInstant.FromRecordedAct) or nameof(AdmittedInstant.Exempt) or nameof(AdmittedInstant.ForRehearsal))
             .GroupBy(site => (site.Path, Kind: site.Target.Contains($".{nameof(AdmittedInstant.Exempt)}(", StringComparison.Ordinal)
-                ? nameof(AdmittedInstant.Exempt) : nameof(AdmittedInstant.FromRecordedAct)))
+                ? nameof(AdmittedInstant.Exempt)
+                : site.Target.Contains($".{nameof(AdmittedInstant.ForRehearsal)}(", StringComparison.Ordinal)
+                    ? nameof(AdmittedInstant.ForRehearsal) : nameof(AdmittedInstant.FromRecordedAct)))
             .Select(group => $"{group.Key.Path}	{group.Key.Kind}	{group.Count()}")
             .Order(StringComparer.Ordinal)
             .ToArray();

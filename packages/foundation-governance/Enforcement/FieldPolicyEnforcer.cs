@@ -129,12 +129,14 @@ public sealed class FieldPolicyEnforcer : IFieldPolicyEnforcer
             applied.Add("retain");
         }
 
-        // 4. Audit envelope.
+        // 4. Store audit (T-1148). The enforcer appends nothing here: a store is audited by the one
+        // authorized row the caller writes for the effecting act (DES-0041 provenance-and-audit-ck-1, which
+        // needs actor, authority, version and time in one row), so it only reports that this field's store
+        // must be named there. Appending here wrote a weaker second row, before the create, outside the
+        // kernel trail and with no authority or version.
         var audited = false;
         if (policy.Has(EffectKind.Audit, Trigger.Store))
         {
-            await _audit.AppendAsync(BuildAppend(ctx.Entity, ctx.Actor, ctx.Tenant, Op.Write, policy.Field, "store"), ct)
-                .ConfigureAwait(false);
             audited = true;
             applied.Add("audit");
         }

@@ -68,7 +68,10 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
 
         var pending = grants.ReadAsync(
             new ActorId(partyId), new TenantId(team.ToString("D")),
-            AdmittedInstant.Exempt(at, AdmittedInstantExemption.SignedRosterIssuedAt), CancellationToken.None);
+            // T-1056: `at` is a roster record's bounded order time (its attested receipt, the signed IssuedAt bounded by
+            // the one skew window on both sides; legacy-wire rows are refused before any ordering) or the caller's own
+            // admitted instant. Reading authority as of a stored act's recorded instant is L143's past-act rule.
+            AdmittedInstant.FromRecordedAct(at), CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }
 }

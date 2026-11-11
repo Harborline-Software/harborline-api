@@ -68,6 +68,12 @@ public static class HandshakeProtocol
     public const int HelloTimestampSkewSeconds = 30;
 
     /// <summary>
+    /// The same window as a <see cref="TimeSpan"/>: the one fleet clock-skew allowance that roster ordering and the
+    /// rehost grant also bound a device-signed time with (T-1056, R-0149 decision 1). Never a second value.
+    /// </summary>
+    public static readonly TimeSpan HelloTimestampSkew = TimeSpan.FromSeconds(HelloTimestampSkewSeconds);
+
+    /// <summary>
     /// Initiator side of the handshake. Sends HELLO, reads the peer's HELLO,
     /// verifies the peer's Ed25519 signature + timestamp, sends
     /// CAPABILITY_NEG, reads ACK, returns the negotiated

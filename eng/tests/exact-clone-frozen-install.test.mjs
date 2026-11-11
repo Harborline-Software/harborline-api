@@ -83,3 +83,15 @@ test('the existing validation stage retains all six guards and runs the frozen i
     cwd: fixtureClone,
   }])
 })
+
+// T-1035: "a test or scan fails when either returns to an unlocked install". The case above runs only the
+// capability-host span, so this scans every package-manager install the exact clone runs, including the
+// packages/contracts one: each must be pnpm with --frozen-lockfile, so a new or changed install cannot drift.
+test('every package-manager install in the exact clone is pnpm with --frozen-lockfile', () => {
+  const installs = [...source.matchAll(/run\(\s*'([^']+)',\s*'(npm|pnpm|yarn)',\s*\[([^\]]*)\]/g)]
+    .filter(([, , , args]) => /^\s*'(?:install|i|add|ci)'/.test(args))
+    .map(([, id, manager, args]) => ({id, manager, args: [...args.matchAll(/'([^']*)'/g)].map(match => match[1])}))
+
+  assert.deepEqual(installs.map(install => install.id), ['capability-contracts-install', 'capability-install'])
+  for (const install of installs) assert.deepEqual([install.manager, ...install.args], ['pnpm', 'install', '--frozen-lockfile'], install.id)
+})

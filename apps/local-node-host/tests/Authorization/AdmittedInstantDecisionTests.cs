@@ -75,6 +75,7 @@ public sealed class AdmittedInstantDecisionTests
 
     private sealed class DeclaredClock(DateTimeOffset instant) : TimeProvider, IDeclaredInstantClock
     {
+        public DateTimeOffset DeclaredInstant => instant;
         public override DateTimeOffset GetUtcNow() => instant;
     }
 

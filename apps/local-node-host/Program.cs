@@ -2932,5 +2932,8 @@ await Harborline.Api.LocalNodeHost.LocalNodeHostRuntime.RunAsync(app, listener);
 internal sealed class DeclaredInstantTimeProvider(DateTimeOffset instant) : TimeProvider, Harborline.Api.Foundation.Authorization.IDeclaredInstantClock
 {
     /// <inheritdoc />
+    public DateTimeOffset DeclaredInstant => instant;
+
+    /// <inheritdoc />
     public override DateTimeOffset GetUtcNow() => instant;
 }
