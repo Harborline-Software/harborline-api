@@ -184,15 +184,15 @@ public sealed class RosterSkewWindowFenceTests
         BinaryExpressionSyntax binary =>
             (binary.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>().Any(member =>
                 member.Name.Identifier.ValueText == "HelloTimestampSkew")
-            || binary.Kind() is SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression
-                or SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression
-                or SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression
-            && (binary.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Any(member =>
-                IsTimeUnit(member.Name.Identifier.ValueText))
-                || binary.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(invocation =>
-                    invocation.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Abs" }
-                    && invocation.ArgumentList.DescendantNodes().OfType<BinaryExpressionSyntax>()
-                        .Any(argument => argument.IsKind(SyntaxKind.SubtractExpression)))))
+            || ((binary.Kind() is SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression
+                    or SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression
+                    or SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression)
+                && (binary.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Any(member =>
+                    IsTimeUnit(member.Name.Identifier.ValueText))
+                    || binary.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(invocation =>
+                        invocation.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Abs" }
+                        && invocation.ArgumentList.DescendantNodes().OfType<BinaryExpressionSyntax>()
+                            .Any(argument => argument.IsKind(SyntaxKind.SubtractExpression))))))
             && binary.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
         IsPatternExpressionSyntax pattern =>
             (pattern.Expression.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>()
