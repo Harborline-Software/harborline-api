@@ -220,6 +220,6 @@ Telerik feed. No user config, registry, audit setup, gate or threshold was edite
 
 **Open execution prerequisite:** restore reachability of the configured NAS
 registry, then rerun the full native gate. Rule 4 forbids changing that registry;
-no registry fallback or gate waiver was taken. No full native-gate receipt,
-push, draft PR, external review or PR check-watch is claimed. The tested changes
-remain committed on the requested slice branch for resumption.
+no registry fallback or gate waiver was taken. No full native-gate receipt is
+claimed. Draft publication exposes the tested proof and this unresolved gate
+prerequisite for review; it does not certify a full gate pass or acceptance.
