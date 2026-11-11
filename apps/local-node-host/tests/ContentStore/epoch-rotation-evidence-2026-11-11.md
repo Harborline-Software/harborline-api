@@ -8,6 +8,8 @@ No snapshot backup, marker file or speculative backup detection was added.
 
 API main `ca90c914` was merged normally as `0fffc324`. Its platform pin `22491171` is an ancestor of this
 branch's `2d820840b2f49815db65270e6bdb1ffbae7c3be7` (platform #431), so the newer branch pin was retained.
+Main advanced during validation to `c231e44787065285e43788995c2b08173c45b302` (the Cbor security update),
+which was merged normally as `94a7abd8`; its dependency change is inherited, not a slice-owned edit.
 The exact-pin local feed built all 36 producers successfully. The pre-change merged branch's Release build
 and ContentStore/ArchTests/affected Entities catalog run passed 636/636, with zero skipped tests.
 
@@ -74,18 +76,30 @@ removing a flush would lose data on a power failure. No such flush-removal mutat
 
 ## Final integrated validation
 
-The Release build passed with zero errors and 93 existing warnings. The final run passed **657/657**, zero skipped,
+After both main merges, the Release build/restore passed with zero errors and 411 warnings (the initial baseline
+also had 411); no warning suppression was added. The final run passed **657/657**, zero skipped,
 including all **131 ContentStore cases** and all **13 child-process crashes**:
 
 ```sh
-dotnet build apps/local-node-host/tests/tests.csproj -c Release --no-restore --disable-build-servers -m:1
+dotnet build apps/local-node-host/tests/tests.csproj -c Release --disable-build-servers -m:1
 dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --disable-build-servers -m:1 \
   --filter 'FullyQualifiedName~ContentStore|FullyQualifiedName~ArchTests|FullyQualifiedName~LocalNodePatternAModuleCatalogTests'
 ```
 
-The TRX is `final-tests/final.trx` in the thread's scratch directory; build/test logs are `final-build.log` and
-`final-tests.log`. No final test failure needed a clean-main comparison. The repository's `eng/verify-boundaries.sh`
-also passed, including its gate self-tests; this is not a full exact-clone/quality/mutation gate run.
+The final TRX is `final-tests/final-main.trx` in the thread's scratch directory; build/test logs are
+`final-main-build.log` and `final-main-tests.log`. The earlier `final.trx` records the same 657/657 result before
+the dependency update. No final test failure needed a clean-main comparison. The repository's
+`eng/verify-boundaries.sh` passed, including its gate self-tests. The identity-R3 scanner passed over 5,771 tracked
+files with zero unexempted hits; contract generation `--check` and the codegen guard suite passed.
+This is not a full exact-clone/quality/Stryker gate run.
+
+`eng/dependency-ledger.mjs` passed its package justifications, central pins, NuGet licence checks and lockfile policy,
+but returned 1 because both existing pnpm audits returned 1 (`apps/capability-host` and `packages/contracts`).
+Both failures were reproduced with `pnpm audit --audit-level high` in a fresh, untouched `git archive` of main
+`c231e44787065285e43788995c2b08173c45b302`. Each existing NAS audit request exhausted its retries and returned
+`[23] The operation was aborted due to timeout`. Logs: `main-capability-audit.log` and `main-contracts-audit.log`.
+This is an audit-service failure, not a clean vulnerability report. No dependency/audit/registry configuration was
+changed to work around it. The final boundary/preflight suite was rerun after the security merge and passed.
 
 Linux and Windows execution remain outstanding. The worker is portable and has no host skip, but macOS evidence
 does not satisfy acceptance 8's explicit Linux-and-Windows host requirement. Host enablement and schedule dispatch
