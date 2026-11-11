@@ -42,10 +42,6 @@ public sealed record AdmittedInstant
     }
 
     /// <summary>
-    /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
-    /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
-    /// </summary>
-    /// <summary>
     /// T-1056 (R-0149 decision 2, ruled R2): the one place a rehearsal instant becomes a decision instant, so the
     /// isolated candidate world can run the real authority over its declared fixture time. Internal, and
     /// <c>AdmittedInstantArchTests</c> pins its only callers to <c>VerificationCandidateWorld</c> and
@@ -57,15 +53,7 @@ public sealed record AdmittedInstant
         return new(rehearsal.Value);
     }
 
-    internal static AdmittedInstant Exempt(DateTimeOffset at, AdmittedInstantExemption exemption) =>
-        Enum.IsDefined(exemption) ? new(at) : throw new ArgumentOutOfRangeException(nameof(exemption));
-
     public override string ToString() => Value.ToString("O");
-}
-
-/// <summary>The decision instants T-1015 slice 1 leaves owed. Each is reclassified or removed by slice 3.</summary>
-public enum AdmittedInstantExemption
-{
 }
 
 /// <summary>
