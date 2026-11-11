@@ -290,15 +290,17 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     }
 
     [Theory]
-    [Trait("HandMutant", "T-1056-cap-removal")]
-    [InlineData(31, 31, false, false)]
-    [InlineData(0, 60, false, false)]
-    [InlineData(30, 30, true, false)]
-    [InlineData(31, 31, false, true)]
-    [InlineData(0, 60, false, true)]
-    [InlineData(30, 30, true, true)]
+    [InlineData(31, 31, false, 0)]
+    [InlineData(0, 60, false, 0)]
+    [InlineData(30, 30, true, 0)]
+    [InlineData(31, 31, false, 1)]
+    [InlineData(0, 60, false, 1)]
+    [InlineData(30, 30, true, 1)]
+    [InlineData(31, 31, false, 2)]
+    [InlineData(0, 60, false, 2)]
+    [InlineData(30, 30, true, 2)]
     public async Task ReadAsync_UsesTheCallersAdmittedInstantForPlantedAndWindowEdgeAuthority(
-        int issuedAhead, int receivedAhead, bool allowed, bool startup)
+        int issuedAhead, int receivedAhead, bool allowed, int readPath)
     {
         var founder = new Ed25519Signer(KeyPair.Generate());
         var admin = new Ed25519Signer(KeyPair.Generate());
@@ -312,13 +314,15 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
             RosterRecordCrdtState.FromAdmission(admission).AttestReceipt(founder, "founder",
                 admission.PartyId == "planted" ? IssuedAt.AddSeconds(receivedAhead) : IssuedAt))));
         var authority = new WindowedAuthority(IssuedAt.AddSeconds(receivedAhead), permissions);
-        var clock = new CountingClock();
-        var admittedAt = AdmittedInstant.Read(clock);
+        var admittedAt = AdmittedInstant.FromRecordedAct(IssuedAt);
 
         var reader = new VerifiedTenantRosterReader(_factory, Verifier, authority);
-        Task<MemberRoster> ReadAsync() => startup
-            ? reader.ReadPartialAsync(Tenant(), founder.IssuerId, admittedAt, CancellationToken.None)
-            : reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None);
+        Task<MemberRoster> ReadAsync() => readPath switch
+        {
+            1 => reader.ReadPartialAsync(Tenant(), founder.IssuerId, admittedAt, CancellationToken.None),
+            2 => reader.ReadForRebuildAsync(Tenant(), admittedAt, CancellationToken.None),
+            _ => reader.ReadAsync(Tenant(), admittedAt, CancellationToken.None),
+        };
         if (allowed)
         {
             var rebuilt = await ReadAsync();
@@ -332,7 +336,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         }
         Assert.Contains(IssuedAt.AddSeconds(30), authority.Reads);
         Assert.All(authority.Reads, instant => Assert.True(instant <= IssuedAt.AddSeconds(30)));
-        Assert.Equal(1, clock.Reads);
+        Assert.DoesNotContain(IssuedAt.AddSeconds(60), authority.Reads);
     }
 
     private sealed class WindowedAuthority(DateTimeOffset startsAt, PermissionSet permissions) : IRosterAuthority

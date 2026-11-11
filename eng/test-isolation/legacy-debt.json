@@ -109,7 +109,7 @@
   },
   "apps/local-node-host/tests/Identity/VerifiedTenantRosterReaderTests.cs\tVerifiedTenantRosterReaderTests\tClearAllPools": {
     "Count": 2,
-    "TypeSha256": "1078c369187bba0d23f2c6f83563ca89d81875d4780810ce9b707bfa605b929b",
+    "TypeSha256": "771894865419f383961bd39e34cf7009372cc515dbf28cc2f5eb74b23cef206d",
     "Owner": "T-1031",
     "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established. Re-pinned 2026-11-11 for T-1056 (api #482): only decision-instant construction changed (AdmittedInstant); the pool cleanup and its count are untouched."
   },
