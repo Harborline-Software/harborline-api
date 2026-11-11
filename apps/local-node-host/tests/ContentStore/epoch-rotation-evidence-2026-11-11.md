@@ -105,3 +105,34 @@ Linux and Windows execution remain outstanding. The worker is portable and has n
 does not satisfy acceptance 8's explicit Linux-and-Windows host requirement. Host enablement and schedule dispatch
 remain under the existing content-store host hold; this slice adds the registration and executable handler at the
 same seam as the staging sweep, not an independently enabled background timer.
+
+## 2026-11-11 — parent-directory durability review repair
+
+Codex review thread `discussion_r4538399917` identified that syncing the tenant directory alone did not persist
+the entries for newly created `content-epochs` and tenant directories in their parents. The shared durable writer
+now syncs the leaf and every ancestor through the existing filesystem root after rename and before returning.
+It does this even when directories already exist: an interrupted attempt can leave them visible without having
+completed their parent syncs. Any sync exception propagates; no successful write is reported on that path.
+The change covers epoch creation, the current pointer and rotation metadata without changing their callers.
+
+`NodeContentEpochDirectoryTests.cs` adds four deterministic regression cases. The oracle is acceptance 3 and
+ADR 0116 decision 5: the literal `tenant-keys/content-epochs/<tenant>` hierarchy must be persisted before a
+key write succeeds. Two cases record the actual sync callback's directory order while also performing the native
+sync, for a newly created hierarchy and one already visible after interrupted creation. Two cases inject an
+`IOException` at the `content-epochs` or `tenant-keys` parent sync and require that exact failure, not success.
+
+The authorized native retry reproduced all four failures before the fix (`directory-red.log`); the fixed writer
+passed all four (`directory-green.log`). Hand mutation D1 stops traversal after the leaf, restoring the original
+defect; all four tests failed (`directory-hand-mutation.log`), and the source was restored before final validation.
+This is deterministic call-order/error-propagation evidence, not a hardware
+power-cut experiment or proof that removing a native fsync primitive loses data. Logs remain in the thread's
+owned scratch directory `/private/tmp/t521-epoch-20261111-PEzy1R`.
+
+The final Release build/restore passed with zero errors and 93 incremental-build warnings. The ContentStore,
+ArchTests and affected Entities catalog filter passed 661/661, zero skipped, including all 13 real crash cases.
+The final TRX is `directory-final-tests/directory-final.trx`; build/test logs are `directory-final-build.log` and
+`directory-final-tests.log`. Boundary/preflight self-tests, identity-R3 scan, contract generation `--check`, the
+32-case codegen guard suite and `git diff --check` passed. The sandbox boundary run could not obtain process
+identity for its gate-lock self-tests; the unchanged command passed natively. No registry/audit configuration,
+test threshold or warning policy was changed. The previously reproduced clean-main audit-service failures and
+outstanding Linux/Windows host evidence remain as recorded above; no full gate or Stryker score is claimed.

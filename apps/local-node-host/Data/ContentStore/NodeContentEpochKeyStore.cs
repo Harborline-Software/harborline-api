@@ -11,7 +11,7 @@ namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 /// wrapped it with the tenant's data-key-wrap subkey. A tenant's <c>current</c> file names its current epoch.
 /// </summary>
 /// <remarks>
-/// Every file is written to a temporary name, flushed to the device, renamed into place and its directory flushed, so a key
+/// Every file is written to a temporary name, flushed to the device, renamed into place and its directory chain flushed, so a key
 /// is durable before any row can name it (ADR 0116 decision 5) and a crash leaves either the old file or the new one.
 /// </remarks>
 public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposable
@@ -131,7 +131,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         return Guid.TryParseExact(text, "N", out var current) ? current : throw new InvalidDataException("The current epoch file is unreadable.");
     }
 
-    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken)
+    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken, Action<string>? syncDirectory = null)
     {
         var directory = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(directory);
@@ -148,7 +148,8 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
 
             File.Move(temporary, path, overwrite: true);
             AfterFileStep(path, "renamed");
-            NodeContentByteStore.SyncDirectory(directory);
+            for (var ancestor = new DirectoryInfo(directory); ancestor is not null; ancestor = ancestor.Parent)
+                (syncDirectory ?? NodeContentByteStore.SyncDirectory)(ancestor.FullName);
             AfterFileStep(path, "directory-flushed");
         }
         finally

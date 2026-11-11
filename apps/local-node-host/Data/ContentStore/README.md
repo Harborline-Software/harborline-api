@@ -10,6 +10,11 @@ The node backs the platform content store's three ports (DES-0054, ADR 0113, ADR
   subkey, beside the version-2 tenant keys. They are never in `local-node.db`, so neither sync nor re-host, which carry
   only that database's documents, can carry one.
 
+An epoch or rotation-metadata write flushes its temporary file to the device, renames it, then syncs the containing
+directory and each ancestor through the filesystem root before returning. This persists newly created directory
+entries too, including a hierarchy left visible by an interrupted write; existence alone is not a durability receipt.
+Any directory-sync failure propagates instead of allowing the caller to publish a successful key write.
+
 The content store's tenant key is the tenant's version-2 stored key (`NodeTenantContentKeyProvider`), which destroying the
 tenant's keys removes. Rotation settings bind from `LocalNode:ContentStore:KeyRotation` (`ContentKeyRotationSettings`).
 
