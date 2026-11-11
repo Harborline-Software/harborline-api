@@ -45,7 +45,7 @@
          `properties` applicator alongside a failing child keyword — CollectErrors/Walk in
          InMemorySchemaRegistry.cs now drops that summary-only duplicate. -->
     <PackageVersion Include="JsonSchema.Net" Version="9.4.0" Justification="R-0068"/>
-    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0" Justification="R-0031; GHSA-vmv3-wvjp-wqpj"/>
+    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0" Justification="R-0031"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-rc.1.26425.128" Justification="R-0040"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0-rc.1.26425.128" Justification="R-0042"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="11.0.0-rc.1.26425.128" Justification="R-0043"/>
