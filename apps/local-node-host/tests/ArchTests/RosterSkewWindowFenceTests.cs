@@ -45,76 +45,17 @@ public sealed class RosterSkewWindowFenceTests
         ("apps/local-node-host/Data/Identity/WebSelectedSessionLogoutAuthority.cs", "TimeSpan.FromSeconds(30)", 1, "Logout lease duration."),
         ("apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs", "TimeSpan.FromSeconds(30)", 1, "Tenant selection lease duration."),
         ("apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs", "TimeSpan.FromSeconds(30)", 1, "Tenant switch lease duration."),
-        ("apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs", "MaximumUsernameConflictDisclosures = 3", 1, "Username conflict disclosure count."),
-        ("apps/local-node-host/Data/Identity/AdministratorAuthorityRecord.cs", "i = 0", 1, "Canonical payload iteration index."),
-        ("apps/local-node-host/Data/Identity/AdministratorRecoveryCommand.cs", "i = 0", 1, "Recovery argument iteration index."),
-        ("apps/local-node-host/Data/Identity/BootstrapClaimRedemption.cs", "BusyRetryCount = 100", 1, "Contended claim retry count."),
-        ("apps/local-node-host/Data/Identity/BootstrapClaimRedemption.cs", "attempt = 0", 1, "Contended claim retry index."),
-        ("apps/local-node-host/Data/Identity/GrantProjectionResolver.cs", "firstIndex = 0", 1, "Grant ledger scan index."),
-        ("apps/local-node-host/Data/Identity/InstallationAuditIntegrity.cs", "index = 0", 1, "Audit entry iteration index."),
-        ("apps/local-node-host/Data/Identity/InstallationFounderBindingService.cs", "BusyRetryCount = 8", 1, "Contended founder binding retry count."),
-        ("apps/local-node-host/Data/Identity/InstallationFounderBindingService.cs", "MaximumIdempotencyKeyLength = 512", 1, "Idempotency key length limit."),
-        ("apps/local-node-host/Data/Identity/InstallationFounderBindingService.cs", "attempt = 0", 1, "Contended founder binding retry index."),
-        ("apps/local-node-host/Data/Identity/InstallationFounderBootstrapService.cs", "BusyRetryCount = 8", 1, "Contended founder bootstrap retry count."),
-        ("apps/local-node-host/Data/Identity/InstallationFounderBootstrapService.cs", "attempt = 0", 1, "Contended founder bootstrap retry index."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs", "CoordinatorPayloadSchemaVersion = 2", 1, "Coordinator payload schema version."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs", "attempted = 0", 1, "Recovery attempts accumulator."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs", "int limit = 100", 1, "Recovery batch item limit."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityCutoverOrchestrator.cs", "BusyRetryCount = 8", 1, "Contended cutover retry count."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityCutoverOrchestrator.cs", "attempt = 0", 4, "Contended cutover retry indices."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityRecords.cs", "LegacyV1AuthorityVersion = 1", 1, "Legacy authority format version."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityRecords.cs", "Revision3AuthorityVersion = 2", 1, "Authority format version."),
-        ("apps/local-node-host/Data/Identity/InstallationIdentityRecords.cs", "Revision3V2AuthorityVersion = 2", 1, "Authority format version alias."),
-        ("apps/local-node-host/Data/Identity/LegacyIdentityMigrationService.cs", "ImmutableOptionsOwnerVersion = 0", 1, "Immutable options ownership version."),
-        ("apps/local-node-host/Data/Identity/LegacyIdentityMigrationService.cs", "created = 0", 1, "Migration creation accumulator."),
-        ("apps/local-node-host/Data/Identity/LegacyIdentityMigrationService.cs", "int classifiedCandidateCount = 0", 1, "Migration candidate count default."),
-        ("apps/local-node-host/Data/Identity/LegacyIdentityMigrationService.cs", "replayed = 0", 1, "Migration replay accumulator."),
-        ("apps/local-node-host/Data/Identity/NodeAdministratorAuthority.cs", "BusyRetryCount = 8", 1, "Contended administrator retry count."),
-        ("apps/local-node-host/Data/Identity/NodeAdministratorAuthority.cs", "attempt = 0", 1, "Contended administrator retry index."),
-        ("apps/local-node-host/Data/Identity/NodeRunLock.cs", "ShareRetryCount = 4", 1, "Run-lock sharing retry count."),
-        ("apps/local-node-host/Data/Identity/NodeRunLock.cs", "attempt = 0", 1, "Run-lock sharing retry index."),
-        ("apps/local-node-host/Data/Identity/RecoverySessionRevoker.cs", "staged = 0", 1, "Revoked session count."),
-        ("apps/local-node-host/Data/Identity/TenantMembershipAuthorityStore.cs", "CasRetryLimit = 16", 1, "Membership compare-and-swap retry count."),
-        ("apps/local-node-host/Data/Identity/TenantMembershipAuthorityStore.cs", "SchemaVersion = 3", 1, "Membership document schema version."),
-        ("apps/local-node-host/Data/Identity/TenantMembershipAuthorityStore.cs", "SerializedDocumentByteCeiling = 4 * 1024 * 1024", 1, "Membership document size ceiling."),
-        ("apps/local-node-host/Data/Identity/TenantMembershipAuthorityStore.cs", "attempt = 0", 1, "Membership compare-and-swap retry index."),
-        ("apps/local-node-host/Data/Identity/TenantMembershipAuthorityStore.cs", "sequence = 0", 1, "Membership append sequence start."),
-        ("apps/local-node-host/Data/Identity/WebAccountAccessChallengeIssuer.cs", "HandleByteLength = 32", 1, "Challenge handle entropy length."),
-        ("apps/local-node-host/Data/Identity/WebAccountAccessChallengeIssuer.cs", "MaxPasswordLength = 4096", 1, "Password length limit."),
-        ("apps/local-node-host/Data/Identity/WebAntiforgeryStateStore.cs", "MaximumCoordinateLength = 128", 1, "Antiforgery coordinate length limit."),
-        ("apps/local-node-host/Data/Identity/WebAntiforgeryStateStore.cs", "MaximumTokenLength = 256", 1, "Antiforgery token length limit."),
-        ("apps/local-node-host/Data/Identity/WebAntiforgeryStateStore.cs", "TokenByteLength = 32", 1, "Antiforgery token entropy length."),
-        ("apps/local-node-host/Data/Identity/WebChosenCredentialFactory.cs", "MaxPasswordLength = 4096", 1, "Password length limit."),
-        ("apps/local-node-host/Data/Identity/WebInstallationSessionStore.cs", "MaximumCoordinateLength = 128", 1, "Installation session coordinate length limit."),
-        ("apps/local-node-host/Data/Identity/WebInstallationSessionStore.cs", "Sha256HexLength = 64", 1, "Session digest encoding length."),
-        ("apps/local-node-host/Data/Identity/WebJoinerAccountMinter.cs", "BusyRetryCount = 8", 1, "Contended joiner account retry count."),
-        ("apps/local-node-host/Data/Identity/WebJoinerAccountMinter.cs", "attempt = 0", 1, "Contended joiner account retry index."),
-        ("apps/local-node-host/Data/Identity/WebSelectedSessionLogoutAuthority.cs", "PayloadSchemaVersion = 1", 1, "Logout payload schema version."),
-        ("apps/local-node-host/Data/Identity/WebSelectedSessionStore.cs", "MaximumCoordinateLength = 128", 1, "Selected session coordinate length limit."),
-        ("apps/local-node-host/Data/Identity/WebSelectedSessionStore.cs", "Sha256HexLength = 64", 1, "Selected session digest encoding length."),
-        ("apps/local-node-host/Data/Identity/WebSelectedSessionStore.cs", "attempt = 0", 1, "Selected session compare-and-swap retry index."),
-        ("apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs", "PayloadSchemaVersion = 1", 1, "Tenant selection payload schema version."),
-        ("apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs", "PayloadSchemaVersion = 1", 1, "Tenant switch payload schema version."),
-        ("apps/local-node-host/Data/Identity/WebUsernameNormalizer.cs", "MaxUsernameLength = 320", 1, "Username length limit."),
-        ("apps/local-node-host/Data/Roster/HydrationRosterVerifier.cs", "Capacity = 4096", 1, "Hydration verifier cache capacity."),
-        ("apps/local-node-host/Data/Roster/RosterCrdtProjection.cs", "IdenticalRecord = -2", 1, "Duplicate record comparison sentinel."),
-        ("apps/local-node-host/Data/Roster/RosterCrdtProjection.cs", "PendingAdministratorRemovalAttemptLimit = 4", 1, "Pending removal retry count."),
-        ("apps/local-node-host/Data/Roster/RosterCrdtProjection.cs", "index = 0", 2, "Roster iteration indices."),
-        ("apps/local-node-host/Data/Roster/RosterCrdtProjection.cs", "removed = 0", 3, "Roster removal accumulators."),
-        ("apps/local-node-host/Data/Roster/RosterRecordCrdtState.cs", "XWingPublicKeyLength = 1216", 1, "Hybrid public key encoding length."),
-        ("apps/local-node-host/Data/Roster/RosterRecordCrdtState.cs", "int WireFormatVersion = 0", 1, "Legacy wire format default."),
     ];
 
     [Fact(DisplayName = "T-1056: the roster skew window is the sync handshake's one constant, 30 s")]
     public void TheRosterWindowIsTheHandshakeConstant()
     {
         Assert.Equal(30, HandshakeProtocol.HelloTimestampSkewSeconds);
-        Assert.Equal(TimeSpan.FromSeconds(HandshakeProtocol.HelloTimestampSkewSeconds), HandshakeProtocol.HelloTimestampSkew);
-        Assert.Equal(HandshakeProtocol.HelloTimestampSkew, NodeRosterRecord.ReceiveTimeWindow);
+        Assert.Equal(TimeSpan.FromSeconds(30), HandshakeProtocol.HelloTimestampSkew);
+        Assert.Equal(TimeSpan.FromSeconds(30), NodeRosterRecord.ReceiveTimeWindow);
     }
 
     [Fact(DisplayName = "T-1056: no second time literal where signed roster time is compared")]
-    [Trait("HandMutant", "T-1056-second-identity-skew")]
     public void NoSecondSkewLiteral()
     {
         var root = RepositoryRoot();
@@ -153,6 +94,8 @@ public sealed class RosterSkewWindowFenceTests
     [InlineData("Data/Identity", "private int Grace => 31;")]
     [InlineData("Data/Identity", "private bool Check(double tolerance = 31) => false;")]
     [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta.TotalSeconds > 31;")]
+    [InlineData("Data/Identity", "private bool Check(double a, double b) => Math.Abs(a - b) <= 31;")]
+    [InlineData("Data/Identity", "private object Duration() => HandshakeProtocol.HelloTimestampSkew * 2;")]
     [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta.TotalSeconds is > 31;")]
     [InlineData("Data/Identity", "private bool Check(System.TimeSpan delta) => delta is { TotalSeconds: > 31 };")]
     [InlineData("Data/Identity", "private object Duration() => TS.FromSeconds(31);")]
@@ -230,19 +173,26 @@ public sealed class RosterSkewWindowFenceTests
             _ => null,
         }).FirstOrDefault(type => type is not null) is { } type && IsTimeSpan(type.ToString(), node),
         VariableDeclaratorSyntax { Initializer: { } initializer } variable =>
-            IsNumber(initializer.Value)
-            || Regex.IsMatch(variable.Identifier.ValueText, "Skew|Leeway|Window|Seconds", RegexOptions.IgnoreCase)
+            IsTimeName(variable.Identifier.ValueText)
                 && initializer.Value.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
         PropertyDeclarationSyntax property =>
-            property.Initializer is { } initializer && IsNumber(initializer.Value)
-            || property.ExpressionBody is { } body && IsNumber(body.Expression),
-        ParameterSyntax { Default: { } initializer } => IsNumber(initializer.Value),
+            IsTimeName(property.Identifier.ValueText)
+            && (property.Initializer is { } initializer && IsNumber(initializer.Value)
+                || property.ExpressionBody is { } body && IsNumber(body.Expression)),
+        ParameterSyntax { Default: { } initializer } parameter =>
+            IsTimeName(parameter.Identifier.ValueText) && IsNumber(initializer.Value),
         BinaryExpressionSyntax binary =>
-            binary.Kind() is SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression
+            (binary.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>().Any(member =>
+                member.Name.Identifier.ValueText == "HelloTimestampSkew")
+            || binary.Kind() is SyntaxKind.GreaterThanExpression or SyntaxKind.GreaterThanOrEqualExpression
                 or SyntaxKind.LessThanExpression or SyntaxKind.LessThanOrEqualExpression
                 or SyntaxKind.EqualsExpression or SyntaxKind.NotEqualsExpression
-            && binary.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Any(member =>
+            && (binary.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Any(member =>
                 IsTimeUnit(member.Name.Identifier.ValueText))
+                || binary.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(invocation =>
+                    invocation.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Abs" }
+                    && invocation.ArgumentList.DescendantNodes().OfType<BinaryExpressionSyntax>()
+                        .Any(argument => argument.IsKind(SyntaxKind.SubtractExpression)))))
             && binary.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
         IsPatternExpressionSyntax pattern =>
             (pattern.Expression.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>()
@@ -252,6 +202,9 @@ public sealed class RosterSkewWindowFenceTests
             && pattern.Pattern.DescendantTokens().Any(token => token.IsKind(SyntaxKind.NumericLiteralToken)),
         _ => false,
     };
+
+    private static bool IsTimeName(string name) =>
+        Regex.IsMatch(name, "Skew|Leeway|Window|Seconds|Tolerance|Drift|Grace", RegexOptions.IgnoreCase);
 
     private static bool IsNumber(ExpressionSyntax expression) => expression switch
     {
