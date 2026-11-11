@@ -133,6 +133,55 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(0, h.Related.OutsideResolver);
     }
 
+    [Theory(DisplayName = "T-735/binding-source-closure T-1079: a served root records one RecordRead with the caller, root and optional correlation")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_served_root_records_one_read_receipt(bool correlated)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        var correlation = correlated ? Guid.Parse("73500000-0000-4000-8000-000000000001") : (Guid?)null;
+
+        using var response = await h.GetAsync(new ActorId("member-735"), "invoice", "invoice-7", correlation);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var row = Assert.Single(await RowsAsync(h.Pipeline.Trail, h.Tenant));
+        Assert.Equal("RecordRead", row.EventType.Value);
+        Assert.Equal("member-735", row.Actor!.Value.Value);
+        Assert.Equal("invoice-7", row.Target!.Value.RecordId);
+        Assert.Equal("records:read", row.Act!.Value.Operation.Value);
+        Assert.Equal("invoice-7", row.Payload.Payload.Body["recordId"]);
+        Assert.NotNull(row.AuthoritySnapshot);
+        Assert.Equal(row.AuditId.ToString("D"), Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Id")));
+        if (correlated)
+        {
+            Assert.Equal("73500000-0000-4000-8000-000000000001", row.Payload.Payload.Body["correlation_id"]);
+            Assert.Equal("73500000-0000-4000-8000-000000000001",
+                Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Correlation")));
+        }
+        else
+        {
+            Assert.False(row.Payload.Payload.Body.ContainsKey("correlation_id"));
+            Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+        }
+    }
+
+    [Theory(DisplayName = "T-735/binding-source-closure layout-eng-31: a missing or denied root records no RecordRead")]
+    [InlineData("member-735", "invoice-404", HttpStatusCode.NotFound)]
+    [InlineData("opener-only-735", "invoice-7", HttpStatusCode.Forbidden)]
+    [InlineData("opener-only-735", "invoice-404", HttpStatusCode.Forbidden)]
+    [InlineData("reader-only-735", "invoice-7", HttpStatusCode.Forbidden)]
+    public async Task A_missing_or_denied_root_records_no_read_receipt(string caller, string root, HttpStatusCode expectedStatus)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+
+        using var response = await h.GetAsync(new ActorId(caller), "invoice", root);
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.DoesNotContain(await RowsAsync(h.Pipeline.Trail, h.Tenant), row => row.EventType.Value == "RecordRead");
+        Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
+        Assert.False(response.Headers.Contains("X-Harborline-Audit-Correlation"));
+    }
+
     [Fact(DisplayName = "T-735: an unknown surface refuses with layout.surface.unknown")]
     public async Task An_unknown_surface_refuses_with_a_stable_code()
     {
@@ -708,6 +757,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var builder = WebApplication.CreateBuilder();
             TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddSingleton(gate);
+            builder.Services.AddSingleton(pipeline.AcceptedActs);
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();

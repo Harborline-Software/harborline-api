@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Blocks.LayoutRuntime;
@@ -177,6 +178,8 @@ internal static class LayoutDenialTestKit
 
         public LocalNodeDb Db { get; } = new();
         public IAuditTrail Trail { get; } = trail;
+        public AuthorizedActAudit AcceptedActs => new(new AuthorityCapturingAuditTrail(Trail),
+            new Ed25519Signer(_keys), NullLogger<AuthorizedActAudit>.Instance);
         public LayoutDenialAlarms Alarms { get; } = new();
         public NodeEfLayoutDenialOutbox Outbox => _outbox ??= new(Db, NullLogger<NodeEfLayoutDenialOutbox>.Instance);
         private NodeEfLayoutDenialOutbox? _outbox;
