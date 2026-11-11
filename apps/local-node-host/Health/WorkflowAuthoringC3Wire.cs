@@ -3,20 +3,39 @@ using System.Text.Json;
 
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Blocks.BuilderDefinitions;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
 /// <summary>Locations in the submitted workflow; never definition targets or exception prose.</summary>
 internal static class WorkflowAuthoringC3Wire
 {
-    internal static string Locator(JsonElement body, string locator)
+    internal static IReadOnlyList<DefinitionRefusal> AdmissionRefusals(
+        JsonElement body, IReadOnlyList<WorkflowAdmissionViolation> violations, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(locator)) return "";
+        // A locator carries no collection, and ids may repeat across collections. Index the
+        // document once; null marks an ambiguous id rather than selecting an unrelated element.
+        var pointers = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var collection in new[] { "states", "transitions", "actions" })
             foreach (var (item, pointer) in Elements(body, collection))
-                if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
-                    && id.GetString() == locator) return pointer;
-        return "";
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String)
+                    continue;
+                var locator = id.GetString();
+                if (string.IsNullOrEmpty(locator)) continue;
+                if (!pointers.TryAdd(locator, pointer)) pointers[locator] = null;
+            }
+
+        var refusals = new List<DefinitionRefusal>(violations.Count);
+        foreach (var violation in violations)
+        {
+            ct.ThrowIfCancellationRequested();
+            var pointer = !string.IsNullOrEmpty(violation.Locator)
+                && pointers.TryGetValue(violation.Locator, out var resolved) ? resolved ?? "" : "";
+            refusals.Add(new DefinitionRefusal(violation.Code, pointer));
+        }
+        return refusals;
     }
 
     internal static string GateShape(JsonElement body, GateReferenceShapeException exception) =>

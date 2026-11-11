@@ -80,6 +80,40 @@ public sealed partial class WorkflowDefinitionRouteTests
         await AssertC3(response, code, pointer, "secret-", "WorkflowDefinition refused at admission");
     }
 
+    [Theory(DisplayName = "C3 ambiguous admission locators identify the whole document without disclosure or publication")]
+    [InlineData("Draft")]
+    [InlineData("t-approve")]
+    public async Task C3_AmbiguousAdmissionLocator(string locator)
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        body["actions"]![0]!["id"] = locator;
+        body["actions"]![0]!.AsObject().Remove("classification");
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", body);
+        await AssertC3(response, "workflow.admission.action_unclassified", "",
+            locator, "WorkflowDefinition refused at admission");
+    }
+
+    [Fact(DisplayName = "C3 large admission batches preserve every violation and indexed pointer without publication")]
+    public async Task C3_LargeAdmissionBatch()
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        var actions = new JsonArray();
+        for (var i = 0; i < 1000; i++)
+            actions.Add(new JsonObject { ["id"] = $"secret-action-{i}" });
+        body["actions"] = actions;
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", body);
+        await AssertC3(response, "workflow.admission.action_binding_invalid", "/actions/0",
+            "secret-action-", "WorkflowDefinition refused at admission", 2000);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var refusals = document.RootElement.GetProperty("refusals");
+        Assert.Equal("workflow.admission.action_binding_invalid", refusals[999].GetProperty("code").GetString());
+        Assert.Equal("/actions/999", refusals[999].GetProperty("pointer").GetString());
+        Assert.Equal("workflow.admission.action_unclassified", refusals[1000].GetProperty("code").GetString());
+        Assert.Equal("/actions/0", refusals[1000].GetProperty("pointer").GetString());
+        Assert.Equal("workflow.admission.action_unclassified", refusals[1999].GetProperty("code").GetString());
+        Assert.Equal("/actions/999", refusals[1999].GetProperty("pointer").GetString());
+    }
+
     [Fact(DisplayName = "C3 admission preserves two ordered violations and their separate pointers")]
     public async Task C3_TwoViolations()
     {

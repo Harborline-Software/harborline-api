@@ -264,8 +264,7 @@ public static class WorkflowDefinitionRoutes
             catch (WorkflowAdmissionException ex)
             {
                 return FormsAuthoringC3Wire.Refuse(DefinitionAdmissionPhase.Publish,
-                    ex.Result.Violations.Select(violation => new DefinitionRefusal(violation.Code,
-                        WorkflowAuthoringC3Wire.Locator(body, violation.Locator))).ToArray());
+                    WorkflowAuthoringC3Wire.AdmissionRefusals(body, ex.Result.Violations, ct));
             }
             catch (RoleGateAdmissionException ex)
             {
