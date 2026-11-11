@@ -20,7 +20,7 @@ public sealed class AdmittedInstantArchTests
         ("apps/local-node-host/Data/Configuration/VerificationRunner.cs", "ForRehearsal", 1,
             "T-1056 (R2): verification decides the rehearsed create at the rehearsal instant read from the declared clock."),
         ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "FromRecordedAct", 1,
-            "L143: the grant reader wraps the caller's decision instant; replication supplies the reviewed capped roster instant."),
+            "Insert eligibility wraps the validated record time; capped read sites bypass this mint and retain ForRosterAuthority."),
         ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs", "ForRosterAuthority", 1,
             "T-1056: replication caps every authority read at min(bounded order time, the act's admitted instant plus the handshake window)."),
         ("apps/local-node-host/Layout/LayoutDenialOutbox.cs", "FromRecordedAct", 1,

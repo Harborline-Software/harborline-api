@@ -9,6 +9,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Sync.Application;
+using Harborline.Api.Kernel.Sync.Handshake;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Enrollment;
@@ -613,7 +614,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
                     orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
                     var toInsert = new List<NodeRosterRecord>();
-                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, authority, admittedAt, ct).ConfigureAwait(false);
+                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, rosterAuthority, admittedAt, ct).ConfigureAwait(false);
                     inboundRefusals.AddRange(refused.Values);
                     var changed = false;
                     foreach (var s in snapshot)
@@ -1023,7 +1024,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 var remaining = new List<RosterRecordCrdtState>();
                 foreach (var candidate in pending)
                 {
-                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority);
+                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority, admittedAt);
                     if (code is null)
                     {
                         evidence.Add(candidate);
@@ -1036,7 +1037,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             } while (grew && pending.Count > 0);
             foreach (var candidate in pending)
             {
-                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority)!;
+                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority, admittedAt)!;
                 var report = code == "roster.genesis.duplicate" ? GenesisRefusal(candidate, admittedAt).Report
                     : new AuthorizationRefusal(code, "Roster record refused",
                     "The record has no valid signature and eligible live signer in the durable genesis chain.",
@@ -1053,7 +1054,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
     private string? VerifyInboundRecord(RosterRecordCrdtState candidate, List<RosterRecordCrdtState> evidence,
         IEnumerable<RosterRecordCrdtState> incoming, MemberAdmissionRecord? anchor, bool competingRoots,
-        Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority)
+        Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt)
     {
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
@@ -1080,6 +1081,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         var canonicalId = admission is not null ? RosterRecordCrdtState.FromAdmission(admission).RecordId
             : RosterRecordCrdtState.FromRevocation(revocation!).RecordId;
         if (candidate.RecordId != canonicalId) return "roster.record.malformed";
+        var at = orderTime(candidate.SignatureB64Url, issuedAt);
+        if (at > admittedAt.Value + HandshakeProtocol.HelloTimestampSkew)
+            return FutureOrderTimeRefusal;
         if (admission?.Admission.IsGenesis == true)
         {
             if (anchor is not null || competingRoots) return "roster.genesis.duplicate";
@@ -1092,7 +1096,6 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         var admissions = evidence.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
             .Where(a => !a.Admission.IsGenesis || a.Admission.Signature == anchor?.Admission.Signature).ToList();
         if (admission is not null) admissions.Add(admission);
-        var at = orderTime(candidate.SignatureB64Url, admission?.Admission.IssuedAt ?? revocation!.Signed.IssuedAt);
         var nonce = admission?.Admission.Nonce ?? revocation!.Signed.Nonce;
         // Pre-insert eligibility and replay use the same durable receipt bound.
         var preceding = evidence.Concat(incoming).DistinctBy(s => s.RecordId)

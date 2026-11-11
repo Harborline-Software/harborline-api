@@ -59,15 +59,20 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
 
     private sealed class CappedAuthority(IRosterAuthority authority, AdmittedInstant admittedAt) : IRosterAuthority
     {
-        public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at) =>
-            authority.PermissionsFor(teamId, partyId,
-                AdmittedInstant.ForRosterAuthority(at, admittedAt, HandshakeProtocol.HelloTimestampSkew).Value);
+        public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+        {
+            var capped = AdmittedInstant.ForRosterAuthority(at, admittedAt, HandshakeProtocol.HelloTimestampSkew);
+            return authority is GrantStoreRosterAuthority store
+                ? store.PermissionsFor(teamId, partyId, capped)
+                : authority.PermissionsFor(teamId, partyId, capped.Value);
+        }
     }
 
-    // NO clock. The instant is the caller's - the rebuild's / the decision's At (ticket 216: only the host
-    // composition root introduces wall time, and a grant read at a LATER instant than the act it feeds can flip
-    // the answer mid-act).
-    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+    // Insert eligibility uses the validated record time; read-site caps retain their reviewed typed mint.
+    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at) =>
+        PermissionsFor(teamId, partyId, AdmittedInstant.FromRecordedAct(at));
+
+    private PermissionSet PermissionsFor(string teamId, string partyId, AdmittedInstant at)
     {
         // One tenant-key form: the canonical "D" Guid. A team id that is not one is not a roster-backed team.
         if (grants is null
@@ -79,7 +84,7 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
 
         var pending = grants.ReadAsync(
             new ActorId(partyId), new TenantId(team.ToString("D")),
-            AdmittedInstant.FromRecordedAct(at), CancellationToken.None);
+            at, CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }
 }
