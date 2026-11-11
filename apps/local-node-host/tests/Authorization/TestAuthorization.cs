@@ -181,10 +181,11 @@ internal static class TestAuthorization
     internal static AuthorizationWriteContext FormWrite(
         CapabilityToken token,
         FormDefinitionId form,
-        DateTimeOffset at) => new(
+        DateTimeOffset at,
+        Guid? correlationId = null) => new(
         token.Subject,
         token.Tenant,
-        AdmittedInstant.FromRecordedAct(at));
+        AdmittedInstant.FromRecordedAct(at)) { CorrelationId = correlationId };
 
     internal static AuthorizationWriteContext Write(
         TenantId tenant,
