@@ -331,8 +331,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.All(types, x => Assert.Equal(new CatalogueProvenance(null, null, "compiled"), x.Provenance));
     }
 
-    [Fact(DisplayName = "Duplicate declarations keep the compiled catalogue")]
-    public async Task Duplicate_Active_Platform_Seed_Descriptors_Keep_Catalogue()
+    [Fact(DisplayName = "A duplicated declaration leaves that descriptor compiled")]
+    public async Task Duplicate_Active_Platform_Seed_Descriptors_Keep_Compiled_Provenance()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(
@@ -343,6 +343,9 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var types = SystemRecordType.FromActivePlatformPack(duplicate);
 
         Assert.Equal(19, types.Count);
+        Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
+        Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
     }
 
     [Theory]
@@ -389,14 +392,18 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
     }
 
-    [Fact]
-    public async Task Mixed_legacy_and_qualified_aliases_keep_compiled_catalogue()
+    [Fact(DisplayName = "Mixed aliases leave that descriptor compiled")]
+    public async Task Mixed_legacy_and_qualified_aliases_keep_compiled_provenance()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
         var descriptor = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
         var mixed = active with { SeedItems = [.. active.SeedItems, descriptor with { Key = "FormDefinition" }] };
-        Assert.Equal(19, SystemRecordType.FromActivePlatformPack(mixed).Count);
+        var types = SystemRecordType.FromActivePlatformPack(mixed);
+        Assert.Equal(19, types.Count);
+        Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
+        Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
     }
 
     [Theory]

@@ -108,21 +108,25 @@ public sealed record SystemRecordType(
     /// <summary>Returns the compiled descriptors with provenance from valid platform declarations.</summary>
     public static IReadOnlyList<SystemRecordType> FromActivePlatformPack(InstalledPack? platform)
     {
-        var carried = new HashSet<string>(StringComparer.Ordinal);
+        var declarations = new Dictionary<string, (int Count, bool Valid)>(StringComparer.Ordinal);
         if (platform is not null && platform.Lifecycle == PackLifecycleState.Active
             && string.Equals(platform.PackKey, "harborline.platform", StringComparison.Ordinal))
         {
             foreach (var item in platform.SeedItems.Where(item => item.Kind == PackContentKind.RecordType))
                 if (!string.IsNullOrWhiteSpace(item.Key)
-                    && PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor)
-                    && PackSealedSystemTypeAdmission.IsCanonicalCatalogueKey(item.Key, descriptor!)
-                    && IsValidPlatformDeclaration(item))
-                    carried.Add(descriptor!.Name);
+                    && PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor))
+                {
+                    declarations.TryGetValue(descriptor!.Name, out var previous);
+                    declarations[descriptor!.Name] = (previous.Count + 1,
+                        PackSealedSystemTypeAdmission.IsCanonicalCatalogueKey(item.Key, descriptor!)
+                        && IsValidPlatformDeclaration(item));
+                }
         }
 
         return All.Select(descriptor => descriptor with
         {
-            Provenance = carried.Contains(descriptor.Name)
+            Provenance = declarations.TryGetValue(descriptor.Name, out var declaration)
+                && declaration.Count == 1 && declaration.Valid
                 ? new CatalogueProvenance(platform!.PackKey, platform.Version, "platform")
                 : new CatalogueProvenance(null, null, "compiled"),
         }).ToArray();
