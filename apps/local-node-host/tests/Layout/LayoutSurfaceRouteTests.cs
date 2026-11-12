@@ -18,7 +18,9 @@ using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
@@ -405,6 +407,14 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
     /// the measured time. Each local-store operation costs 5 ms of CPU, so without the floor the denied path is
     /// about 15 ms slower and the median rule fails.
     /// </summary>
+    /// <remarks>
+    /// T-1195: the request leg before the route starts its floor and the response leg after it (the receipt, the
+    /// serialization, Kestrel and the client) are the same on both paths but are not free, and on a fresh process
+    /// they get cheaper and steadier only after about 150 requests at the floor. The calibration runs the denied
+    /// path at no floor only, so without a warm-up the 60 pairs ran during that settling: on the hosted gate the
+    /// time past the floor fell from about 1.0 ms to 0.65 ms across the pairs, and the paired differences spread
+    /// to ±0.15 ms around a zero median. <see cref="RouteWarmUpPairs"/> discarded pairs at the floor run first.
+    /// </remarks>
     [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
     [Fact(DisplayName = "layout-eng-31 T-735: at the route, missing and denied timings meet the TimingParity bounds (paired median within ±0.1 ms at 99.96% coverage, p90 gap under 1 ms)")]
     public async Task Missing_and_denied_route_timing_distributions_are_the_same()
@@ -422,8 +432,14 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                 _ = await response.Content.ReadAsByteArrayAsync();
             };
-        }, h.Pipeline.Appender.IdleAsync, "route", output);
+        }, h.Pipeline.Appender.IdleAsync, "route", output, RouteWarmUpPairs);
     }
+
+    /// <summary>
+    /// T-1195: 240 requests at the floor, both paths, before the first counted pair. On a 4-CPU Linux container the
+    /// time past the floor stopped falling after about 150 requests, so this leaves a margin past it.
+    /// </summary>
+    private const int RouteWarmUpPairs = 120;
 
     [Fact(DisplayName = "layout-eng-31 T-735: the response floor counts from the start of the route, so the route's own lookups are inside the deadline")]
     public async Task The_floor_counts_the_routes_own_work()
@@ -439,6 +455,35 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         var alert = await h.Pipeline.HealthAsync();
         Assert.Equal(HealthStatus.Degraded, alert.Status);
         Assert.Equal(1L, alert.Data["floorOverruns"]);
+    }
+
+    [Theory(DisplayName = "layout-eng-31 T-1195: every served path writes its one RecordRead receipt inside the response floor, so a receipt slower than the floor overruns it")]
+    [InlineData("allowed")]
+    [InlineData("denied")]
+    [InlineData("missing")]
+    public async Task Every_served_path_writes_its_receipt_inside_the_floor(string path)
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.FromMilliseconds(200));
+        h.Related.Present = path != "missing";
+        var caller = path == "allowed" ? Member : Viewer;
+        // A first request with a free receipt, so a cold process's own first-request work cannot be the overrun.
+        using (await h.GetAsync(caller, SurfacePack.Invoice, Root)) { }
+        await h.Pipeline.Appender.IdleAsync();
+        var overruns = h.Pipeline.Alarms.FloorOverruns;
+        var receipts = (await ReceiptsAsync(h)).Count;
+
+        // The receipt alone outruns the floor. Were it written after the floor ended, nothing would overrun.
+        h.Receipts.Cost = TimeSpan.FromMilliseconds(300);
+        using var response = await h.GetAsync(caller, SurfacePack.Invoice, Root);
+        await h.Pipeline.Appender.IdleAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(receipts + 1, (await ReceiptsAsync(h)).Count);
+        Assert.Equal(overruns + 1, h.Pipeline.Alarms.FloorOverruns);
+        Assert.Equal(HealthStatus.Degraded, (await h.Pipeline.HealthAsync()).Status);
+
+        static async Task<List<AuditRecord>> ReceiptsAsync(Host h)
+            => [.. (await RowsAsync(h.Pipeline.Trail, h.Tenant)).Where(row => row.EventType.Value == "RecordRead")];
     }
 
     [Fact(DisplayName = "layout-eng-31 T-735: a denial made at the surface route reaches the denial reader route for a principal holding audit:read and records:read")]
@@ -704,16 +749,38 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
 
     private sealed class CompositionProbeCompleteException : Exception;
 
+    /// <summary>The accepted-act trail the route writes its receipts to, with a CPU cost per receipt (no timer).</summary>
+    private sealed class CostedReceipts(IAuthorizedAuditTrail inner) : IAuthorizedAuditTrail
+    {
+        public TimeSpan Cost { get; set; }
+
+        public ValueTask AppendAuthorizedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
+            SeparationOfDutyDecision? approval = null)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed < Cost) Thread.SpinWait(64);
+            return inner.AppendAuthorizedAsync(record, decision, ct, approval);
+        }
+
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => inner.AppendAsync(record, ct);
+
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default) => inner.QueryAsync(query, ct);
+    }
+
     private sealed class Host : IAsyncDisposable
     {
         private const string CallerHeader = "X-Test-Caller";
         internal const string DesktopHeader = "X-Test-Desktop-Plane";
         private readonly WebApplication _app;
         private readonly ServiceProvider _authorization;
+        private readonly KeyPair _receiptKeys;
 
         private Host(WebApplication app, ServiceProvider authorization, Pipeline pipeline, LayoutSurfaceOptions options,
-            FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs)
+            FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs,
+            CostedReceipts receipts, KeyPair receiptKeys)
         {
+            Receipts = receipts;
+            _receiptKeys = receiptKeys;
             Packs = packs;
             _app = app;
             _authorization = authorization;
@@ -734,6 +801,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public LayoutSurfaceOptions Options { get; }
         public FixtureRoots Roots { get; }
         public FixtureRelatedRecords Related { get; }
+        public CostedReceipts Receipts { get; }
 
         public static async Task<Host> CreateAsync(TimeSpan floor, ILayoutRelatedRecordSource? relatedSource = null,
             ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true)
@@ -763,7 +831,10 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var builder = WebApplication.CreateBuilder();
             TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddSingleton(gate);
-            builder.Services.AddSingleton(pipeline.AcceptedActs);
+            var receipts = new CostedReceipts((IAuthorizedAuditTrail)pipeline.Trail);
+            var receiptKeys = KeyPair.Generate();
+            builder.Services.AddSingleton(new AuthorizedActAudit(receipts, new Ed25519Signer(receiptKeys),
+                NullLogger<AuthorizedActAudit>.Instance));
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
@@ -787,7 +858,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();
-            return new Host(app, authorization, pipeline, options, roots, related, packs);
+            return new Host(app, authorization, pipeline, options, roots, related, packs, receipts, receiptKeys);
         }
 
         public Task<HttpResponseMessage> GetAsync(ActorId caller, string surface, string record, Guid? correlation = null)
@@ -840,6 +911,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             await _app.DisposeAsync();
             await _authorization.DisposeAsync();
             Pipeline.Dispose();
+            _receiptKeys.Dispose();
         }
     }
 }
