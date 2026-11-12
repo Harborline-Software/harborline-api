@@ -365,7 +365,6 @@
     "A crypto-shredded subject's draft is hard-deleted and reads as absent (survives restart)",
     "A designated but UNVERIFIED root reads unresolved — the same readability predicate the installation's own cutover uses, so standing never answers more specifically than it",
     "A desktop caller whose genesis Party is somehow absent gets no baseline",
-    "A duplicated declaration leaves that descriptor compiled",
     "A full tracking table evicts the least-recently-active unprotected key",
     "A full tracking table refuses a new key when every entry is locked",
     "A gated route is 401 without any bearer, and with a bogus web bearer",
@@ -3619,7 +3618,6 @@
     "Matrix: every other platform operation refuses the Auditor(operationValue: \"spatial:read\")",
     "Matrix: every other platform operation refuses the Auditor(operationValue: \"workshop:unlock\")",
     "Missing public bundle root records static middleware as absent",
-    "Mixed aliases leave that descriptor compiled",
     "Multilingual FTS5 trigram: CJK query has NON-ZERO recall (unicode61 would give 0)",
     "NO DOUBLE-POST: a >$5k approved invoice + a ≤$5k direct invoice → EXACTLY TWO JEs total (one each)",
     "No founder credential provisioned ⇒ login is FAIL-CLOSED (401)",
@@ -4562,8 +4560,6 @@
     "≥3-node refute: a REVOKED member's transport key is DROPPED post-converge — rebuild-from-live subsumes the gap-#3 prune (no regression)"
   ],
   "policyRemovals": [
-    {"test":"Duplicate declarations keep the compiled catalogue","reason":"T-670 / control PR 1358, M11 ruling (b): renamed to \"A duplicated declaration leaves that descriptor compiled\" and strengthened to assert literal compiled provenance for the ambiguous descriptor and platform provenance for the other 18. T-724 ruling 119 rename accounting; no test removed.","dated":"2026-11-12","owner":"T-670"},
-    {"test":"Harborline.Api.LocalNodeHost.Tests.Catalogue.CatalogueRouteTests.Mixed_legacy_and_qualified_aliases_keep_compiled_catalogue","reason":"T-670 / control PR 1358, M11 ruling (b): renamed to \"Mixed aliases leave that descriptor compiled\" and strengthened to assert literal compiled provenance for the ambiguous descriptor and platform provenance for the other 18. T-724 ruling 119 rename accounting; no test removed.","dated":"2026-11-12","owner":"T-670"},
     {"test":"M4: sealed catalogue types are absent before the platform seed is active","reason":"T-670/api-sealed-kinds-compiled implements T-909 Q3: the compiled floor is available without an active seed. The route test continues as \"Sealed catalogue types are compiled before the platform seed is active\", asserting the literal descriptors, kinds, sealed flag and compiled provenance.","dated":"2026-11-12","owner":"T-670"},
     {"test":"M4: deactivating the platform seed removes its sealed catalogue types","reason":"T-670/api-sealed-kinds-compiled implements T-909 Q3: deactivation removes seed provenance, not compiled descriptors. The route test continues as \"Deactivating the platform seed keeps compiled catalogue types\", asserting the literal descriptors, kinds, sealed flag and compiled provenance.","dated":"2026-11-12","owner":"T-670"},
     {"test":"M4: invalid active platform seed descriptors fail closed","reason":"T-670/api-sealed-kinds-compiled implements T-909 Q3: duplicate declarations cannot empty the compiled floor. The test continues as \"A duplicated declaration leaves that descriptor compiled\" under control PR 1358: only the ambiguous descriptor loses platform provenance; invalid declaration refusal remains with install-time admission.","dated":"2026-11-12","owner":"T-670"},
