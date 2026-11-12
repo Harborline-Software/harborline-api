@@ -314,7 +314,7 @@ internal static class TestAuthorization
         public ValueTask<AuthorizationRosterInputs?> ReadAsync(
             ActorId principal,
             TenantId tenant,
-            DateTimeOffset at,
+            AdmittedInstant at,
             CancellationToken cancellationToken = default) => ValueTask.FromResult(roster);
     }
 
@@ -326,7 +326,7 @@ internal static class TestAuthorization
         public async ValueTask<AuthorizationRosterInputs?> ReadAsync(
             ActorId principal,
             TenantId tenant,
-            DateTimeOffset at,
+            AdmittedInstant at,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();

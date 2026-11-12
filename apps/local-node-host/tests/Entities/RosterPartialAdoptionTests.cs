@@ -41,7 +41,7 @@ public sealed class RosterPartialAdoptionTests
             unrelated.EnumerateAdmissions().Single(a => !a.Admission.IsGenesis)));
         var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, default));
+            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, f.Provider.GetRequiredService<TimeProvider>(), default));
         Assert.Equal(VerifiedTenantRosterRefusal.Orphan,
             Assert.IsType<VerifiedTenantRosterRefusedException>(error.InnerException).Refusal);
     }
@@ -67,7 +67,7 @@ public sealed class RosterPartialAdoptionTests
             }
         }
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, default));
+            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, f.Provider.GetRequiredService<TimeProvider>(), default));
         Assert.Contains(DurableGenesisIdentity.InvalidLogCode, error.Message);
         Assert.Equal(VerifiedTenantRosterRefusal.MultipleGenesis,
             Assert.IsType<VerifiedTenantRosterRefusedException>(error.InnerException).Refusal);
@@ -202,7 +202,7 @@ public sealed class RosterPartialAdoptionTests
         var shell = MemberRoster.Genesis(Tenant, "new-shell", f.Founder, Verifier, At.AddDays(1), Guid.NewGuid());
         await using var restarted = f.NewProvider(shell);
         var factory = restarted.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-        var stored = await DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, default);
+        var stored = await DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, restarted.GetRequiredService<TimeProvider>(), default);
         Assert.NotNull(stored);
         Assert.Equal("founder", stored.GenesisPartyId);
         Assert.False(stored.Contains("peer"));

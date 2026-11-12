@@ -9,7 +9,7 @@ public interface IAuthorizationRosterConstraintReader
     ValueTask<AuthorizationRosterInputs?> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default);
 }
 
@@ -23,7 +23,7 @@ public sealed class RefusingAuthorizationRosterConstraintReader : IAuthorization
     public ValueTask<AuthorizationRosterInputs?> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult<AuthorizationRosterInputs?>(null);
 }
@@ -35,7 +35,7 @@ internal sealed class TestMemberAuthorizationRosterConstraintReader : IAuthoriza
     public ValueTask<AuthorizationRosterInputs?> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult<AuthorizationRosterInputs?>(new(principal.Value, Member: true, Ejected: false));
 }

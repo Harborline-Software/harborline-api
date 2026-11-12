@@ -30,9 +30,17 @@ public sealed record AdmittedInstant
     internal static AdmittedInstant FromRecordedAct(DateTimeOffset recordedAt) => new(recordedAt);
 
     /// <summary>
-    /// An instant the server did NOT admit, taken anyway at a named, owed site (T-1015 slice 3). Each
-    /// <see cref="AdmittedInstantExemption"/> is pinned to its production callers by <c>AdmittedInstantArchTests</c>.
+    /// Caps replicated roster authority at the caller's admitted act plus its reviewed skew window.
+    /// Internal; AdmittedInstantArchTests pins the sole host caller that supplies the handshake window.
     /// </summary>
+    internal static AdmittedInstant ForRosterAuthority(
+        DateTimeOffset boundedOrderTime, AdmittedInstant admittedAt, TimeSpan skew)
+    {
+        ArgumentNullException.ThrowIfNull(admittedAt);
+        var cap = admittedAt.Value + skew;
+        return new(boundedOrderTime < cap ? boundedOrderTime : cap);
+    }
+
     /// <summary>
     /// T-1056 (R-0149 decision 2, ruled R2): the one place a rehearsal instant becomes a decision instant, so the
     /// isolated candidate world can run the real authority over its declared fixture time. Internal, and
@@ -45,15 +53,7 @@ public sealed record AdmittedInstant
         return new(rehearsal.Value);
     }
 
-    internal static AdmittedInstant Exempt(DateTimeOffset at, AdmittedInstantExemption exemption) =>
-        Enum.IsDefined(exemption) ? new(at) : throw new ArgumentOutOfRangeException(nameof(exemption));
-
     public override string ToString() => Value.ToString("O");
-}
-
-/// <summary>The decision instants T-1015 slice 1 leaves owed. Each is reclassified or removed by slice 3.</summary>
-public enum AdmittedInstantExemption
-{
 }
 
 /// <summary>

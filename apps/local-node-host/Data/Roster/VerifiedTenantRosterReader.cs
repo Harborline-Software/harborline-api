@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
@@ -30,18 +32,24 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         _authority = authority;
     }
 
-    /// <inheritdoc />
-    public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => ReadCoreAsync(team, false, ct);
+    /// <summary>Rebuild the durable roster within the caller's already-admitted act.</summary>
+    public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(admittedAt);
+        return ReadCoreAsync(team, false, ct, admittedAt: admittedAt);
+    }
     /// <summary>Verify the durable chain prefix at the signed grant's issue instant.</summary>
     public Task<MemberRoster> ReadAtAsync(TenantId team, DateTimeOffset at, CancellationToken ct) =>
         ReadCoreAsync(team, false, ct, at: at);
 
-    internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal, CancellationToken ct) => ReadCoreAsync(team, true, ct, derivedPrincipal);
+    internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal,
+        AdmittedInstant admittedAt, CancellationToken ct) =>
+        ReadCoreAsync(team, true, ct, derivedPrincipal, admittedAt: admittedAt);
 
     // A live fold already has its install identity. Preserve partial adoption's durable anchor and
     // orphan checks without re-running the boot-only proof that chooses that install identity.
-    internal Task<MemberRoster> ReadForRebuildAsync(TenantId team, CancellationToken ct) =>
-        ReadCoreAsync(team, true, ct, requireInstallAnchor: false);
+    internal Task<MemberRoster> ReadForRebuildAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) =>
+        ReadCoreAsync(team, true, ct, requireInstallAnchor: false, admittedAt: admittedAt);
 
     // The existing SQLite append log supplies precedence, not a peer-controlled issuance time or a shell value.
     // Boot also requires install-signed root evidence below; append order alone cannot authenticate an install.
@@ -64,7 +72,8 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
     }
 
     private async Task<MemberRoster> ReadCoreAsync(TenantId team, bool partial, CancellationToken ct,
-        PrincipalId? derivedPrincipal = null, bool requireInstallAnchor = true, DateTimeOffset? at = null)
+        PrincipalId? derivedPrincipal = null, bool requireInstallAnchor = true, DateTimeOffset? at = null,
+        AdmittedInstant? admittedAt = null)
     {
         if (team.IsSystemSentinel || string.IsNullOrWhiteSpace(team.Value) || !Guid.TryParse(team.Value, out var teamId))
         {
@@ -186,9 +195,8 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                 "The durable log cannot name an earlier verified genesis signed by this install.");
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        // ReadAtAsync's bound IS the instant the caller is evaluating at; ReadAsync has none, and the rebuild
-        // then judges every party at its own latest record time (never a clock).
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _authority, at);
+        var authority = admittedAt is null ? _authority : GrantStoreRosterAuthority.CapAt(_authority, admittedAt);
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, authority, at);
         if (rebuilt.TeamId != teamId || string.IsNullOrEmpty(rebuilt.GenesisPartyId) ||
             !rebuilt.ValidatesToGenesis(_verifier))
         {
@@ -200,7 +208,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             chainAdmissions.AddRange(admissions.Where(a => a.Admission.IsGenesis).SelectMany(root =>
                 MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
                     || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime,
-                    _authority, at)
+                    authority, at)
                     .EnumerateAdmissions()));
         if (attestations.Any(attestation => !chainAdmissions.Any(admission =>
                 admission.PartyId == attestation.NodePartyId
@@ -219,7 +227,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             // (including one that merely claims a dropped party as its signer) must still alarm.
             var dropped = admissions.Where(a => a.Admission.IsGenesis && a.Admission.Signature != anchor.Admission.Signature)
                 .SelectMany(root => MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
-                    || a.Admission.Signature == root.Admission.Signature), [], _verifier, authority: _authority,
+                    || a.Admission.Signature == root.Admission.Signature), [], _verifier, authority: authority,
                     at: at)
                     .EnumerateAdmissions())
                 .Select(a => (a.PartyId, a.Admission.Nonce, a.Admission.Signature)).ToHashSet();

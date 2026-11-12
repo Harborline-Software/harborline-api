@@ -883,10 +883,8 @@ public sealed class MemberRoster
         // parsed team id, never the record's arrival form. Read once per party per rebuild - a rebuild is a
         // point-in-time evaluation, and the relaxation fixpoint asks for the same party many times.
         var canonicalTeamId = teamId.ToString("D");
-        // ONE instant for the whole rebuild. The caller's `at` (the decision's At, the prefix read's bound) when it
-        // has one; otherwise the LATEST record order time in this set - deterministic and identical on every node,
-        // where a wall clock would make two nodes fold the same records into two different rosters. Never a clock:
-        // no reader of this method may introduce wall time (ticket 216).
+        // One fold reference: the caller's at or the latest record order time. The caller's authority may cap
+        // grant reads at its admitted act plus the skew window; this fold never reads a clock (T-650/T-690).
         var evaluatedAt = at ?? admissionList
             .Select(a => orderTime?.Invoke(a.Admission.Signature, a.Admission.IssuedAt) ?? a.Admission.IssuedAt)
             .Concat(revocationList
