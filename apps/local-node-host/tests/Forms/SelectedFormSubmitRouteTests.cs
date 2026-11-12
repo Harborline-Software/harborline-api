@@ -194,6 +194,31 @@ public sealed partial class FormsRouteTests
         Assert.StartsWith("forminst:forms/", instance);
     }
 
+    [Fact(DisplayName = "T-1148 A3: the selected-session submit's X-Correlation-ID is kept on the one Mint row for its instance")]
+    public async Task Selected_submit_keeps_its_correlation_id_on_the_one_mint_row()
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var request = SelectedSubmit();
+        request.Headers.Remove("X-Correlation-ID");
+        request.Headers.Add("X-Correlation-ID", "11480000-0000-4000-8000-00000000a3e2");
+
+        using var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var instance = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("instanceId").GetString();
+        Assert.False(string.IsNullOrEmpty(instance));
+        var minted = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted"))))
+        {
+            if ((string?)row.Payload.Payload.Body["entity_id"] == instance) minted.Add(row);
+        }
+        var mint = Assert.Single(minted);
+        Assert.Equal("11480000-0000-4000-8000-00000000a3e2", (string?)mint.Payload.Payload.Body["correlation_id"]);
+    }
+
     [Theory]
     [InlineData("not-a-guid", HttpStatusCode.BadRequest)]
     [InlineData("43300000-0000-4000-8000-000000000011", HttpStatusCode.Conflict)]
