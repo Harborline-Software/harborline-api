@@ -44,7 +44,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Workflow;
 /// carrying the stable <see cref="WorkflowAdmissionCodes"/> code, and nothing is published. Uses the
 /// in-memory entity store the route contract is agnostic to.
 /// </remarks>
-public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
+public sealed partial class WorkflowDefinitionRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-0000000ff001"));
     private static readonly TeamId TeamB = new(Guid.Parse("bbbb0000-0000-0000-0000-0000000ff002"));
@@ -73,6 +73,7 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<ICapabilityAuthorityRegistry>(CapabilityAuthorityRegistry.Canonical);
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         builder.Services.AddTestAuthorizationGate();
+        builder.Services.AddSingleton<IRoleGateAdmission>(new C3RoleAdmission(() => _c3Failure));
         builder.Services.AddEntityStoreWorkflowDefinitionStore(_ => entityStore);
 
         builder.Services.AddTestDefinitionArchives();
@@ -416,8 +417,15 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{Base}/bad-unclassified.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
-        var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(WorkflowAdmissionCodes.ActionUnclassified, problem.GetProperty("code").GetString());
+        var raw = await resp.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("a-post-je", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("WorkflowDefinition refused at admission", raw, StringComparison.Ordinal);
+        using var parsed = JsonDocument.Parse(raw);
+        var problem = parsed.RootElement;
+        Assert.Equal(2, problem.EnumerateObject().Count());
+        Assert.Equal("publish", problem.GetProperty("stage").GetString());
+        Assert.Equal("/actions/0", problem.GetProperty("refusals")[0].GetProperty("pointer").GetString());
+        Assert.Equal("workflow.admission.action_unclassified", problem.GetProperty("refusals")[0].GetProperty("code").GetString());
 
         // Nothing was published — the rejected definition is not loadable.
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{Base}/bad-unclassified.v1")).StatusCode);
@@ -447,8 +455,15 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
         var resp = await _client.PutAsJsonAsync($"{Base}/bad-cp-autonomous.v1", body);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
 
-        var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(WorkflowAdmissionCodes.CpReachableWithoutHumanTask, problem.GetProperty("code").GetString());
+        var raw = await resp.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("a-post-je", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("WorkflowDefinition refused at admission", raw, StringComparison.Ordinal);
+        using var parsed = JsonDocument.Parse(raw);
+        var problem = parsed.RootElement;
+        Assert.Equal(2, problem.EnumerateObject().Count());
+        Assert.Equal("publish", problem.GetProperty("stage").GetString());
+        Assert.Equal("/actions/0", problem.GetProperty("refusals")[0].GetProperty("pointer").GetString());
+        Assert.Equal("workflow.admission.cp_reachable_without_human_task", problem.GetProperty("refusals")[0].GetProperty("code").GetString());
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{Base}/bad-cp-autonomous.v1")).StatusCode);
     }
 
@@ -478,11 +493,15 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         using var document = JsonDocument.Parse(responseBody);
-        var refusal = document.RootElement;
+        Assert.Equal(2, document.RootElement.EnumerateObject().Count());
+        Assert.Equal("publish", document.RootElement.GetProperty("stage").GetString());
+        var refusal = document.RootElement.GetProperty("refusals")[0];
+        Assert.Equal("/transitions/1/requiredRoles", refusal.GetProperty("pointer").GetString());
         Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
         Assert.Equal("transition.requiredRoles", refusal.GetProperty("detail").GetProperty("field").GetString());
         Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
         Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{Base}/bad-role.v1")).StatusCode);
     }
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)
