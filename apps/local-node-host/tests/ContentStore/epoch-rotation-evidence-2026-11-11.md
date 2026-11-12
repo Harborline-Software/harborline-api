@@ -197,3 +197,44 @@ retry produced the red/green/mutation results above. Logs are `fast-boundaries.l
 `fast-codegen.log` and `fast-codegen-tests.log`. No dependency, registry, audit, threshold, warning-policy or
 test-skip configuration changed; no full exact-clone/quality/Stryker gate is claimed. The prior audit-service
 failure remains historical evidence at main `c231e44787065285e43788995c2b08173c45b302`, not a new audit result for this head.
+
+## 2026-11-12 — bounded key durability and review repairs
+
+The key writers sync the file directory through their own store root, inclusive. Only the call that atomically
+creates the root syncs its parent. Exact-list regressions replace prefix-only assertions, and both stores have
+an injected barrier that throws above an existing root while the write still succeeds. Tenant-key reads of
+already-visible records complete the same bounded barrier before returning, including after a prior writer's
+failed sync. The recovery package carries its own macOS directory F_FULLFSYNC request, matching the byte-store
+policy. On Windows both key writers use MoveFileExW with MOVEFILE_WRITE_THROUGH; only the epoch writer adds
+MOVEFILE_REPLACE_EXISTING, preserving the tenant store's create-once behavior. This includes rotation metadata
+written through the epoch writer. The byte store's Windows behavior is unchanged.
+
+An unset retention binds to a configured legal floor; nonpositive floors and configured retention below the
+floor refuse startup. The complete migration target models are reconstructed from the full snapshot: the
+epoch target matches it, and bookkeeping removes only the later epoch entity, properties and indexes.
+Rotation skips unrecognized epoch names without rewrap or deletion and logs each once per run. DeleteAsync
+now cites ADR 0114 d3/d5; the existing backup-handle regression already proves removal leaves the file during
+an open backup and sweeping removes it after closure.
+
+**Oracles:** fsync(2) and the owner's bounded-root ruling supply the literal ordered directory lists and
+above-root failure property; opaque record fixtures contain literal `visible-key`/`wrapped-key` bytes.
+DES-0046 compliance-ck-3 and ADR 0116 d7 supply the literal 365-day floor, refused 180-day retention and stable
+refusal code. The historical schema supplies literal 44/45 entity counts and the banking/entity property
+checks; both generated target bodies were also compared with their reconstructed historical snapshots.
+The stray-file fixture contains literal `leave alone` bytes and asserts one literal log message per run.
+ADR 0114 d3/d5 supply the existing backup deletion/sweep property.
+
+**Test-first:** the unchanged production code failed 14 cases, passed 31, skipped zero in the regression
+filter. After repair, Release build and the full CryptoShred + ContentStore + ArchTests + affected Entities
+catalog filter passed **711/711**, skipped zero. The TRX contains **13/13 passed** real key-store crash cases.
+Run-scoped packages and logs are under `/private/tmp/t521r`; `red-ready.log`, `green.log`, and the ignored
+`apps/local-node-host/tests/TestResults/{red,green}.trx` record these runs. No new mutation score is claimed.
+These macOS process-exit results do not establish hardware power-cut durability or Windows execution.
+
+**Gate:** eng/verify.sh ran once after repair in its own process session with TMPDIR
+`/private/tmp/t521g-tzw03jp8` and run-scoped NuGet caches. It exited 1 at preflight:
+`HARBORLINE_QUALITY_REPO does not name an existing checkout (/Users/christopherwood/Projects/Harborline/harborline-quality)`.
+See `/private/tmp/t521r/verify-final.log`. No gate configuration or thresholds changed. The pinned local feed
+was built natively from an isolated standalone platform clone at `2d820840`; .feed remains ignored.
+Acceptance 8 remains outstanding until verify-linux and a Windows verify run pass; Chris owns the manual
+Windows workflow dispatch. The ready-for-review state and host-enablement hold remain owner-managed.

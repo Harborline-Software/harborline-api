@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Harborline.Foundation.Assets.Common;
@@ -31,7 +33,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
     public NodeContentEpochKeyStore(string directory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
-        _root = Path.GetFullPath(directory);
+        _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
     }
 
     /// <summary>The store's directory.</summary>
@@ -72,7 +74,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         try
         {
             if (File.Exists(path)) throw new InvalidOperationException("That epoch already exists.");
-            await WriteDurablyAsync(path, Encode(epoch), cancellationToken).ConfigureAwait(false);
+            await WriteDurablyAsync(path, Encode(epoch), cancellationToken, _root).ConfigureAwait(false);
         }
         finally
         {
@@ -88,7 +90,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         {
             if (await ReadCurrentAsync(tenant, cancellationToken).ConfigureAwait(false) != expectedCurrent) return false;
             if (!File.Exists(EpochPath(tenant, epochId))) throw new InvalidOperationException("That epoch does not exist.");
-            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), cancellationToken).ConfigureAwait(false);
+            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), cancellationToken, _root).ConfigureAwait(false);
             return true;
         }
         finally
@@ -131,9 +133,14 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         return Guid.TryParseExact(text, "N", out var current) ? current : throw new InvalidDataException("The current epoch file is unreadable.");
     }
 
-    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken, Action<string>? syncDirectory = null)
+    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken, string rootDirectory, Action<string>? syncDirectory = null)
     {
         var directory = Path.GetDirectoryName(path)!;
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
+        var relative = Path.GetRelativePath(root, directory);
+        if (relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new ArgumentException("The key file must be inside its store root.", nameof(path));
+        var rootCreated = CreateRoot(root);
         Directory.CreateDirectory(directory);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -146,10 +153,15 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
                 AfterFileStep(path, "file-flushed");
             }
 
-            File.Move(temporary, path, overwrite: true);
+            MoveDurably(temporary, path, overwrite: true);
             AfterFileStep(path, "renamed");
+            var sync = syncDirectory ?? NodeContentByteStore.SyncDirectory;
             for (var ancestor = new DirectoryInfo(directory); ancestor is not null; ancestor = ancestor.Parent)
-                (syncDirectory ?? NodeContentByteStore.SyncDirectory)(ancestor.FullName);
+            {
+                sync(ancestor.FullName);
+                if (ancestor.FullName == root) break;
+            }
+            if (rootCreated) sync(Path.GetDirectoryName(root)!);
             AfterFileStep(path, "directory-flushed");
         }
         finally
@@ -157,6 +169,38 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
             File.Delete(temporary);
         }
     }
+
+    private static bool CreateRoot(string root)
+    {
+        if (Directory.Exists(root)) return false;
+        Directory.CreateDirectory(Path.GetDirectoryName(root)!);
+        var created = OperatingSystem.IsWindows() ? CreateDirectoryWindows(root, IntPtr.Zero) : MakeDirectory(root, 511) == 0;
+        if (created) return true;
+        var error = Marshal.GetLastWin32Error();
+        if ((error == 17 || error == 183) && Directory.Exists(root)) return false;
+        throw new Win32Exception(error);
+    }
+
+    private static void MoveDurably(string source, string destination, bool overwrite)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            File.Move(source, destination, overwrite);
+            return;
+        }
+        // MOVEFILE_WRITE_THROUGH, plus MOVEFILE_REPLACE_EXISTING only for overwriting moves (ADR 0116 d5).
+        if (!MoveFileEx(source, destination, overwrite ? 0x9u : 0x8u))
+            throw new IOException("The key file could not be moved durably.", new Win32Exception(Marshal.GetLastWin32Error()));
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool MoveFileEx(string source, string destination, uint flags);
+    [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
+    [DllImport("libc", EntryPoint = "mkdir", SetLastError = true)]
+    private static extern int MakeDirectory([MarshalAs(UnmanagedType.LPUTF8Str)] string path, uint mode);
 
     private static void AfterFileStep(string path, string step)
     {

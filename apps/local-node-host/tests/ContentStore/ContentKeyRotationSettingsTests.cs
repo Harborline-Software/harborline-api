@@ -111,6 +111,28 @@ public sealed class ContentKeyRotationSettingsTests
         Assert.Empty(services);
     }
 
+    [Fact]
+    public void Unset_retention_uses_the_365_day_legal_floor()
+    {
+        var settings = ContentKeyRotationSettings.Bind(Config(("LegalRetentionFloor", "365.00:00:00")));
+        Assert.Equal(TimeSpan.FromDays(365), settings.BackupRetention);
+        var window = settings.ErasureWindow(TimeSpan.Zero);
+        Assert.Equal(TimeSpan.FromDays(365), window.Reported);
+        Assert.Contains("legal retention floor", window.NamedLimits[1], StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("365.00:00:00", "180.00:00:00", "BackupRetention")]
+    [InlineData("00:00:00", "180.00:00:00", "LegalRetentionFloor")]
+    [InlineData("-1.00:00:00", "180.00:00:00", "LegalRetentionFloor")]
+    public void Legal_floor_refuses_short_retention_or_nonpositive_floor(string floor, string retention, string setting)
+    {
+        var failure = Assert.Throws<ContentKeyRotationSettingException>(() =>
+            ContentKeyRotationSettings.Bind(Config(("LegalRetentionFloor", floor), ("BackupRetention", retention))));
+        Assert.Equal("content.key_rotation.setting_out_of_range", failure.Code);
+        Assert.Equal("LocalNode:ContentStore:KeyRotation:" + setting, failure.Setting);
+    }
+
     private static TimeSpan Value(ContentKeyRotationSettings settings, string setting) => setting switch
     {
         "RotationPeriod" => settings.RotationPeriod,

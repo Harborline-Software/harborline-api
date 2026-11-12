@@ -28,7 +28,7 @@ public static class NodeContentStoreComposition
         services.AddSingleton<IContentStoreStorage>(provider => provider.GetRequiredService<NodeContentStoreStorage>());
         services.AddSingleton<IContentStoreQuotaBase, NodeContentStoreQuotaBase>();
         services.AddSingleton(provider => new NodeContentKeyRotation(provider.GetRequiredService<NodeContentStoreStorage>(),
-            provider.GetRequiredService<ContentKeyRotationSettings>(), provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<ContentKeyRotationSettings>(), provider.GetRequiredService<TimeProvider>(), provider.GetService<Microsoft.Extensions.Logging.ILogger<NodeContentKeyRotation>>()));
         services.AddSingleton<ITenantContentKeyProvider>(provider =>
             new NodeTenantContentKeyProvider(provider.GetRequiredService<Harborline.Api.Foundation.Recovery.TenantKey.IVersionedTenantKeyProvider>()));
         return services;

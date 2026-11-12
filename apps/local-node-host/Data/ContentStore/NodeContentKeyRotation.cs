@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Harborline.Foundation.Assets.Common;
 using Harborline.Foundation.ContentStore;
 using Harborline.Foundation.ExecutionRuntime;
@@ -7,13 +9,16 @@ using Harborline.Foundation.ExecutionRuntime;
 namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 
 /// <summary>The scheduled, restartable epoch rewrap and two-phase destruction (ADR 0116 decision 5).</summary>
-public sealed class NodeContentKeyRotation(NodeContentStoreStorage storage, ContentKeyRotationSettings settings, TimeProvider clock) : IDisposable
+public sealed class NodeContentKeyRotation(NodeContentStoreStorage storage, ContentKeyRotationSettings settings, TimeProvider clock, ILogger<NodeContentKeyRotation>? logger = null) : IDisposable
 {
     /// <summary>The platform trigger kind, matching the staging sweep.</summary>
     public const string TriggerKind = "schedule";
 
     /// <summary>The platform-owned rotation schedule (T-521 acceptance 3).</summary>
     public const string Schedule = "sys.sched.content-key-rotation";
+
+    private static readonly Action<ILogger, string, Exception?> LogStrayEpoch = LoggerMessage.Define<string>(
+        LogLevel.Warning, new EventId(521, "StrayEpochFile"), "Skipping unrecognized content epoch file {Path}");
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -41,8 +46,13 @@ public sealed class NodeContentKeyRotation(NodeContentStoreStorage storage, Cont
             var elapsed = TimeSpan.FromTicks(await ReadTicksAsync(elapsedPath, cancellationToken).ConfigureAwait(false) ?? 0);
             if (!Directory.Exists(directory)) return settings.ErasureWindow(elapsed);
             var current = await keys.GetCurrentAsync(tenant, cancellationToken).ConfigureAwait(false);
-            var epochs = Directory.EnumerateFiles(directory, "*.epoch").Select(path => Guid.ParseExact(Path.GetFileNameWithoutExtension(path), "N")).ToArray();
-            if (current is null && epochs.Length == 0) return settings.ErasureWindow(elapsed);
+            var epochs = new List<Guid>();
+            foreach (var path in Directory.EnumerateFiles(directory, "*.epoch"))
+            {
+                if (Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var epoch)) epochs.Add(epoch);
+                else LogStrayEpoch(logger ?? NullLogger<NodeContentKeyRotation>.Instance, path, null);
+            }
+            if (current is null && epochs.Count == 0) return settings.ErasureWindow(elapsed);
             var created = current is null ? null : await ReadTicksAsync(Path.Combine(directory, current.EpochId.ToString("N") + ".created"), cancellationToken).ConfigureAwait(false);
             var currentSince = current is null ? DateTimeOffset.MinValue : created is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero)
                 : new DateTimeOffset(File.GetLastWriteTimeUtc(Path.Combine(directory, current.EpochId.ToString("N") + ".epoch")));
@@ -129,6 +139,6 @@ public sealed class NodeContentKeyRotation(NodeContentStoreStorage storage, Cont
         }
     }
 
-    private static ValueTask WriteTicksAsync(string path, long ticks, CancellationToken cancellationToken) =>
-        NodeContentEpochKeyStore.WriteDurablyAsync(path, Encoding.ASCII.GetBytes(ticks.ToString(CultureInfo.InvariantCulture)), cancellationToken);
+    private ValueTask WriteTicksAsync(string path, long ticks, CancellationToken cancellationToken) =>
+        NodeContentEpochKeyStore.WriteDurablyAsync(path, Encoding.ASCII.GetBytes(ticks.ToString(CultureInfo.InvariantCulture)), cancellationToken, ((NodeContentEpochKeyStore)storage.Epochs).DirectoryPath);
 }

@@ -24,7 +24,7 @@ public sealed class ContentKeyRotationSettings
     /// <summary>How long an unused old epoch key waits before it is deleted: 30 days by default, 7 to 30 days.</summary>
     public TimeSpan WaitingPeriod { get; init; } = TimeSpan.FromDays(30);
 
-    /// <summary>The longest a backup is kept: 180 days by default, 1 to 180 days, or up to <see cref="LegalRetentionFloor"/>.</summary>
+    /// <summary>The longest a backup is kept: 180 days by default, or the legal floor when set; at least the floor and at most 180 days or <see cref="LegalRetentionFloor"/>.</summary>
     public TimeSpan BackupRetention { get; init; } = TimeSpan.FromDays(180);
 
     /// <summary>A legal retention floor that requires keeping backups longer than 180 days (DES-0046 compliance-ck-3); none by default.</summary>
@@ -36,12 +36,13 @@ public sealed class ContentKeyRotationSettings
         ArgumentNullException.ThrowIfNull(configuration);
         var section = configuration.GetSection(Section);
         var defaults = new ContentKeyRotationSettings();
+        var floor = Read(section, nameof(LegalRetentionFloor));
         var settings = new ContentKeyRotationSettings
         {
             RotationPeriod = Read(section, nameof(RotationPeriod)) ?? defaults.RotationPeriod,
             WaitingPeriod = Read(section, nameof(WaitingPeriod)) ?? defaults.WaitingPeriod,
-            BackupRetention = Read(section, nameof(BackupRetention)) ?? defaults.BackupRetention,
-            LegalRetentionFloor = Read(section, nameof(LegalRetentionFloor)),
+            BackupRetention = Read(section, nameof(BackupRetention)) ?? floor ?? defaults.BackupRetention,
+            LegalRetentionFloor = floor,
         };
         settings.Validate();
         return settings;
@@ -52,8 +53,10 @@ public sealed class ContentKeyRotationSettings
     {
         Require(nameof(RotationPeriod), RotationPeriod, TimeSpan.FromDays(1), TimeSpan.FromDays(730));
         Require(nameof(WaitingPeriod), WaitingPeriod, TimeSpan.FromDays(7), TimeSpan.FromDays(30));
+        if (LegalRetentionFloor is { } legalFloor && legalFloor <= TimeSpan.Zero)
+            throw new ContentKeyRotationSettingException(nameof(LegalRetentionFloor), legalFloor);
         var ceiling = LegalRetentionFloor is { } floor && floor > RetentionCeiling ? floor : RetentionCeiling;
-        Require(nameof(BackupRetention), BackupRetention, TimeSpan.FromDays(1), ceiling);
+        Require(nameof(BackupRetention), BackupRetention, LegalRetentionFloor is { } minimum && minimum > TimeSpan.FromDays(1) ? minimum : TimeSpan.FromDays(1), ceiling);
     }
 
     /// <summary>The erasure window these settings give, with <paramref name="lastRewrap"/> the last measured rewrap time.</summary>

@@ -9,12 +9,34 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ContentStore;
 
 public sealed partial class NodeContentStoreTests
 {
+    [Fact]
+    public async Task Rotation_leaves_stray_epoch_files_untouched()
+    {
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var store = Store(storage: storage);
+        var reference = await Commit(store, await Put(store, "content"u8.ToArray()));
+        var stray = Path.Combine(EpochDirectory, "stray.epoch");
+        await File.WriteAllTextAsync(stray, "leave alone");
+        var messages = new List<string>();
+        using var services = new ServiceCollection().AddLogging(builder => builder.AddProvider(new RotationLogProvider(messages))).BuildServiceProvider();
+        using var rotation = ActivatorUtilities.CreateInstance<NodeContentKeyRotation>(services, storage, new ContentKeyRotationSettings(), _clock);
+        _clock.Advance(TimeSpan.FromDays(90));
+        await rotation.RunAsync(Tenant, store, () => Write("sys.scheduler"));
+        Assert.Equal(new[] { "Skipping unrecognized content epoch file " + stray }, messages);
+        await rotation.RunAsync(Tenant, store, () => Write("sys.scheduler"));
+        Assert.Equal(new[] { "Skipping unrecognized content epoch file " + stray, "Skipping unrecognized content epoch file " + stray }, messages);
+        Assert.False(File.Exists(Path.ChangeExtension(stray, ".pending")));
+        Assert.Equal("leave alone", await File.ReadAllTextAsync(stray));
+        Assert.Equal("content"u8.ToArray(), await ReadAll(store, reference));
+    }
+
     [Fact]
     public void Rotation_run_uses_the_slice_literals_and_the_sweeps_registration_shape()
     {
@@ -264,6 +286,20 @@ public sealed partial class NodeContentStoreTests
             CryptographicOperations.ZeroMemory(subkey);
             CryptographicOperations.ZeroMemory(epochKey);
         }
+    }
+
+    private sealed class RotationLogProvider(List<string> messages) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new RotationLog(messages);
+        public void Dispose() { }
+    }
+
+    private sealed class RotationLog(List<string> messages) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => messages.Add(formatter(state, exception));
     }
 
 }

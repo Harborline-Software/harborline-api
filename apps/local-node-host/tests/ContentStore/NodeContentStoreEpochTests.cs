@@ -22,6 +22,23 @@ public sealed partial class NodeContentStoreTests
         return await context.Set<ContentItemRow>().Where(row => row.ItemKey == itemKey).Select(row => row.EpochId).SingleAsync();
     }
 
+    // Oracle: the historical complete schema has 44 entities after bookkeeping and 45 after epochs.
+    [Theory]
+    [InlineData(false, 44)]
+    [InlineData(true, 45)]
+    public void Migration_target_preserves_the_complete_historical_model(bool epochs, int entityCount)
+    {
+        Microsoft.EntityFrameworkCore.Migrations.Migration migration = epochs
+            ? new Harborline.Api.LocalNodeHost.Data.Migrations.AddContentStoreEpochs()
+            : new Harborline.Api.LocalNodeHost.Data.Migrations.AddContentStoreBookkeeping();
+        var model = migration.TargetModel;
+        Assert.Equal(entityCount, model.GetEntityTypes().Count());
+        Assert.NotNull(model.FindEntityType("Harborline.Api.Blocks.Banking.Models.BankAccount"));
+        var item = model.FindEntityType("Harborline.Api.LocalNodeHost.Data.ContentStore.ContentItemRow")!;
+        Assert.Equal(epochs, item.FindProperty("EpochId") is not null);
+        Assert.Equal(epochs, model.FindEntityType("Harborline.Api.LocalNodeHost.Data.ContentStore.ContentEpochRow") is not null);
+    }
+
     [Fact]
     public async Task Epoch_clause_2_the_migration_adds_the_epoch_column_and_marker_table()
     {

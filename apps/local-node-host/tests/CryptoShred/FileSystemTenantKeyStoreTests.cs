@@ -68,7 +68,9 @@ public sealed class FileSystemTenantKeyStoreTests : IDisposable
 
         Assert.True(await store.TryCreateAsync("tenant:v2", "wrapped-key"u8.ToArray(), default));
 
-        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory, Path.GetDirectoryName(_directory)! }, synced.Take(3));
+        Assert.Equal(alreadyCreated
+            ? new[] { Path.Combine(_directory, "tenant"), _directory }
+            : new[] { Path.Combine(_directory, "tenant"), _directory, Path.GetDirectoryName(_directory)! }, synced);
     }
 
     [Theory]
@@ -143,6 +145,40 @@ public sealed class FileSystemTenantKeyStoreTests : IDisposable
     {
         await Assert.ThrowsAsync<ArgumentException>(() => new FileSystemTenantKeyStore(_directory).TryCreateAsync(slot, "wrapped-key"u8.ToArray(), default));
         Assert.False(Directory.Exists(_directory));
+    }
+
+    [Fact]
+    public async Task Existing_root_write_never_syncs_above_root_and_read_retries_the_barrier()
+    {
+        Directory.CreateDirectory(_directory);
+        var synced = new List<string>();
+        var store = CreateStore(syncDirectory: directory =>
+        {
+            if (directory != _directory && directory != Path.Combine(_directory, "tenant"))
+                throw new IOException("above root");
+            synced.Add(directory);
+        });
+        Assert.True(await store.TryCreateAsync("tenant:v2", "wrapped-key"u8.ToArray(), default));
+        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        synced.Clear();
+        Assert.Equal("wrapped-key"u8.ToArray(), (await store.ReadAsync("tenant:v2", default))!.Value.ToArray());
+        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        var failing = CreateStore(syncDirectory: _ => throw new IOException("read barrier"));
+        await Assert.ThrowsAsync<IOException>(() => failing.ReadAsync("tenant:v2", default));
+    }
+
+    [Fact]
+    public async Task Read_of_an_existing_visible_record_requires_a_successful_bounded_barrier()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(RecordPath)!);
+        await File.WriteAllTextAsync(RecordPath, "visible-key");
+        var synced = new List<string>();
+        var store = CreateStore(syncDirectory: synced.Add);
+        Assert.Equal("visible-key"u8.ToArray(), (await store.ReadAsync("tenant:v2", default))!.Value.ToArray());
+        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        var failure = new IOException("injected read sync failure");
+        var failing = CreateStore(syncDirectory: _ => throw failure);
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => failing.ReadAsync("tenant:v2", default)));
     }
 
     private string RecordPath => Path.Combine(_directory, "tenant", "v2.key");

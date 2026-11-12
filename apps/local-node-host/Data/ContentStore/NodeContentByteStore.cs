@@ -96,7 +96,10 @@ public sealed partial class NodeContentByteStore : IContentByteStore
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// ADR 0114 decisions 3 and 5: removal commits bookkeeping first. While a backup is open, leave the file;
+    /// content-staging-sweep removes these unreferenced bytes after the backup closes.
+    /// </summary>
     public async ValueTask DeleteAsync(Guid itemKey, CancellationToken cancellationToken = default)
     {
         using var destruction = await _backups.TryEnterDestructionAsync(cancellationToken).ConfigureAwait(false);
