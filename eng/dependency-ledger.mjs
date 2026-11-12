@@ -54,19 +54,41 @@ const allowed = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'I
 const devOnly = new Map([['BlazingStory', 'R-0058']])
 // Ids whose nuspec carries no licence expression. Each names the control record that holds the decision.
 const licenceExceptions = new Map([['JsonSchema.Net', 'T-458: binaries ship under an Open Source Maintenance Fee EULA, source MIT; decision held for the user']])
-const packages = process.env.NUGET_PACKAGES
-for (const [id, pin] of pins) {
-  if (id.startsWith('Harborline.') || !packages || pin.version.includes('$')) continue
-  // Prefer the pinned version; a VersionOverride may have restored a different one, and the licence expression does not change between versions.
-  const idDirectory = path.join(packages, id.toLowerCase())
-  const versionDirectory = existsSync(path.join(idDirectory, pin.version.toLowerCase())) ? pin.version.toLowerCase() : (existsSync(idDirectory) ? readdirSync(idDirectory)[0] : undefined)
-  const nuspec = versionDirectory && path.join(idDirectory, versionDirectory, `${id.toLowerCase()}.nuspec`)
-  if (!nuspec || !existsSync(nuspec)) { fail(`nuspec missing for ${id} ${pin.version}`); continue }
-  const body = readFileSync(nuspec, 'utf8')
-  const licence = /<license\s+type="expression">([^<]+)<\/license>/.exec(body)?.[1]
-  const accepted = allowed.has(licence) || (licence === 'MPL-2.0' && devOnly.has(id)) || licenceExceptions.has(id)
-  if (!accepted) fail(`${id} licence ${licence ?? 'unknown'} is not allowed`)
-  else if (licenceExceptions.has(id)) ok(`${id} licence exception: ${licenceExceptions.get(id)}`)
+const restoreStarted = Date.now()
+const restore = spawnSync('dotnet', ['restore', 'Harborline.Api.slnx', '--configfile', 'nuget.config'], {cwd: root, stdio: 'inherit', shell: process.platform === 'win32'})
+if (restore.status !== 0) { console.log(`FAIL API solution restore exited ${restore.status ?? restore.error?.message ?? 'without a status'}`); process.exit(restore.status ?? 1) }
+ok(`API solution restore (${Date.now() - restoreStarted} ms)`)
+const projects = [...readFileSync(path.join(root, 'Harborline.Api.slnx'), 'utf8').matchAll(/<Project\s+Path="([^"]+)"\s*\/>/g)].map(match => match[1])
+if (!projects.length) { console.log('FAIL API solution has no projects'); process.exit(1) }
+const resolved = new Map()
+for (const project of projects) {
+  const assetsPath = path.join(root, path.dirname(project), 'obj', 'project.assets.json')
+  if (!existsSync(assetsPath)) { console.log(`FAIL restore assets missing for ${project}`); process.exit(1) }
+  const assets = JSON.parse(readFileSync(assetsPath, 'utf8'))
+  const folders = Object.keys(assets.packageFolders ?? {})
+  if (!folders.length || !assets.libraries) { console.log(`FAIL restore assets incomplete for ${project}`); process.exit(1) }
+  for (const [identity, library] of Object.entries(assets.libraries)) {
+    if (library.type !== 'package') continue
+    const [name, version] = identity.split('/')
+    const key = name.toLowerCase()
+    if (!resolved.has(key)) resolved.set(key, new Map())
+    if (!resolved.get(key).has(version.toLowerCase())) resolved.get(key).set(version.toLowerCase(), new Set())
+    for (const folder of folders) resolved.get(key).get(version.toLowerCase()).add(folder)
+  }
+}
+for (const [id] of pins) {
+  const versions = resolved.get(id.toLowerCase())
+  if (!versions) { ok(`PackageVersion ${id} is pinned but not in the restore graph`); continue }
+  if (id.startsWith('Harborline.')) continue
+  for (const [version, folders] of versions) {
+    const nuspec = [...folders].map(folder => path.join(folder, id.toLowerCase(), version, `${id.toLowerCase()}.nuspec`)).find(existsSync)
+    if (!nuspec) { fail(`nuspec missing for ${id} ${version}`); continue }
+    const body = readFileSync(nuspec, 'utf8')
+    const licence = /<license\s+type="expression">([^<]+)<\/license>/.exec(body)?.[1]
+    const accepted = allowed.has(licence) || (licence === 'MPL-2.0' && devOnly.has(id)) || licenceExceptions.has(id)
+    if (!accepted) fail(`${id} licence ${licence ?? 'unknown'} is not allowed`)
+    else if (licenceExceptions.has(id)) ok(`${id} licence exception: ${licenceExceptions.get(id)}`)
+  }
 }
 ok('NuGet licence check')
 
