@@ -254,7 +254,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     {
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Equal(19, SealedSeedEntries(types).Length);
+        AssertCompiledSealedTypes(types);
     }
 
     [Fact(DisplayName = "M4: activating the platform seed exposes its sealed catalogue types with the active version")]
@@ -296,7 +296,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Equal(19, SealedSeedEntries(types).Length);
+        AssertCompiledSealedTypes(types);
     }
 
     [Fact]
@@ -594,6 +594,27 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
     private static JsonElement[] SealedSeedEntries(JsonElement types)
         => types.EnumerateArray().Where(entry => !entry.TryGetProperty("identity", out _)).ToArray();
+
+    private static void AssertCompiledSealedTypes(JsonElement types)
+    {
+        var entries = SealedSeedEntries(types);
+        Assert.Equal(new[]
+        {
+            ("FormDefinition", 0), ("WorkflowDefinition", 1), ("StandardsCatalog", 2), ("NavWorkspaceConfig", 3),
+            ("CascadeDefaults", 4), ("AssetTypeDefinition", 5), ("TerminologyOverride", 6), ("TemplateDefinition", 7),
+            ("TaxonomyDefinition", 8), ("ReportDefinition", 9), ("ViewDefinition", 10), ("ScheduleDefinition", 11),
+            ("DataExchangeDefinition", 12), ("StandingRuleDefinition", 13), ("RoleDefinition", 14), ("AuthorizationCapabilityBinding", 15),
+            ("Layout", 17), ("Resource", 18), ("Bookable", 19),
+        }, entries.Select(entry => (entry.GetProperty("name").GetString()!, entry.GetProperty("kind").GetInt32())));
+        Assert.All(entries, entry =>
+        {
+            Assert.True(entry.GetProperty("sealed").GetBoolean());
+            var provenance = entry.GetProperty("provenance");
+            Assert.Equal("compiled", provenance.GetProperty("kind").GetString());
+            Assert.False(provenance.TryGetProperty("packKey", out _));
+            Assert.False(provenance.TryGetProperty("packVersion", out _));
+        });
+    }
 
     private PackInstallContext PackContext() => new(
         _tenantA,
