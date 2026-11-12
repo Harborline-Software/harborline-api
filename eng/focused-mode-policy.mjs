@@ -24,6 +24,8 @@ function category(file) {
   if (!safePath(file)) return 'unknown'
   if (/^(README|CONTRIBUTING|AGENTS|CI-PIPELINE)\.md$/.test(file)
     || file === 'apps/local-node-host/README.md'
+    || file === 'apps/local-node-host/Data/ContentStore/README.md'
+    || file === 'apps/local-node-host/tests/ContentStore/epoch-rotation-evidence-2026-11-11.md'
     || file === 'packages/kernel-crdt/README.md'
     || /^(docs|adrs|designs)\/.*\.md$/.test(file)) return 'documentation'
   if (/coverage|\.runsettings$/i.test(file)) return 'coverage'
@@ -44,6 +46,7 @@ function category(file) {
   if (/\.cs$/.test(file) && /validat/i.test(file)) return 'validation'
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
   if (/\.(cs|dll|exe|pdb|nupkg|so|dylib|bin)$/.test(file)) return 'binary'
+  if (file === 'apps/local-node-host/tests/ContentStore/EpochCrashWorker.cs.txt') return 'binary'
   // Pack recipes are embedded into or copied beside the built assemblies, so they change binaries.
   if (/^_shared\/(conformance\/)?packs\/.+\.export\.json$/.test(file)) return 'binary'
   // Capability-host TypeScript sources/tests only; still the full OFF/ON proof.
