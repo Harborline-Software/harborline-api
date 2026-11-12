@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -457,33 +458,63 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         Assert.Equal(1L, alert.Data["floorOverruns"]);
     }
 
-    [Theory(DisplayName = "layout-eng-31 T-1195: every served path writes its one RecordRead receipt inside the response floor, so a receipt slower than the floor overruns it")]
+    [Theory(DisplayName = "layout-eng-31 T-1195: on every served path the denial record, then the one RecordRead receipt, then the response body are all done before the floor's deadline")]
     [InlineData("allowed")]
     [InlineData("denied")]
     [InlineData("missing")]
-    public async Task Every_served_path_writes_its_receipt_inside_the_floor(string path)
+    public async Task Every_served_path_finishes_its_receipt_and_body_inside_the_floor(string path)
     {
-        await using var h = await Host.CreateAsync(TimeSpan.FromMilliseconds(200));
+        var floor = TimeSpan.FromSeconds(1);
+        await using var h = await Host.CreateAsync(floor);
         h.Related.Present = path != "missing";
         var caller = path == "allowed" ? Member : Viewer;
-        // A first request with a free receipt, so a cold process's own first-request work cannot be the overrun.
+        // A first, unprobed request, so a cold process's first-request work cannot crowd the deadline.
         using (await h.GetAsync(caller, SurfacePack.Invoice, Root)) { }
         await h.Pipeline.Appender.IdleAsync();
-        var overruns = h.Pipeline.Alarms.FloorOverruns;
-        var receipts = (await ReceiptsAsync(h)).Count;
+        var rows = await RowsAsync(h.Pipeline.Trail, h.Tenant);
+        var receipts = rows.Count(row => row.EventType.Value == "RecordRead");
+        var denials = rows.Count(row => row.EventType.Value == "LayoutRelatedDenied");
 
-        // The receipt alone outruns the floor. Were it written after the floor ended, nothing would overrun.
-        h.Receipts.Cost = TimeSpan.FromMilliseconds(300);
+        h.Probe.Enabled = true;
         using var response = await h.GetAsync(caller, SurfacePack.Invoice, Root);
+        h.Probe.Enabled = false;
         await h.Pipeline.Appender.IdleAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(receipts + 1, (await ReceiptsAsync(h)).Count);
-        Assert.Equal(overruns + 1, h.Pipeline.Alarms.FloorOverruns);
-        Assert.Equal(HealthStatus.Degraded, (await h.Pipeline.HealthAsync()).Status);
+        Assert.Equal(receipts + 1, (await RowsAsync(h.Pipeline.Trail, h.Tenant)).Count(row => row.EventType.Value == "RecordRead"));
+        // The deadline is the route's start plus the floor; the host never returns before it, so work stamped
+        // before it ran inside the floor, and work after the floor would stamp at or past it.
+        var deadline = h.Probe.Started + (long)(floor.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+        Assert.NotEqual(0, h.Probe.Started);
+        Assert.InRange(h.Probe.ReceiptAt, h.Probe.Started + 1, deadline - 1);
+        Assert.InRange(h.Probe.SerializedAt, h.Probe.ReceiptAt + 1, deadline - 1);
+        // A denial's gate-log record is already appended when the receipt is written; no other path makes one.
+        Assert.Equal(denials + (path == "denied" ? 1 : 0), h.Probe.DenialsAtReceipt);
+    }
 
-        static async Task<List<AuditRecord>> ReceiptsAsync(Host h)
-            => [.. (await RowsAsync(h.Pipeline.Trail, h.Tenant)).Where(row => row.EventType.Value == "RecordRead")];
+    [Theory(DisplayName = "layout-eng-31 T-1195: when the host's inside-floor step throws, the caller still waits out the floor and gets that step's own exception, whether or not the request was cancelled")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_throwing_inside_floor_step_keeps_the_floor_and_its_exception(bool cancelled)
+    {
+        var floor = TimeSpan.FromMilliseconds(150);
+        await using var h = await Host.CreateAsync(floor);
+        using var request = new CancellationTokenSource();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Surfaces.ResolveAsync(Surface(),
+            new OutcomeSources(LayoutRelatedResult.Absent),
+            new Dictionary<string, Func<LayoutBindingScope, LayoutRelatedRecord?>>(StringComparer.Ordinal) { ["invoice.owner"] = _ => null },
+            LayoutBindingScope.Root(new Dictionary<string, System.Text.Json.Nodes.JsonNode?>(StringComparer.Ordinal)),
+            h.Tenant, Member, "request-1195", ct: request.Token,
+            insideFloor: (_, _) =>
+            {
+                if (cancelled) request.Cancel();
+                throw new InvalidOperationException("the inside-floor step failed");
+            }));
+
+        Assert.Equal("the inside-floor step failed", thrown.Message);
+        Assert.True(clock.Elapsed >= floor, $"returned after {clock.Elapsed.TotalMilliseconds} ms, before the {floor.TotalMilliseconds} ms floor");
     }
 
     [Fact(DisplayName = "layout-eng-31 T-735: a denial made at the surface route reaches the denial reader route for a principal holding audit:read and records:read")]
@@ -744,22 +775,58 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         return body.RootElement.GetProperty("code").GetString();
     }
 
-    /// <summary>What a caller observes of one response: status, media type and the raw body bytes.</summary>
-    private sealed record Observed(HttpStatusCode Status, string? MediaType, string Body);
+    /// <summary>What a caller observes of one response: status, the full Content-Type, the framing (Content-Length or
+    /// chunked), Cache-Control, the raw body bytes (as hex, so the record compares them by value) and the body text.</summary>
+    private sealed record Observed(HttpStatusCode Status, string? ContentType, long? ContentLength, bool? Chunked,
+        string? CacheControl, string Bytes, string Body)
+    {
+        public string? MediaType => ContentType is null ? null : System.Net.Http.Headers.MediaTypeHeaderValue.Parse(ContentType).MediaType;
+    }
 
     private sealed class CompositionProbeCompleteException : Exception;
 
-    /// <summary>The accepted-act trail the route writes its receipts to, with a CPU cost per receipt (no timer).</summary>
-    private sealed class CostedReceipts(IAuthorizedAuditTrail inner) : IAuthorizedAuditTrail
+    /// <summary>
+    /// T-1195: stamps, for one probed request, when the route started its floor, when it wrote its receipt, how many
+    /// denial records the gate log already held then, and when its body finished serializing. Off by default, so the
+    /// timing row's requests run unprobed.
+    /// </summary>
+    private sealed class RouteProbe
     {
-        public TimeSpan Cost { get; set; }
+        public volatile bool Enabled;
+        public volatile bool Armed;
+        public long Started, ReceiptAt, SerializedAt;
+        public int DenialsAtReceipt;
+    }
 
-        public ValueTask AppendAuthorizedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
+    /// <summary>The fixed clock, which also stamps the route's first timestamp read of a probed request: its floor start.</summary>
+    private sealed class ProbedTime(DateTimeOffset now, RouteProbe probe) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public override long GetTimestamp()
+        {
+            var timestamp = base.GetTimestamp();
+            if (probe.Armed)
+            {
+                probe.Armed = false;
+                probe.Started = timestamp;
+            }
+            return timestamp;
+        }
+    }
+
+    /// <summary>The accepted-act trail the route writes its receipts to, stamping a probed request's receipt.</summary>
+    private sealed class ProbedReceipts(IAuthorizedAuditTrail inner, RouteProbe probe, TenantId tenant) : IAuthorizedAuditTrail
+    {
+        public async ValueTask AppendAuthorizedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
             SeparationOfDutyDecision? approval = null)
         {
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            while (clock.Elapsed < Cost) Thread.SpinWait(64);
-            return inner.AppendAuthorizedAsync(record, decision, ct, approval);
+            if (probe.Enabled)
+            {
+                probe.ReceiptAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                probe.DenialsAtReceipt = (await RowsAsync(inner, tenant)).Count(row => row.EventType.Value == "LayoutRelatedDenied");
+            }
+            await inner.AppendAuthorizedAsync(record, decision, ct, approval);
         }
 
         public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => inner.AppendAsync(record, ct);
@@ -774,12 +841,15 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         private readonly WebApplication _app;
         private readonly ServiceProvider _authorization;
         private readonly KeyPair _receiptKeys;
+        public RouteProbe Probe { get; }
+        public LayoutSurfaceHost Surfaces { get; }
 
         private Host(WebApplication app, ServiceProvider authorization, Pipeline pipeline, LayoutSurfaceOptions options,
             FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs,
-            CostedReceipts receipts, KeyPair receiptKeys)
+            RouteProbe probe, LayoutSurfaceHost surfaces, KeyPair receiptKeys)
         {
-            Receipts = receipts;
+            Probe = probe;
+            Surfaces = surfaces;
             _receiptKeys = receiptKeys;
             Packs = packs;
             _app = app;
@@ -801,7 +871,6 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public LayoutSurfaceOptions Options { get; }
         public FixtureRoots Roots { get; }
         public FixtureRelatedRecords Related { get; }
-        public CostedReceipts Receipts { get; }
 
         public static async Task<Host> CreateAsync(TimeSpan floor, ILayoutRelatedRecordSource? relatedSource = null,
             ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true)
@@ -814,7 +883,8 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var gate = new AuthorizationGate(grants, authorization.GetRequiredService<IRecordStandingResolver>(), grants);
             var pipeline = new Pipeline(new InMemoryAuditTrail());
             var options = new LayoutSurfaceOptions { ResponseFloor = floor };
-            var time = new FixedTime(At);
+            var probe = new RouteProbe();
+            var time = new ProbedTime(At, probe);
             var surfaces = new LayoutSurfaceHost(gate, pipeline.Outbox, pipeline.Appender, pipeline.Alarms, time,
                 NullLogger.Instance, options);
             var packs = await SurfacePack.InstallAsync(tenant, exposeRecordTypes);
@@ -831,16 +901,25 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var builder = WebApplication.CreateBuilder();
             TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddSingleton(gate);
-            var receipts = new CostedReceipts((IAuthorizedAuditTrail)pipeline.Trail);
             var receiptKeys = KeyPair.Generate();
-            builder.Services.AddSingleton(new AuthorizedActAudit(receipts, new Ed25519Signer(receiptKeys),
+            builder.Services.AddSingleton(new AuthorizedActAudit(
+                new ProbedReceipts((IAuthorizedAuditTrail)pipeline.Trail, probe, tenant), new Ed25519Signer(receiptKeys),
                 NullLogger<AuthorizedActAudit>.Instance));
+            // Stamps the end of a probed request's response body, through the JSON options the route serializes with.
+            builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.TypeInfoResolver =
+                (json.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver())
+                .WithAddedModifier(info =>
+                {
+                    if (info.Type == typeof(LayoutSurfaceResponse))
+                        info.OnSerialized = _ => { if (probe.Enabled) probe.SerializedAt = System.Diagnostics.Stopwatch.GetTimestamp(); };
+                }));
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             var app = builder.Build();
             app.Use(async (http, next) =>
             {
+                if (probe.Enabled) probe.Armed = true;
                 // Authentication is upstream: the fixture binds the selected session the header names.
                 if (http.Request.Headers.ContainsKey(DesktopHeader))
                     http.Features.Set(DesktopPlaneRequestFeature.Instance);
@@ -858,7 +937,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();
-            return new Host(app, authorization, pipeline, options, roots, related, packs, receipts, receiptKeys);
+            return new Host(app, authorization, pipeline, options, roots, related, packs, probe, surfaces, receiptKeys);
         }
 
         public Task<HttpResponseMessage> GetAsync(ActorId caller, string surface, string record, Guid? correlation = null)
@@ -875,8 +954,10 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public async Task<Observed> ReadAsync(ActorId caller, string surface, string record)
         {
             using var response = await GetAsync(caller, surface, record);
-            return new Observed(response.StatusCode, response.Content.Headers.ContentType?.MediaType,
-                await response.Content.ReadAsStringAsync());
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            return new Observed(response.StatusCode, response.Content.Headers.ContentType?.ToString(),
+                response.Content.Headers.ContentLength, response.Headers.TransferEncodingChunked,
+                response.Headers.CacheControl?.ToString(), Convert.ToHexString(bytes), System.Text.Encoding.UTF8.GetString(bytes));
         }
 
         private static async Task<ServiceProvider> SeededAuthorizationAsync(TenantId tenant)

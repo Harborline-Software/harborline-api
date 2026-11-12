@@ -86,7 +86,8 @@ public sealed class LayoutSurfaceHost(
     /// than adding their jitter ahead of it (T-735). Null counts from this call.
     /// <paramref name="insideFloor"/>, when given, runs on the resolution after every piece of denial-side work and
     /// before the deadline wait, on every path, so its cost is inside the floor rather than after it (T-1195: the
-    /// route's read receipt and response body). The floor is waited out even when it throws.
+    /// route's read receipt and response body). When it throws, the floor is still waited out and its own exception
+    /// is the one thrown, unless it is a cancellation of <paramref name="ct"/>.
     /// </summary>
     public async Task<LayoutBindingResolution> ResolveAsync(
         LayoutDefinition definition,
@@ -143,14 +144,24 @@ public sealed class LayoutSurfaceHost(
         // outbox for the drain.
         await trace.AppendAsync().ConfigureAwait(false);
 
-        try
+        if (insideFloor is not null)
         {
-            if (insideFloor is not null) await insideFloor(resolution, ct).ConfigureAwait(false);
+            try
+            {
+                await insideFloor(resolution, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // The caller has gone: no response leaves, so there is no deadline to keep.
+            }
+            catch
+            {
+                // The step's own failure still ends on the deadline, and a cancellation of the wait must not replace it.
+                await PadAsync(started, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
-        finally
-        {
-            await PadAsync(started, ct).ConfigureAwait(false);
-        }
+        await PadAsync(started, ct).ConfigureAwait(false);
         return resolution;
     }
 

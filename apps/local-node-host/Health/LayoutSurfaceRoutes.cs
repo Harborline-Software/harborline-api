@@ -49,9 +49,9 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </para>
 /// <para>
 /// <b>The floor's end (T-1195; M11 ruling under T-724 ruling 93, control 1341).</b> Every served path writes its
-/// root-read receipt and builds its response body inside the host's floor, in the same order, so only the send
-/// follows the deadline. Work after the floor is the same on both paths but not free, and its jitter lands on the
-/// measured time; inside the floor the deadline absorbs it.
+/// root-read receipt, sets its audit headers and builds its response body inside the host's floor, in the same
+/// order, so only the send follows the deadline. Work after the floor is the same on both paths but not free, and
+/// its jitter lands on the measured time; inside the floor the deadline absorbs it.
 /// </para>
 /// </remarks>
 public static class LayoutSurfaceRoutes
@@ -135,8 +135,7 @@ public static class LayoutSurfaceRoutes
             var requestId = (http.Features.Get<SelectedRequestCorrelation>()?.Value ?? Guid.NewGuid()).ToString("D");
             try
             {
-                Guid? receipt = null;
-                byte[]? body = null;
+                IResult? served = null;
                 var serializer = http.RequestServices.GetService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()?.Value
                     .SerializerOptions ?? new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
                 await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
@@ -144,17 +143,19 @@ public static class LayoutSurfaceRoutes
                     tenant, NodeGatePrincipal.Of(principal), requestId, started, ct,
                     insideFloor: async (resolution, token) =>
                     {
-                        receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted!,
+                        var receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted!,
                             new Dictionary<string, object?> { ["recordId"] = recordId }, token).ConfigureAwait(false);
-                        body = JsonSerializer.SerializeToUtf8Bytes(LayoutSurfaceResponse.Of(surface.Definition, resolution), serializer);
+                        if (receipt is { } auditId)
+                        {
+                            http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
+                            if (accepted!.Request.CorrelationId is { } correlation)
+                                http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+                        }
+                        served = Results.Bytes(
+                            JsonSerializer.SerializeToUtf8Bytes(LayoutSurfaceResponse.Of(surface.Definition, resolution), serializer),
+                            JsonContentType);
                     }).ConfigureAwait(false);
-                if (receipt is { } auditId)
-                {
-                    http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
-                    if (accepted!.Request.CorrelationId is { } correlation)
-                        http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
-                }
-                return Results.Bytes(body!, JsonContentType);
+                return served!;
             }
             catch (LayoutAuditDegradedException)
             {
