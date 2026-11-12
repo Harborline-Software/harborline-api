@@ -506,12 +506,13 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             new OutcomeSources(LayoutRelatedResult.Absent),
             new Dictionary<string, Func<LayoutBindingScope, LayoutRelatedRecord?>>(StringComparer.Ordinal) { ["invoice.owner"] = _ => null },
             LayoutBindingScope.Root(new Dictionary<string, System.Text.Json.Nodes.JsonNode?>(StringComparer.Ordinal)),
-            h.Tenant, Member, "request-1195", ct: request.Token,
+            h.Tenant, Member, "request-1195",
             insideFloor: (_, _) =>
             {
                 if (cancelled) request.Cancel();
                 throw new InvalidOperationException("the inside-floor step failed");
-            }));
+            },
+            ct: request.Token));
 
         Assert.Equal("the inside-floor step failed", thrown.Message);
         Assert.True(clock.Elapsed >= floor, $"returned after {clock.Elapsed.TotalMilliseconds} ms, before the {floor.TotalMilliseconds} ms floor");

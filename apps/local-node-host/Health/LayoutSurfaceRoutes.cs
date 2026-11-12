@@ -140,7 +140,7 @@ public static class LayoutSurfaceRoutes
                     .SerializerOptions ?? new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
                 await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
                     relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
-                    tenant, NodeGatePrincipal.Of(principal), requestId, started, ct,
+                    tenant, NodeGatePrincipal.Of(principal), requestId, started,
                     insideFloor: async (resolution, token) =>
                     {
                         var receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted!,
@@ -154,7 +154,8 @@ public static class LayoutSurfaceRoutes
                         served = Results.Bytes(
                             JsonSerializer.SerializeToUtf8Bytes(LayoutSurfaceResponse.Of(surface.Definition, resolution), serializer),
                             JsonContentType);
-                    }).ConfigureAwait(false);
+                    },
+                    ct: ct).ConfigureAwait(false);
                 return served!;
             }
             catch (LayoutAuditDegradedException)

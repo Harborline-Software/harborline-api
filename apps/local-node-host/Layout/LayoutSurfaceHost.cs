@@ -98,8 +98,8 @@ public sealed class LayoutSurfaceHost(
         ActorId principal,
         string requestId,
         long? startedAt = null,
-        CancellationToken ct = default,
-        Func<LayoutBindingResolution, CancellationToken, Task>? insideFloor = null)
+        Func<LayoutBindingResolution, CancellationToken, Task>? insideFloor = null,
+        CancellationToken ct = default)
     {
         var started = startedAt ?? time.GetTimestamp();
         // Audit-degraded mode reads node audit health only: the decision is made before any target is
