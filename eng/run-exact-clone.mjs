@@ -13,7 +13,7 @@
 //
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync} from 'node:child_process'
-import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
+import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {planFlakeRetries, REGISTERED_FLAKE_COUNT} from './flake-registry.mjs'
@@ -90,7 +90,7 @@ for (const [name, relative] of Object.entries(BASELINES)) {
 const hostBaseline = JSON.parse(baselineInputs.host)
 const capabilityBaseline = JSON.parse(baselineInputs.capability)
 
-const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
+const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-')))
 const clone = path.join(scratch, 'clone')
 let retainScratch = false
 let knownTestsWriteRefused = false
