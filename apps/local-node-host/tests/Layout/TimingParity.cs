@@ -16,9 +16,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// <remarks>
 /// <para>
 /// The floor is derived the way owner ruling 1 derives the production one: the worst of 100 denied runs
-/// with no floor, doubled, rounded up to the 15.6 ms tick, at least four ticks. Then 60 preplanned pairs
-/// run, one missing and one denied resolution each, counterbalanced: even pairs run missing first, odd
-/// pairs denied first.
+/// with no floor, doubled, rounded up to the 15.6 ms tick, at least four ticks. A row may then run warm-up
+/// pairs at that floor and discard them (T-1195). Then 60 preplanned pairs run, one missing and one denied
+/// resolution each, counterbalanced: even pairs run missing first, odd pairs denied first.
 /// </para>
 /// <para>
 /// Two rules decide, and both must hold:
@@ -124,9 +124,17 @@ internal static class TimingParity
     /// <param name="settle">Waits for background work to finish between the calibration and the samples.</param>
     /// <param name="label">Names the row in the output and in a failure.</param>
     /// <param name="output">Receives the verdict and all 60 raw pairs, pass or fail.</param>
+    /// <param name="warmUpPairs">Pairs run at the sampling floor, in the same counterbalanced order as the samples,
+    /// and discarded before the first sample. The calibration warms the denied path at no floor only; a row
+    /// whose per-request cost outside the floor is still falling once sampling starts (T-1195: the route row,
+    /// whose HTTP request and response legs settle only after about 150 requests at the floor) needs both
+    /// paths run at the floor first, or its pairs measure the warm-up instead of the paths. It changes no
+    /// rule, bound or pair count: the 60 pairs the rules read all run after it.</param>
     public static async Task AssertSameAsync(
-        Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle, string label, ITestOutputHelper output)
+        Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle, string label, ITestOutputHelper output,
+        int warmUpPairs = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(warmUpPairs);
         var calibration = at(TimeSpan.Zero);
         for (var i = 0; i < 5; i++) await calibration(true); // JIT warm-up, discarded
         var worst = 0.0;
@@ -139,6 +147,13 @@ internal static class TimingParity
         await settle();
         var floor = TimeSpan.FromMilliseconds(Math.Max(4, Math.Ceiling(2 * worst / Tick)) * Tick);
         var sample = at(floor);
+        if (warmUpPairs > 0)
+        {
+            for (var i = 0; i < warmUpPairs; i++)
+                foreach (var ownerExists in i % 2 == 1 ? new[] { true, false } : [false, true])
+                    await sample(ownerExists);
+            await settle();
+        }
 
         var pairs = new List<Pair>(Pairs);
         for (var i = 0; i < Pairs; i++)
@@ -159,6 +174,8 @@ internal static class TimingParity
         var verdict = Evaluate(pairs, Bounds.Current(floor));
         var report = new StringBuilder();
         report.AppendLine(CultureInfo.InvariantCulture, $"{label}: {verdict} at floor {floor.TotalMilliseconds} ms");
+        if (warmUpPairs > 0)
+            report.AppendLine(CultureInfo.InvariantCulture, $"{label}: {warmUpPairs} warm-up pairs ran at the floor and were discarded");
         report.AppendLine(CultureInfo.InvariantCulture, $"{label}: pairs (index, first, missing ms, denied ms, denied - missing ms)");
         foreach (var pair in pairs)
             report.AppendLine(CultureInfo.InvariantCulture,
