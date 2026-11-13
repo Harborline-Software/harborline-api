@@ -23,9 +23,10 @@ name: review
 
 on:
   pull_request_target:
-    # edited only when the base changed: the gate drops a Claude pass given against another base, and an enforced
-    # ESCALATE's result rests on the old base's rules, so a retarget gets a fresh review (Codex on platform 492).
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    # A retarget is caught by review-retarget.yml, which dispatches this workflow for the PR. Listening for `edited`
+    # here would make every title or body edit leave a skipped `review` check on the head, which GitHub counts as a
+    # pass and which would hide an earlier failure (Fable on platform 492).
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   workflow_dispatch:
     inputs:
@@ -35,11 +36,7 @@ on:
         type: number
 
 concurrency:
-  # An edit that leaves the base alone gets a group of its own, so its skipped run can't cancel a review under way.
-  group: >-
-    ${{ github.event.action == 'edited' && !github.event.changes.base && format('review-skip-{0}', github.run_id) ||
-        github.event_name != 'merge_group' && format('review-pr-{0}', github.event.pull_request.number || inputs.pr) ||
-        format('review-{0}', github.ref) }}
+  group: ${{ github.event_name != 'merge_group' && format('review-pr-{0}', github.event.pull_request.number || inputs.pr) || format('review-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 permissions:
@@ -50,7 +47,7 @@ permissions:
 
 jobs:
   review:
-    if: vars.ACTIONS_ENABLED == 'true' && (github.event.action != 'edited' || github.event.changes.base)
+    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
     # 30 minutes for the review, plus 10 for an enforced ESCALATE to wait for review-gate to read it.
     timeout-minutes: 40
@@ -289,8 +286,8 @@ jobs:
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
             # The rules read below must still be those of the base the verdict was given against (CodeRabbit on api
-            # 497). The base is read again before the lookup and after the wait; a retarget after that starts a new
-            # review, which replaces this job's result.
+            # 497). The base is read again before the lookup and after the wait; a retarget after that dispatches a
+            # new review (review-retarget.yml), whose verdict replaces this one's claude-review status.
             same_base() {
               local now
               now=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref) && [ "$now" = "$BASE_REF" ] && return 0

@@ -12,6 +12,7 @@ on:
       - .github/tests/review-gate.test.sh
       - .github/tests/review-record.test.sh
       - .github/workflows/review.yml
+      - .github/workflows/review-retarget.yml
       - .github/workflows/review-gate-test.yml
 
 # A new push to a PR cancels that PR's older run; any other event keys on its ref and is never cancelled.
