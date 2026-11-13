@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -18,7 +19,9 @@ using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
@@ -405,6 +408,14 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
     /// the measured time. Each local-store operation costs 5 ms of CPU, so without the floor the denied path is
     /// about 15 ms slower and the median rule fails.
     /// </summary>
+    /// <remarks>
+    /// T-1195: the request leg before the route starts its floor and the response leg after it (the receipt, the
+    /// serialization, Kestrel and the client) are the same on both paths but are not free, and on a fresh process
+    /// they get cheaper and steadier only after about 150 requests at the floor. The calibration runs the denied
+    /// path at no floor only, so without a warm-up the 60 pairs ran during that settling: on the hosted gate the
+    /// time past the floor fell from about 1.0 ms to 0.65 ms across the pairs, and the paired differences spread
+    /// to ±0.15 ms around a zero median. <see cref="RouteWarmUpPairs"/> discarded pairs at the floor run first.
+    /// </remarks>
     [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
     [Fact(DisplayName = "layout-eng-31 T-735: at the route, missing and denied timings meet the TimingParity bounds (paired median within ±0.1 ms at 99.96% coverage, p90 gap under 1 ms)")]
     public async Task Missing_and_denied_route_timing_distributions_are_the_same()
@@ -422,8 +433,14 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                 _ = await response.Content.ReadAsByteArrayAsync();
             };
-        }, h.Pipeline.Appender.IdleAsync, "route", output);
+        }, h.Pipeline.Appender.IdleAsync, "route", output, RouteWarmUpPairs);
     }
+
+    /// <summary>
+    /// T-1195: 240 requests at the floor, both paths, before the first counted pair. On a 4-CPU Linux container the
+    /// time past the floor stopped falling after about 150 requests, so this leaves a margin past it.
+    /// </summary>
+    private const int RouteWarmUpPairs = 120;
 
     [Fact(DisplayName = "layout-eng-31 T-735: the response floor counts from the start of the route, so the route's own lookups are inside the deadline")]
     public async Task The_floor_counts_the_routes_own_work()
@@ -439,6 +456,66 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         var alert = await h.Pipeline.HealthAsync();
         Assert.Equal(HealthStatus.Degraded, alert.Status);
         Assert.Equal(1L, alert.Data["floorOverruns"]);
+    }
+
+    [Theory(DisplayName = "layout-eng-31 T-1195: on every served path the denial record, then the one RecordRead receipt, then the response body are all done before the floor's deadline")]
+    [InlineData("allowed")]
+    [InlineData("denied")]
+    [InlineData("missing")]
+    public async Task Every_served_path_finishes_its_receipt_and_body_inside_the_floor(string path)
+    {
+        var floor = TimeSpan.FromSeconds(1);
+        await using var h = await Host.CreateAsync(floor);
+        h.Related.Present = path != "missing";
+        var caller = path == "allowed" ? Member : Viewer;
+        // A first, unprobed request, so a cold process's first-request work cannot crowd the deadline.
+        using (await h.GetAsync(caller, SurfacePack.Invoice, Root)) { }
+        await h.Pipeline.Appender.IdleAsync();
+        var rows = await RowsAsync(h.Pipeline.Trail, h.Tenant);
+        var receipts = rows.Count(row => row.EventType.Value == "RecordRead");
+        var denials = rows.Count(row => row.EventType.Value == "LayoutRelatedDenied");
+
+        h.Probe.Enabled = true;
+        using var response = await h.GetAsync(caller, SurfacePack.Invoice, Root);
+        h.Probe.Enabled = false;
+        await h.Pipeline.Appender.IdleAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(receipts + 1, (await RowsAsync(h.Pipeline.Trail, h.Tenant)).Count(row => row.EventType.Value == "RecordRead"));
+        // The deadline is the route's start plus the floor; the host never returns before it, so work stamped
+        // before it ran inside the floor, and work after the floor would stamp at or past it.
+        var deadline = h.Probe.Started + (long)(floor.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+        Assert.NotEqual(0, h.Probe.Started);
+        Assert.InRange(h.Probe.ReceiptAt, h.Probe.Started + 1, deadline - 1);
+        Assert.InRange(h.Probe.SerializedAt, h.Probe.ReceiptAt + 1, deadline - 1);
+        // A denial's gate-log record is already appended when the receipt is written; no other path makes one.
+        Assert.Equal(denials + (path == "denied" ? 1 : 0), h.Probe.DenialsAtReceipt);
+    }
+
+    [Theory(DisplayName = "layout-eng-31 T-1195: when the host's inside-floor step throws, the caller still waits out the floor and gets that step's own exception, whether or not the request was cancelled")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_throwing_inside_floor_step_keeps_the_floor_and_its_exception(bool cancelled)
+    {
+        var floor = TimeSpan.FromMilliseconds(150);
+        await using var h = await Host.CreateAsync(floor);
+        using var request = new CancellationTokenSource();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Surfaces.ResolveAsync(Surface(),
+            new OutcomeSources(LayoutRelatedResult.Absent),
+            new Dictionary<string, Func<LayoutBindingScope, LayoutRelatedRecord?>>(StringComparer.Ordinal) { ["invoice.owner"] = _ => null },
+            LayoutBindingScope.Root(new Dictionary<string, System.Text.Json.Nodes.JsonNode?>(StringComparer.Ordinal)),
+            h.Tenant, Member, "request-1195",
+            insideFloor: (_, _) =>
+            {
+                if (cancelled) request.Cancel();
+                throw new InvalidOperationException("the inside-floor step failed");
+            },
+            ct: request.Token));
+
+        Assert.Equal("the inside-floor step failed", thrown.Message);
+        Assert.True(clock.Elapsed >= floor, $"returned after {clock.Elapsed.TotalMilliseconds} ms, before the {floor.TotalMilliseconds} ms floor");
     }
 
     [Fact(DisplayName = "layout-eng-31 T-735: a denial made at the surface route reaches the denial reader route for a principal holding audit:read and records:read")]
@@ -699,10 +776,64 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         return body.RootElement.GetProperty("code").GetString();
     }
 
-    /// <summary>What a caller observes of one response: status, media type and the raw body bytes.</summary>
-    private sealed record Observed(HttpStatusCode Status, string? MediaType, string Body);
+    /// <summary>What a caller observes of one response: status, the full Content-Type, the framing (Content-Length or
+    /// chunked), Cache-Control, the raw body bytes (as hex, so the record compares them by value) and the body text.</summary>
+    private sealed record Observed(HttpStatusCode Status, string? ContentType, long? ContentLength, bool? Chunked,
+        string? CacheControl, string Bytes, string Body)
+    {
+        public string? MediaType => ContentType is null ? null : System.Net.Http.Headers.MediaTypeHeaderValue.Parse(ContentType).MediaType;
+    }
 
     private sealed class CompositionProbeCompleteException : Exception;
+
+    /// <summary>
+    /// T-1195: stamps, for one probed request, when the route started its floor, when it wrote its receipt, how many
+    /// denial records the gate log already held then, and when its body finished serializing. Off by default, so the
+    /// timing row's requests run unprobed.
+    /// </summary>
+    private sealed class RouteProbe
+    {
+        public volatile bool Enabled;
+        public volatile bool Armed;
+        public long Started, ReceiptAt, SerializedAt;
+        public int DenialsAtReceipt;
+    }
+
+    /// <summary>The fixed clock, which also stamps the route's first timestamp read of a probed request: its floor start.</summary>
+    private sealed class ProbedTime(DateTimeOffset now, RouteProbe probe) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public override long GetTimestamp()
+        {
+            var timestamp = base.GetTimestamp();
+            if (probe.Armed)
+            {
+                probe.Armed = false;
+                probe.Started = timestamp;
+            }
+            return timestamp;
+        }
+    }
+
+    /// <summary>The accepted-act trail the route writes its receipts to, stamping a probed request's receipt.</summary>
+    private sealed class ProbedReceipts(IAuthorizedAuditTrail inner, RouteProbe probe, TenantId tenant) : IAuthorizedAuditTrail
+    {
+        public async ValueTask AppendAuthorizedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
+            SeparationOfDutyDecision? approval = null)
+        {
+            if (probe.Enabled)
+            {
+                probe.ReceiptAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                probe.DenialsAtReceipt = (await RowsAsync(inner, tenant)).Count(row => row.EventType.Value == "LayoutRelatedDenied");
+            }
+            await inner.AppendAuthorizedAsync(record, decision, ct, approval);
+        }
+
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => inner.AppendAsync(record, ct);
+
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default) => inner.QueryAsync(query, ct);
+    }
 
     private sealed class Host : IAsyncDisposable
     {
@@ -710,10 +841,17 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         internal const string DesktopHeader = "X-Test-Desktop-Plane";
         private readonly WebApplication _app;
         private readonly ServiceProvider _authorization;
+        private readonly KeyPair _receiptKeys;
+        public RouteProbe Probe { get; }
+        public LayoutSurfaceHost Surfaces { get; }
 
         private Host(WebApplication app, ServiceProvider authorization, Pipeline pipeline, LayoutSurfaceOptions options,
-            FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs)
+            FixtureRoots roots, FixtureRelatedRecords related, Harborline.Api.Foundation.Packs.Install.InMemoryPackInstallStore packs,
+            RouteProbe probe, LayoutSurfaceHost surfaces, KeyPair receiptKeys)
         {
+            Probe = probe;
+            Surfaces = surfaces;
+            _receiptKeys = receiptKeys;
             Packs = packs;
             _app = app;
             _authorization = authorization;
@@ -746,7 +884,8 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var gate = new AuthorizationGate(grants, authorization.GetRequiredService<IRecordStandingResolver>(), grants);
             var pipeline = new Pipeline(new InMemoryAuditTrail());
             var options = new LayoutSurfaceOptions { ResponseFloor = floor };
-            var time = new FixedTime(At);
+            var probe = new RouteProbe();
+            var time = new ProbedTime(At, probe);
             var surfaces = new LayoutSurfaceHost(gate, pipeline.Outbox, pipeline.Appender, pipeline.Alarms, time,
                 NullLogger.Instance, options);
             var packs = await SurfacePack.InstallAsync(tenant, exposeRecordTypes);
@@ -763,13 +902,25 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var builder = WebApplication.CreateBuilder();
             TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddSingleton(gate);
-            builder.Services.AddSingleton(pipeline.AcceptedActs);
+            var receiptKeys = KeyPair.Generate();
+            builder.Services.AddSingleton(new AuthorizedActAudit(
+                new ProbedReceipts((IAuthorizedAuditTrail)pipeline.Trail, probe, tenant), new Ed25519Signer(receiptKeys),
+                NullLogger<AuthorizedActAudit>.Instance));
+            // Stamps the end of a probed request's response body, through the JSON options the route serializes with.
+            builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.TypeInfoResolver =
+                (json.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver())
+                .WithAddedModifier(info =>
+                {
+                    if (info.Type == typeof(LayoutSurfaceResponse))
+                        info.OnSerialized = _ => { if (probe.Enabled) probe.SerializedAt = System.Diagnostics.Stopwatch.GetTimestamp(); };
+                }));
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             var app = builder.Build();
             app.Use(async (http, next) =>
             {
+                if (probe.Enabled) probe.Armed = true;
                 // Authentication is upstream: the fixture binds the selected session the header names.
                 if (http.Request.Headers.ContainsKey(DesktopHeader))
                     http.Features.Set(DesktopPlaneRequestFeature.Instance);
@@ -787,7 +938,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();
-            return new Host(app, authorization, pipeline, options, roots, related, packs);
+            return new Host(app, authorization, pipeline, options, roots, related, packs, probe, surfaces, receiptKeys);
         }
 
         public Task<HttpResponseMessage> GetAsync(ActorId caller, string surface, string record, Guid? correlation = null)
@@ -804,8 +955,10 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public async Task<Observed> ReadAsync(ActorId caller, string surface, string record)
         {
             using var response = await GetAsync(caller, surface, record);
-            return new Observed(response.StatusCode, response.Content.Headers.ContentType?.MediaType,
-                await response.Content.ReadAsStringAsync());
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            return new Observed(response.StatusCode, response.Content.Headers.ContentType?.ToString(),
+                response.Content.Headers.ContentLength, response.Headers.TransferEncodingChunked,
+                response.Headers.CacheControl?.ToString(), Convert.ToHexString(bytes), System.Text.Encoding.UTF8.GetString(bytes));
         }
 
         private static async Task<ServiceProvider> SeededAuthorizationAsync(TenantId tenant)
@@ -840,6 +993,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             await _app.DisposeAsync();
             await _authorization.DisposeAsync();
             Pipeline.Dispose();
+            _receiptKeys.Dispose();
         }
     }
 }

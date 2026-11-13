@@ -24,6 +24,14 @@ internal static class FormsAuthoringC3Wire
         });
     }
 
+    internal static IResult Refuse(
+        DefinitionAdmissionPhase stage, IReadOnlyList<DefinitionRefusal> refusals) =>
+        Results.UnprocessableEntity(new
+        {
+            stage = stage.ToString().ToLowerInvariant(),
+            refusals = refusals.Select(refusal => new WireRefusal(refusal.Code, refusal.Pointer, null)).ToArray(),
+        });
+
     internal static string Field(string name, string member) =>
         $"/overlay/fields/{Escape(name)}/{member}";
 

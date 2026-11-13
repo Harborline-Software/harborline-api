@@ -121,7 +121,7 @@ public sealed class NodeRosterRecord
 
     /// <summary>Legacy rows retain signed order until the receive-attestation wire cutover.</summary>
     public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received) =>
-        received is { } at && issued < at - ReceiveTimeWindow ? at : issued;
+        RosterReceiveAttestationSigning.BoundedOrderTime(issued, received, ReceiveTimeWindow);
 
     /// <summary>Current-wire records may advance their signed order no farther than the attested receipt skew.</summary>
     internal static bool IsWithinReceiveTimeWindow(DateTimeOffset issued, DateTimeOffset received) =>
@@ -134,6 +134,17 @@ public sealed class NodeRosterRecord
                 ? row.ReceivedAtUtc : null, StringComparer.Ordinal);
         return (signature, issued) => BoundedOrderTime(issued, receipts.GetValueOrDefault(signature));
     }
+
+    internal static IReadOnlyDictionary<string, RosterReceiveAttestation> ReceiveAttestationsBySignature(
+        IEnumerable<NodeRosterRecord> rows) =>
+        rows.Where(row => row.WireFormatVersion == RosterWireFormat.CurrentVersion && row.ReceivedAtUtc is not null)
+            .GroupBy(row => row.SignatureB64Url, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group =>
+            {
+                var row = group.First();
+                return new RosterReceiveAttestation(row.WireFormatVersion, row.ReceivedByPartyId,
+                    row.ReceivedByPublicKey, row.ReceivedAtUtc!.Value, row.ReceiveAttestationSignatureB64Url);
+            }, StringComparer.Ordinal);
 
     /// <summary>Project a converged CRDT snapshot into its durable read-model row.</summary>
     public static NodeRosterRecord FromCrdtState(RosterRecordCrdtState s)
