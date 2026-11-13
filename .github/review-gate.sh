@@ -195,7 +195,7 @@ exempt_ok=true
 if [ "$BASE_REF" != "$default_branch" ]; then
   exempt_ok=false
   echo "no review exemption: base $BASE_REF is not $default_branch"
-  guarded=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "pull_request")] | length')
+  guarded=$(gh api "repos/$REPO/rules/branches/$(jq -rn --arg b "$BASE_REF" '$b | @uri | gsub("%2F"; "/")')" --jq '[.[] | select(.type == "pull_request")] | length')
   if [ "$guarded" -gt 0 ]; then
     base_list=$(mktemp)
     if gh api -H 'Accept: application/vnd.github.raw' \

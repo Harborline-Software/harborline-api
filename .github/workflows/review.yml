@@ -245,7 +245,9 @@ jobs:
             echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
-            required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$BASE_REF" --paginate \
+            # The name is encoded, keeping its slashes, so a branch like x#y or x%y is read as itself, not as x.
+            base_path=$(jq -rn --arg b "$BASE_REF" '$b | @uri | gsub("%2F"; "/")')
+            required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$base_path" --paginate \
               --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') \
               || required=''
             if ! grep -qx review-gate <<<"$required"; then
