@@ -37,12 +37,12 @@ case $p in
   repos/*/pulls) f=pulls.json ;;
   repos/*/issues/*/events) f=events.json ;;
   repos/*/issues/*/comments) f=comments.json ;;
-  repos/*/commits/*/status) f=status.json ;;
+  repos/*/commits/*/statuses) f=statuses.json ;;
   repos/*/commits/*/check-suites) f=suites.json ;;
   *) echo "stub gh: unknown $path" >&2; exit 1 ;;
 esac
 if [ -f "$FIX/$f" ]; then d=$(cat "$FIX/$f")
-else case $f in status.json) d='{"statuses":[]}';; suites.json) d='{"check_suites":[]}';; *) d='[]';; esac; fi
+else case $f in suites.json) d='{"check_suites":[]}';; *) d='[]';; esac; fi
 if [ -n "$jq_q" ]; then jq -r "$jq_q" <<<"$d"; else printf '%s\\n' "$d"; fi
 `
 
@@ -77,7 +77,9 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
       commits: commits ?? [], total_commits: totalCommits}))
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (reviews) writeFileSync(join(fix, 'reviews.json'), JSON.stringify(reviews))
-    if (status) writeFileSync(join(fix, 'status.json'), JSON.stringify({statuses: status}))
+    // Statuses as the listing returns them, newest first; each was set by the workflows unless a case says otherwise.
+    if (status) writeFileSync(join(fix, 'statuses.json'),
+      JSON.stringify(status.map(s => ({creator: {login: 'github-actions[bot]'}, ...s}))))
     if (rules) writeFileSync(join(fix, 'rules.json'), JSON.stringify(rules))
     if (baseLists.risky != null) writeFileSync(join(fix, 'base-review-risky-paths'), baseLists.risky)
     if (baseLists.exempt != null) writeFileSync(join(fix, 'base-review-exempt-paths'), baseLists.exempt)
@@ -135,8 +137,8 @@ const codexState = ({code = null, security = null}) => {
   return [{user: {login: 'chatgpt-codex-connector[bot]'},
     body: `<!-- codex-review-state:v1 &#123;"code_review":${review(code)},"security_review":${review(security)}&#125; -->`}]
 }
-const claudeSays = verdict => [{context: 'claude-review', state: verdict === 'PASS' ? 'success' : 'failure',
-  updated_at: '2026-11-02T00:00:00Z', description: `Claude review: ${verdict} (shadow, base main)`}]
+const claudeSays = (verdict, base = 'main') => [{context: 'claude-review', state: verdict === 'PASS' ? 'success' : 'failure',
+  updated_at: '2026-11-02T00:00:00Z', description: `Claude review: ${verdict} (shadow, base ${base})`}]
 
 // ADR-0159: a Claude BLOCK holds the PR; an ESCALATE makes it risky, so it passes once Codex's security review is clean
 // and one reviewer passed it.
@@ -157,6 +159,8 @@ test('a Claude ESCALATE passes once Codex passes both its code and security revi
   const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'clean'})})
   assert.equal(g.state, 'success', g.out)
   assert.equal(g.desc, 'Passed by Codex; Claude escalated, Codex security review clean')
+  // risky=true is what keeps the auto-merge job from arming an escalated PR.
+  assert.match(g.out, /risky=true/)
 })
 
 test('a Claude ESCALATE with a clean pass but no clean Codex security review waits for that review', () => {
@@ -170,12 +174,58 @@ test('a Claude ESCALATE with a clean pass but no clean Codex security review wai
     comments: codexState({security: 'clean'})})
   assert.equal(h.state, 'success', h.out)
   assert.equal(h.desc, 'Passed by CodeRabbit; Claude escalated, Codex security review clean')
+  assert.match(h.out, /risky=true/)
 })
 
 test('a Claude ESCALATE with open Codex security findings blocks', () => {
   const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'dirty'})})
   assert.equal(g.state, 'failure', g.out)
   assert.equal(g.desc, 'Blocked: Codex security review has open findings')
+})
+
+// Fable risky-change pass on Platform #492: the description carries the base branch, so the verdict is read by position.
+test('a Claude BLOCK into a branch whose name contains ESCALATE still blocks', () => {
+  const base = {base: 'release/ESCALATE-fix', rules: [{type: 'pull_request'}], baseLists: {risky: 'scripts/release/\n'}}
+  const g = runGate({...base, files: ['src/App.cs'], status: claudeSays('BLOCK', 'release/ESCALATE-fix'),
+    comments: codexState({code: 'clean', security: 'clean'})})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude review: BLOCK (shadow, base release/ESCALATE-fix)')
+  assert.match(g.out, /risky=false/)
+  // A PASS into that branch is a pass, not an escalation.
+  const p = runGate({...base, files: ['src/App.cs'], status: claudeSays('PASS', 'release/ESCALATE-fix')})
+  assert.equal(p.state, 'success', p.out)
+  assert.equal(p.desc, 'Passed by Claude')
+  assert.match(p.out, /risky=false/)
+})
+
+test('a Claude verdict set by anyone but the review workflow blocks', () => {
+  for (const verdict of ['ESCALATE', 'PASS']) {
+    const g = runGate({files: ['src/App.cs'], comments: codexState({code: 'clean', security: 'clean'}),
+      status: claudeSays(verdict).map(s => ({...s, creator: {login: 'ctwoodwa'}}))})
+    assert.equal(g.state, 'failure', `${verdict}: ${g.out}`)
+    assert.equal(g.desc, 'Blocked: claude-review was not set by the review workflow', verdict)
+  }
+  // Only the newest claude-review counts: a workflow BLOCK set after a forged PASS still blocks as a BLOCK.
+  const later = runGate({files: ['src/App.cs'], status: [...claudeSays('BLOCK'),
+    ...claudeSays('PASS').map(s => ({...s, creator: {login: 'ctwoodwa'}}))]})
+  assert.equal(later.desc, 'Blocked: Claude review: BLOCK (shadow, base main)', later.out)
+})
+
+test('a Claude ESCALATE on an exempt-only change still waits for a review', () => {
+  const g = runGate({files: ['SUPPORT.md'], status: claudeSays('ESCALATE')})
+  assert.equal(g.state, 'pending', g.out)
+  assert.equal(g.desc, NEEDS_REVIEW)
+  assert.match(g.out, /risky=true/)
+})
+
+test('a Claude ESCALATE needs a clean Codex security review, not one with resolved findings', () => {
+  // Resolved findings are not a clean review: CodeRabbit's pass stands, but the security review is still owed.
+  const approved = [{user: {login: 'coderabbitai[bot]'}, commit_id: 'h1', state: 'APPROVED', submitted_at: '2026-11-02T00:00:00Z'}]
+  const resolved = codexState({security: 'clean'})
+  resolved[0].body = resolved[0].body.replace('"has_any_findings":false', '"has_any_findings":true')
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), reviews: approved, comments: resolved})
+  assert.equal(g.state, 'pending', g.out)
+  assert.equal(g.desc, 'Passed by CodeRabbit; a risky change also needs a clean Codex security review')
 })
 
 test('a Claude failure with no verdict in its description still blocks', () => {

@@ -25,7 +25,7 @@ case "$*" in
   *"/pulls/1"*)
     jq -n --arg base "$BASE" '{state: "open", draft: false, head: {sha: "abc"}, changed_files: 1,
                                base: {ref: $base, repo: {default_branch: "main"}}}' ;;
-  *"/commits/abc/status"*) echo "claude-review|success|2026-11-01T00:00:00Z|Claude review: PASS (shadow, base $BASE)" ;;
+  *"/commits/abc/statuses"*) echo "claude-review|success|2026-11-01T00:00:00Z|github-actions[bot]|Claude review: PASS (shadow, base $BASE)" ;;
   *"pulls?state=open"*) echo 0 ;;
   *) echo "unexpected gh call: $*" >&2; exit 1 ;;
 esac

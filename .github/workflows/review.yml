@@ -4,7 +4,8 @@
 # the step summary only; BLOCK or ESCALATE also comments on the PR.
 #
 # Shadow: the job passes whatever the verdict until the repository variable REVIEW_ENFORCE is 'true'. Then a
-# BLOCK, an ESCALATE or a missing verdict fails it, and the ruleset can require `review` next to `verify`.
+# BLOCK or a missing verdict fails it, and the ruleset can require `review` next to `verify`. An ESCALATE doesn't
+# fail it: review-gate holds that PR until Codex's security review is clean (ADR-0159).
 # The merge group passes at once, because the queued commit was reviewed on its PR head.
 #
 # Agents push as the owner, so GitHub cannot count an agent's approval. This check is the second key instead.
@@ -197,15 +198,21 @@ jobs:
           # and a clean Codex security review (ADR-0159). Keep the verdict word in the description for that reason.
           # The base branch in the description binds a pass to the diff it reviewed; review-gate checks it.
           # A run with no verdict leaves an earlier verdict on this head in place, so a retry that times out can't
-          # clear a BLOCK. If the earlier state can't be read, it posts nothing rather than risk overwriting one.
+          # clear a BLOCK. Nor can an ESCALATE: a BLOCK on this head stays until a review passes it or a new head is
+          # pushed, so re-running the review until it says ESCALATE gains nothing. If the earlier verdict can't be
+          # read, either run posts nothing rather than risk overwriting a BLOCK.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
-          if [ "$st" = error ]; then
-            prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" --paginate \
-              --jq '.statuses[] | select(.context == "claude-review") | .state' || echo unknown)
-            [ -n "$prior" ] && st=keep
+          if [ "$st" = error ] || [ "$verdict" = ESCALATE ]; then
+            if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" --paginate \
+                 --jq '.statuses[] | select(.context == "claude-review") | "\(.state)|\(.description // "")"'); then
+              if [ "$st" = error ] && [ -n "$prior" ]; then st=keep; fi
+              if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* ]]; then st=keep; fi
+            else
+              st=keep
+            fi
           fi
           if [ "$st" = keep ]; then
-            echo "No verdict; leaving the earlier claude-review status on $HEAD_SHA as it is"
+            echo "Leaving the earlier claude-review status on $HEAD_SHA as it is ($verdict this run)"
           else
             gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
               -f description="Claude review: $verdict ($mode, base $BASE_REF)" \
@@ -214,7 +221,9 @@ jobs:
           fi
           gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
             -f pr="$PR" || echo "::warning::could not start review-gate"
-          if [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
+          # Enforced, the job fails like the gate holds: on a BLOCK or no verdict. An ESCALATE is left to review-gate,
+          # which passes it only with a clean Codex security review (ADR-0159).
+          if [ "$mode" = enforced ] && [ "$verdict" != PASS ] && [ "$verdict" != ESCALATE ]; then
             echo "::error::review verdict $verdict"
             exit 1
           fi

@@ -57,15 +57,23 @@ fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times s
 
 # Claude review: the review workflow sets the claude-review status on the head it reviewed.
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
-# The combined status holds only the latest status per context, so repeated review-gate posts can't push it out.
-statuses=$(gh api "repos/$REPO/commits/$HEAD/status?per_page=100" --paginate --jq '.statuses[]
+# Statuses come newest first, so the first entry per context is the one standing on the head. Each entry names who
+# set it: only the review workflow (github-actions[bot]) can give a Claude verdict, so one set by anyone else blocks.
+statuses=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
   | select(.context == "claude-review" or .context == "review-gate")
-  | "\(.context)|\(.state)|\(.updated_at)|\(.description // "")"')
-latest=$(cut -d'|' -f1,2,4- <<<"$statuses")
+  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.description // "")"' | awk -F'|' '!seen[$1]++')
+latest=$(cut -d'|' -f1,2,5- <<<"$statuses")
 claude_at=$(awk -F'|' '$1 == "claude-review" { print $3; exit }' <<<"$statuses")
+claude_by=$(awk -F'|' '$1 == "claude-review" { print $4; exit }' <<<"$statuses")
 claude=$( { grep '^claude-review|' <<<"$latest" || true; } | head -n 1 | cut -d'|' -f2-)
 claude=${claude:-none|}
 claude_state=${claude%%|*}; claude_desc=${claude#*|}
+# The verdict is the word right after "Claude review: ", read by position: the description also carries the PR's base
+# branch, and a branch named, say, release/ESCALATE-fix must not turn a BLOCK into an ESCALATE.
+claude_verdict=$(sed -nE 's/^Claude review: (PASS|BLOCK|ESCALATE) \(.*/\1/p' <<<"$claude_desc")
+if [ "$claude_state" != none ] && [ "$claude_by" != 'github-actions[bot]' ]; then
+  blockers+=("claude-review was not set by the review workflow"); claude_state=forged
+fi
 case $claude_state in
   # A pass counts only for the base it reviewed: the review records the PR's base branch in its description, so a
   # review that finished after a retarget, or one given to another PR with the same head, doesn't count here.
@@ -74,9 +82,9 @@ case $claude_state in
   # A BLOCK holds the PR. An ESCALATE does not block by itself: it makes the PR risky, so it then needs one clean pass
   # from Codex or CodeRabbit and a clean Codex security review (ADR-0159). Any other failure, or one with no verdict
   # in its description, still blocks.
-  failure) [[ $claude_desc == *ESCALATE* ]] || blockers+=("${claude_desc:-Claude review: not PASS}") ;;
+  failure) [ "$claude_verdict" = ESCALATE ] || blockers+=("${claude_desc:-Claude review: not PASS}") ;;
 esac
-escalated=false; [[ $claude_state == failure && $claude_desc == *ESCALATE* ]] && escalated=true
+escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] && escalated=true
 
 # Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;, and a
 # table row per review with the time that review completed. The verdicts and their times are read from one copy of
