@@ -68,6 +68,30 @@ public sealed class RosterPreInsertVerificationTests
         Assert.Empty(await f.AuditsAsync());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BoundedTiedHistoryUsesNonceOrderForSignerEligibility(bool revocationFirst)
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var instant = At.AddHours(2);
+        var first = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var second = Guid.Parse("00000000-0000-0000-0000-000000000002");
+        var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
+            RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant.AddMinutes(-1),
+                revocationFirst ? first : second))).AttestReceipt(f.Founder, "founder", instant);
+        var key = KeyPair.Generate().PrincipalId;
+        var admission = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), "tied", key,
+            RosterSigning.SignAdmission(f.Member, Tenant, "tied", key, "member", false, instant,
+                revocationFirst ? second : first))).AttestReceipt(f.Founder, "founder", instant);
+        await f.MergeRawAsync([admission, revocation]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == revocation.RecordId);
+        Assert.Equal(!revocationFirst, stored.Any(r => r.RecordId == admission.RecordId));
+        if (revocationFirst) AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+        else Assert.Empty(await f.AuditsAsync());
+    }
+
     [Fact]
     public async Task EqualTimeEarlierNonceRevocationDoesNotRemoveReceiptAttester()
     {

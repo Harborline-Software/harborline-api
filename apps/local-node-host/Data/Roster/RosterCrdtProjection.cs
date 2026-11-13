@@ -613,10 +613,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     var candidates = snapshot.Where(s => !existing.ContainsKey(s.RecordId)).DistinctBy(s => s.RecordId)
                         .Where(s => NodeRosterRecord.TryParseIssuedAt(s, out _))
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
-                    var trusted = new Dictionary<string, NodeRosterRecord>(existing, StringComparer.Ordinal);
-                    orderTime = (signature, issued) => NodeRosterRecord.OrderTimes(trusted.Values)(signature, issued);
+                    var receipts = existing.Values.GroupBy(r => r.SignatureB64Url, StringComparer.Ordinal)
+                        .ToDictionary(g => g.Key, g => g.First() is { WireFormatVersion: RosterWireFormat.CurrentVersion } row
+                            ? row.ReceivedAtUtc : null, StringComparer.Ordinal);
+                    orderTime = (signature, issued) => NodeRosterRecord.BoundedOrderTime(issued, receipts.GetValueOrDefault(signature));
                     var toInsert = new List<NodeRosterRecord>();
-                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, trusted, orderTime, rosterAuthority, admittedAt, ct).ConfigureAwait(false);
+                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, receipts, orderTime, rosterAuthority, admittedAt, ct).ConfigureAwait(false);
                     inboundRefusals.AddRange(refused.Values);
                     var changed = false;
                     foreach (var s in snapshot)
@@ -1005,7 +1007,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // Relax new admissions from their signers outward; the CRDT list order is not causal order.
     private async Task<Dictionary<string, RebuildRefusal>> VerifyBeforeInsertAsync(
         IReadOnlyList<RosterRecordCrdtState> snapshot, Dictionary<string, NodeRosterRecord> existing,
-        Dictionary<string, NodeRosterRecord> trusted, Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt, CancellationToken ct)
+        Dictionary<string, DateTimeOffset?> receipts, Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt, CancellationToken ct)
     {
         var refused = new Dictionary<string, RebuildRefusal>(StringComparer.Ordinal);
         foreach (var tenant in snapshot.Where(s => !existing.ContainsKey(s.RecordId)).GroupBy(s => s.TeamId))
@@ -1048,7 +1050,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     if (code is null)
                     {
                         evidence.Add(candidate);
-                        trusted[candidate.RecordId] = NodeRosterRecord.FromCrdtState(candidate);
+                        receipts.TryAdd(candidate.SignatureB64Url, candidate.ReceiveAttestationOrNull()!.ReceivedAt);
                         anchor ??= candidate.IsGenesis ? candidate.ToAdmissionOrNull() : null;
                         grew = true;
                     }
