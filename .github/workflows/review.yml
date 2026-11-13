@@ -178,7 +178,9 @@ jobs:
           set -uo pipefail
           text=''
           if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE")
+            # A result that can't be read counts as no verdict, rather than stopping the step before it records one.
+            text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE") \
+              || { echo "::warning::could not read the review's result"; text=''; }
           fi
           # Only the final non-empty line counts, so a verdict quoted from the PR earlier in the reply is ignored.
           last=$(printf '%s\n' "$text" | sed '/^[[:space:]]*$/d' | tail -n 1)
@@ -192,7 +194,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$verdict" != PASS ]; then
             body=$(printf '<!-- harborline-review -->\n**Review: %s** (%s, %s)\n\n%s' "$verdict" "$mode" "$HEAD_SHA" "${text:-The reviewer returned no result.}")
-            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$body"
+            # The comment is for people; a failed one mustn't stop the step before it records the verdict (Fable on
+            # platform 492), or an earlier gate pass would stand.
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$body" \
+              || echo "::warning::could not post the review comment; the verdict is still recorded below"
           fi
           # The claude-review status on the reviewed head is what review-gate reads: success is PASS, failure is
           # BLOCK or ESCALATE, and error means no verdict, which review-gate counts as a review that did not run.

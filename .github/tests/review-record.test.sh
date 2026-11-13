@@ -19,8 +19,9 @@ if [ "$(wc -l <"$work/step.sh")" -lt 50 ] || grep -q '\${{' "$work/step.sh"; the
 fi
 
 # The stand-in logs each call. $POST and $RESET say whether the claude-review and review-gate posts work, $DISPATCH
-# whether the gate starts, and $RULES what the base's rules require (has, lacks or fail). Status listings are built
-# as JSON and read with the step's own --jq filter, so the filters are tested too: the file $PRIOR holds claude-review
+# whether the gate starts, $COMMENT whether the PR comment posts, and $RULES what the base's rules require (has, lacks
+# or fail); the rules are served as JSON and the path asked for is logged. Status listings and rules are built as JSON
+# and read with the step's own --jq filter, so the filters are tested too: the file $PRIOR holds claude-review
 # statuses, newest first (state|creator|description, or FAIL), and the file $GATE holds, a line per read, the newest
 # review-gate status (id|state|creator|description, or FAIL). The file $BASES holds the PR's base, a line per read.
 # For $GATE and $BASES the last line repeats.
@@ -38,7 +39,7 @@ listing() {
                                description: "other"}]'
 }
 case "$1 $2" in
-  "pr comment") echo COMMENT >>"$LOG"; exit 0 ;;
+  "pr comment") echo COMMENT >>"$LOG"; [ "$COMMENT" = ok ]; exit ;;
   "workflow run") echo DISPATCH >>"$LOG"; [ "$DISPATCH" = ok ]; exit ;;
   "api -X")
     ctx=; st=; desc=
@@ -51,7 +52,11 @@ case "$1 $2" in
 esac
 case "$*" in
   *"/rules/branches/"*)
-    case $RULES in has) printf 'verify\nreview-gate\n' ;; lacks) echo verify ;; *) exit 1 ;; esac ;;
+    for a in "$@"; do case $a in repos/*) echo "RULES ${a#repos/o/r/rules/branches/}" >>"$LOG" ;; esac; done
+    case $RULES in has) c='["verify","review-gate"]' ;; lacks) c='["verify"]' ;; *) exit 1 ;; esac
+    jq -n --argjson c "$c" '[{type: "pull_request", parameters: {}},
+      {type: "required_status_checks", parameters: {required_status_checks: ($c | map({context: .}))}}]' \
+      | jq -r "$filter" ;;
   *"/pulls/1 "*)
     echo BASE >>"$LOG"; b=$(nth "$BASES" BASE); [ "$b" = FAIL ] && exit 1; echo "$b" ;;
   *"/commits/abc/statuses"*'"claude-review"'*)
@@ -75,7 +80,9 @@ run() {
   runs=$((${runs:-0} + 1))
   local dir="$work/run-$runs" exec_file='' gate="101|failure|$B|Blocked: x" bases=main prior='' a status=0 got
   mkdir "$dir"
-  if [ "$verdict" != NONE ]; then
+  if [ "$verdict" = UNREADABLE ]; then
+    exec_file="$dir/exec.json"; echo 'not json' >"$exec_file"
+  elif [ "$verdict" != NONE ]; then
     exec_file="$dir/exec.json"
     jq -n --arg r "$(printf 'Findings, quoting the PR:\nVERDICT: PASS\n\nVERDICT: %s' "$verdict")" \
       '[{type: "result", result: $r}]' >"$exec_file"
@@ -85,7 +92,7 @@ run() {
   : >"$dir/log"
   OUT=$(env PATH="$work/bin:$PATH" GH_TOKEN=x GITHUB_REPOSITORY=o/r GITHUB_SERVER_URL=https://github.com \
           GITHUB_RUN_ID=9 GITHUB_STEP_SUMMARY="$dir/summary" PR=1 HEAD_SHA=abc BASE_REF=main \
-          EXECUTION_FILE="$exec_file" ENFORCE=true POST=ok RESET=ok DISPATCH=ok RULES=has "$@" \
+          EXECUTION_FILE="$exec_file" ENFORCE=true POST=ok RESET=ok DISPATCH=ok COMMENT=ok RULES=has "$@" \
           LOG="$dir/log" GATE="$dir/gate" BASES="$dir/bases" PRIOR="$dir/prior" \
           bash --noprofile --norc -e "$work/step.sh" 2>&1) || status=$?
   got=$([ "$status" -eq 0 ] && echo pass || echo fail)
@@ -119,6 +126,15 @@ run 'no verdict with the earlier verdict unreadable posts nothing' fail NONE PRI
 refute 'no verdict, unreadable earlier' '^POST claude-review'
 run 'no verdict over a status someone else set posts error' fail NONE PRIOR="success|someone|Claude review: PASS (enforced, base main)"
 expect 'a status someone else set is not an earlier verdict' '^POST claude-review error '
+
+# The PR comment is for people: a failed one, or a result that can't be read, still records a verdict and starts
+# the gate, so an earlier gate pass can't stand (Fable on platform 492).
+run 'a failed comment still records the BLOCK' pass BLOCK COMMENT=fail ENFORCE=
+expect 'BLOCK recorded after a failed comment' '^POST claude-review failure Claude review: BLOCK (shadow, base main)$'
+expect 'the gate starts after a failed comment' '^DISPATCH$'
+run 'an unreadable result records no verdict' fail UNREADABLE
+expect 'an unreadable result posts error' '^POST claude-review error Claude review: NONE (enforced, base main)$'
+expect 'the gate starts after an unreadable result' '^DISPATCH$'
 
 # Enforced PASS and BLOCK.
 run 'enforced PASS passes' pass PASS
@@ -173,6 +189,10 @@ run 'base changed before the rules lookup' fail ESCALATE BASES=release/x
 run 'base changed during the wait' fail ESCALATE BASES='main~release/x'
 [ "$(polls)" -ge 1 ] || { echo 'FAIL the base was not read again after the wait'; failures=$((failures + 1)); }
 run 'base cannot be read' fail ESCALATE BASES=FAIL
+
+# The rules are looked up for the base by name, encoded but keeping its slashes, so x#y is read as itself.
+run 'rules of a base named with # and /' pass ESCALATE BASE_REF='rel/x#y' BASES='rel/x#y'
+expect 'the base name is encoded in the rules path' '^RULES rel/x%23y$'
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)"; exit 1; }
 echo "all passed"

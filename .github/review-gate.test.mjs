@@ -78,14 +78,14 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
-                  post = false, statusAfter, afterRead = 2, postFail = 0}) {
+                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
     writeFileSync(join(bin, 'gh'), stub); chmodSync(join(bin, 'gh'), 0o755)
     const pr = {state: 'open', draft: false, head: {sha: 'h1', repo: {full_name: 'o/r'}},
                 base: {ref: base, sha: 'b1', repo: {default_branch: 'main'}},
-                user: {login: user}, changed_files: files.length, commits: commitCount}
+                user: {login: user}, changed_files: files.length, commits: commitCount, auto_merge: autoMerge}
     writeFileSync(join(fix, 'pr.json'), JSON.stringify(pr))
     writeFileSync(join(fix, 'pulls.json'), JSON.stringify([{number: 1, head: {sha: 'h1'}}]))
     writeFileSync(join(fix, 'files.json'), JSON.stringify(files.map(filename => ({filename}))))
@@ -194,6 +194,34 @@ test('a Claude ESCALATE with a clean pass but no clean Codex security review wai
   assert.equal(h.state, 'success', h.out)
   assert.equal(h.desc, 'Passed by CodeRabbit; Claude escalated, Codex security review clean')
   assert.match(h.out, /risky=true/)
+})
+
+// ADR-0159 decision 4: an escalated PR lands only when a person queues it. Auto-merge an app turned on before Claude
+// escalated would land it anyway, so the gate holds it (Fable on platform 492). GitHub records who turned it on.
+const armedBy = (login, type) => ({enabled_by: {login, type}, merge_method: 'squash'})
+test('a Claude ESCALATE holds a PR that an app armed for auto-merge', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'clean'}),
+    autoMerge: armedBy('harborline-merge[bot]', 'Bot')})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude escalated after harborline-merge[bot] armed auto-merge; turn it off and queue the PR yourself')
+  // With no record of who turned it on, the PR is held too.
+  const h = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'clean'}),
+    autoMerge: {merge_method: 'squash'}})
+  assert.equal(h.state, 'failure', h.out)
+  assert.equal(h.desc, 'Blocked: Claude escalated after an unnamed account armed auto-merge; turn it off and queue the PR yourself')
+})
+
+test('a Claude ESCALATE passes when a person turned auto-merge on', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'clean'}),
+    autoMerge: armedBy('ctwoodwa', 'User')})
+  assert.equal(g.state, 'success', g.out)
+  assert.equal(g.desc, 'Passed by Codex; Claude escalated, Codex security review clean')
+})
+
+test('auto-merge an app armed does not hold a PR Claude passed', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('PASS'), autoMerge: armedBy('harborline-merge[bot]', 'Bot')})
+  assert.equal(g.state, 'success', g.out)
+  assert.equal(g.desc, 'Passed by Claude')
 })
 
 test('a Claude ESCALATE with open Codex security findings blocks', () => {

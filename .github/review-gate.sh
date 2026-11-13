@@ -93,6 +93,16 @@ case $claude_state in
   failure) [ "$claude_verdict" = ESCALATE ] || blockers+=("${claude_desc:-Claude review: not PASS}") ;;
 esac
 escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] && escalated=true
+# An escalated PR lands only when a person queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
+# but one it armed before Claude escalated would still merge on its own, so the gate holds the PR while auto-merge
+# stands that anything but a person turned on, until the owner turns it off or queues the PR (Fable on platform
+# 492). Read from GitHub's own record of who enabled it, so a missing name holds the PR too.
+armed=$(jq -r 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
+               else "" end' <<<"$pr")
+if $escalated && [ -n "$armed" ] && [ "${armed%%|*}" != User ]; then
+  armed_by=${armed#*|}
+  blockers+=("Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself")
+fi
 
 # Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;, and a
 # table row per review with the time that review completed. The verdicts and their times are read from one copy of
