@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
@@ -15,7 +16,7 @@ public interface IVerifiedTenantRosterReader
     /// <exception cref="VerifiedTenantRosterRefusedException">
     /// The durable rows do not form one complete, authentic, genesis-rooted roster for the requested tenant.
     /// </exception>
-    Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct);
+    Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct);
 }
 
 /// <summary>Stable fail-closed reasons emitted by <see cref="IVerifiedTenantRosterReader"/>.</summary>

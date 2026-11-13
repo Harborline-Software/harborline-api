@@ -243,7 +243,7 @@ public sealed class UnattributedGrantCompositionTests
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
     private sealed class RosterReader(MemberRoster roster) : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId tenant, CancellationToken ct) => Task.FromResult(roster);
+        public Task<MemberRoster> ReadAsync(TenantId tenant, AdmittedInstant admittedAt, CancellationToken ct) => Task.FromResult(roster);
     }
     internal sealed class Host(IServiceProvider services) : IAsyncDisposable
     {

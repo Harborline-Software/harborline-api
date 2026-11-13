@@ -1,12 +1,17 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Harborline.Api.LocalNodeHost.Layout;
@@ -38,8 +43,15 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <b>Related targets (DES-0052 layout-eng-31).</b> The relationship map comes from the Records reference fields the
 /// root's Record Type declares in the surface pack's signed closure (layout-ck-28, layout-ck-39); the lookups run
 /// inside the host's floor through its traversal callbacks, and that floor counts from the start of this handler. A missing and a denied target resolve to the same
-/// absent block with the same status, so nothing on the wire says which it was. The response carries no request
-/// or correlation id: the denial trace is keyed by the caller's own <c>X-Correlation-ID</c> when it sends one.
+/// absent block with the same status, so nothing on the wire says which it was. The response body carries no request
+/// or correlation id; root-read receipts use audit headers. The denial trace is keyed by the caller's own
+/// <c>X-Correlation-ID</c> when it sends one.
+/// </para>
+/// <para>
+/// <b>The floor's end (T-1195; M11 ruling under T-724 ruling 93, control 1341).</b> Every served path writes its
+/// root-read receipt, sets its audit headers and builds its response body inside the host's floor, in the same
+/// order, so only the send follows the deadline. Work after the floor is the same on both paths but not free, and
+/// its jitter lands on the measured time; inside the floor the deadline absorbs it.
 /// </para>
 /// </remarks>
 public static class LayoutSurfaceRoutes
@@ -50,6 +62,9 @@ public static class LayoutSurfaceRoutes
     /// <summary>The RFC 9457 problem media type every refusal this route owns is written with.</summary>
     internal const string ProblemContentType = "application/problem+json";
 
+    /// <summary>The media type a served surface is written with, the one <see cref="Results.Json(object?, JsonSerializerOptions?, string?, int?)"/> wrote before T-1195.</summary>
+    internal const string JsonContentType = "application/json; charset=utf-8";
+
     /// <summary>Maps the surface route, closing over dependencies from the outer host container.</summary>
     public static void Map(
         IEndpointRouteBuilder app,
@@ -57,7 +72,8 @@ public static class LayoutSurfaceRoutes
         IPackInstallStore packs,
         ILayoutRootRecordSource roots,
         ILayoutRelatedRecordSource related,
-        TimeProvider time)
+        TimeProvider time,
+        AuthorizedActAudit audit)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(host);
@@ -65,10 +81,12 @@ public static class LayoutSurfaceRoutes
         ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(related);
         ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(audit);
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
-            // The response floor counts from here, so everything below that takes a varying time is inside the deadline.
+            // The related-target floor starts here. Every served path writes the same root-read receipt and builds its
+            // body inside it (T-1195), so only the send follows the deadline.
             var started = time.GetTimestamp();
             http.Response.Headers.CacheControl = "no-store";
             var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
@@ -85,8 +103,10 @@ public static class LayoutSurfaceRoutes
                 .ConfigureAwait(false);
             if (cannotOpen is not null)
                 return cannotOpen;
+            AuthorizationDecision? accepted = null;
             var cannotRead = await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct)
+                    http, authority, TeamRolePermissions.RecordsRead, RouteRecord.Of(recordId), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false);
             if (cannotRead is not null)
                 return cannotRead;
@@ -115,10 +135,28 @@ public static class LayoutSurfaceRoutes
             var requestId = (http.Features.Get<SelectedRequestCorrelation>()?.Value ?? Guid.NewGuid()).ToString("D");
             try
             {
-                var resolution = await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
+                IResult? served = null;
+                var serializer = http.RequestServices.GetService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()?.Value
+                    .SerializerOptions ?? new Microsoft.AspNetCore.Http.Json.JsonOptions().SerializerOptions;
+                await host.ResolveAsync(surface.Definition, LayoutHostBindingSources.Instance,
                     relationships, LayoutBindingScope.Root(LayoutHostBindingSources.WithDeclaredFields(root.Values, rootType)),
-                    tenant, NodeGatePrincipal.Of(principal), requestId, started, ct).ConfigureAwait(false);
-                return Results.Json(LayoutSurfaceResponse.Of(surface.Definition, resolution));
+                    tenant, NodeGatePrincipal.Of(principal), requestId, started,
+                    insideFloor: async (resolution, token) =>
+                    {
+                        var receipt = await audit.RecordAsync(new AuditEventType("RecordRead"), accepted!,
+                            new Dictionary<string, object?> { ["recordId"] = recordId }, token).ConfigureAwait(false);
+                        if (receipt is { } auditId)
+                        {
+                            http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
+                            if (accepted!.Request.CorrelationId is { } correlation)
+                                http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+                        }
+                        served = Results.Bytes(
+                            JsonSerializer.SerializeToUtf8Bytes(LayoutSurfaceResponse.Of(surface.Definition, resolution), serializer),
+                            JsonContentType);
+                    },
+                    ct: ct).ConfigureAwait(false);
+                return served!;
             }
             catch (LayoutAuditDegradedException)
             {

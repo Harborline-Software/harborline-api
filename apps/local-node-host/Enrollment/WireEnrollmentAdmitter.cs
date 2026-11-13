@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Crypto;
@@ -207,6 +208,7 @@ public sealed class WireEnrollmentAdmitter
         _diag.TokenRedeemStep("redeemed-single-use");
 
         var newRoster = result.Roster;
+        NodeRosterRecord[] receiptRows = [];
 
         // (4) Publish the new admission to the roster-sync doctype so it converges to every peer — STAMPING the
         //     joiner's team-scoped TRANSPORT key onto the synced record (INFO-2; the ≥3-node mesh fix). A holds the
@@ -231,16 +233,25 @@ public sealed class WireEnrollmentAdmitter
             // (roster-derived DM keys; the #1310 pattern extended to the DM half).
             await _projection.PublishLocalAsync(
                 RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
-                stageWithRecord: (write, token) => _sodAudit.Within(write).RecordMemberAdmittedAsync(
-                    tenantId: tenant,
-                    teamId: newRoster.TeamId.ToString("D"),
-                    admitterPartyId: _admitterPartyId,
-                    admittedPartyId: request.JoiningPartyId,
-                    admittedPublicKeyBase64Url: admittedPublicKey,
-                    grantedPermissions: grantedPermissions.ToArray(),
-                    admissionMode: "invite",
-                    correlationId: correlationId,
-                    ct: token))
+                stageWithRecord: async (write, token) =>
+                {
+                    // Read the sponsor's durable evidence, including this save's pending admission.
+                    // CRDT backfills may have a different in-memory receipt; never re-date stored evidence.
+                    receiptRows = [.. await write.Set<NodeRosterRecord>()
+                        .Where(row => row.TeamId == newRoster.TeamId.ToString("D"))
+                        .ToArrayAsync(token).ConfigureAwait(false),
+                        .. write.ChangeTracker.Entries<NodeRosterRecord>().Select(entry => entry.Entity)];
+                    await _sodAudit.Within(write).RecordMemberAdmittedAsync(
+                        tenantId: tenant,
+                        teamId: newRoster.TeamId.ToString("D"),
+                        admitterPartyId: _admitterPartyId,
+                        admittedPartyId: request.JoiningPartyId,
+                        admittedPublicKeyBase64Url: admittedPublicKey,
+                        grantedPermissions: grantedPermissions.ToArray(),
+                        admissionMode: "invite",
+                        correlationId: correlationId,
+                        ct: token).ConfigureAwait(false);
+                })
                 .ConfigureAwait(false);
         }
 
@@ -283,7 +294,8 @@ public sealed class WireEnrollmentAdmitter
         }
 
         var response = WireEnrollment.BuildResponse(
-            newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys);
+            newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
+            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows));
         // ADDITIVE DEV DIAGNOSTICS — the admit succeeded; record the accepted party + the admitter's own team-scoped
         // transport key length (never the value), the key the joiner will trust on A's wire HELLO.
         _diag.KeyScoping("transport(admitter-self)", newRoster.TeamId.ToString("D"), admitterTransportKey.Length);

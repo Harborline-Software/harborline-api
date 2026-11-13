@@ -996,7 +996,7 @@ public sealed class KernelClockIntegrationTests
         {
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var roster = await Services.GetRequiredService<IVerifiedTenantRosterReader>()
-                .ReadAsync(tenant, CancellationToken.None);
+                .ReadAsync(tenant, AdmittedInstant.Read(_clock), CancellationToken.None);
             var admin = roster.Members.Single(member =>
                 roster.PermissionsOf(member.PartyId)!.Contains(TeamRolePermissions.MembersManage));
             var adminParty = new PartyId(admin.PartyId);
@@ -1786,11 +1786,12 @@ public sealed class KernelClockIntegrationTests
     {
         public async Task PublishLocalAsync(
             RosterRecordCrdtState record,
+            AdmittedInstant admittedAt,
             Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
             CancellationToken cancellationToken)
         {
             if (interleaving == "projection") await barrier.ArriveAsync(cancellationToken);
-            await inner.PublishLocalAsync(record, stageWithRecord, cancellationToken);
+            await inner.PublishLocalAsync(record, admittedAt, stageWithRecord, cancellationToken);
             if (interleaving == "adoption") await barrier.ArriveAsync(cancellationToken);
         }
 

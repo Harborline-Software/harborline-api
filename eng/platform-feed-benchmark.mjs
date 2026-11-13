@@ -1,6 +1,6 @@
 // Prelanding measurement only: no package promotion, verdict reuse, or in-job tamper resistance claim.
 import {execFileSync} from 'node:child_process'
-import {closeSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, writeFileSync} from 'node:fs'
+import {closeSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {performance} from 'node:perf_hooks'
@@ -222,7 +222,7 @@ export async function benchmark(platform, env = process.env) {
     setupStage = undefined
     for (const mode of diagnosticOnly ? ['cold'] : ['cold', 'warm', 'forcedmiss']) {
       let prepared, handoff, clone
-      const scratch = mkdtempSync(path.join(env.RUNNER_TEMP || tmpdir(), 'api-feed-benchmark-'))
+      const scratch = realpathSync(mkdtempSync(path.join(env.RUNNER_TEMP || tmpdir(), 'api-feed-benchmark-')))
       try {
         const measured = await measureCase({mode, expectedDigest: digest, cache,
           onFailure: details => {evidence.failedCase = details; record()},

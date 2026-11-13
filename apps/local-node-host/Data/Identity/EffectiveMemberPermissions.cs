@@ -3,6 +3,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Sync.Handshake;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -53,10 +54,25 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
     internal static IRosterAuthority FromServices(IServiceProvider services) =>
         new GrantStoreRosterAuthority(services.GetService<IAuthorizationInstallRootReader>());
 
-    // NO clock. The instant is the caller's - the rebuild's / the decision's At (ticket 216: only the host
-    // composition root introduces wall time, and a grant read at a LATER instant than the act it feeds can flip
-    // the answer mid-act).
-    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+    internal static IRosterAuthority? CapAt(IRosterAuthority? authority, AdmittedInstant admittedAt) =>
+        authority is null ? null : new CappedAuthority(authority, admittedAt);
+
+    private sealed class CappedAuthority(IRosterAuthority authority, AdmittedInstant admittedAt) : IRosterAuthority
+    {
+        public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+        {
+            var capped = AdmittedInstant.ForRosterAuthority(at, admittedAt, HandshakeProtocol.HelloTimestampSkew);
+            return authority is GrantStoreRosterAuthority store
+                ? store.PermissionsFor(teamId, partyId, capped)
+                : authority.PermissionsFor(teamId, partyId, capped.Value);
+        }
+    }
+
+    // Insert eligibility uses the validated record time; read-site caps retain their reviewed typed mint.
+    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at) =>
+        PermissionsFor(teamId, partyId, AdmittedInstant.FromRecordedAct(at));
+
+    private PermissionSet PermissionsFor(string teamId, string partyId, AdmittedInstant at)
     {
         // One tenant-key form: the canonical "D" Guid. A team id that is not one is not a roster-backed team.
         if (grants is null
@@ -68,10 +84,7 @@ internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader?
 
         var pending = grants.ReadAsync(
             new ActorId(partyId), new TenantId(team.ToString("D")),
-            // T-1056: `at` is a roster record's bounded order time (its attested receipt, the signed IssuedAt bounded by
-            // the one skew window on both sides; legacy-wire rows are refused before any ordering) or the caller's own
-            // admitted instant. Reading authority as of a stored act's recorded instant is L143's past-act rule.
-            AdmittedInstant.FromRecordedAct(at), CancellationToken.None);
+            at, CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }
 }

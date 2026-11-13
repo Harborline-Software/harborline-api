@@ -16,6 +16,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// ck-10 S3 (DES-0029, ADR 0038): the form submission record runs the six stages through
 /// <see cref="WritePipeline.RunAsync"/> under the decision the form engine carried.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class FormSubmissionWritePipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);

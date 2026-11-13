@@ -18,6 +18,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// inside its atomic unit. A displaced child the caller may not write is refused at validate, before the replacement
 /// is minted or any original is removed.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class HierarchyMergePipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
