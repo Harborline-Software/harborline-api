@@ -253,6 +253,35 @@ test('a Claude ESCALATE over an earlier BLOCK or HELD on the same head still blo
   }
 })
 
+// Fable on platform #492: a PASS given to another PR with the same head, for another base, lands on top of this PR's
+// verdicts. It clears nothing, so the gate reads past it, whatever the standing verdict is.
+test('a Claude PASS for another base clears no BLOCK or ESCALATE beneath it', () => {
+  const clean = codexState({code: 'clean', security: 'clean'})
+  const at = (id, verdict, base = 'main') => claudeSays(verdict, base).map(s => ({...s, id}))
+  const passBlock = runGate({files: ['src/App.cs'], comments: clean, status: [...at(2, 'PASS', 'develop'), ...at(1, 'BLOCK')]})
+  assert.equal(passBlock.state, 'failure', passBlock.out)
+  assert.equal(passBlock.desc, 'Blocked: an earlier Claude verdict on this head still holds: Claude review: BLOCK (shadow, base main)')
+  const escPassBlock = runGate({files: ['src/App.cs'], comments: clean,
+    status: [...at(3, 'ESCALATE'), ...at(2, 'PASS', 'develop'), ...at(1, 'BLOCK')]})
+  assert.equal(escPassBlock.state, 'failure', escPassBlock.out)
+  assert.equal(escPassBlock.desc, 'Blocked: an earlier Claude verdict on this head still holds: Claude review: BLOCK (shadow, base main)')
+  // The escalation beneath a PASS for another base still makes the PR risky, so auto-merge stays off.
+  const passEsc = runGate({files: ['src/App.cs'], comments: clean, status: [...at(2, 'PASS', 'develop'), ...at(1, 'ESCALATE')]})
+  assert.equal(passEsc.state, 'success', passEsc.out)
+  assert.equal(passEsc.desc, 'Passed by Codex; Claude escalated, Codex security review clean')
+  assert.match(passEsc.out, /risky=true/)
+  // A BLOCK beneath a run with no verdict still holds, and its whole description is named, | and all.
+  const errorBlock = runGate({files: ['src/App.cs'], comments: clean, status: [
+    {context: 'claude-review', id: 2, state: 'error', updated_at: '2026-11-02T00:00:00Z', description: 'Claude review: no verdict'},
+    ...at(1, 'BLOCK', 'a|b')]})
+  assert.equal(errorBlock.state, 'failure', errorBlock.out)
+  assert.equal(errorBlock.desc, 'Blocked: an earlier Claude verdict on this head still holds: Claude review: BLOCK (shadow, base a|b)')
+  // A PASS for this base, over the same, clears it.
+  const cleared = runGate({files: ['src/App.cs'], comments: clean, status: [...at(3, 'PASS'), ...at(2, 'PASS', 'develop'), ...at(1, 'BLOCK')]})
+  assert.equal(cleared.state, 'success', cleared.out)
+  assert.doesNotMatch(cleared.out, /risky=true/)
+})
+
 // Claude review on api #497: an ESCALATE, like a pass, speaks only for the base it reviewed.
 test('a Claude ESCALATE given for another base, or before a retarget, blocks until the new base is reviewed', () => {
   const clean = codexState({code: 'clean', security: 'clean'})

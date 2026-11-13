@@ -98,15 +98,28 @@ case $claude_state in
              blockers+=("Claude escalated on an earlier base; waiting for a review of the current base"); fi ;;
 esac
 escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] && escalated=true
-# A BLOCK or HELD the review workflow set on this head since its last PASS still holds the PR under a later ESCALATE.
-# The review workflow keeps such a BLOCK itself now, but an earlier version of it could post an ESCALATE over one, so
-# the gate reads back through the head's own history too (Codex on app 98). A run with no verdict sets an error, which
-# is skipped here: it said nothing about the change.
-if $escalated; then
-  held=$(awk -F'|' '$1 == "claude-review" && $4 == "github-actions[bot]" {
-           if ($2 == "success") exit
-           if ($2 == "failure" && $6 !~ /^Claude review: ESCALATE \(/) { print $6; exit } }' <<<"$history")
-  [ -n "$held" ] && blockers+=("an earlier Claude verdict on this head still holds: $held")
+# The standing status alone can hide an earlier verdict on this head. The review workflow keeps a BLOCK or HELD under a
+# later ESCALATE itself now, but an earlier version of it could post an ESCALATE over one (Codex on app 98), and a PASS
+# given to another PR with the same head, for another base, lands on top of this PR's verdicts without clearing them
+# (Fable on platform 492). So the gate reads back through the head's own history, whatever the standing verdict:
+# - a fresh PASS for the current base clears what lies beneath it, and the read stops there;
+# - a PASS for another base, or from before a retarget, clears nothing and is read past;
+# - a BLOCK, HELD or other failure the workflow set holds the PR, whatever base it names;
+# - an ESCALATE for the current base makes the PR risky, and the read goes on for a BLOCK beneath it.
+# Only statuses the review workflow set count, and an error is skipped: a run with no verdict said nothing.
+held=""
+while IFS='|' read -r ctx st at by sid desc; do
+  [ "$ctx" = claude-review ] && [ "$by" = 'github-actions[bot]' ] || continue
+  current=false; [[ $desc == *", base $BASE_REF)" ]] && fresh "$at" && current=true
+  case $st in
+    success) $current && break ;;
+    failure) if [[ $desc == "Claude review: ESCALATE ("* ]]; then $current && escalated=true
+             else held=$desc; break; fi ;;
+  esac
+done <<<"$history"
+# A standing BLOCK already blocks with its own description; name only one found beneath the standing status.
+if [ -n "$held" ] && ! [[ $claude_state == failure && $claude_verdict != ESCALATE ]]; then
+  blockers+=("an earlier Claude verdict on this head still holds: $held")
 fi
 # An escalated PR lands only when a person queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
 # but one it armed before Claude escalated would still merge on its own, so the gate holds the PR while auto-merge

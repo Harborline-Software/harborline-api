@@ -220,10 +220,17 @@ jobs:
             if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
                  --jq '.[] | select(.context == "claude-review" and .creator.login == "github-actions[bot]")
                        | "\(.state)|\(.description // "")"'); then
-              prior=${prior%%$'\n'*}
-              if [ "$st" = error ] && [ -n "$prior" ]; then st=keep; fi
-              if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* \
-                   || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; held_before=true; fi
+              if [ "$st" = error ] && [ -n "${prior%%$'\n'*}" ]; then st=keep; fi
+              # An ESCALATE keeps any BLOCK or HELD on this head back to the last PASS for this base: a PASS given to
+              # another PR with the same head, for another base, doesn't clear it (Fable on platform 492).
+              if [ "$verdict" = ESCALATE ]; then
+                while IFS='|' read -r pst pdesc; do
+                  if [ "$pst" = success ]; then [[ $pdesc == *", base $BASE_REF)" ]] && break
+                  elif [[ $pst == failure && ( $pdesc == "Claude review: BLOCK ("* || $pdesc == "Claude review: HELD ("* ) ]]; then
+                    st=keep; held_before=true; break
+                  fi
+                done <<<"$prior"
+              fi
             elif [ "$verdict" = ESCALATE ]; then
               st=held; held_before=true
             else

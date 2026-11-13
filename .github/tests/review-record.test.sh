@@ -142,7 +142,8 @@ run 'enforced BLOCK fails' fail BLOCK
 run 'enforced PASS that was not recorded fails' fail PASS POST=fail
 
 # An ESCALATE keeps a BLOCK or HELD, posts HELD when the earlier verdict can't be read, and enforced, fails in all
-# three cases, as the gate holds the PR. Only the newest status this workflow set counts.
+# three cases, as the gate holds the PR. It reads back to the last PASS for this base; only statuses this workflow
+# set count.
 run 'enforced ESCALATE that kept a BLOCK fails' fail ESCALATE \
   PRIOR="failure|$B|Claude review: BLOCK (enforced, base main)" \
   GATE="101|success|$B|Passed by Codex; Claude escalated, Codex security review clean"
@@ -161,6 +162,12 @@ expect 'ESCALATE replaces a PASS' '^POST claude-review failure Claude review: ES
 run 'ESCALATE replaces a BLOCK that a newer PASS replaced' pass ESCALATE \
   PRIOR="success|$B|Claude review: PASS (enforced, base main)~failure|$B|Claude review: BLOCK (enforced, base main)"
 expect 'only the newest verdict counts' '^POST claude-review failure Claude review: ESCALATE'
+run 'ESCALATE keeps a BLOCK beneath a PASS for another base' fail ESCALATE \
+  PRIOR="success|$B|Claude review: PASS (enforced, base develop)~failure|$B|Claude review: BLOCK (enforced, base main)"
+refute 'a PASS for another base does not clear a BLOCK' '^POST claude-review'
+run 'ESCALATE keeps a BLOCK beneath an earlier ESCALATE' fail ESCALATE \
+  PRIOR="failure|$B|Claude review: ESCALATE (enforced, base main)~failure|$B|Claude review: BLOCK (enforced, base main)"
+refute 'an earlier ESCALATE does not clear a BLOCK' '^POST claude-review'
 run 'ESCALATE does not keep a BLOCK someone else set' pass ESCALATE \
   PRIOR="failure|someone|Claude review: BLOCK (enforced, base main)"
 expect 'a BLOCK someone else set is not kept' '^POST claude-review failure Claude review: ESCALATE'
