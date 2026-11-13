@@ -228,12 +228,14 @@ public static class WireEnrollment
     /// no DM keys in the response (B learns them later from the synced roster).</param>
     /// <param name="receiveAttestations">Stored receive evidence keyed by admission signature, copied verbatim.
     /// Missing entries represent legacy rows without a receipt.</param>
+    /// <param name="revocations">Durable signed revocations to include in the response.</param>
     public static EnrollmentResponse BuildResponse(
         MemberRoster postAdmitRoster,
         byte[] admitterTransportPublicKey,
         IReadOnlyDictionary<string, byte[]> memberTransportKeys,
         IReadOnlyDictionary<string, byte[]>? memberDmKeys = null,
-        IReadOnlyDictionary<string, RosterReceiveAttestation>? receiveAttestations = null)
+        IReadOnlyDictionary<string, RosterReceiveAttestation>? receiveAttestations = null,
+        IReadOnlyList<MemberRevocationRecord>? revocations = null)
     {
         ArgumentNullException.ThrowIfNull(postAdmitRoster);
         ArgumentNullException.ThrowIfNull(admitterTransportPublicKey);
@@ -270,7 +272,8 @@ public static class WireEnrollment
             Anchor: anchor,
             AdmitterTransportPublicKey: ToBase64Url(admitterTransportPublicKey),
             Admissions: admissions,
-            Revocations: Array.Empty<WireRevocationRecord>(),
+            Revocations: (revocations ?? []).Select(r => new WireRevocationRecord(
+                r.TeamId, r.RevokedPartyId, r.Signed, receiveAttestations?.GetValueOrDefault(r.Signed.Signature))).ToArray(),
             MemberTransportKeys: transportKeys,
             MemberDmKeys: dmKeys);
     }
@@ -377,12 +380,22 @@ public static class WireEnrollment
         {
             if (record.Signed.IssuedAt != DateTimeOffset.FromUnixTimeMilliseconds(record.Signed.IssuedAt.ToUnixTimeMilliseconds()))
                 return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
+            if (record.ReceiveAttestation is { } receipt
+                && (!CanBound(receipt.ReceivedAt) || !RosterReceiveAttestationSigning.Verify(
+                    $"revocation:{record.RevokedPartyId}:{record.Signed.Nonce:D}",
+                    record.Signed.Nonce, receipt, verifier)))
+                return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
             if (!CanBound(record.Signed.IssuedAt))
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
-            if (record.Signed.IssuedAt > at + window)
+            var reference = record.ReceiveAttestation?.ReceivedAt ?? at;
+            if (record.Signed.IssuedAt > reference + window
+                || RosterReceiveAttestationSigning.BoundedOrderTime(record.Signed.IssuedAt,
+                    record.ReceiveAttestation?.ReceivedAt, window) > at + window)
                 return EnrollmentAdoptionPlan.Failed("roster.record.order_time_future");
         }
-        var receiptGroups = response.Admissions.GroupBy(a => a.Admission.Signature, StringComparer.Ordinal).ToArray();
+        var receiptGroups = response.Admissions.Select(a => (Signature: a.Admission.Signature, a.ReceiveAttestation))
+            .Concat(response.Revocations.Select(r => (r.Signed.Signature, r.ReceiveAttestation)))
+            .GroupBy(record => record.Signature, StringComparer.Ordinal).ToArray();
         if (receiptGroups.Any(group => group.Select(record => record.ReceiveAttestation).Distinct().Skip(1).Any()))
             return EnrollmentAdoptionPlan.Failed("roster.record.receive_attestation_invalid");
         var receipts = receiptGroups.Where(group => group.First().ReceiveAttestation is not null)
@@ -420,11 +433,13 @@ public static class WireEnrollment
                     && string.Equals(record.PartyId, inviteAnchor.GenesisPartyId, StringComparison.Ordinal)
                     && string.Equals(record.PublicKey.ToBase64Url(), inviteAnchor.GenesisPublicKey, StringComparison.Ordinal)))
                 return EnrollmentAdoptionPlan.Failed("roster_not_genesis_rooted");
-            foreach (var record in response.Admissions.Where(record => record.ReceiveAttestation is not null)
-                         .OrderBy(record => OrderTime(record.Admission.Signature, record.Admission.IssuedAt)))
+            var attested = response.Admissions.Select(a => (a.Admission.Signature, a.Admission.IssuedAt, a.ReceiveAttestation))
+                .Concat(response.Revocations.Select(r => (r.Signed.Signature, r.Signed.IssuedAt, r.ReceiveAttestation)));
+            foreach (var record in attested.Where(record => record.ReceiveAttestation is not null)
+                         .OrderBy(record => OrderTime(record.Signature, record.IssuedAt)))
             {
                 var receipt = record.ReceiveAttestation!;
-                var orderPoint = OrderTime(record.Admission.Signature, record.Admission.IssuedAt);
+                var orderPoint = OrderTime(record.Signature, record.IssuedAt);
                 var prefix = MemberRoster.FromSyncedRecords(
                     admissions.Where(admission => admission.Admission.IsGenesis
                         || OrderTime(admission.Admission.Signature, admission.Admission.IssuedAt) < orderPoint),
@@ -606,7 +621,8 @@ public sealed record WireAdmissionRecord(
 public sealed record WireRevocationRecord(
     string TeamId,
     string RevokedPartyId,
-    RevocationSignature Signed);
+    RevocationSignature Signed,
+    RosterReceiveAttestation? ReceiveAttestation = null);
 
 /// <summary>One entry of the enrollment response's per-member transport-key map: a party id → its team-scoped
 /// transport public key (base64url). Unsigned trust hint — matched to validated roster members by party id.</summary>

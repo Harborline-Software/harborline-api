@@ -361,7 +361,7 @@ internal sealed class PairingTokenGatedAdmitter
 
         var response = WireEnrollment.BuildResponse(
             newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
-            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows));
+            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows), NodeRosterRecord.Revocations(receiptRows));
         _diag.AdmitOutcome(accepted: true, reason: null, request.JoiningPartyId);
         return PairingAdmitOutcome.Accept(response);
     }

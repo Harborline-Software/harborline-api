@@ -546,12 +546,69 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
             b.TransportKeyForTeam(a.Roster.Current.TeamId), b.Signer.Signer, at, Guid.NewGuid());
         var result = await admitter.AdmitAsync(request, default);
         Assert.True(result.Accepted, result.RejectReason);
-        Assert.Single(result.Response!.Revocations);
+        var carried = Assert.Single(result.Response!.Revocations);
+        Assert.Equal(revocation.Signed, carried.Signed);
+        Assert.Equal(issued, carried.ReceiveAttestation!.ReceivedAt);
+        Assert.Equal(a.PartyId, carried.ReceiveAttestation.NodePartyId);
         var plan = WireEnrollment.ValidateAndPlanAdoption(result.Response, TeamTrustAnchor.FromRoster(a.Roster.Current),
             b.Signer.Signer.IssuerId, b.PartyId, Verifier, null, at, TimeSpan.FromSeconds(30));
         Assert.True(plan.Succeeded, plan.FailureReason);
         Assert.False(plan.Roster!.Contains(guest.PartyId));
         Assert.DoesNotContain(plan.TransportKeysByParty, entry => entry.Key == guest.PartyId);
+    }
+
+    // Oracle: R-0149 receipt ordering and the ticket's literal refusal codes and 30-second window.
+    [Theory]
+    [InlineData("tampered")]
+    [InlineData("future")]
+    [InlineData("revoked-attester")]
+    [InlineData("backdated")]
+    public void EnrollmentChecksAndOrdersRevocationReceipts(string scenario)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var guest = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-20));
+        var response = f.WithRecord(guest, null);
+        var issued = scenario == "future" ? EnrollmentTimeFixture.At.AddSeconds(21) : EnrollmentTimeFixture.At.AddMinutes(-2);
+        var signed = RosterSigning.SignRevocation(f.Signer, f.Team, "guest", "founder", issued, Guid.NewGuid());
+        if (scenario == "backdated")
+        {
+            var target = f.Admission("target", f.Joiner.PrincipalId, EnrollmentTimeFixture.At.AddMinutes(-2));
+            var guestSigner = new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other);
+            var targetReceipt = RosterReceiveAttestationSigning.Sign(guestSigner, "guest",
+                $"admission:target:{target.Admission.Nonce:D}", EnrollmentTimeFixture.At.AddSeconds(-15), target.Admission.Nonce);
+            response = response with { Admissions = [.. response.Admissions,
+                new(target.TeamId, target.PartyId, target.PublicKey.ToBase64Url(), target.Admission, targetReceipt)] };
+        }
+        var signer = f.Signer;
+        var attester = "founder";
+        if (scenario == "revoked-attester")
+        {
+            var member = f.Admission("attester", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-30));
+            response = f.WithRecord(member, null) with { Admissions = [.. response.Admissions,
+                new(member.TeamId, member.PartyId, member.PublicKey.ToBase64Url(), member.Admission)] };
+            var revoked = RosterSigning.SignRevocation(f.Signer, f.Team, "attester", "founder",
+                EnrollmentTimeFixture.At.AddSeconds(-20), Guid.NewGuid());
+            response = response with { Revocations = [new(f.Team.ToString("D"), "attester", revoked)] };
+            signer = new Harborline.Api.Foundation.Crypto.Ed25519Signer(f.Other);
+            attester = "attester";
+        }
+        var receipt = RosterReceiveAttestationSigning.Sign(signer, attester,
+            $"revocation:guest:{signed.Nonce:D}", EnrollmentTimeFixture.At.AddSeconds(-10), signed.Nonce);
+        if (scenario == "tampered") receipt = receipt with { ReceivedAt = receipt.ReceivedAt.AddTicks(1) };
+        response = response with { Revocations = [.. response.Revocations, new(f.Team.ToString("D"), "guest", signed)] };
+        var json = System.Text.Json.Nodes.JsonNode.Parse(EnrollmentWireCodec.EncodeResponse(response))!;
+        json["revocations"]!.AsArray()[^1]!["receiveAttestation"] = System.Text.Json.JsonSerializer.SerializeToNode(receipt);
+        var plan = f.Adopt(EnrollmentWireCodec.DecodeResponse(System.Text.Encoding.UTF8.GetBytes(json.ToJsonString())));
+        if (scenario == "backdated")
+        {
+            Assert.True(plan.Succeeded, plan.FailureReason);
+            Assert.False(plan.Roster!.Contains("guest"));
+        }
+        else
+        {
+            Assert.False(plan.Succeeded);
+            Assert.Equal(scenario == "future" ? "roster.record.order_time_future" : "roster.record.receive_attestation_invalid", plan.FailureReason);
+        }
     }
 
     private sealed class EnrollmentTimeFixture : IDisposable

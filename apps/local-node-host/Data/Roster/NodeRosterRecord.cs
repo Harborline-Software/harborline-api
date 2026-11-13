@@ -146,6 +146,10 @@ public sealed class NodeRosterRecord
                     row.ReceivedByPublicKey, row.ReceivedAtUtc!.Value, row.ReceiveAttestationSignatureB64Url);
             }, StringComparer.Ordinal);
 
+    internal static IReadOnlyList<MemberRevocationRecord> Revocations(IEnumerable<NodeRosterRecord> rows) =>
+        rows.DistinctBy(row => row.Id).Select(ToCrdtState)
+            .Select(state => state.ToRevocationOrNull()).OfType<MemberRevocationRecord>().ToArray();
+
     /// <summary>Project a converged CRDT snapshot into its durable read-model row.</summary>
     public static NodeRosterRecord FromCrdtState(RosterRecordCrdtState s)
     {
