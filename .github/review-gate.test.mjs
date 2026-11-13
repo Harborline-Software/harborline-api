@@ -11,19 +11,27 @@ import {spawnSync} from 'node:child_process'
 const script = new URL('./review-gate.sh', import.meta.url).pathname
 
 // Serves repos/... reads from $FIX, one file per endpoint; a missing file reads as an empty listing. A path that
-// matches $FAIL fails, like a GitHub API error.
+// matches $FAIL fails, like a GitHub API error. A POST is logged to $FIX/posts. The statuses listing is served from
+// statuses-after.json, when there is one, from read $AFTER on (default the second): another status landed while the script worked.
 const stub = `#!/usr/bin/env bash
-jq_q=''; path=''
+jq_q=''; path=''; method=GET; fields=''
 while [ $# -gt 0 ]; do
   case $1 in
     api|--paginate) ;;
     --jq) jq_q=$2; shift ;;
-    -X|-f|-F|-H) shift ;;
+    -X) method=$2; shift ;;
+    -f) fields="$fields $2"; shift ;;
+    -F|-H) shift ;;
     *) [ -z "$path" ] && path=$1 ;;
   esac; shift
 done
 p=\${path%%\\?*}
 if [ -n "\${FAIL:-}" ] && [[ $p == *$FAIL* ]]; then echo "stub gh: failing $p" >&2; exit 1; fi
+if [ "$method" = POST ]; then echo "POST $p$fields" >>"$FIX/posts"; exit 0; fi
+if [[ $p == repos/*/commits/*/statuses ]]; then
+  echo read >>"$FIX/status-reads"
+  if [ -f "$FIX/statuses-after.json" ] && [ "$(wc -l <"$FIX/status-reads")" -ge "\${AFTER:-2}" ]; then cp "$FIX/statuses-after.json" "$FIX/statuses.json"; fi
+fi
 case $p in
   repos/*/contents/.github/*)
     f=base-\${p##*/}; [ -f "$FIX/$f" ] || { echo "stub gh: HTTP 404 $p" >&2; exit 1; }
@@ -61,8 +69,11 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // lists it carries ({risky, exempt}), served through the contents API. The env lists stand for main's checkout.
 // snapshotFiles and totalCommits are what GitHub's comparison of the PR's base and head commits holds; by default
 // it agrees with the PR's own listings.
+// post runs the script for real against the stub, which logs what it would set; statusAfter is the listing the
+// stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
-                  base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount}) {
+                  base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
+                  post = false, statusAfter, afterRead = 2}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
@@ -78,8 +89,9 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (reviews) writeFileSync(join(fix, 'reviews.json'), JSON.stringify(reviews))
     // Statuses as the listing returns them, newest first; each was set by the workflows unless a case says otherwise.
-    if (status) writeFileSync(join(fix, 'statuses.json'),
-      JSON.stringify(status.map(s => ({creator: {login: 'github-actions[bot]'}, ...s}))))
+    const asListed = list => JSON.stringify(list.map(s => ({creator: {login: 'github-actions[bot]'}, ...s})))
+    if (status) writeFileSync(join(fix, 'statuses.json'), asListed(status))
+    if (statusAfter) writeFileSync(join(fix, 'statuses-after.json'), asListed(statusAfter))
     if (rules) writeFileSync(join(fix, 'rules.json'), JSON.stringify(rules))
     if (baseLists.risky != null) writeFileSync(join(fix, 'base-review-risky-paths'), baseLists.risky)
     if (baseLists.exempt != null) writeFileSync(join(fix, 'base-review-exempt-paths'), baseLists.exempt)
@@ -87,11 +99,13 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     writeFileSync(join(dir, 'risky'), 'Directory.Packages.props\npackage.json\nscripts/release/\n')
     writeFileSync(join(dir, 'exempt'), '# docs that nothing builds or gates on\nSUPPORT.md\ndocs/guide/\n!docs/guide/evidence.md\n')
     const r = spawnSync('bash', [script, '1'], {encoding: 'utf8', env: {
-      ...process.env, PATH: `${bin}:${process.env.PATH}`, FIX: fix, FAIL: fail ?? '',
-      GITHUB_REPOSITORY: 'o/r', DRY_RUN: '1', NO_GRAPHQL: '1',
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, FIX: fix, FAIL: fail ?? '', AFTER: String(afterRead),
+      GITHUB_REPOSITORY: 'o/r', DRY_RUN: post ? '' : '1', NO_GRAPHQL: '1',
       RISKY_LIST: join(dir, 'risky'), EXEMPT_LIST: join(dir, 'exempt')}})
     const m = /^PR 1 head h1: (\w+): (.*) \(claude=/m.exec(r.stdout)
-    return {code: r.status, state: m?.[1], desc: m?.[2], out: r.stdout + r.stderr}
+    let posts = []
+    try { posts = readFileSync(join(fix, 'posts'), 'utf8').trim().split('\n') } catch {}
+    return {code: r.status, state: m?.[1], desc: m?.[2], posts, out: r.stdout + r.stderr}
   } finally { rmSync(dir, {recursive: true, force: true}) }
 }
 
@@ -181,6 +195,38 @@ test('a Claude ESCALATE with open Codex security findings blocks', () => {
   const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'dirty'})})
   assert.equal(g.state, 'failure', g.out)
   assert.equal(g.desc, 'Blocked: Codex security review has open findings')
+})
+
+// Codex on App #98: the review workflow sets a new claude-review, resets review-gate to pending, then starts a gate run.
+// A run that read the statuses before those writes must not leave its pass standing for a verdict it never read.
+const gateIs = (id, state, description) => ({context: 'review-gate', id, state, updated_at: '2026-11-02T00:00:00Z', description})
+const claudeAt = (id, verdict) => claudeSays(verdict).map(s => ({...s, id}))
+const posted = g => g.posts.map(l => /state=(\w+)/.exec(l)?.[1])
+
+test('the gate posts its pass when nothing changed while it read the PR', () => {
+  const status = [...claudeAt(1, 'PASS'), gateIs(2, 'pending', 'Waiting')]
+  const g = runGate({files: ['src/App.cs'], status, post: true})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(posted(g), ['success'], g.out)
+})
+
+test('a gate run that read an earlier verdict posts nothing once a new verdict and the reset land', () => {
+  const status = [...claudeAt(1, 'PASS'), gateIs(2, 'pending', 'Waiting')]
+  const statusAfter = [...claudeAt(3, 'ESCALATE'), gateIs(4, 'pending', 'Waiting for review-gate to read the latest Claude review')]
+  const g = runGate({files: ['src/App.cs'], status, statusAfter, post: true})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(g.posts, [], g.out)
+  assert.match(g.out, /review-gate left as it is/)
+})
+
+test('a gate run takes its pass back when a new verdict lands between its check and its post', () => {
+  const status = [...claudeAt(1, 'PASS'), gateIs(2, 'pending', 'Waiting')]
+  // The check (second read) still sees what the run read; the read after the post (third) sees the new verdict.
+  const statusAfter = [...claudeAt(3, 'ESCALATE'), gateIs(2, 'pending', 'Waiting')]
+  const g = runGate({files: ['src/App.cs'], status, statusAfter, afterRead: 3, post: true})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(posted(g), ['success', 'pending'], g.out)
+  assert.match(g.posts[1], /The Claude review changed while review-gate read it/)
 })
 
 // Claude review on Platform #492: an ESCALATE run that can't read the earlier verdict posts HELD rather than nothing.

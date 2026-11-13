@@ -61,8 +61,16 @@ fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times s
 # set it: only the review workflow (github-actions[bot]) can give a Claude verdict, so one set by anyone else blocks.
 statuses=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
   | select(.context == "claude-review" or .context == "review-gate")
-  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.description // "")"' | awk -F'|' '!seen[$1]++')
-latest=$(cut -d'|' -f1,2,5- <<<"$statuses")
+  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "")"' | awk -F'|' '!seen[$1]++')
+latest=$(cut -d'|' -f1,2,6- <<<"$statuses")
+# Which of the two statuses this run read, by id, so it can tell before it posts whether another one landed meanwhile.
+standing() {
+  local s
+  s=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
+    | select(.context == "claude-review" or .context == "review-gate") | "\(.context)|\(.id)"') || return 1
+  awk -F'|' '!seen[$1]++' <<<"$s" | sort
+}
+seen=$(cut -d'|' -f1,5 <<<"$statuses" | sort)
 claude_at=$(awk -F'|' '$1 == "claude-review" { print $3; exit }' <<<"$statuses")
 claude_by=$(awk -F'|' '$1 == "claude-review" { print $4; exit }' <<<"$statuses")
 claude=$( { grep '^claude-review|' <<<"$latest" || true; } | head -n 1 | cut -d'|' -f2-)
@@ -330,9 +338,27 @@ if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
 emit() {
   if [ -n "${GITHUB_OUTPUT:-}" ]; then printf 'state=%s\nrisky=%s\nhead=%s\n' "$state" "$risky" "$HEAD" >>"$GITHUB_OUTPUT"; fi
 }
+# The review workflow sets a new claude-review, then sets review-gate back to pending, then starts a run of this
+# workflow. A verdict worked out before either landed may answer an earlier Claude review, so this run posts nothing,
+# tells the auto-merge job nothing, and leaves the PR to the run started after them, or failing that to the sweep
+# (Codex on app 98).
+now=$(standing)
+if [ "$now" != "$seen" ]; then posted=true; echo "review-gate left as it is: its statuses changed while this run read them"; exit 0; fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
 if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; emit; exit 0; fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
 posted=true
+# A new Claude verdict can still land after that check. The review workflow resets review-gate after the verdict, so
+# a reset that lands after this post replaces the pass; if the reset landed first, so did the verdict, and this read
+# finds it and takes the pass back.
+if [ "$state" = success ]; then
+  now=$(standing || echo 'claude-review|unreadable')
+  if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
+    state=pending; desc="The Claude review changed while review-gate read it; waiting for the next check"
+    echo "review-gate: $desc"
+    gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
+      -f description="$desc" -f target_url="$RUN_URL" >/dev/null
+  fi
+fi
 emit

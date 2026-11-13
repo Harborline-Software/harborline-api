@@ -5,8 +5,8 @@
 #
 # Shadow: the job passes whatever the verdict until the repository variable REVIEW_ENFORCE is 'true'. Then a
 # BLOCK or a missing verdict fails it, and the ruleset can require `review` next to `verify`. An ESCALATE doesn't
-# fail it where the base branch's rules require review-gate, which holds that PR until Codex's security review is
-# clean (ADR-0159); where they don't, or can't be read, an ESCALATE fails it like a BLOCK.
+# fail it where the base branch's rules require review-gate and the gate has read it, which holds that PR until
+# Codex's security review is clean (ADR-0159); where they don't, or can't be read, an ESCALATE fails it like a BLOCK.
 # The merge group passes at once, because the queued commit was reviewed on its PR head.
 #
 # Agents push as the owner, so GitHub cannot count an agent's approval. This check is the second key instead.
@@ -237,9 +237,10 @@ jobs:
           # pending holds the PR until the gate reads this verdict: the run started here does, and failing that the
           # gate's 20-minute sweep.
           cleared=true
-          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending -f context=review-gate \
+          if ! reset_id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending -f context=review-gate \
               -f description="Waiting for review-gate to read the latest Claude review" \
-              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .id) \
+             || [ -z "$reset_id" ]; then
             cleared=false
             echo "::warning::could not reset the review-gate status"
           fi
@@ -272,6 +273,24 @@ jobs:
               || required=''
             if ! grep -qx review-gate <<<"$required"; then
               echo "::error::review verdict ESCALATE, and $BASE_REF's rules don't require review-gate to hold it"
+              exit 1
+            fi
+            # A gate run that read an earlier verdict can still post its pass after the reset (Codex on app 98), so
+            # the job waits until review-gate answers this one: a status the gate workflow set after the reset that
+            # holds the PR, or a pass that says Claude escalated. A pass that doesn't say so was worked out from an
+            # earlier verdict, and the run started above replaces it.
+            answered=false
+            for _ in $(seq 40); do
+              sleep 15
+              gate=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
+                --jq '.[] | select(.context == "review-gate") | "\(.id)|\(.state)|\(.creator.login // "")|\(.description // "")"') \
+                || continue
+              IFS='|' read -r gate_id gate_state gate_by gate_desc <<<"$gate"
+              [ "$gate_id" != "$reset_id" ] && [ "$gate_by" = 'github-actions[bot]' ] || continue
+              if [ "$gate_state" != success ] || [[ $gate_desc == *"Claude escalated"* ]]; then answered=true; break; fi
+            done
+            if ! $answered; then
+              echo "::error::review verdict ESCALATE, and review-gate did not answer it on $HEAD_SHA within 10 minutes"
               exit 1
             fi
           elif [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
