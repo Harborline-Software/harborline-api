@@ -189,6 +189,96 @@ public sealed class WorkflowScheduledDefinitionTests
         }
     }
 
+    [Theory]
+    [InlineData("authorization")]
+    [InlineData("gate")]
+    [InlineData("admission")]
+    public async Task Refused_scheduled_instance_remains_due_on_the_next_tick(string kind)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "workflow-t1180-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var clock = new MutableClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            await using var search = await SearchTestStore.CreateAsync();
+            await using (var identity = search.CreateInstallationIdentityContext())
+                await identity.Database.MigrateAsync();
+            await using var provider = NewProvider(Path.Combine(directory, "node.db"), clock, search.Factory);
+            var factory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+            await using (var context = await factory.CreateDbContextAsync())
+                await context.Database.EnsureCreatedAsync();
+            using var authored = JsonDocument.Parse("""
+                {"initialState":"waiting", "states":[{"id":"waiting","kind":"Normal"},{"id":"done","kind":"Terminal"}],
+                 "triggers":[{"id":"daily","kind":"Schedule","rrule":"FREQ=DAILY"}],
+                 "transitions":[{"id":"finish","from":"waiting","on":"daily","to":"done"}], "actions":[], "guards":[]}
+                """);
+            var definitions = provider.GetRequiredService<IWorkflowDefinitionStore>();
+            await definitions.RegisterAsync(ScheduledDefinition("FREQ=DAILY"), authored.RootElement);
+            await definitions.PublishAsync(new DefinitionCoordinates(new TenantId("local"), "scheduled-definition", "1.0.0"));
+            var store = provider.GetRequiredService<IWorkflowStore>();
+            foreach (var id in new[] { "first", "middle", "third" })
+                await store.CreateInstanceAsync(new WorkflowInstanceRecord
+                {
+                    Id = id, TenantId = "local", DefinitionKey = "scheduled-definition", DefinitionVersion = "1.0.0",
+                    CurrentStep = "waiting", Status = WorkflowStatus.Running, StateJson = "{}",
+                }, clock.UtcNow);
+            clock.UtcNow = clock.UtcNow.AddDays(1);
+            var source = new OrderedScheduleSource(new NodeRecurringScheduleSource(factory,
+                provider.GetRequiredService<IRruleExpansionService>(), provider.GetRequiredService<IWorkflowDefinitionExecutionStore>()));
+            var dispatcher = new RefusingScheduleDispatcher(kind);
+            var daemon = new WorkflowScheduleDaemon(source, dispatcher, clock, NullLogger<WorkflowScheduleDaemon>.Instance,
+                authorizationGate: TestAuthorization.Gate(request => kind != "authorization" || request.Target.RecordId != "middle"),
+                store: store);
+            var firstError = await Record.ExceptionAsync(() => daemon.TickAsync());
+            var secondError = await Record.ExceptionAsync(() => daemon.TickAsync());
+            Assert.True(firstError is null && secondError is null,
+                $"Tick aborted: {firstError?.GetType().Name}; dispatched: {string.Join(",", dispatcher.Advanced)}; second: {secondError?.GetType().Name}");
+            Assert.Equal(new[] { "first", "middle", "third" }, source.Reads[0]);
+            Assert.Equal(new[] { "first", "middle", "third" }, source.Reads[1]);
+            Assert.Equal(new[] { "first", "third", "first", "third" }, dispatcher.Advanced);
+            var refused = await store.LoadAsync("middle");
+            Assert.Equal(WorkflowStatus.Running, refused!.Status);
+            Assert.Equal("waiting", refused.CurrentStep);
+            Assert.Equal("{}", refused.StateJson);
+            Assert.Equal(0, refused.Iteration);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch { /* best effort */ }
+        }
+    }
+
+    private sealed class OrderedScheduleSource(IWorkflowScheduleSource inner) : IWorkflowScheduleSource
+    {
+        public List<string[]> Reads { get; } = [];
+        public async Task<IReadOnlyList<WorkflowTrigger>> GetDueTriggersAsync(DateTimeOffset asOf, CancellationToken ct = default)
+        {
+            var due = (await inner.GetDueTriggersAsync(asOf, ct)).OrderBy(trigger => trigger.InstanceId, StringComparer.Ordinal).ToArray();
+            Reads.Add(due.Select(trigger => trigger.InstanceId).ToArray());
+            return due;
+        }
+    }
+
+    private sealed class RefusingScheduleDispatcher(string kind) : IWorkflowTriggerDispatcher
+    {
+        public List<string> Advanced { get; } = [];
+        public Task<WorkflowDispatchResult> DispatchAsync(WorkflowTrigger trigger, CancellationToken ct = default)
+        {
+            if (trigger.InstanceId == "middle" && kind == "gate") throw new WorkflowGateUnenforcedException("gate");
+            if (trigger.InstanceId == "middle" && kind == "admission") throw new WorkflowAdmissionException(new WorkflowAdmissionResult
+            {
+                Violations = [new("workflow.admission.gate_on_autonomous_step", "refused", "daily")],
+            });
+            Advanced.Add(trigger.InstanceId);
+            return Task.FromResult(WorkflowDispatchResult.Advanced);
+        }
+        public Task<WorkflowDispatchResult> DispatchAsync(WorkflowTrigger trigger, AuthorizationDecision decision, CancellationToken ct = default)
+            => DispatchAsync(trigger, ct);
+        public Task<WorkflowDispatchResult> DispatchAsync(WorkflowTrigger trigger, WorkflowDispatchAuthority authority, CancellationToken ct = default)
+            => DispatchAsync(trigger, ct);
+    }
+
     private static ServiceProvider NewProvider(
         string databasePath,
         TimeProvider clock,
