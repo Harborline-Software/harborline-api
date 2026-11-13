@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sourceHead": "ecf2eb6202842948361fa34e5f75b59d6c6bc0c1",
+  "sourceHead": "a0e2bfcd6aed23ef5c329ea436bfb96b1fe4d1ae",
   "dockerfileSha256": "25e92e8e5966edae508995be059c38fb39f98962de3a8b8eb65195d72eda91a1",
   "platformHead": "22491171929b455ac09cdca4b01a8f65eb9c4039",
   "qualityHead": "369c24708bbaefd2980a8f1c103b77a5761d59cf",
@@ -42,6 +42,11 @@
     "coverageQualified": false
   },
   "localEvidenceSha256": {
+    "hello.log": "8b3ea910f4aed7a7b9391d651b90861ceda35088fc17ad3f97d465e125175949",
+    "feed.log": "79dc40bff122fed28e35d9689f0e8e1f5aa3d54c20630fc5a29a27e828530c9c",
+    "preflight.json": "dfb3a3be9ae48ef57e63d52fd947b962f409410fd109174ba4d0c7e9e8cca72f",
+    "tool-versions.txt": "08cdffdb887ea6c79cdd51f80753f544b8800869d1acb4efe4d69de5d7e924cd",
+    "sdk-version-probe.txt": "1e833096ee57ac831ceb521c3346037c1f0422c0181ac412b1822aff7db3309b",
     "packed-version.props": "5d12707c0212274f81ab3575b23710b950c723544c3e3160906c3bc1578261bc"
   }
 }
