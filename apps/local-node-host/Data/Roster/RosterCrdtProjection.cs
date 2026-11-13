@@ -613,9 +613,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     var candidates = snapshot.Where(s => !existing.ContainsKey(s.RecordId)).DistinctBy(s => s.RecordId)
                         .Where(s => NodeRosterRecord.TryParseIssuedAt(s, out _))
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
-                    orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
+                    var trusted = new Dictionary<string, NodeRosterRecord>(existing, StringComparer.Ordinal);
+                    orderTime = (signature, issued) => NodeRosterRecord.OrderTimes(trusted.Values)(signature, issued);
                     var toInsert = new List<NodeRosterRecord>();
-                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, rosterAuthority, admittedAt, ct).ConfigureAwait(false);
+                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, trusted, orderTime, rosterAuthority, admittedAt, ct).ConfigureAwait(false);
                     inboundRefusals.AddRange(refused.Values);
                     var changed = false;
                     foreach (var s in snapshot)
@@ -1004,14 +1005,32 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // Relax new admissions from their signers outward; the CRDT list order is not causal order.
     private async Task<Dictionary<string, RebuildRefusal>> VerifyBeforeInsertAsync(
         IReadOnlyList<RosterRecordCrdtState> snapshot, Dictionary<string, NodeRosterRecord> existing,
-        Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt, CancellationToken ct)
+        Dictionary<string, NodeRosterRecord> trusted, Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt, CancellationToken ct)
     {
         var refused = new Dictionary<string, RebuildRefusal>(StringComparer.Ordinal);
         foreach (var tenant in snapshot.Where(s => !existing.ContainsKey(s.RecordId)).GroupBy(s => s.TeamId))
         {
-            var pending = tenant.DistinctBy(s => s.RecordId).OrderBy(s => s.Kind)
-                .ThenBy(s => s.IssuedAtIso, StringComparer.Ordinal).ThenBy(s => s.NonceGuid, StringComparer.Ordinal).ToList();
+            var pending = tenant.DistinctBy(s => s.RecordId).OrderBy(s =>
+            {
+                if (!NodeRosterRecord.TryParseIssuedAt(s, out var issued)) return DateTimeOffset.MinValue;
+                var received = s.ReceiveAttestationOrNull()?.ReceivedAt;
+                var window = NodeRosterRecord.ReceiveTimeWindow.Ticks;
+                return received is { } r && r.Ticks >= window && r.UtcTicks >= window
+                    && r.Ticks <= DateTimeOffset.MaxValue.Ticks - window && r.UtcTicks <= DateTimeOffset.MaxValue.Ticks - window
+                    ? NodeRosterRecord.BoundedOrderTime(issued, r) : issued;
+            }).ThenBy(s => Guid.TryParse(s.NonceGuid, out var nonce) ? nonce : Guid.Empty)
+                .ThenBy(s => s.SignatureB64Url, StringComparer.Ordinal).ToList();
             var evidence = existing.Values.Where(r => r.TeamId == tenant.Key).Select(NodeRosterRecord.ToCrdtState).ToList();
+            var conflicts = pending.Concat(evidence).Select(s => (State: s, Receipt: s.ReceiveAttestationOrNull()))
+                .Where(x => x.Receipt is not null && Guid.TryParse(x.State.NonceGuid, out var nonce)
+                    && x.Receipt.ReceivedAt.Ticks >= NodeRosterRecord.ReceiveTimeWindow.Ticks
+                    && x.Receipt.ReceivedAt.UtcTicks >= NodeRosterRecord.ReceiveTimeWindow.Ticks
+                    && x.Receipt.ReceivedAt.Ticks <= DateTimeOffset.MaxValue.Ticks - NodeRosterRecord.ReceiveTimeWindow.Ticks
+                    && x.Receipt.ReceivedAt.UtcTicks <= DateTimeOffset.MaxValue.Ticks - NodeRosterRecord.ReceiveTimeWindow.Ticks
+                    && RosterReceiveAttestationSigning.Verify(x.State.RecordId, nonce, x.Receipt, _verifier))
+                .GroupBy(x => x.State.SignatureB64Url, StringComparer.Ordinal)
+                .Where(g => g.Select(x => x.Receipt).Distinct().Skip(1).Any())
+                .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
             var anchor = Guid.TryParse(tenant.Key, out var tenantId)
                 ? await VerifiedTenantRosterReader.ReadGenesisAsync(_contextFactory, tenantId, _verifier, ct).ConfigureAwait(false)
                 : null;
@@ -1025,10 +1044,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 var remaining = new List<RosterRecordCrdtState>();
                 foreach (var candidate in pending)
                 {
-                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority, admittedAt);
+                    var code = VerifyInboundRecord(candidate, evidence, conflicts, anchor, competingRoots, orderTime, authority, admittedAt);
                     if (code is null)
                     {
                         evidence.Add(candidate);
+                        trusted[candidate.RecordId] = NodeRosterRecord.FromCrdtState(candidate);
                         anchor ??= candidate.IsGenesis ? candidate.ToAdmissionOrNull() : null;
                         grew = true;
                     }
@@ -1038,7 +1058,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             } while (grew && pending.Count > 0);
             foreach (var candidate in pending)
             {
-                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots, orderTime, authority, admittedAt)!;
+                var code = VerifyInboundRecord(candidate, evidence, conflicts, anchor, competingRoots, orderTime, authority, admittedAt)!;
                 var report = code == "roster.genesis.duplicate" ? GenesisRefusal(candidate, admittedAt).Report
                     : new AuthorizationRefusal(code, "Roster record refused",
                     "The record has no valid signature and eligible live signer in the durable genesis chain.",
@@ -1054,7 +1074,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     }
 
     private string? VerifyInboundRecord(RosterRecordCrdtState candidate, List<RosterRecordCrdtState> evidence,
-        IEnumerable<RosterRecordCrdtState> incoming, MemberAdmissionRecord? anchor, bool competingRoots,
+        HashSet<string> conflicts, MemberAdmissionRecord? anchor, bool competingRoots,
         Func<string, DateTimeOffset, DateTimeOffset> orderTime, IRosterAuthority? authority, AdmittedInstant admittedAt)
     {
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
@@ -1081,6 +1101,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             return "roster.record.receive_attestation_invalid";
         if (!NodeRosterRecord.IsWithinReceiveTimeWindow(issuedAt, receiveAttestation.ReceivedAt))
             return FutureOrderTimeRefusal;
+        if (conflicts.Contains(candidate.SignatureB64Url)) return "roster.record.receive_attestation_invalid";
         var admission = candidate.ToAdmissionOrNull();
         var revocation = candidate.ToRevocationOrNull();
         var signatureValid = admission is not null
@@ -1090,24 +1111,31 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         var canonicalId = admission is not null ? RosterRecordCrdtState.FromAdmission(admission).RecordId
             : RosterRecordCrdtState.FromRevocation(revocation!).RecordId;
         if (candidate.RecordId != canonicalId) return "roster.record.malformed";
+        if (evidence.Any(s => s.SignatureB64Url == candidate.SignatureB64Url
+                && !Equals(s.ReceiveAttestationOrNull(), receiveAttestation)))
+            return "roster.record.receive_attestation_invalid";
+        var priorOrderTime = orderTime;
+        orderTime = (signature, issued) => signature == candidate.SignatureB64Url
+            ? NodeRosterRecord.BoundedOrderTime(issued, received) : priorOrderTime(signature, issued);
         var at = orderTime(candidate.SignatureB64Url, issuedAt);
         if (at > admittedAt.Value + HandshakeProtocol.HelloTimestampSkew)
             return FutureOrderTimeRefusal;
         if (admission?.Admission.IsGenesis == true)
         {
             if (anchor is not null || competingRoots) return "roster.genesis.duplicate";
-            var roots = incoming.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
+            var roots = evidence.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
+                .Where(a => orderTime(a.Admission.Signature, a.Admission.IssuedAt) < at)
                 .Append(admission).DistinctBy(a => a.Admission.Signature);
             var genesisChain = MemberRoster.FromSyncedRecords(roots, [], _verifier, orderTime);
-            return genesisChain.HasRootGrantHolder() && AttesterIsTrusted(genesisChain, receiveAttestation)
-                ? null : "roster.record.chain_ineligible";
+            if (!genesisChain.HasRootGrantHolder()) return "roster.record.chain_ineligible";
+            return AttesterIsTrusted(genesisChain, receiveAttestation) ? null : "roster.record.receive_attestation_untrusted";
         }
         var admissions = evidence.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
             .Where(a => !a.Admission.IsGenesis || a.Admission.Signature == anchor?.Admission.Signature).ToList();
         if (admission is not null) admissions.Add(admission);
         var nonce = admission?.Admission.Nonce ?? revocation!.Signed.Nonce;
         // Pre-insert eligibility and replay use the same durable receipt bound.
-        var preceding = evidence.Concat(incoming).DistinctBy(s => s.RecordId)
+        var preceding = evidence.DistinctBy(s => s.RecordId)
             .Select(s => s.ToRevocationOrNull()).OfType<MemberRevocationRecord>()
             .Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at
                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
