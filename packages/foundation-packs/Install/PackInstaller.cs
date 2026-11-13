@@ -1930,7 +1930,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         return new InstallPlan(preview, null, epoch, null, null, null, PackInstallAuditAction.Refused);
     }
 
-    private static IReadOnlyList<PackInstallRefusal> BookingAdmissionRefusals(
+    private static List<PackInstallRefusal> BookingAdmissionRefusals(
         IReadOnlyList<PackContentItem> contents, IReadOnlyList<PackDependencyRef> dependencies,
         IReadOnlyList<InstalledPack> installed)
     {
