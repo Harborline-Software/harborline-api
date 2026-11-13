@@ -283,3 +283,42 @@ checkout; this is analyzer-build evidence, not a passing whole quality-baseline 
 Logs and the analyzer summary are under `/private/tmp/t521fix`: `red.log`, `concurrency-red.log`,
 `green-analyzers.log`, `analyzer-summary.json`. The ignored final TRX is
 `apps/local-node-host/tests/TestResults/sync-green.trx`. No out-of-scope file changes were needed.
+
+## Windows crash-worker compiler repair after main/API #496 merge
+
+Merged origin/main at `ff75c3d4` normally as `1b09c2a6124d2bf3a6ab006faa3d58f677821627`.
+That consumes API #496's layout-eng-31 / T-735 timing-parity repair; that prior perf failure was not this slice's.
+No rebase, force push, queue action, auto-merge action, workflow dispatch or rerun was used.
+
+**Actual Windows failure:** downloaded `verify-windows-hosted-evidence-43356356389` from run 43356356389
+(job 131659218798) read-only into `/private/tmp/t521-win-43356356389`. The artifact's
+`exact-clone-09aab3a7679305e7583810706d07c9fd6fcfb2d9-host-baseline-match.log` shows all 13 failures at
+BuildCrashWorkerAsync's compiler-exit assertion, before the child worker runs:
+`error CS0009: Metadata file ... could not be opened -- PE image doesn't contain managed metadata.`
+The paths include native runtime DLLs (`coreclr.dll`, `hostpolicy.dll`, `aspnetcorev2_inprocess.dll`) and
+native `vec0.dll` from the test output directory. The log's SHA-256 is
+`b3442dc955c47d5c3a620888f9f9918e7d093fe416f4058b8b356a43484508c4`.
+
+The compiler reference collector enumerated every `*.dll` as though it were a managed assembly. On Windows,
+those directories also contain native PE DLLs. Reference candidates now pass PEReader.HasMetadata before
+filename deduplication. File handles are disposed before csc consumes the response file. There is no OS
+branch, filename blacklist, skipped case, widened timeout, relaxed exit-code assertion or product-store change.
+
+**Portable reproduction and oracle:** a small PEBuilder-generated native DLL has a code section but no CLI
+metadata. The actual worker compiler, with this DLL injected among its candidates in a path containing spaces,
+reproduced the Windows CS0009 on this Mac. A second regression supplies a native DLL before a managed assembly
+with the same basename and requires the managed fixture to survive filtering/deduplication. Both tests failed
+before the metadata filter (2 failed / 0 passed) and pass afterward. The oracle is the captured csc failure
+and the native/managed PE metadata distinction, plus the literal expected managed candidate list; it does not
+read a production constant or weaken any of the 13 existing crash assertions.
+
+**Local validation:** Release focused ContentStore tests pass **146/146, zero skipped**, including both new
+compiler regressions and **13/13 original real-key-store crash cases**. Boundary/preflight self-tests pass;
+identity-R3 scans 5,776 tracked files with zero unexempted hits; contract generation --check passes; all
+32 codegen guards pass; git diff --check passes. Logs are under `/private/tmp/t521-winfix` (`red.log`,
+`green.log`, `boundaries.log`, `identity.log`, `codegen.log`, `codegen-tests.log`), with the ignored TRX at
+`apps/local-node-host/tests/TestResults/windows-compiler-green.trx`.
+
+**Windows could not be run here.** This is a portable reproduction and macOS validation, not a passing
+Windows verification claim. The new head needs fresh CI/Windows evidence and Chris's fresh queue approval;
+the approval for 09aab3a7 is not reused. Readiness remains unchanged.

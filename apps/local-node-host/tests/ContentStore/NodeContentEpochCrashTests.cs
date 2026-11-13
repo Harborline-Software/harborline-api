@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -84,7 +87,69 @@ public sealed partial class NodeContentStoreTests
         Assert.NotNull(await storage.Epochs.GetAsync(Tenant, staged.EpochId));
     }
 
-    private static async Task<string> BuildCrashWorkerAsync()
+    // Oracle: a PE DLL with no CLI metadata cannot be a C# assembly reference (Windows artifact CS0009).
+    [Fact]
+    public async Task Crash_worker_compiles_when_a_native_PE_DLL_is_beside_the_managed_assemblies()
+    {
+        var directory = Path.Combine(_node.DataDirectory, "compiler references with spaces");
+        Directory.CreateDirectory(directory);
+        var native = Path.Combine(directory, "T521NativeCompilerFixture.dll");
+        WriteNativeCrashCompilerFixture(native);
+        try
+        {
+            using (var stream = File.OpenRead(native))
+            using (var pe = new PEReader(stream)) Assert.False(pe.HasMetadata);
+            Assert.True(File.Exists(await BuildCrashWorkerAsync(new[] { native })));
+        }
+        finally
+        {
+            File.Delete(native);
+        }
+    }
+
+    [Fact]
+    public void Crash_worker_reference_selection_filters_native_images_before_deduplicating_names()
+    {
+        var managed = typeof(NodeContentStoreTests).Assembly.Location;
+        var directory = Path.Combine(_node.DataDirectory, "native references with spaces");
+        Directory.CreateDirectory(directory);
+        var native = Path.Combine(directory, Path.GetFileName(managed));
+        WriteNativeCrashCompilerFixture(native);
+        Assert.Equal(new[] { managed }, ManagedCrashWorkerReferences(new[] { native, managed, managed }).ToArray());
+    }
+
+    private static void WriteNativeCrashCompilerFixture(string path)
+    {
+        var image = new BlobBuilder();
+        new NativeCrashCompilerFixture().Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private sealed class NativeCrashCompilerFixture() : PEBuilder(PEHeaderBuilder.CreateLibraryHeader(), null)
+    {
+        protected override ImmutableArray<Section> CreateSections() =>
+            [new(".text", SectionCharacteristics.ContainsCode | SectionCharacteristics.MemRead | SectionCharacteristics.MemExecute)];
+        protected override PEDirectoriesBuilder GetDirectories() => new();
+        protected override BlobBuilder SerializeSection(string name, SectionLocation location)
+        {
+            var section = new BlobBuilder();
+            section.WriteByte(0xc3);
+            return section;
+        }
+    }
+
+    private static IEnumerable<string> ManagedCrashWorkerReferences(IEnumerable<string> candidates) =>
+        candidates.Where(path =>
+        {
+            // Windows runtime/output directories also contain native PE DLLs; csc references require CLI metadata.
+            using var stream = File.OpenRead(path);
+            using var image = new PEReader(stream);
+            return image.HasMetadata;
+        }).DistinctBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+
+    private static Task<string> BuildCrashWorkerAsync() => BuildCrashWorkerAsync([]);
+
+    private static async Task<string> BuildCrashWorkerAsync(IEnumerable<string> additionalReferences)
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "tests.csproj"))) root = root.Parent;
@@ -95,11 +160,11 @@ public sealed partial class NodeContentStoreTests
         var dotnet = new DirectoryInfo(runtime).Parent!.Parent!.Parent!.FullName;
         var compiler = Path.Combine(dotnet, "sdk", sdk.Output.Trim(), "Roslyn", "bincore", "csc.dll");
         var output = Path.Combine(AppContext.BaseDirectory, "T521EpochCrashWorker.dll");
-        var references = Directory.EnumerateFiles(AppContext.BaseDirectory, "*.dll")
+        var references = ManagedCrashWorkerReferences(Directory.EnumerateFiles(AppContext.BaseDirectory, "*.dll")
             .Where(path => !path.Equals(output, StringComparison.OrdinalIgnoreCase))
             .Concat(Directory.EnumerateFiles(runtime, "*.dll"))
             .Concat(Directory.EnumerateFiles(Path.GetDirectoryName(typeof(Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions).Assembly.Location)!, "*.dll"))
-            .DistinctBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+            .Concat(additionalReferences));
         var response = Path.Combine(Path.GetTempPath(), "t521-crash-compiler-" + Guid.NewGuid().ToString("N") + ".rsp");
         try
         {
