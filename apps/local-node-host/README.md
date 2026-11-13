@@ -59,6 +59,15 @@ binding positions; missing or out-of-order tags map to the existing `body_invali
 refusal. This is an unsupported wire representation, not invalid JSON: JSON objects
 are unordered. The decoder's metadata-ordering option remains unchanged.
 
+## Booking pack admission
+
+Preview, Check and Install run the platform's Booking admission for Resource and
+Bookable definitions. Record Types come from the pack and signed exposures of its
+declared dependencies; required Resources resolve within the pack or its declared
+installed dependencies. Refusals retain the platform code and definition pointer,
+and identify the definition by key and version. Install refuses the whole pack
+before changing installed versions, overrides, watermarks or active pointers.
+
 ## Pairing GA gates
 
 Before the first customer seed is created:

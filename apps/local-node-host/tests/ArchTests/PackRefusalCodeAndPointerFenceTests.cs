@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Blocks.Calendar.Booking;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
@@ -666,6 +667,26 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         Assert.Equal(recognized, ProducerTypes(receiver, document, [document]).Contains(type));
     }
 
+    [Theory(DisplayName = "T-1034 ticket 394: Booking refusal producer rejects shadowed or unbound calls")]
+    [InlineData("", true)]
+    [InlineData("var BookingDefinitionPackage = new object();", false)]
+    [InlineData("using BookingDefinitionPackage = Other;", false)]
+    public void Booking_producer_requires_the_platform_call(string shadow, bool trusted)
+    {
+        var alias = shadow.StartsWith("using ", StringComparison.Ordinal) ? shadow : "";
+        var local = alias.Length == 0 ? shadow : "";
+        var root = CSharpSyntaxTree.ParseText("using Harborline.Blocks.Calendar.Booking; " + alias
+            + " class Probe { void Project() { var entries = new object(); var context = new object(); " + local
+            + " foreach (var refusal in BookingDefinitionPackage.Admit(entries, context)) { _ = refusal.Code; } } }").GetRoot();
+        var document = new SourceDocument("probe.cs", root);
+        var receiver = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+            .Single(member => member.Name.Identifier.ValueText == "Code").Expression;
+        if (trusted)
+            Assert.True(TryBookingRefusalProjection(receiver, document, [document], out _));
+        else
+            Assert.Throws<Xunit.Sdk.XunitException>(() => TryBookingRefusalProjection(receiver, document, [document], out _));
+    }
+
     [Fact(DisplayName = "394: every refusal construction supplies its pointer or has the ticketed pack-grain exemption")]
     public void Refusal_constructors_supply_a_pointer()
     {
@@ -987,6 +1008,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         int dynamicHops)
     {
         receiver = Unwrap(receiver);
+        if (TryBookingRefusalProjection(receiver, document, documents, out var bookingResolution))
+            return bookingResolution;
         if (TryResolveCaughtDefinitionRefusalProjection(receiver, document, documents, site, out var definitionResolution))
             return definitionResolution;
         if (TryResolveLocalRefusalListProjection(receiver, document, documents, site, dynamicHops, out var listResolution))
@@ -1017,6 +1040,57 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         return producers
             .Select(producer => ResolveCode(producer.Code, producer.Document, documents, site, dynamicHops + 1))
             .Aggregate(CodeResolution.Empty, (current, next) => current.Combine(next));
+    }
+
+    private static bool TryBookingRefusalProjection(ExpressionSyntax receiver, SourceDocument document,
+        IReadOnlyList<SourceDocument> documents, out CodeResolution resolution)
+    {
+        resolution = CodeResolution.Empty;
+        if (receiver is not IdentifierNameSyntax identifier
+            || identifier.Ancestors().OfType<ForEachStatementSyntax>().FirstOrDefault(loop =>
+                loop.Identifier.ValueText == identifier.Identifier.ValueText) is not { } loop
+            || loop.Expression is not InvocationExpressionSyntax call
+            || call.Expression.ToString() != "BookingDefinitionPackage.Admit"
+            || call.ArgumentList.Arguments.Count != 2)
+            return false;
+        var imports = document.Root.ChildNodes().OfType<UsingDirectiveSyntax>();
+        if (!imports.Any(import => import.Alias is null && import.StaticKeyword.RawKind == 0
+                && import.Name?.ToString() == typeof(BookingDefinitionPackage).Namespace)
+            || imports.Any(import => import.Alias?.Name.Identifier.ValueText == nameof(BookingDefinitionPackage))
+            || documents.Any(source => source.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+                .Any(type => type.Identifier.ValueText == nameof(BookingDefinitionPackage)))
+            || document.Root.DescendantNodes().Any(node => node switch
+            {
+                VariableDeclaratorSyntax variable => variable.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                ParameterSyntax parameter => parameter.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                PropertyDeclarationSyntax property => property.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                ForEachStatementSyntax each => each.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                CatchDeclarationSyntax caught => caught.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                SingleVariableDesignationSyntax designation => designation.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                FromClauseSyntax from => from.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                LetClauseSyntax let => let.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                JoinClauseSyntax join => join.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                JoinIntoClauseSyntax into => into.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                QueryContinuationSyntax continuation => continuation.Identifier.ValueText == nameof(BookingDefinitionPackage),
+                _ => false,
+            })
+            || call.ArgumentList.Arguments.Any(argument => argument.NameColon is not null
+                || argument.RefKindKeyword.RawKind != 0 || argument.Expression is not IdentifierNameSyntax bound
+                || !IsBoundLayoutAdmissionArgument(bound)))
+            throw new Xunit.Sdk.XunitException("Untrusted Booking refusal producer.");
+        var admit = typeof(BookingDefinitionPackage).GetMethod(nameof(BookingDefinitionPackage.Admit),
+            [typeof(IReadOnlyList<BookingPackEntry>), typeof(BookingAdmissionContext)]);
+        Assert.NotNull(admit);
+        Assert.True(admit.IsStatic);
+        Assert.Equal(typeof(IReadOnlyList<DefinitionRefusal>), admit.ReturnType);
+        var values = typeof(BookingDefinitionCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(string) && field.IsLiteral)
+            .Select(field => (string)field.GetRawConstantValue()!)
+            .Concat([PackInstallCodes.RefusedContractOutOfWindow, "definition.contract.missing"])
+            .Distinct(StringComparer.Ordinal).ToArray();
+        Assert.All(values, value => Assert.Contains(value, DeclaredCodeValues()));
+        resolution = new CodeResolution(values, false);
+        return true;
     }
 
     private static bool TryResolveLocalRefusalListProjection(
@@ -1417,7 +1491,8 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             if (expression is ConditionalExpressionSyntax conditional)
                 return Code(conditional.WhenTrue, document, depth + 1).Combine(Code(conditional.WhenFalse, document, depth + 1));
             if (expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Code" } forwarded
-                && TryResolveCaughtDefinitionRefusalProjection(forwarded.Expression, document, documents, site, out var trusted))
+                && (TryResolveCaughtDefinitionRefusalProjection(forwarded.Expression, document, documents, site, out var trusted)
+                    || TryBookingRefusalProjection(forwarded.Expression, document, documents, out trusted)))
                 return trusted;
             throw Invalid("untrusted constructor Code", expression);
         }
@@ -1971,6 +2046,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                || type == typeof(CatalogueFieldSourceCodes)
                || type == typeof(WorkflowAdmissionCodes)
                || type == typeof(LayoutDefinitionCodes)
+               || type == typeof(BookingDefinitionCodes)
                || type == typeof(ReleasedNavigationDefinitionCodes));
 
     private static HashSet<string> DeclaredCodeValues()
@@ -2013,6 +2089,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         typeof(FormDefinitionCodes).Assembly,
         typeof(WorkflowAdmissionCodes).Assembly,
         typeof(LayoutDefinitionCodes).Assembly,
+        typeof(BookingDefinitionCodes).Assembly,
     ];
 
     private static IEnumerable<Type> Types(Assembly assembly)
