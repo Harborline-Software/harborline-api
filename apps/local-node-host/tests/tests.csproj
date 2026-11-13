@@ -49,7 +49,7 @@
          Npgsql as well as SQLite to verify the post-config sweep produces correct column types
          on each provider. No real DB connection required (model-compilation only). -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-    <!-- Npgsql bridge (R-0182): no Npgsql 11.0.0 exists yet, and every 11.0.0 RC pins EF Core to its
+    <!-- Npgsql bridge (R-0183): no Npgsql 11.0.0 exists yet, and every 11.0.0 RC pins EF Core to its
          own RC exactly, which conflicts with EF Core 11.0.0 (NU1107). The direct references let EF Core
          11.0.0 win; NU1608 then stays a visible warning in this test project only. Remove both
          references and the WarningsNotAsErrors entry below when Npgsql 11.0.0 ships. -->

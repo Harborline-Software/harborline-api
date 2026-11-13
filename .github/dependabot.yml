@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: "nuget"
     directory: "/"
     # The .NET package set moves together (EF Core must match the Npgsql provider: NU1107/NU1608), so it updates
-    # as one `dotnet` group. With .NET 11 GA (R-0182) the previews no longer move by hand (ticket 243); a new
+    # as one `dotnet` group. With .NET 11 GA (R-0183) the previews no longer move by hand (ticket 243); a new
     # major (the next .NET release) still does, so majors of this set are ignored here.
     ignore:
       - dependency-name: "Microsoft.*"

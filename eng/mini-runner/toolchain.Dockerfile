@@ -1,9 +1,17 @@
 # Official Linux ARM64 SDK 11.0.100 image; immutable manifest checked against MCR.
 # The existing package-consumer executable targets net10.0. Copy its runtime only.
 FROM mcr.microsoft.com/dotnet/sdk@sha256:e47b8fe8c16821354690e16ef744d53a53a9cdae13ad9e000058913cd0368718 AS consumer-runtime
+FROM mcr.microsoft.com/dotnet/sdk@sha256:001dc5a48897722fe0c0550f95dca4d8eb4b5bb67eac9ea3723f36ba6d02d613 AS platform-sdk
 FROM node@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS node
 FROM rust@sha256:2c3a22f0a5533ea2dd5a16627bc841228151faa2d4de2644ac9987e4a2f1f2fa AS rust
 FROM mcr.microsoft.com/dotnet/sdk@sha256:e0479c0adcfa71605bd1565ec0038975dc10dde1b8dcecfc4657f622bb1039cb
+COPY --from=platform-sdk /usr/share/dotnet/sdk/11.0.100-rc.1.26425.128 /usr/share/dotnet/sdk/11.0.100-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/shared/Microsoft.NETCore.App/11.0.0-rc.1.26425.128 /usr/share/dotnet/shared/Microsoft.NETCore.App/11.0.0-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/shared/Microsoft.AspNetCore.App/11.0.0-rc.1.26425.128 /usr/share/dotnet/shared/Microsoft.AspNetCore.App/11.0.0-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/11.0.0-rc.1.26425.128 /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/11.0.0-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/packs/Microsoft.AspNetCore.App.Ref/11.0.0-rc.1.26425.128 /usr/share/dotnet/packs/Microsoft.AspNetCore.App.Ref/11.0.0-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/packs/Microsoft.NETCore.App.Host.linux-arm64/11.0.0-rc.1.26425.128 /usr/share/dotnet/packs/Microsoft.NETCore.App.Host.linux-arm64/11.0.0-rc.1.26425.128
+COPY --from=platform-sdk /usr/share/dotnet/sdk-manifests/11.0.100-rc.1 /usr/share/dotnet/sdk-manifests/11.0.100-rc.1
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=rust /usr/local/cargo /usr/local/cargo
@@ -18,6 +26,8 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && mkdir -p /opt/mini-toolchain \
  && dpkg-query -W > /opt/mini-toolchain/dpkg.tsv \
  && test "$(dotnet --version)" = '11.0.100' \
+ && dotnet --list-sdks | grep -F '11.0.100 [' \
+ && dotnet --list-sdks | grep -F '11.0.100-rc.1.26425.128 ' \
  && test "$(node --version)" = 'v24.21.0' \
  && test "$(pnpm --version)" = '11.1.3'
 RUN useradd --uid 1001 --create-home runner && mkdir -p /work && chown 1001:1001 /work

@@ -180,6 +180,14 @@ resolved local tag fixed it. Shell syntax and diff whitespace checks also pass.
 
 ## Exact SDK-11 image ready
 
+The PR 488 toolchain layers the pinned Platform RC SDK and its runtimes and
+packs beside the API GA SDK. On macOS, the non-root ARM64 image compiled and ran
+hello-world apps with both SDKs, built all 36 packages from Platform 22491171,
+and passed the actual all-lane `verifyPreflight()` prerequisites. Both official
+ARM64 archive hashes match Microsoft release metadata; image identities and
+the exact source inputs are recorded in `toolchain-readiness.json`. This is not
+a full gate, GitHub run, or coverage qualification.
+
 `toolchain.Dockerfile` now pins Microsoft's official Linux ARM64 SDK image by
 manifest digest. `toolchain-readiness.json` records the matching official archive
 SHA-512, image/config digests, local image identity, exact source/pins and measured
