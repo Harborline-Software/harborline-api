@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {safeFailure} from '../platform-feed-qualification.mjs'
+
+test('API restore uses the GA image while platform packing keeps its own profile', () => {
+  const source = readFileSync(new URL('../platform-feed-qualification.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const apiImage = 'mcr\.microsoft\.com\/dotnet\/sdk@sha256:7913685c883a29dd8ba79da96172f5c6b29ed9be706ebe95935e3ef45f19c9c1'/)
+  assert.match(source, /prepareContainer\(\{apiRoot: root, platform, pin/)
+  assert.match(source, /'--workdir', clone, apiImage, 'dotnet', 'restore', 'Harborline\.Api\.slnx'/)
+})
 
 test('qualification failure evidence retains fixed causal codes without raw credentials, paths or URLs', () => {
   const error = {status: 127, code: 'ENOENT', signal: 'SIGTERM',
