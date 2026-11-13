@@ -29,7 +29,7 @@ using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Workflow;
 
-public sealed class WorkflowScheduledDefinitionTests
+public sealed partial class WorkflowScheduledDefinitionTests
 {
     [Fact]
     public void Admission_refuses_schedule_trigger_without_rrule()
@@ -363,11 +363,11 @@ public sealed class WorkflowScheduledDefinitionTests
         return services.BuildServiceProvider();
     }
 
-    private static WorkflowDefinition ScheduledDefinition(string? rrule)
+    private static WorkflowDefinition ScheduledDefinition(string? rrule, string key = "scheduled-definition")
         => new()
         {
             Tenant = "local",
-            Key = "scheduled-definition",
+            Key = key,
             Version = "1.0.0",
             InitialState = "waiting",
             States =
