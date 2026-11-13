@@ -70,7 +70,7 @@ public sealed class ContentKeyRotationSettingsTests
     {
         var refusal = Assert.Throws<ContentKeyRotationSettingException>(() => ContentKeyRotationSettings.Bind(Config((setting, value))));
 
-        Assert.Equal("content.key_rotation.setting_out_of_range", refusal.Code);
+        Assert.Equal("content.key_rotation.setting_out_of_range", ContentKeyRotationSettingException.Code);
         Assert.Equal("LocalNode:ContentStore:KeyRotation:" + setting, refusal.Setting);
         Assert.StartsWith("content.key_rotation.setting_out_of_range: LocalNode:ContentStore:KeyRotation:" + setting + " ", refusal.Message, StringComparison.Ordinal);
     }
@@ -129,7 +129,7 @@ public sealed class ContentKeyRotationSettingsTests
     {
         var failure = Assert.Throws<ContentKeyRotationSettingException>(() =>
             ContentKeyRotationSettings.Bind(Config(("LegalRetentionFloor", floor), ("BackupRetention", retention))));
-        Assert.Equal("content.key_rotation.setting_out_of_range", failure.Code);
+        Assert.Equal("content.key_rotation.setting_out_of_range", ContentKeyRotationSettingException.Code);
         Assert.Equal("LocalNode:ContentStore:KeyRotation:" + setting, failure.Setting);
     }
 

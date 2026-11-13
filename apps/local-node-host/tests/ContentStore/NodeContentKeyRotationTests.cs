@@ -264,7 +264,7 @@ public sealed partial class NodeContentStoreTests
         return (new(contexts, directory), contexts);
     }
 
-    private static async Task<byte[]> OpenLeftoverWrap(NodeContentStoreStorage storage, ContentStoreItem item)
+    private static async Task<byte[]> OpenLeftoverWrap(NodeContentStoreStorage storage, ContentStoreItem item, byte[]? tenantKey = null)
     {
         var epoch = await storage.Epochs.GetAsync(item.Tenant, item.EpochId) ?? throw new CryptographicException("The epoch key no longer exists.");
         var subkey = new byte[32];
@@ -272,7 +272,7 @@ public sealed partial class NodeContentStoreTests
         var dataKey = new byte[32];
         try
         {
-            HKDF.DeriveKey(HashAlgorithmName.SHA256, SHA256.HashData("fixed-test-root"u8), subkey,
+            HKDF.DeriveKey(HashAlgorithmName.SHA256, tenantKey ?? SHA256.HashData("fixed-test-root"u8), subkey,
                 Encoding.UTF8.GetBytes(item.Tenant.Value), "harborline-content-store:data-key-wrap:v1"u8);
             using (var aead = new AesGcm(subkey, 16))
                 aead.Decrypt(epoch.WrapNonce, epoch.WrappedKey, epoch.WrapTag, epochKey,

@@ -16,7 +16,7 @@ namespace Harborline.Api.LocalNodeHost.Data.ContentStore;
 /// Every file is written to a temporary name, flushed to the device, renamed into place and its directory chain flushed, so a key
 /// is durable before any row can name it (ADR 0116 decision 5) and a crash leaves either the old file or the new one.
 /// </remarks>
-public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposable
+public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposable
 {
     /// <summary>The store's directory under the node's <c>tenant-keys</c>.</summary>
     public const string DirectoryName = "content-epochs";
@@ -74,7 +74,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         try
         {
             if (File.Exists(path)) throw new InvalidOperationException("That epoch already exists.");
-            await WriteDurablyAsync(path, Encode(epoch), cancellationToken, _root).ConfigureAwait(false);
+            await WriteDurablyAsync(path, Encode(epoch), _root, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -90,7 +90,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         {
             if (await ReadCurrentAsync(tenant, cancellationToken).ConfigureAwait(false) != expectedCurrent) return false;
             if (!File.Exists(EpochPath(tenant, epochId))) throw new InvalidOperationException("That epoch does not exist.");
-            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), cancellationToken, _root).ConfigureAwait(false);
+            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), _root, cancellationToken: cancellationToken).ConfigureAwait(false);
             return true;
         }
         finally
@@ -133,7 +133,7 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
         return Guid.TryParseExact(text, "N", out var current) ? current : throw new InvalidDataException("The current epoch file is unreadable.");
     }
 
-    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, CancellationToken cancellationToken, string rootDirectory, Action<string>? syncDirectory = null)
+    internal static async ValueTask WriteDurablyAsync(string path, byte[] contents, string rootDirectory, Action<string>? syncDirectory = null, CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(path)!;
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
@@ -193,14 +193,14 @@ public sealed class NodeContentEpochKeyStore : IContentEpochKeyStore, IDisposabl
             throw new IOException("The key file could not be moved durably.", new Win32Exception(Marshal.GetLastWin32Error()));
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool MoveFileEx(string source, string destination, uint flags);
-    [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static partial bool MoveFileEx(string source, string destination, uint flags);
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateDirectoryW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
-    [DllImport("libc", EntryPoint = "mkdir", SetLastError = true)]
-    private static extern int MakeDirectory([MarshalAs(UnmanagedType.LPUTF8Str)] string path, uint mode);
+    private static partial bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
+    [LibraryImport("libc", EntryPoint = "mkdir", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int MakeDirectory(string path, uint mode);
 
     private static void AfterFileStep(string path, string step)
     {

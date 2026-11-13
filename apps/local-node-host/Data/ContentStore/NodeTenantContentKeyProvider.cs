@@ -22,7 +22,6 @@ public sealed class NodeTenantContentKeyProvider(IVersionedTenantKeyProvider key
     public const int KeyVersion = 2;
 
     /// <inheritdoc />
-    // ponytail: the platform port is synchronous; the stored provider reads one small file, so this blocks briefly.
     public byte[] GetKey(TenantId tenantId) =>
-        keys.ResolveKeyAsync(tenantId, Purpose, KeyVersion, CancellationToken.None).GetAwaiter().GetResult().ToArray();
+        keys.ResolveKey(tenantId, Purpose, KeyVersion, CancellationToken.None).ToArray();
 }

@@ -17,7 +17,7 @@ public sealed partial class NodeContentStoreTests
         if (alreadyCreated) Directory.CreateDirectory(tenant);
         var synced = new List<string>();
 
-        await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), default, epochs, directory =>
+        await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), epochs, directory =>
         {
             Assert.True(File.Exists(path));
             NodeContentByteStore.SyncDirectory(directory);
@@ -36,7 +36,7 @@ public sealed partial class NodeContentStoreTests
         Directory.CreateDirectory(root);
         var path = Path.Combine(tenant, "test.epoch");
         var synced = new List<string>();
-        await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), default, root, directory =>
+        await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), root, directory =>
         {
             if (directory != root && directory != tenant) throw new IOException("above root");
             synced.Add(directory);
@@ -54,7 +54,7 @@ public sealed partial class NodeContentStoreTests
         var failure = new IOException("injected parent-directory sync failure");
 
         var thrown = await Assert.ThrowsAsync<IOException>(async () =>
-            await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), default, Path.Combine(_node.DataDirectory, "tenant-keys", "content-epochs"), directory =>
+            await NodeContentEpochKeyStore.WriteDurablyAsync(path, "wrapped-key"u8.ToArray(), Path.Combine(_node.DataDirectory, "tenant-keys", "content-epochs"), directory =>
             {
                 if (Path.GetFileName(directory) == failedDirectory) throw failure;
                 NodeContentByteStore.SyncDirectory(directory);

@@ -87,7 +87,7 @@ public sealed class ContentKeyRotationSettingException(string setting, object va
     : InvalidOperationException($"{ContentKeyRotationSettings.OutOfRangeCode}: {ContentKeyRotationSettings.Section}:{setting} is out of range ({value}).")
 {
     /// <summary>The stable refusal code.</summary>
-    public string Code => ContentKeyRotationSettings.OutOfRangeCode;
+    public static string Code => ContentKeyRotationSettings.OutOfRangeCode;
 
     /// <summary>The setting's full configuration key.</summary>
     public string Setting { get; } = $"{ContentKeyRotationSettings.Section}:{setting}";

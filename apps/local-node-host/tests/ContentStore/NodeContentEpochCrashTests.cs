@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using Harborline.Api.Foundation.Recovery.TenantKey;
 using Harborline.Api.LocalNodeHost.Data.ContentStore;
 using Harborline.Foundation.ContentStore;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,7 @@ public sealed partial class NodeContentStoreTests
     public async Task A_process_crash_at_each_rotation_step_keeps_every_real_database_row_readable(string step)
     {
         var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
-        var store = Store(storage: storage);
+        var store = CrashStore(storage);
         var reference = await Commit(store, await Put(store));
         await Put(store, "still-staged"u8.ToArray());
         var first = (await storage.Epochs.GetCurrentAsync(Tenant))!.EpochId;
@@ -57,12 +58,19 @@ public sealed partial class NodeContentStoreTests
         Assert.Equal(step, await File.ReadAllTextAsync(signal));
 
         using var reopened = _node.Restart();
-        var reopenedStore = Store(storage: reopened.Storage);
+        var reopenedStore = CrashStore(reopened.Storage);
         await AssertRowsReadable(reopened.Storage, reopenedStore, reference, reopened.Contexts);
         using var resumed = new NodeContentKeyRotation(reopened.Storage, new(), _clock);
         await resumed.RunAsync(Tenant, reopenedStore, () => Write("sys.scheduler"), batchSize: 1);
         await AssertRowsReadable(reopened.Storage, reopenedStore, reference, reopened.Contexts);
     }
+
+    private InMemoryContentStore CrashStore(NodeContentStoreStorage storage) =>
+        new(new(300_000, 600_000, 600_000, Expiry), CrashTenantKeys(storage), _clock, storage);
+
+    private static NodeTenantContentKeyProvider CrashTenantKeys(NodeContentStoreStorage storage) =>
+        new(new StoredTenantKeyProvider(new FileSystemTenantKeyStore(
+            Path.Combine(Path.GetDirectoryName(storage.DirectoryPath)!, "tenant-keys")), Enumerable.Repeat((byte)0x61, 32).ToArray()));
 
     private static async Task AssertRowsReadable(NodeContentStoreStorage storage, InMemoryContentStore store,
         ContentReference reference, IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext> contexts)
@@ -72,7 +80,7 @@ public sealed partial class NodeContentStoreTests
         var staged = Assert.Single(await context.Set<ContentStagedRow>().ToListAsync());
         await using var transaction = await storage.Bookkeeping.BeginTransactionAsync();
         var item = (await transaction.FindStagedForUpdateAsync(staged.ItemKey))!;
-        CryptographicOperations.ZeroMemory(await OpenLeftoverWrap(storage, item));
+        CryptographicOperations.ZeroMemory(await OpenLeftoverWrap(storage, item, CrashTenantKeys(storage).GetKey(Tenant)));
         Assert.NotNull(await storage.Epochs.GetAsync(Tenant, staged.EpochId));
     }
 

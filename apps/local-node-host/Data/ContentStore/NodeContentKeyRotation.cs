@@ -140,5 +140,5 @@ public sealed class NodeContentKeyRotation(NodeContentStoreStorage storage, Cont
     }
 
     private ValueTask WriteTicksAsync(string path, long ticks, CancellationToken cancellationToken) =>
-        NodeContentEpochKeyStore.WriteDurablyAsync(path, Encoding.ASCII.GetBytes(ticks.ToString(CultureInfo.InvariantCulture)), cancellationToken, ((NodeContentEpochKeyStore)storage.Epochs).DirectoryPath);
+        NodeContentEpochKeyStore.WriteDurablyAsync(path, Encoding.ASCII.GetBytes(ticks.ToString(CultureInfo.InvariantCulture)), ((NodeContentEpochKeyStore)storage.Epochs).DirectoryPath, cancellationToken: cancellationToken);
 }

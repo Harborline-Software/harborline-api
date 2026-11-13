@@ -28,6 +28,32 @@ public sealed partial class NodeContentStoreTests
             throw new InvalidOperationException("The content store asked for a version-1 derived subject key.");
     }
 
+    [Fact]
+    public void Synchronous_content_adapter_resolves_each_call_without_using_async_or_caching()
+    {
+        var resolver = new SyncOnlyVersionedKeys();
+        var keys = new NodeTenantContentKeyProvider(resolver);
+        Assert.Equal(Enumerable.Repeat((byte)0x4d, 32), keys.GetKey(Tenant));
+        Assert.Equal(Enumerable.Repeat((byte)0x4d, 32), keys.GetKey(Tenant));
+        Assert.Equal(2, resolver.Calls);
+    }
+
+    private sealed class SyncOnlyVersionedKeys : IVersionedTenantKeyProvider
+    {
+        public int Calls { get; private set; }
+        public ReadOnlyMemory<byte> ResolveKey(TenantId tenant, string purpose, int keyVersion, CancellationToken ct)
+        {
+            Assert.Equal("content-store", purpose);
+            Assert.Equal(2, keyVersion);
+            Calls++;
+            return Enumerable.Repeat((byte)0x4d, 32).ToArray();
+        }
+        public Task<ReadOnlyMemory<byte>> ResolveKeyAsync(TenantId tenant, string purpose, int keyVersion, CancellationToken ct) =>
+            throw new InvalidOperationException("The synchronous port must not block on async resolution.");
+        public Task<ReadOnlyMemory<byte>> ResolveSubjectKeyAsync(TenantId tenant, SubjectId subject, string purpose,
+            int keyVersion, ISubjectErasureRegistry erasure, CancellationToken ct) => throw new InvalidOperationException("unexpected subject key");
+    }
+
     private (StoredTenantKeyProvider Provider, string Directory) StoredKeys()
     {
         var directory = Path.Combine(_node.DataDirectory, "tenant-keys");

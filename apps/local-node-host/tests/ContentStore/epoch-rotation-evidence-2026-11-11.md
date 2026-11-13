@@ -238,3 +238,48 @@ See `/private/tmp/t521r/verify-final.log`. No gate configuration or thresholds c
 was built natively from an isolated standalone platform clone at `2d820840`; .feed remains ignored.
 Acceptance 8 remains outstanding until verify-linux and a Windows verify run pass; Chris owns the manual
 Windows workflow dispatch. The ready-for-review state and host-enablement hold remain owner-managed.
+
+## Control #1389 — synchronous resolution and analyzer repair
+
+M11's 2026-11-13 ruling authorizes the recovery interfaces, implementations and project change. The 17 new
+quality-baseline instances were confirmed absent from origin/main at `0da1c6ea1b87066e210a6c06af60625bdf53cd1a`.
+The CI log lists seven recovery and three epoch-store SYSLIB1054 instances, three CA2101 instances, and one
+each of VSTHRD002, VSTHRD103, CA1822 and CA1068.
+
+- LibraryImport partial methods retain every native entry point, write-through/replacement flag and fsync
+  ordering; Windows path strings explicitly marshal UTF-16 and libc paths UTF-8. Only the recovery project
+  gains AllowUnsafeBlocks; the node-host project and the quality baseline are unchanged.
+- The synchronous versioned resolver accepts only version 2, refuses legacy/unsupported versions before
+  calling a legacy provider, reads storage on every call and keeps no tenant-key cache. ResolveKeyAsync stays.
+- Both stores implement synchronous read/create. The filesystem create is the shared synchronous durable
+  core used by TryCreateAsync too: real Flush(true), close, publication and the bounded directory barrier.
+  Concurrent publication is serialized across store instances in the node process; the new Task.Run test
+  exposed two successful no-overwrite moves before this fix. Async reads retain their async file read.
+- NodeTenantContentKeyProvider calls the synchronous resolver directly. The refusal Code member is static;
+  the shared epoch writer's CancellationToken is last and every caller was updated.
+- All 13 crash cases now use the real filesystem-backed, synchronously resolved tenant key in parent,
+  crashed child and restarted reader. Committed content and the independently opened staged wrap are still
+  verified. The fixture hierarchy root is the literal 32 bytes of 0x61; no production key constant is an oracle.
+
+**Test-first and oracles:** 11 new regressions failed against the API stubs/old adapter before implementation.
+The first implemented run passed 171/172 and exposed the competing-creator race; after its repair the full
+ContentStore | TenantKey | CryptoShred filter passed **172/172, zero skipped**, including all **13 crash cases**
+and all **11 new sync cases**. The sync durability tests observe the actual FileStream.Flush(true), assert
+literal fixture bytes and exact directory lists, inject file/directory failures, and preserve create-once
+semantics across two instances. The resolver uses separately AES-GCM-wrapped literal 0x42/0x43 keys in a
+literal slot fixture to prove uncached reads across destruction/recreation. Literal versions 0, 1 and 3
+refuse without calling the legacy provider; the adapter probe requires version 2 and content-store on each
+call. These oracles follow control #1389 and ADR 0116 d4/d5, without reading production expected constants.
+
+**Analyzer evidence:** the Release focused-test build ran with RunAnalyzers=true,
+RunAnalyzersDuringBuild=true, HARBORLINE_GATE_QUALITY=1 and HarborlineRoslynSarifDirectory under
+`/private/tmp/t521fix/sarif`. Both production projects emitted SARIF (recovery: 4 existing diagnostics;
+node host: 538 existing diagnostics). All 13 emitted SARIF files were inspected, including non-console
+levels: **zero SYSLIB1054, CA2101, VSTHRD002, VSTHRD103, CA1822 or CA1068 instances in changed files**, and no
+other diagnostics in those changed production files. No baseline, suppression, severity, audit or registry
+configuration was changed. The local quality tool remains unavailable because this Mac has no quality
+checkout; this is analyzer-build evidence, not a passing whole quality-baseline gate or a Windows run.
+
+Logs and the analyzer summary are under `/private/tmp/t521fix`: `red.log`, `concurrency-red.log`,
+`green-analyzers.log`, `analyzer-summary.json`. The ignored final TRX is
+`apps/local-node-host/tests/TestResults/sync-green.trx`. No out-of-scope file changes were needed.

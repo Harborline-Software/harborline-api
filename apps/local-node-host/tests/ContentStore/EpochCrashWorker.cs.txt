@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Harborline.Api.Foundation.Persistence;
+using Harborline.Api.Foundation.Recovery.TenantKey;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.ContentStore;
@@ -29,7 +30,7 @@ internal static class EpochCrashWorker
         using var provider = services.BuildServiceProvider();
         var clock = new Clock(long.Parse(arguments[1], CultureInfo.InvariantCulture));
         var storage = new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), arguments[0]);
-        var store = new InMemoryContentStore(new(300_000, 600_000, 600_000, TimeSpan.FromMinutes(1)), new Keys(), clock, storage);
+        var store = new InMemoryContentStore(new(300_000, 600_000, 600_000, TimeSpan.FromMinutes(1)), new NodeTenantContentKeyProvider(new StoredTenantKeyProvider(new FileSystemTenantKeyStore(Path.Combine(arguments[0], "tenant-keys")), Enumerable.Repeat((byte)0x61, 32).ToArray())), clock, storage);
         Action<string> crash = step =>
         {
             if (step != arguments[2]) return;
@@ -46,11 +47,6 @@ internal static class EpochCrashWorker
         var identity = Guid.NewGuid().ToString("N");
         return new(new("command-" + identity, "key-" + identity, "fingerprint-" + identity),
             new("audit-" + identity, "sys.scheduler", DateTimeOffset.UnixEpoch, ReadOnlyMemory<byte>.Empty));
-    }
-
-    private sealed class Keys : ITenantContentKeyProvider
-    {
-        public byte[] GetKey(TenantId tenant) => SHA256.HashData("fixed-test-root"u8);
     }
 
     private sealed class Clock(long ticks) : TimeProvider

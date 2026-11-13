@@ -181,6 +181,88 @@ public sealed class FileSystemTenantKeyStoreTests : IDisposable
         Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => failing.ReadAsync("tenant:v2", default)));
     }
 
+    // Oracle: M11 control 1389 and ADR 0116 d5 require the same real flush/publication/barrier as async create.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Synchronous_create_flushes_before_publication_and_syncs_the_exact_bounded_chain(bool rootExists)
+    {
+        if (rootExists) Directory.CreateDirectory(_directory);
+        var flushed = false;
+        var synced = new List<string>();
+        var store = CreateStore(path => new ObservedFileStream(path, toDisk =>
+        {
+            Assert.True(toDisk);
+            Assert.False(File.Exists(RecordPath));
+            flushed = true;
+        }), directory =>
+        {
+            Assert.True(flushed);
+            Assert.Equal("sync-key", File.ReadAllText(RecordPath));
+            if (rootExists && directory != _directory && directory != Path.Combine(_directory, "tenant"))
+                throw new IOException("above root");
+            synced.Add(directory);
+            NodeContentByteStore.SyncDirectory(directory);
+        });
+        Assert.True(store.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default));
+        Assert.Equal(rootExists ? new[] { Path.Combine(_directory, "tenant"), _directory }
+            : new[] { Path.Combine(_directory, "tenant"), _directory, Path.GetDirectoryName(_directory)! }, synced);
+        synced.Clear();
+        Assert.Equal("sync-key"u8.ToArray(), store.Read("tenant:v2", default)!.Value.ToArray());
+        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        Assert.Single(Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories));
+        Assert.False(new FileSystemTenantKeyStore(_directory).TryCreate("tenant:v2", "replacement"u8.ToArray(), default));
+        Assert.Equal("sync-key", File.ReadAllText(RecordPath));
+    }
+
+    [Fact]
+    public void Synchronous_flush_failure_prevents_publication_and_cleans_temporary_files()
+    {
+        var failure = new IOException("disk failure");
+        var store = CreateStore(path => new ObservedFileStream(path, toDisk => { if (toDisk) throw failure; }));
+        Assert.Same(failure, Assert.Throws<IOException>(() => store.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default)));
+        Assert.False(File.Exists(RecordPath));
+        Assert.Empty(Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Synchronous_directory_failure_refuses_create_and_a_later_read_retries_the_barrier()
+    {
+        var failure = new IOException("directory failure");
+        var store = CreateStore(syncDirectory: _ => throw failure);
+        Assert.Same(failure, Assert.Throws<IOException>(() => store.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default)));
+        Assert.Same(failure, Assert.Throws<IOException>(() => store.Read("tenant:v2", default)));
+        var synced = new List<string>();
+        Assert.Equal("sync-key"u8.ToArray(), CreateStore(syncDirectory: synced.Add).Read("tenant:v2", default)!.Value.ToArray());
+        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        Assert.Single(Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Synchronous_competing_creators_preserve_one_complete_record()
+    {
+        var first = new FileSystemTenantKeyStore(_directory);
+        var second = new FileSystemTenantKeyStore(_directory);
+        using var start = new ManualResetEventSlim();
+        var firstCreate = Task.Run(() => { start.Wait(); return first.TryCreate("tenant:v2", "first"u8.ToArray(), default); });
+        var secondCreate = Task.Run(() => { start.Wait(); return second.TryCreate("tenant:v2", "second"u8.ToArray(), default); });
+        start.Set();
+        var results = await Task.WhenAll(firstCreate, secondCreate);
+        Assert.Single(results, result => result);
+        Assert.Equal(results[0] ? "first" : "second", File.ReadAllText(RecordPath));
+        Assert.Single(Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Synchronous_cancelled_create_does_not_create_a_directory_or_record()
+    {
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var store = new FileSystemTenantKeyStore(_directory);
+        Assert.Throws<OperationCanceledException>(() => store.TryCreate("tenant:v2", "sync-key"u8.ToArray(), cancelled.Token));
+        Assert.False(Directory.Exists(_directory));
+    }
+
     private string RecordPath => Path.Combine(_directory, "tenant", "v2.key");
 
     private FileSystemTenantKeyStore CreateStore(

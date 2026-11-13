@@ -4,8 +4,10 @@ using System.Runtime.InteropServices;
 namespace Harborline.Api.Foundation.Recovery.TenantKey;
 
 /// <summary>Persists wrapped tenant-key hierarchy records in an install-owned directory.</summary>
-public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
+public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
 {
+    // Serialize compare-and-publish across store instances in the node; File.Move's Unix no-overwrite check can race.
+    private static readonly object PublicationGate = new();
     private readonly string _rootDirectory;
     private readonly Func<string, FileStream> _createStream;
     private readonly Action<string> _syncDirectory;
@@ -13,7 +15,7 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
     /// <summary>Construct an opaque record store rooted at an install-owned directory.</summary>
     public FileSystemTenantKeyStore(string rootDirectory)
         : this(rootDirectory, path => new FileStream(
-            path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true), SyncDirectory)
+            path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: false), SyncDirectory)
     {
     }
 
@@ -24,6 +26,72 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
         _rootDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
         _createStream = createStream;
         _syncDirectory = syncDirectory;
+    }
+
+    /// <inheritdoc />
+    public ReadOnlyMemory<byte>? Read(string slot, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var path = GetRecordPath(slot);
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
+        SyncChain(Path.GetDirectoryName(path)!);
+        return bytes;
+    }
+
+    /// <inheritdoc />
+    public bool TryCreate(
+        string slot,
+        ReadOnlyMemory<byte> wrappedKey,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var path = GetRecordPath(slot);
+        var directory = Path.GetDirectoryName(path)!;
+        var rootCreated = CreateRoot(_rootDirectory);
+        Directory.CreateDirectory(directory);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var stream = _createStream(temporary))
+            {
+                stream.Write(wrappedKey.Span);
+                ct.ThrowIfCancellationRequested();
+                stream.Flush(flushToDisk: true);
+            }
+
+            var created = true;
+            lock (PublicationGate)
+            {
+                try
+                {
+                    MoveDurably(temporary, path, overwrite: false);
+                }
+                catch (IOException) when (File.Exists(path))
+                {
+                    created = false;
+                }
+            }
+
+            SyncChain(directory);
+            if (rootCreated) _syncDirectory(Path.GetDirectoryName(_rootDirectory)!);
+            return created;
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
     }
 
     /// <inheritdoc />
@@ -48,44 +116,8 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryCreateAsync(
-        string slot,
-        ReadOnlyMemory<byte> wrappedKey,
-        CancellationToken ct)
-    {
-        var path = GetRecordPath(slot);
-        var directory = Path.GetDirectoryName(path)!;
-        var rootCreated = CreateRoot(_rootDirectory);
-        Directory.CreateDirectory(directory);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            await using (var stream = _createStream(temporary))
-            {
-                await stream.WriteAsync(wrappedKey, ct).ConfigureAwait(false);
-                ct.ThrowIfCancellationRequested();
-                stream.Flush(flushToDisk: true);
-            }
-
-            var created = true;
-            try
-            {
-                MoveDurably(temporary, path, overwrite: false);
-            }
-            catch (IOException) when (File.Exists(path))
-            {
-                created = false;
-            }
-
-            SyncChain(directory);
-            if (rootCreated) _syncDirectory(Path.GetDirectoryName(_rootDirectory)!);
-            return created;
-        }
-        finally
-        {
-            File.Delete(temporary);
-        }
-    }
+    public Task<bool> TryCreateAsync(string slot, ReadOnlyMemory<byte> wrappedKey, CancellationToken ct) =>
+        Task.FromResult(TryCreate(slot, wrappedKey, ct));
 
     private void SyncChain(string directory)
     {
@@ -119,14 +151,14 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
             throw new IOException("The key file could not be moved durably.", new Win32Exception(Marshal.GetLastWin32Error()));
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool MoveFileEx(string source, string destination, uint flags);
-    [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static partial bool MoveFileEx(string source, string destination, uint flags);
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateDirectoryW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
-    [DllImport("libc", EntryPoint = "mkdir", SetLastError = true)]
-    private static extern int MakeDirectory([MarshalAs(UnmanagedType.LPUTF8Str)] string path, uint mode);
+    private static partial bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
+    [LibraryImport("libc", EntryPoint = "mkdir", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int MakeDirectory(string path, uint mode);
 
     private static void SyncDirectory(string directory)
     {
@@ -145,14 +177,14 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
         }
     }
 
-    [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
-    private static extern int FullFsyncDescriptor(int descriptor, int command);
-    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
-    private static extern int Open([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int flags);
-    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
-    private static extern int Sync(int descriptor);
-    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
-    private static extern int Close(int descriptor);
+    [LibraryImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static partial int FullFsyncDescriptor(int descriptor, int command);
+    [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int Open(string path, int flags);
+    [LibraryImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static partial int Sync(int descriptor);
+    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static partial int Close(int descriptor);
 
     /// <inheritdoc />
     public Task DeleteAsync(string slot, CancellationToken ct)
