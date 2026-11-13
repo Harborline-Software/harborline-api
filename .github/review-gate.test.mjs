@@ -46,6 +46,7 @@ case $p in
     f=base-\${p##*/}; [ -f "$FIX/$f" ] || { echo "stub gh: HTTP 404 $p" >&2; exit 1; }
     cat "$FIX/$f"; exit 0 ;;
   repos/*/rules/branches/*) f=rules.json ;;
+  repos/*/collaborators/*/permission) l=\${p#*/collaborators/}; f=role-\${l%/permission}.json ;;
   repos/*/compare/*) f=compare.json ;;
   repos/*/pulls/*/files) f=files.json ;;
   repos/*/pulls/*/commits) f=commits.json ;;
@@ -82,7 +83,8 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
-                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null, autoMergeAfter, events}) {
+                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null, autoMergeAfter, events,
+                  roles = {ctwoodwa: 'admin'}}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
@@ -102,6 +104,8 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (reviews) writeFileSync(join(fix, 'reviews.json'), JSON.stringify(reviews))
     if (events) writeFileSync(join(fix, 'events.json'), JSON.stringify(events))
+    // roles is each person's role on the repository, as GitHub's permission read gives it; anyone not listed can't be read.
+    for (const [login, role_name] of Object.entries(roles)) writeFileSync(join(fix, `role-${login}.json`), JSON.stringify({role_name}))
     // Statuses as the listing returns them, newest first; each was set by the workflows unless a case says otherwise.
     const asListed = list => JSON.stringify(list.map(s => ({creator: {login: 'github-actions[bot]'}, ...s})))
     if (status) writeFileSync(join(fix, 'statuses.json'), asListed(status))
@@ -225,6 +229,25 @@ test('a Claude ESCALATE passes when a person turned auto-merge on', () => {
     autoMerge: armedBy('ctwoodwa', 'User')})
   assert.equal(g.state, 'success', g.out)
   assert.equal(g.desc, 'Passed by Codex; Claude escalated, Codex security review clean')
+})
+
+// Codex security review on app #98: GitHub lets anyone with write access arm auto-merge, so a person counts only
+// with the admin or maintain role, and a role that can't be read holds the PR.
+test('a Claude ESCALATE holds a PR that a person without the maintain role armed', () => {
+  const comments = codexState({code: 'clean', security: 'clean'})
+  const escalated = {files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments}
+  const g = runGate({...escalated, autoMerge: armedBy('helper', 'User'), roles: {helper: 'write'}})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude escalated after helper armed auto-merge; turn it off and queue the PR yourself')
+  const unread = runGate({...escalated, autoMerge: armedBy('helper', 'User'), roles: {}})
+  assert.equal(unread.state, 'failure', unread.out)
+  const failing = runGate({...escalated, autoMerge: armedBy('ctwoodwa', 'User'), fail: 'collaborators'})
+  assert.equal(failing.state, 'failure', failing.out)
+  const maintainer = runGate({...escalated, autoMerge: armedBy('keeper', 'User'), roles: {keeper: 'maintain'}})
+  assert.equal(maintainer.state, 'success', maintainer.out)
+  // A Claude PASS doesn't look at who armed it.
+  const passed = runGate({files: ['src/App.cs'], status: claudeSays('PASS'), autoMerge: armedBy('helper', 'User'), roles: {}})
+  assert.equal(passed.state, 'success', passed.out)
 })
 
 test('auto-merge an app armed does not hold a PR Claude passed', () => {
@@ -381,6 +404,11 @@ test('an escalated pass is taken back when an app arms auto-merge while the gate
   assert.deepEqual(posted(runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: null})), ['success'])
   const lost = runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: 'unreadable'})
   assert.deepEqual(posted(lost), ['success', 'failure'], lost.out)
+  // A person without the maintain role arming it takes the pass back too (Codex security review on app #98).
+  const helper = {enabled_by: {login: 'helper', type: 'User'}}
+  const h = runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: helper, roles: {helper: 'write'}})
+  assert.deepEqual(posted(h), ['success', 'failure'], h.out)
+  assert.match(h.posts[1], /Claude escalated after helper armed auto-merge/)
 })
 
 // Claude review on api #497: the gate reads each status as one line, so a line break in a description, here in a

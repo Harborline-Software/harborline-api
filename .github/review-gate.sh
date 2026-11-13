@@ -125,13 +125,21 @@ done <<<"$history"
 if [ -n "$held" ] && ! [[ $claude_state == failure && $claude_verdict != ESCALATE ]]; then
   blockers+=("an earlier Claude verdict on this head still holds: $held")
 fi
-# An escalated PR lands only when a person queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
+# An escalated PR lands only when the owner queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
 # but one it armed before Claude escalated would still merge on its own, so the gate holds the PR while auto-merge
-# stands that anything but a person turned on, until the owner turns it off or queues the PR (Fable on platform
+# stands that anyone but a maintainer turned on, until the owner turns it off or queues the PR (Fable on platform
 # 492). Read from GitHub's own record of who enabled it, so a missing name holds the PR too.
+# GitHub lets anyone with write access arm auto-merge, so a person counts only with the admin or maintain role on
+# this repository, read from GitHub; a role that can't be read holds the PR (Codex security review on app #98).
+trusted_armer() {
+  local login=${1#*|} role
+  [ "${1%%|*}" = User ] && [ -n "$login" ] || return 1
+  role=$(gh api "repos/$REPO/collaborators/$login/permission" --jq '.role_name') || return 1
+  [ "$role" = admin ] || [ "$role" = maintain ]
+}
 armed=$(jq -r 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
                else "" end' <<<"$pr")
-if $escalated && [ -n "$armed" ] && [ "${armed%%|*}" != User ]; then
+if $escalated && [ -n "$armed" ] && ! trusted_armer "$armed"; then
   armed_by=${armed#*|}
   blockers+=("Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself")
 fi
@@ -405,7 +413,7 @@ posted=true
 # A new Claude verdict can still land after that check. The review workflow resets review-gate after the verdict, so
 # a reset that lands after this post replaces the pass; if the reset landed first, so did the verdict, and this read
 # finds it and takes the pass back.
-# An escalated PR's pass rests on the auto-merge read at the start; a bot or app that armed auto-merge since then
+# An escalated PR's pass rests on the auto-merge read at the start; anyone but a maintainer who armed auto-merge since then
 # would have it merge on this pass, so the PR is read again and the pass taken back, unreadable counting as armed
 # (CodeRabbit on api #497). The run that auto_merge_enabled starts holds the PR too; this only narrows the window.
 if [ "$state" = success ]; then
@@ -416,7 +424,7 @@ if [ "$state" = success ]; then
   elif $escalated; then
     armed=$(gh api "repos/$REPO/pulls/$PR" --jq 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
                                                else "" end') || armed="|unreadable"
-    if [ -n "$armed" ] && [ "${armed%%|*}" != User ]; then
+    if [ -n "$armed" ] && ! trusted_armer "$armed"; then
       armed_by=${armed#*|}
       takeback=failure; desc="Blocked: Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself"
     fi
