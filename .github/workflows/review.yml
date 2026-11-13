@@ -233,16 +233,36 @@ jobs:
             recorded=false
             echo "::warning::could not set the claude-review status"
           fi
-          gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
-            -f pr="$PR" || echo "::warning::could not start review-gate"
+          # review-gate's status on this head may be one it set for an earlier verdict, perhaps a pass. Setting it
+          # pending holds the PR until the gate reads this verdict: the run started here does, and failing that the
+          # gate's 20-minute sweep.
+          cleared=true
+          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending -f context=review-gate \
+              -f description="Waiting for review-gate to read the latest Claude review" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
+            cleared=false
+            echo "::warning::could not reset the review-gate status"
+          fi
+          started=true
+          if ! gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" \
+              --ref "${{ github.event.repository.default_branch }}" -f pr="$PR"; then
+            started=false
+            echo "::warning::could not start review-gate"
+          fi
           # Enforced, the job fails like the gate holds: on a BLOCK or no verdict. An ESCALATE is left to review-gate,
           # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
           # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
           # read. The rules are read whole before they are searched, so a failed request can't look like a match.
           # A verdict that wasn't recorded leaves an earlier one, perhaps a PASS, for the gate to read, so enforced, the
           # job fails whatever this run said.
+          # Enforced, an ESCALATE also fails unless review-gate was reset and started on this head, so a pass the gate
+          # gave an earlier verdict can't stand for it.
           if [ "$mode" = enforced ] && [ "$recorded" = false ]; then
             echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ] \
+               && { [ "$cleared" = false ] || [ "$started" = false ]; }; then
+            echo "::error::review verdict ESCALATE, and review-gate was not reset and started on $HEAD_SHA to read it"
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
             # The name is encoded, keeping its slashes, so a branch like x#y or x%y is read as itself, not as x.
