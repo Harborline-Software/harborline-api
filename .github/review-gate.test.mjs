@@ -183,6 +183,13 @@ test('a Claude ESCALATE with open Codex security findings blocks', () => {
   assert.equal(g.desc, 'Blocked: Codex security review has open findings')
 })
 
+// Claude review on Platform #492: an ESCALATE run that can't read the earlier verdict posts HELD rather than nothing.
+test('a Claude HELD blocks even when Codex passed both reviews', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('HELD'), comments: codexState({code: 'clean', security: 'clean'})})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude review: HELD (shadow, base main)')
+})
+
 // Fable risky-change pass on Platform #492: the description carries the base branch, so the verdict is read by position.
 test('a Claude BLOCK into a branch whose name contains ESCALATE still blocks', () => {
   const base = {base: 'release/ESCALATE-fix', rules: [{type: 'pull_request'}], baseLists: {risky: 'scripts/release/\n'}}

@@ -200,22 +200,31 @@ jobs:
           # A run with no verdict leaves an earlier verdict on this head in place, so a retry that times out can't
           # clear a BLOCK. Nor can an ESCALATE: a BLOCK on this head stays until a review passes it or a new head is
           # pushed, so re-running the review until it says ESCALATE gains nothing. If the earlier verdict can't be
-          # read, either run posts nothing rather than risk overwriting a BLOCK.
+          # read, a run with no verdict posts nothing, and an ESCALATE posts HELD: a failure with no verdict word, so
+          # review-gate holds the PR, it can't overwrite a BLOCK with a weaker verdict, and the ESCALATE isn't lost.
+          # Later ESCALATE runs keep a HELD as they keep a BLOCK.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
           if [ "$st" = error ] || [ "$verdict" = ESCALATE ]; then
             if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" --paginate \
                  --jq '.statuses[] | select(.context == "claude-review") | "\(.state)|\(.description // "")"'); then
               if [ "$st" = error ] && [ -n "$prior" ]; then st=keep; fi
-              if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* ]]; then st=keep; fi
+              if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* \
+                   || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; fi
+            elif [ "$verdict" = ESCALATE ]; then
+              st=held
             else
               st=keep
             fi
+          fi
+          desc="Claude review: $verdict ($mode, base $BASE_REF)"
+          if [ "$st" = held ]; then
+            st=failure; desc="Claude review: HELD (ESCALATE, earlier verdict unreadable; $mode, base $BASE_REF)"
           fi
           if [ "$st" = keep ]; then
             echo "Leaving the earlier claude-review status on $HEAD_SHA as it is ($verdict this run)"
           else
             gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
-              -f description="Claude review: $verdict ($mode, base $BASE_REF)" \
+              -f description="$desc" \
               -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
               || echo "::warning::could not set the claude-review status"
           fi
