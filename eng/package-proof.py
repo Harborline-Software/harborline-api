@@ -81,7 +81,7 @@ def consume(directory, version):
     packages = inventory(directory, version)
     source = identity(version)
     with tempfile.TemporaryDirectory(prefix='harborline-package-consumer-') as temporary:
-        scratch = Path(temporary)
+        scratch = Path(temporary).resolve()
         consumer = scratch / 'consumer'
         shutil.copytree(ROOT / 'tests/package-consumer', consumer,
                         ignore=shutil.ignore_patterns('bin', 'obj'))
