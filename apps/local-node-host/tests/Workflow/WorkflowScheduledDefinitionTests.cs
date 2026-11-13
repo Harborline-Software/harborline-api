@@ -249,6 +249,61 @@ public sealed class WorkflowScheduledDefinitionTests
         }
     }
 
+    [Fact]
+    public async Task Refused_occurrence_does_not_let_a_later_occurrence_advance_its_cursor()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "workflow-t1180-cursor-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var clock = new MutableClock(new DateTimeOffset(2026, 1, 7, 0, 0, 0, TimeSpan.Zero));
+            await using var search = await SearchTestStore.CreateAsync();
+            await using (var identity = search.CreateInstallationIdentityContext())
+                await identity.Database.MigrateAsync();
+            await using var provider = NewProvider(Path.Combine(directory, "node.db"), clock, search.Factory);
+            var factory = provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+            await using (var context = await factory.CreateDbContextAsync())
+                await context.Database.EnsureCreatedAsync();
+            var store = provider.GetRequiredService<IWorkflowStore>();
+            foreach (var (id, start) in new[] { ("SCHED-A", "2026-01-06"), ("SCHED-B", "2026-01-07") })
+                await store.CreateInstanceAsync(new WorkflowInstanceRecord
+                {
+                    Id = "recurring-generation:" + id, TenantId = "local", DefinitionKey = "recurring-generation",
+                    DefinitionVersion = "1.0.0", CurrentStep = "waiting", Status = WorkflowStatus.Running,
+                    StateJson = $$"""{"scheduleId":"{{id}}","amount":1,"rrule":"FREQ=DAILY","startsOn":"{{start}}","timezone":"UTC"}""",
+                }, clock.UtcNow);
+            var source = new NodeRecurringScheduleSource(factory, provider.GetRequiredService<IRruleExpansionService>());
+            var dispatcher = new WorkflowTriggerDispatcher(store, [new CursorHandler()]);
+            var deny = true;
+            var daemon = new WorkflowScheduleDaemon(source, dispatcher, clock, NullLogger<WorkflowScheduleDaemon>.Instance,
+                authorizationGate: TestAuthorization.Gate(request => !deny || request.Target.RecordId != "JE-76656cda64fd5cecab4e9e4ce71a4ca2"),
+                store: store);
+
+            await daemon.TickAsync();
+            Assert.Equal("waiting", (await store.LoadAsync("recurring-generation:SCHED-A"))!.CurrentStep);
+            Assert.Equal("generate@2026-01-07", (await store.LoadAsync("recurring-generation:SCHED-B"))!.CurrentStep);
+            Assert.Contains((await source.GetDueTriggersAsync(clock.UtcNow)), t => t.InstanceId == "recurring-generation:SCHED-A" && t.Step == "generate@2026-01-06");
+            deny = false;
+            await daemon.TickAsync();
+            Assert.Equal("generate@2026-01-07", (await store.LoadAsync("recurring-generation:SCHED-A"))!.CurrentStep);
+            await using var verify = await factory.CreateDbContextAsync();
+            Assert.Equal(new[] { "generate@2026-01-06", "generate@2026-01-07" },
+                await verify.Set<WorkflowStepIdempotencyRecord>().Where(r => r.InstanceId == "recurring-generation:SCHED-A")
+                    .OrderBy(r => r.Step).Select(r => r.Step).ToArrayAsync());
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private sealed class CursorHandler : IWorkflowStepHandler
+    {
+        public string DefinitionKey => "recurring-generation";
+        public ValueTask<WorkflowStepOutcome> DecideAsync(WorkflowInstanceRecord instance, WorkflowTrigger trigger, CancellationToken ct = default)
+            => ValueTask.FromResult(WorkflowStepOutcome.Advance(trigger.Step));
+    }
+
     private sealed class OrderedScheduleSource(IWorkflowScheduleSource inner) : IWorkflowScheduleSource
     {
         public List<string[]> Reads { get; } = [];

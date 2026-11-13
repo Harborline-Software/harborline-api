@@ -47,6 +47,7 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
     private readonly AuthorizationGate? _authorizationGate;
     private readonly IWorkflowStore? _store;
     private readonly IWorkflowDefinitionExecutionStore? _definitions;
+    private readonly Dictionary<(string InstanceId, string RefusalType), RefusalLogState> _refusalLogs = new();
 
     /// <summary>The narrow principal used only for independently initiated workflow schedule acts.</summary>
     public const string SchedulerPrincipal = Harborline.Api.Blocks.AccessGrant.AccessGrantAuthorizationSeed.SchedulerPrincipal;
@@ -108,9 +109,13 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
         var admitted = AdmittedInstant.Read(_time);
         var at = admitted.Value;
         var due = await _source.GetDueTriggersAsync(at, ct).ConfigureAwait(false);
+        var refusedInstances = new HashSet<string>(StringComparer.Ordinal);
+        var seenRefusals = new HashSet<(string InstanceId, string RefusalType)>();
         foreach (var trigger in due)
         {
             ct.ThrowIfCancellationRequested();
+            if (refusedInstances.Contains(trigger.InstanceId))
+                continue;
             try
             {
                 if (_authorizationGate is null || _store is null)
@@ -162,11 +167,59 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
             }
             catch (Exception ex) when (ex is AuthorizationDeniedException or WorkflowGateUnenforcedException or WorkflowAdmissionException)
             {
-                _logger.LogWarning(ex,
-                    "Workflow schedule trigger {Step} for instance {InstanceId} refused ({RefusalType}); skipping for this tick.",
-                    trigger.Step, trigger.InstanceId, ex.GetType().Name);
+                refusedInstances.Add(trigger.InstanceId);
+                var key = (trigger.InstanceId, ex.GetType().Name);
+                seenRefusals.Add(key);
+                LogRefusal(key, trigger.Step, ex, at);
             }
         }
+        foreach (var key in _refusalLogs.Keys.Where(key => !seenRefusals.Contains(key)).ToArray())
+        {
+            var state = _refusalLogs[key];
+            if (state.Pending > 0)
+                WriteRefusal(key, state.Step, state.Error, state.Pending);
+            _refusalLogs.Remove(key);
+        }
+    }
+
+    private void LogRefusal((string InstanceId, string RefusalType) key, string step, Exception error, DateTimeOffset at)
+    {
+        if (!_refusalLogs.TryGetValue(key, out var state))
+        {
+            state = new RefusalLogState(at, step, error);
+            _refusalLogs.Add(key, state);
+        }
+        state.Step = step;
+        state.Error = error;
+        if (state.Immediate < 2)
+        {
+            state.Immediate++;
+            WriteRefusal(key, step, error, 1);
+        }
+        else
+        {
+            state.Pending++;
+            if (at - state.WindowStart >= TimeSpan.FromHours(1))
+            {
+                WriteRefusal(key, step, error, state.Pending);
+                state.Pending = 0;
+                state.WindowStart = at;
+            }
+        }
+    }
+
+    private void WriteRefusal((string InstanceId, string RefusalType) key, string step, Exception error, long count)
+        => _logger.LogWarning(error,
+            "Workflow schedule trigger {Step} for instance {InstanceId} refused ({RefusalType}) {RefusalCount} time(s); skipping for this tick.",
+            step, key.InstanceId, key.RefusalType, count);
+
+    private sealed class RefusalLogState(DateTimeOffset windowStart, string step, Exception error)
+    {
+        public DateTimeOffset WindowStart { get; set; } = windowStart;
+        public string Step { get; set; } = step;
+        public Exception Error { get; set; } = error;
+        public int Immediate { get; set; }
+        public long Pending { get; set; }
     }
 
     private static string JournalIdFor(WorkflowInstanceRecord instance, WorkflowTrigger trigger)

@@ -58,15 +58,55 @@ public sealed class WorkflowScheduleDaemonRefusalTests
         dispatcher.Cancel = true;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => daemon.TickAsync());
         Assert.Equal(new[] { "first", "third", "first", "third" }, dispatcher.Advanced);
+        var unexpected = new RecordingDispatcher("unexpected");
+        var control = new WorkflowScheduleDaemon(source, unexpected, TimeProvider.System, new ScheduleLog());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => control.TickAsync());
+        Assert.Equal(new[] { "first" }, unexpected.Advanced);
+    }
+
+    [Fact]
+    public async Task Repeated_refusals_are_counted_and_reported_without_warning_on_every_tick()
+    {
+        var source = Substitute.For<IWorkflowScheduleSource>();
+        source.GetDueTriggersAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<WorkflowTrigger>>(
+            [WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "middle", "daily-middle", DateTimeOffset.UnixEpoch)]));
+        var dispatcher = new RecordingDispatcher("gate");
+        var log = new ScheduleLog();
+        var clock = new MutableClock();
+        var daemon = new WorkflowScheduleDaemon(source, dispatcher, clock, log);
+        for (var i = 0; i < 5; i++)
+        {
+            await daemon.TickAsync();
+            clock.Now = clock.Now.AddSeconds(30);
+        }
+        Assert.Equal(2, log.Entries.Count);
+        clock.Now = DateTimeOffset.UnixEpoch.AddHours(1);
+        await daemon.TickAsync();
+        Assert.Equal(3, log.Entries.Count);
+        Assert.Contains("middle", log.Entries[2].Message);
+        Assert.Contains("daily-middle", log.Entries[2].Message);
+        Assert.Contains("WorkflowGateUnenforcedException", log.Entries[2].Message);
+        Assert.Contains("4", log.Entries[2].Message);
+        Assert.Equal(6, dispatcher.Attempts);
+        Assert.Empty(dispatcher.Advanced);
+    }
+
+    private sealed class MutableClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = DateTimeOffset.UnixEpoch;
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 
     private sealed class RecordingDispatcher(string kind) : IWorkflowTriggerDispatcher
     {
         public List<string> Advanced { get; } = [];
         public bool Cancel { get; set; }
+        public int Attempts { get; private set; }
         public Task<WorkflowDispatchResult> DispatchAsync(WorkflowTrigger trigger, CancellationToken ct = default)
         {
+            Attempts++;
             if (Cancel) throw new OperationCanceledException();
+            if (trigger.InstanceId == "middle" && kind == "unexpected") throw new InvalidOperationException("unexpected");
             if (trigger.InstanceId == "middle" && kind == "gate") throw new WorkflowGateUnenforcedException("gate");
             if (trigger.InstanceId == "middle" && kind == "admission") throw new WorkflowAdmissionException(new WorkflowAdmissionResult
             {
