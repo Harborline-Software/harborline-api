@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.Workflow.Durable;
+using Harborline.Api.Blocks.Workflow.Interpreter;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
@@ -110,52 +111,61 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
         foreach (var trigger in due)
         {
             ct.ThrowIfCancellationRequested();
-            if (_authorizationGate is null || _store is null)
+            try
             {
-                // Direct-construction typed-handler tests may omit authorization dependencies. Declarative
-                // production composition supplies both; its dispatcher refuses this legacy overload.
-                await _dispatcher.DispatchAsync(trigger, ct).ConfigureAwait(false);
-                continue;
-            }
+                if (_authorizationGate is null || _store is null)
+                {
+                    // Direct-construction typed-handler tests may omit authorization dependencies. Declarative
+                    // production composition supplies both; its dispatcher refuses this legacy overload.
+                    await _dispatcher.DispatchAsync(trigger, ct).ConfigureAwait(false);
+                    continue;
+                }
 
-            var instance = await _store.LoadAsync(trigger.InstanceId, ct).ConfigureAwait(false);
-            if (instance is null)
-            {
-                await _dispatcher.DispatchAsync(trigger, ct).ConfigureAwait(false);
-                continue;
-            }
+                var instance = await _store.LoadAsync(trigger.InstanceId, ct).ConfigureAwait(false);
+                if (instance is null)
+                {
+                    await _dispatcher.DispatchAsync(trigger, ct).ConfigureAwait(false);
+                    continue;
+                }
 
-            // The tick's one server clock sample drives due evaluation, decisions and downstream stamps.
-            var authority = new AuthorizationWriteContext(
-                new ActorId(SchedulerPrincipal),
-                new TenantId(instance.TenantId),
-                admitted);
-            var workflowDecision = await _authorizationGate.DecideAsync(
-                authority.Request(
-                    AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite),
-                    "record",
-                    instance.Id),
-                ct).ConfigureAwait(false);
-            workflowDecision.RequireAllowed();
-
-            AuthorizationDecision? ledgerDecision = null;
-            if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
-                || await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
-            {
-                var journalId = JournalIdFor(instance, trigger);
-                ledgerDecision = await _authorizationGate.DecideAsync(
+                // The tick's one server clock sample drives due evaluation, decisions and downstream stamps.
+                var authority = new AuthorizationWriteContext(
+                    new ActorId(SchedulerPrincipal),
+                    new TenantId(instance.TenantId),
+                    admitted);
+                var workflowDecision = await _authorizationGate.DecideAsync(
                     authority.Request(
-                        AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
-                        "journal-entry",
-                        journalId),
+                        AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite),
+                        "record",
+                        instance.Id),
                     ct).ConfigureAwait(false);
-                ledgerDecision.RequireAllowed();
-            }
+                workflowDecision.RequireAllowed();
 
-            await _dispatcher.DispatchAsync(
-                trigger,
-                new WorkflowDispatchAuthority(workflowDecision, ledgerDecision),
-                ct).ConfigureAwait(false);
+                AuthorizationDecision? ledgerDecision = null;
+                if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
+                    || await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
+                {
+                    var journalId = JournalIdFor(instance, trigger);
+                    ledgerDecision = await _authorizationGate.DecideAsync(
+                        authority.Request(
+                            AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
+                            "journal-entry",
+                            journalId),
+                        ct).ConfigureAwait(false);
+                    ledgerDecision.RequireAllowed();
+                }
+
+                await _dispatcher.DispatchAsync(
+                    trigger,
+                    new WorkflowDispatchAuthority(workflowDecision, ledgerDecision),
+                    ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is AuthorizationDeniedException or WorkflowGateUnenforcedException or WorkflowAdmissionException)
+            {
+                _logger.LogWarning(ex,
+                    "Workflow schedule trigger {Step} for instance {InstanceId} refused ({RefusalType}); skipping for this tick.",
+                    trigger.Step, trigger.InstanceId, ex.GetType().Name);
+            }
         }
     }
 

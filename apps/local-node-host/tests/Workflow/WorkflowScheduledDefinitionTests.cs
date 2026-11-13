@@ -174,7 +174,7 @@ public sealed class WorkflowScheduledDefinitionTests
             }, clock.UtcNow);
             clock.UtcNow = clock.UtcNow.AddDays(1);
 
-            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => daemon.TickAsync());
+            await daemon.TickAsync();
 
             var denied = await instances.LoadAsync("revoked-scheduler-instance");
             Assert.Equal(WorkflowStatus.Running, denied!.Status);
