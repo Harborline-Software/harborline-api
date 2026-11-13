@@ -493,6 +493,67 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         Assert.True(plan.Succeeded, plan.FailureReason);
     }
 
+    [Fact]
+    public async Task ProductionSponsorCarriesRevocationAndJoinerDoesNotTrustRevokedMember()
+    {
+        var a = NewNode("receipt-sponsor", "receipt-team");
+        var b = NewNode("receipt-joiner", "receipt-joiner-team");
+        var guest = NewNode("revoked-guest", "guest-team");
+        var issued = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var withGuest = a.Roster.Current.Admit(a.PartyId, a.Signer.Signer, guest.PartyId,
+            guest.Signer.Signer.IssuerId, PermissionSet.Empty, Verifier, issued.AddSeconds(-2), Guid.NewGuid());
+        var (revokedRoster, revocation) = withGuest.SignRevoke(a.PartyId, a.Signer.Signer, guest.PartyId,
+            Verifier, issued.AddSeconds(-1), Guid.NewGuid());
+        var guestKey = guest.TransportKeyForTeam(a.Roster.Current.TeamId);
+        a.Roster.AdmitPeer(revokedRoster, guest.PartyId, guestKey);
+        var directory = Path.Combine(Path.GetTempPath(), $"harborline-receipt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        _tempDirs.Add(directory);
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<NodeLocalRosterDbContext>(options =>
+            options.UseSqlite($"Data Source={Path.Combine(directory, "roster.db")};Pooling=False"));
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        var genesis = a.Roster.Current.EnumerateAdmissions().Single(x => x.Admission.IsGenesis);
+        var stored = RosterRecordCrdtState.FromAdmission(genesis)
+            .AttestReceipt(a.Signer.Signer, a.PartyId, EnrollmentTimeFixture.At);
+        await using (var write = await factory.CreateDbContextAsync())
+        {
+            await write.Database.EnsureCreatedAsync();
+            var row = NodeRosterRecord.FromCrdtState(stored);
+            write.Set<NodeRosterRecord>().Add(row);
+            write.Set<NodeRosterRecord>().Add(NodeRosterRecord.FromCrdtState(
+                RosterRecordCrdtState.FromRevocation(revocation).AttestReceipt(a.Signer.Signer, a.PartyId, issued)));
+            await write.SaveChangesAsync();
+        }
+        await using var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(),
+            factory, Verifier, a.Signer.Signer, NullLogger<RosterCrdtProjection>.Instance, a.Roster);
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default);
+        Assert.NotEqual(EnrollmentTimeFixture.At, projection.Snapshot().Single().ReceiveAttestationOrNull()!.ReceivedAt);
+
+        var teamServices = new ServiceCollection();
+        teamServices.AddSingleton<INodeIdentityProvider>(new InMemoryNodeIdentityProvider(a.TeamScopedIdentity(a.Roster.Current.TeamId)));
+        await using var teamProvider = teamServices.BuildServiceProvider();
+        var active = Substitute.For<IActiveTeamAccessor>();
+        active.Active.Returns(new TeamContext(new TeamId(a.Roster.Current.TeamId), "receipt team", teamProvider, TimeProvider.System));
+        var audit = Substitute.For<IEnrollmentCompensatingControlRecorder>();
+        audit.Within(Arg.Any<object>()).Returns(audit);
+        var admitter = new WireEnrollmentAdmitter(a.Coordinator, a.Roster, a.Signer.Signer, a.PartyId,
+            Verifier, projection, audit, active);
+        var invite = a.Coordinator.CreateInvite(TeamTrustAnchor.FromRoster(a.Roster.Current));
+        var at = TimeProvider.System.GetUtcNow();
+        var request = WireEnrollment.BuildRequest(invite.TokenId, b.PartyId,
+            b.TransportKeyForTeam(a.Roster.Current.TeamId), b.Signer.Signer, at, Guid.NewGuid());
+        var result = await admitter.AdmitAsync(request, default);
+        Assert.True(result.Accepted, result.RejectReason);
+        Assert.Single(result.Response!.Revocations);
+        var plan = WireEnrollment.ValidateAndPlanAdoption(result.Response, TeamTrustAnchor.FromRoster(a.Roster.Current),
+            b.Signer.Signer.IssuerId, b.PartyId, Verifier, null, at, TimeSpan.FromSeconds(30));
+        Assert.True(plan.Succeeded, plan.FailureReason);
+        Assert.False(plan.Roster!.Contains(guest.PartyId));
+        Assert.DoesNotContain(plan.TransportKeysByParty, entry => entry.Key == guest.PartyId);
+    }
+
     private sealed class EnrollmentTimeFixture : IDisposable
     {
         internal static readonly DateTimeOffset At = DateTimeOffset.Parse("2026-11-11T12:00:00Z");
