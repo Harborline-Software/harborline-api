@@ -13,7 +13,7 @@
 //
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync} from 'node:child_process'
-import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
+import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {planFlakeRetries, REGISTERED_FLAKE_COUNT} from './flake-registry.mjs'
@@ -90,7 +90,7 @@ for (const [name, relative] of Object.entries(BASELINES)) {
 const hostBaseline = JSON.parse(baselineInputs.host)
 const capabilityBaseline = JSON.parse(baselineInputs.capability)
 
-const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
+const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-')))
 const clone = path.join(scratch, 'clone')
 let retainScratch = false
 let knownTestsWriteRefused = false
@@ -170,11 +170,12 @@ try {
   if (!headStep.passed) throw new Error('Exact-clone HEAD differs from captured HEAD; see stage evidence')
   // Resolve once before restore/build. Keep approval as parent-owned state even
   // when a failed query leaves an inherited override available to the build.
+  process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
+  mkdirSync(process.env.NUGET_PACKAGES)
   packageRootResolution = observeNuGetRoot({cwd: clone})
   if (packageRootResolution.status !== 'resolved') {
     console.error('compiler package root unavailable; input observation remains incomplete')
   }
-
   // Sanity: the clone must carry no build or dependency artifacts. If it does, the .gitignore is
   // wrong and this gate would be testing the same ambient state it exists to exclude.
   const tracked = execFileSync('git', ['-C', clone, 'ls-files'], {encoding: 'utf8', maxBuffer: 1e9}).split('\n')
@@ -188,11 +189,6 @@ try {
     'eng/tests/exact-clone-frozen-install.test.mjs'], clone)
   const feedStep = run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   const feedHandoff = handoffRestored(feedStep, process.env)
-  if (feedHandoff) {
-    process.env.NUGET_PACKAGES = path.join(scratch, 'nuget-packages')
-    mkdirSync(process.env.NUGET_PACKAGES)
-    packageRootResolution = observeNuGetRoot({cwd: clone})
-  }
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   if (feedHandoff && !run('platform-feed-consumption', process.execPath,
     ['eng/platform-feed-consumption.mjs', clone, process.env.NUGET_PACKAGES], clone).passed)
@@ -611,6 +607,7 @@ try {
     coverage: collectCoverage, quality: qualityEnabled, packageRootResolution})
   // Preserve captured command output before removing scratch, including an aborted report.
   persisted = persistStepEvidence({report, apiRoot, redactEvidence})
+  if (retainScratch) rmSync(path.join(scratch, 'nuget-packages'), {recursive: true, force: true})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
 }
 
