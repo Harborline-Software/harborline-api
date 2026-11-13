@@ -206,6 +206,7 @@ jobs:
           # review-gate holds the PR, it can't overwrite a BLOCK with a weaker verdict, and the ESCALATE isn't lost.
           # Later ESCALATE runs keep a HELD as they keep a BLOCK.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
+          held_before=false
           if [ "$st" = error ] || [ "$verdict" = ESCALATE ]; then
             # Only a verdict this workflow set counts, as in review-gate; the listing is newest first.
             if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
@@ -214,7 +215,7 @@ jobs:
               prior=${prior%%$'\n'*}
               if [ "$st" = error ] && [ -n "$prior" ]; then st=keep; fi
               if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* \
-                   || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; fi
+                   || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; held_before=true; fi
             elif [ "$verdict" = ESCALATE ]; then
               st=held
             else
@@ -254,7 +255,8 @@ jobs:
             started=false
             echo "::warning::could not start review-gate"
           fi
-          # Enforced, the job fails like the gate holds: on a BLOCK or no verdict. An ESCALATE is left to review-gate,
+          # Enforced, the job fails like the gate holds: on a BLOCK or no verdict, and on an ESCALATE that kept an
+          # earlier BLOCK or HELD. Any other ESCALATE is left to review-gate,
           # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
           # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
           # read. The rules are read whole before they are searched, so a failed request can't look like a match.
@@ -264,6 +266,10 @@ jobs:
           # gave an earlier verdict can't stand for it.
           if [ "$mode" = enforced ] && [ "$recorded" = false ]; then
             echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$held_before" = true ]; then
+            # An ESCALATE that kept an earlier BLOCK or HELD fails as that verdict does (Claude review on platform 492).
+            echo "::error::review verdict ESCALATE, and the earlier BLOCK or HELD it kept on $HEAD_SHA still stands"
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ] \
                && { [ "$cleared" = false ] || [ "$started" = false ]; }; then
