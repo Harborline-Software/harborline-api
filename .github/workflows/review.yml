@@ -5,7 +5,8 @@
 #
 # Shadow: the job passes whatever the verdict until the repository variable REVIEW_ENFORCE is 'true'. Then a
 # BLOCK or a missing verdict fails it, and the ruleset can require `review` next to `verify`. An ESCALATE doesn't
-# fail it: review-gate holds that PR until Codex's security review is clean (ADR-0159).
+# fail it where the base branch's rules require review-gate, which holds that PR until Codex's security review is
+# clean (ADR-0159); where they don't, or can't be read, an ESCALATE fails it like a BLOCK.
 # The merge group passes at once, because the queued commit was reviewed on its PR head.
 #
 # Agents push as the owner, so GitHub cannot count an agent's approval. This check is the second key instead.
@@ -231,8 +232,18 @@ jobs:
           gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
             -f pr="$PR" || echo "::warning::could not start review-gate"
           # Enforced, the job fails like the gate holds: on a BLOCK or no verdict. An ESCALATE is left to review-gate,
-          # which passes it only with a clean Codex security review (ADR-0159).
-          if [ "$mode" = enforced ] && [ "$verdict" != PASS ] && [ "$verdict" != ESCALATE ]; then
+          # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
+          # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
+          # read. The rules are read whole before they are searched, so a failed request can't look like a match.
+          if [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
+            required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$BASE_REF" --paginate \
+              --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') \
+              || required=''
+            if ! grep -qx review-gate <<<"$required"; then
+              echo "::error::review verdict ESCALATE, and $BASE_REF's rules don't require review-gate to hold it"
+              exit 1
+            fi
+          elif [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
             echo "::error::review verdict $verdict"
             exit 1
           fi
