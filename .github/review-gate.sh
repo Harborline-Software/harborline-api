@@ -357,8 +357,11 @@ if [ "$state" = success ]; then
   if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
     state=pending; desc="The Claude review changed while review-gate read it; waiting for the next check"
     echo "review-gate: $desc"
+    # If this post fails, the exit handler sets review-gate to error, so the pass doesn't stay (Claude review on App #98).
+    posted=false
     gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
       -f description="$desc" -f target_url="$RUN_URL" >/dev/null
+    posted=true
   fi
 fi
 emit

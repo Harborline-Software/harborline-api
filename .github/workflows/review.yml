@@ -207,8 +207,11 @@ jobs:
           # Later ESCALATE runs keep a HELD as they keep a BLOCK.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
           if [ "$st" = error ] || [ "$verdict" = ESCALATE ]; then
-            if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" --paginate \
-                 --jq '.statuses[] | select(.context == "claude-review") | "\(.state)|\(.description // "")"'); then
+            # Only a verdict this workflow set counts, as in review-gate; the listing is newest first.
+            if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
+                 --jq '.[] | select(.context == "claude-review" and .creator.login == "github-actions[bot]")
+                       | "\(.state)|\(.description // "")"'); then
+              prior=${prior%%$'\n'*}
               if [ "$st" = error ] && [ -n "$prior" ]; then st=keep; fi
               if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* \
                    || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; fi

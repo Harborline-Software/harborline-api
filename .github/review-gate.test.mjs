@@ -13,6 +13,7 @@ const script = new URL('./review-gate.sh', import.meta.url).pathname
 // Serves repos/... reads from $FIX, one file per endpoint; a missing file reads as an empty listing. A path that
 // matches $FAIL fails, like a GitHub API error. A POST is logged to $FIX/posts. The statuses listing is served from
 // statuses-after.json, when there is one, from read $AFTER on (default the second): another status landed while the script worked.
+// The POST numbered $POST_FAIL fails, logged as FAILED.
 const stub = `#!/usr/bin/env bash
 jq_q=''; path=''; method=GET; fields=''
 while [ $# -gt 0 ]; do
@@ -27,7 +28,11 @@ while [ $# -gt 0 ]; do
 done
 p=\${path%%\\?*}
 if [ -n "\${FAIL:-}" ] && [[ $p == *$FAIL* ]]; then echo "stub gh: failing $p" >&2; exit 1; fi
-if [ "$method" = POST ]; then echo "POST $p$fields" >>"$FIX/posts"; exit 0; fi
+if [ "$method" = POST ]; then
+  n=$(( $(cat "$FIX/posts" 2>/dev/null | wc -l) + 1 ))
+  if [ "$n" = "\${POST_FAIL:-0}" ]; then echo "FAILED $p$fields" >>"$FIX/posts"; echo "stub gh: POST failed" >&2; exit 1; fi
+  echo "POST $p$fields" >>"$FIX/posts"; exit 0
+fi
 if [[ $p == repos/*/commits/*/statuses ]]; then
   echo read >>"$FIX/status-reads"
   if [ -f "$FIX/statuses-after.json" ] && [ "$(wc -l <"$FIX/status-reads")" -ge "\${AFTER:-2}" ]; then cp "$FIX/statuses-after.json" "$FIX/statuses.json"; fi
@@ -73,7 +78,7 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
-                  post = false, statusAfter, afterRead = 2}) {
+                  post = false, statusAfter, afterRead = 2, postFail = 0}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
@@ -99,7 +104,7 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     writeFileSync(join(dir, 'risky'), 'Directory.Packages.props\npackage.json\nscripts/release/\n')
     writeFileSync(join(dir, 'exempt'), '# docs that nothing builds or gates on\nSUPPORT.md\ndocs/guide/\n!docs/guide/evidence.md\n')
     const r = spawnSync('bash', [script, '1'], {encoding: 'utf8', env: {
-      ...process.env, PATH: `${bin}:${process.env.PATH}`, FIX: fix, FAIL: fail ?? '', AFTER: String(afterRead),
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, FIX: fix, FAIL: fail ?? '', AFTER: String(afterRead), POST_FAIL: String(postFail),
       GITHUB_REPOSITORY: 'o/r', DRY_RUN: post ? '' : '1', NO_GRAPHQL: '1',
       RISKY_LIST: join(dir, 'risky'), EXEMPT_LIST: join(dir, 'exempt')}})
     const m = /^PR 1 head h1: (\w+): (.*) \(claude=/m.exec(r.stdout)
@@ -227,6 +232,16 @@ test('a gate run takes its pass back when a new verdict lands between its check 
   assert.equal(g.code, 0, g.out)
   assert.deepEqual(posted(g), ['success', 'pending'], g.out)
   assert.match(g.posts[1], /The Claude review changed while review-gate read it/)
+})
+
+// Claude review on App #98: when taking the pass back fails, the gate errors rather than leave the pass standing.
+test('a gate run whose take-back fails sets review-gate to error', () => {
+  const status = [...claudeAt(1, 'PASS'), gateIs(2, 'pending', 'Waiting')]
+  const statusAfter = [...claudeAt(3, 'ESCALATE'), gateIs(2, 'pending', 'Waiting')]
+  const g = runGate({files: ['src/App.cs'], status, statusAfter, afterRead: 3, post: true, postFail: 2})
+  assert.notEqual(g.code, 0, g.out)
+  assert.deepEqual(posted(g), ['success', 'pending', 'error'], g.out)
+  assert.match(g.posts[2], /review-gate could not finish/)
 })
 
 // Claude review on Platform #492: an ESCALATE run that can't read the earlier verdict posts HELD rather than nothing.
