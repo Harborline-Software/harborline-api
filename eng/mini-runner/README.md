@@ -199,6 +199,12 @@ function at main a82e96a. This checks tools/private pins/feed; it deliberately d
 not call the focused-mode executor or represent a full-gate/coverage result.
 No Linux SDK-11 availability or basic runtime blocker was observed.
 
+User approval now covers normal publication/review/queuing of this additive PR
+and the first mini full-gate goal. There is no additional permission prerequisite
+for routine image preparation or that approved bounded run. Protected landing,
+the existing smoke sequence, actual runner admission controls and required checks
+remain execution prerequisites; no queue/protection bypass is implied.
+
 Publishing the current image and registering it on the runner remain separate
 steps; the local qualification does not authorize landing or queueing this PR.
 
