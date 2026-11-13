@@ -221,13 +221,17 @@ jobs:
           if [ "$st" = held ]; then
             st=failure; desc="Claude review: HELD (ESCALATE, earlier verdict unreadable; $mode, base $BASE_REF)"
           fi
+          # GitHub takes at most 140 characters. Cutting keeps the verdict word, and a cut PASS loses its base, so the
+          # gate doesn't count it.
+          desc=${desc:0:140}
+          recorded=true
           if [ "$st" = keep ]; then
             echo "Leaving the earlier claude-review status on $HEAD_SHA as it is ($verdict this run)"
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
+          elif ! gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
               -f description="$desc" \
-              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
-              || echo "::warning::could not set the claude-review status"
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
+            recorded=false
+            echo "::warning::could not set the claude-review status"
           fi
           gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
             -f pr="$PR" || echo "::warning::could not start review-gate"
@@ -235,7 +239,12 @@ jobs:
           # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
           # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
           # read. The rules are read whole before they are searched, so a failed request can't look like a match.
-          if [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
+          # A verdict that wasn't recorded leaves an earlier one, perhaps a PASS, for the gate to read, so enforced, the
+          # job fails whatever this run said.
+          if [ "$mode" = enforced ] && [ "$recorded" = false ]; then
+            echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
             required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$BASE_REF" --paginate \
               --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') \
               || required=''
