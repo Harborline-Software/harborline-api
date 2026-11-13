@@ -202,7 +202,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
     }
 
-    [Theory(DisplayName = "T-1034 parent acceptance: placeholder Booking definitions are refused")]
+    [Theory(DisplayName = "T-1034 kernel-core-ck-8: placeholder Booking definitions are refused")]
     [InlineData("Resource")]
     [InlineData("Bookable")]
     public async Task Placeholder_booking_definition_is_refused(string kind)

@@ -667,7 +667,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         Assert.Equal(recognized, ProducerTypes(receiver, document, [document]).Contains(type));
     }
 
-    [Theory(DisplayName = "T-1034 ticket 394: Booking refusal producer rejects shadowed or unbound calls")]
+    [Theory(DisplayName = "T-1034 DES-0014 C3: Booking refusal producer rejects shadowed or unbound calls")]
     [InlineData("", true)]
     [InlineData("var BookingDefinitionPackage = new object();", false)]
     [InlineData("using BookingDefinitionPackage = Other;", false)]
