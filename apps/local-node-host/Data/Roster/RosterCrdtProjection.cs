@@ -1060,7 +1060,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
         // T-909 ck-9: an unparseable instant is corrupt; it is refused here, never re-dated to a clock read.
-        if (!NodeRosterRecord.TryParseIssuedAt(candidate, out var issuedAt)) return "roster.record.malformed";
+        if (!NodeRosterRecord.TryParseIssuedAt(candidate, out var issuedAt)
+            || issuedAt != DateTimeOffset.FromUnixTimeMilliseconds(issuedAt.ToUnixTimeMilliseconds()))
+            return "roster.record.malformed";
         if (candidate.WireFormatVersion != RosterWireFormat.CurrentVersion)
             return RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal;
         if (candidate.UnmappedWireFields is { Count: > 0 })
@@ -1071,6 +1073,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (!RosterReceiveAttestationSigning.Verify(
                 candidate.RecordId, recordNonce, receiveAttestation, _verifier, out var attestationRefusal))
             return attestationRefusal ?? "roster.record.receive_attestation_invalid";
+        var received = receiveAttestation.ReceivedAt;
+        var window = NodeRosterRecord.ReceiveTimeWindow;
+        var lastBoundableTick = DateTimeOffset.MaxValue.Ticks - window.Ticks;
+        if (received.Ticks < window.Ticks || received.Ticks > lastBoundableTick
+            || received.UtcTicks < window.Ticks || received.UtcTicks > lastBoundableTick)
+            return "roster.record.receive_attestation_invalid";
         if (!NodeRosterRecord.IsWithinReceiveTimeWindow(issuedAt, receiveAttestation.ReceivedAt))
             return FutureOrderTimeRefusal;
         var admission = candidate.ToAdmissionOrNull();
@@ -1112,7 +1120,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
             || !AuthorityFor(chain, authority, candidate.AdmittedByPartyId, at).Contains(permission))
             return "roster.record.chain_ineligible";
-        if (!AttesterIsTrusted(chain, receiveAttestation))
+        var attesterPrefix = MemberRoster.FromSyncedRecords(
+            admissions.Where(a => a.Admission.IsGenesis || orderTime(a.Admission.Signature, a.Admission.IssuedAt) < at),
+            preceding.Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at),
+            _verifier, orderTime, authority, at);
+        if (!AttesterIsTrusted(attesterPrefix, receiveAttestation))
             return "roster.record.receive_attestation_untrusted";
         if (admission is not null && !chain.EnumerateAdmissions().Any(a =>
                 a.PartyId == admission.PartyId && a.Admission.Signature == admission.Admission.Signature))
@@ -1140,9 +1152,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             : authority?.PermissionsFor(chain.TeamId.ToString("D"), partyId, at) ?? PermissionSet.Empty;
 
     private static bool AttesterIsTrusted(MemberRoster roster, RosterReceiveAttestation attestation) =>
-        roster.EnumerateAdmissions().Any(admission =>
-            string.Equals(admission.PartyId, attestation.NodePartyId, StringComparison.Ordinal)
-            && string.Equals(admission.PublicKey.ToBase64Url(), attestation.NodePublicKey, StringComparison.Ordinal));
+        string.Equals(roster.PublicKeyOf(attestation.NodePartyId)?.ToBase64Url(), attestation.NodePublicKey,
+            StringComparison.Ordinal);
 
     private sealed record RebuildRefusal(string RecordId, AuthorizationRefusal Report, string Permission,
         ActorId Actor, TenantId Tenant, DateTimeOffset IssuedAt);
