@@ -405,10 +405,24 @@ posted=true
 # A new Claude verdict can still land after that check. The review workflow resets review-gate after the verdict, so
 # a reset that lands after this post replaces the pass; if the reset landed first, so did the verdict, and this read
 # finds it and takes the pass back.
+# An escalated PR's pass rests on the auto-merge read at the start; a bot or app that armed auto-merge since then
+# would have it merge on this pass, so the PR is read again and the pass taken back, unreadable counting as armed
+# (CodeRabbit on api #497). The run that auto_merge_enabled starts holds the PR too; this only narrows the window.
 if [ "$state" = success ]; then
   now=$(standing || echo 'claude-review|unreadable')
+  takeback=""
   if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
-    state=pending; desc="The Claude review changed while review-gate read it; waiting for the next check"
+    takeback=pending; desc="The Claude review changed while review-gate read it; waiting for the next check"
+  elif $escalated; then
+    armed=$(gh api "repos/$REPO/pulls/$PR" --jq 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
+                                               else "" end') || armed="|unreadable"
+    if [ -n "$armed" ] && [ "${armed%%|*}" != User ]; then
+      armed_by=${armed#*|}
+      takeback=failure; desc="Blocked: Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself"
+    fi
+  fi
+  if [ -n "$takeback" ]; then
+    state=$takeback
     echo "review-gate: $desc"
     # If this post fails, the exit handler sets review-gate to error, so the pass doesn't stay (Claude review on App #98).
     posted=false

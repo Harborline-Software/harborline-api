@@ -15,16 +15,17 @@ on:
   pull_request_target:
     types: [edited]
 
-concurrency:
-  group: review-retarget-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
-
 permissions:
   actions: write
 
 jobs:
   retarget:
     if: vars.ACTIONS_ENABLED == 'true' && github.event.changes.base && !github.event.pull_request.draft
+    # On the job, not the workflow: a title or body edit skips this job and so never joins the group, where it could
+    # replace a base change's run still waiting in it (CodeRabbit on app #98).
+    concurrency:
+      group: review-retarget-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

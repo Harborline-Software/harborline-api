@@ -33,6 +33,10 @@ if [ "$method" = POST ]; then
   if [ "$n" = "\${POST_FAIL:-0}" ]; then echo "FAILED $p$fields" >>"$FIX/posts"; echo "stub gh: POST failed" >&2; exit 1; fi
   echo "POST $p$fields" >>"$FIX/posts"; exit 0
 fi
+if [[ $p =~ ^repos/[^/]+/[^/]+/pulls/[0-9]+$ ]]; then
+  echo read >>"$FIX/pr-reads"
+  if [ -f "$FIX/pr-after.json" ] && [ "$(wc -l <"$FIX/pr-reads")" -ge 2 ]; then cp "$FIX/pr-after.json" "$FIX/pr.json"; fi
+fi
 if [[ $p == repos/*/commits/*/statuses ]]; then
   echo read >>"$FIX/status-reads"
   if [ -f "$FIX/statuses-after.json" ] && [ "$(wc -l <"$FIX/status-reads")" -ge "\${AFTER:-2}" ]; then cp "$FIX/statuses-after.json" "$FIX/statuses.json"; fi
@@ -78,7 +82,7 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
-                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null, events}) {
+                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null, autoMergeAfter, events}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
@@ -87,6 +91,10 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
                 base: {ref: base, sha: 'b1', repo: {default_branch: 'main'}},
                 user: {login: user}, changed_files: files.length, commits: commitCount, auto_merge: autoMerge}
     writeFileSync(join(fix, 'pr.json'), JSON.stringify(pr))
+    // autoMergeAfter is the auto-merge state every later read of the PR sees.
+    // 'unreadable' serves a broken body, so the read fails.
+    if (autoMergeAfter !== undefined) writeFileSync(join(fix, 'pr-after.json'),
+      autoMergeAfter === 'unreadable' ? '{' : JSON.stringify({...pr, auto_merge: autoMergeAfter}))
     writeFileSync(join(fix, 'pulls.json'), JSON.stringify([{number: 1, head: {sha: 'h1'}}]))
     writeFileSync(join(fix, 'files.json'), JSON.stringify(files.map(filename => ({filename}))))
     writeFileSync(join(fix, 'compare.json'), JSON.stringify({files: snapshotFiles.map(filename => ({filename})),
@@ -355,6 +363,24 @@ test('a gate run posts no pass over a status another gate run set while the Clau
   assert.equal(g.code, 0, g.out)
   assert.deepEqual(g.posts, [], g.out)
   assert.match(g.out, /review-gate left as it is: another gate run set it/)
+})
+
+// CodeRabbit on api #497: an app that arms auto-merge on an escalated PR after the gate read the PR would have it
+// merge on the gate's pass, so after posting the pass the gate reads the PR again and takes the pass back.
+test('an escalated pass is taken back when an app arms auto-merge while the gate reads the PR', () => {
+  const comments = codexState({code: 'clean', security: 'clean'})
+  const status = [...claudeAt(1, 'ESCALATE'), gateIs(2, 'pending', 'Waiting')]
+  const app = {enabled_by: {login: 'merge-app[bot]', type: 'Bot'}}
+  const g = runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: app})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(posted(g), ['success', 'failure'], g.out)
+  assert.match(g.posts[1], /Claude escalated after merge-app\[bot\] armed auto-merge/)
+  // A person arming it, or nobody, leaves the pass standing; a PR that can't be read again counts as armed.
+  const person = {enabled_by: {login: 'ctwoodwa', type: 'User'}}
+  assert.deepEqual(posted(runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: person})), ['success'])
+  assert.deepEqual(posted(runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: null})), ['success'])
+  const lost = runGate({files: ['src/App.cs'], status, comments, post: true, autoMergeAfter: 'unreadable'})
+  assert.deepEqual(posted(lost), ['success', 'failure'], lost.out)
 })
 
 // Claude review on api #497: the gate reads each status as one line, so a line break in a description, here in a
