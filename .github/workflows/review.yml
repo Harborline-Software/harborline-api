@@ -193,6 +193,8 @@ jobs:
           fi
           # The claude-review status on the reviewed head is what review-gate reads: success is PASS, failure is
           # BLOCK or ESCALATE, and error means no verdict, which review-gate counts as a review that did not run.
+          # review-gate holds a PR on a BLOCK; an ESCALATE marks it risky, so it then needs another clean review
+          # and a clean Codex security review (ADR-0159). Keep the verdict word in the description for that reason.
           # The base branch in the description binds a pass to the diff it reviewed; review-gate checks it.
           # A run with no verdict leaves an earlier verdict on this head in place, so a retry that times out can't
           # clear a BLOCK. If the earlier state can't be read, it posts nothing rather than risk overwriting one.

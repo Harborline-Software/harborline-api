@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # review-gate: one commit status on a PR's head that says whether the PR has the review PROC-0001 asks for.
 # "Review policy, 2026-11-01": one clean pass from any of the Claude review, Codex or CodeRabbit, and no
-# blocker from any reviewer that ran. A risky change also needs a clean Codex security review.
+# blocker from any reviewer that ran. A risky change also needs a clean Codex security review. A Claude ESCALATE is not a
+# blocker: it marks the PR risky, so it passes once Codex's security review is clean and another reviewer passed it
+# (ADR-0159). A Claude BLOCK still blocks.
 # "Review by risk": a change that touches only paths on the review-exempt list, or a Dependabot
 # patch or minor update that only Dependabot wrote, needs no review, as long as it touches nothing risky. A blocker
 # from a reviewer that ran still blocks.
@@ -69,9 +71,12 @@ case $claude_state in
   # review that finished after a retarget, or one given to another PR with the same head, doesn't count here.
   success) if fresh "$claude_at" && [[ $claude_desc == *", base $BASE_REF)" ]]; then passes+=("Claude")
            else stale+=("Claude"); fi ;;
-  failure) blockers+=("${claude_desc:-Claude review: not PASS}") ;;
+  # A BLOCK holds the PR. An ESCALATE does not block by itself: it makes the PR risky, so it then needs one clean pass
+  # from Codex or CodeRabbit and a clean Codex security review (ADR-0159). Any other failure, or one with no verdict
+  # in its description, still blocks.
+  failure) [[ $claude_desc == *ESCALATE* ]] || blockers+=("${claude_desc:-Claude review: not PASS}") ;;
 esac
-escalated=false; [[ $claude_desc == *ESCALATE* ]] && escalated=true
+escalated=false; [[ $claude_state == failure && $claude_desc == *ESCALATE* ]] && escalated=true
 
 # Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;, and a
 # table row per review with the time that review completed. The verdicts and their times are read from one copy of
@@ -306,6 +311,7 @@ elif $need_security; then
   state=pending; desc="Passed by ${passes[*]}; a risky change also needs a clean Codex security review"
 else
   state=success; desc="Passed by ${passes[*]}"
+  $escalated && desc="$desc; Claude escalated, Codex security review clean"
 fi
 desc=${desc:0:140}
 

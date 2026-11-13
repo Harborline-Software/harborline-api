@@ -61,7 +61,7 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // lists it carries ({risky, exempt}), served through the contents API. The env lists stand for main's checkout.
 // snapshotFiles and totalCommits are what GitHub's comparison of the PR's base and head commits holds; by default
 // it agrees with the PR's own listings.
-function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, status, fail,
+function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
@@ -76,6 +76,7 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
     writeFileSync(join(fix, 'compare.json'), JSON.stringify({files: snapshotFiles.map(filename => ({filename})),
       commits: commits ?? [], total_commits: totalCommits}))
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
+    if (reviews) writeFileSync(join(fix, 'reviews.json'), JSON.stringify(reviews))
     if (status) writeFileSync(join(fix, 'status.json'), JSON.stringify({statuses: status}))
     if (rules) writeFileSync(join(fix, 'rules.json'), JSON.stringify(rules))
     if (baseLists.risky != null) writeFileSync(join(fix, 'base-review-risky-paths'), baseLists.risky)
@@ -125,6 +126,63 @@ test('a blocker still blocks an exempt change', () => {
     status: [{context: 'claude-review', state: 'failure', updated_at: '2026-11-02T00:00:00Z', description: 'Claude review: BLOCK'}]})
   assert.equal(g.state, 'failure', g.out)
   assert.match(g.desc, /^Blocked: /)
+})
+
+// Codex's summary comment, with each review's verdict on head h1. A review given as null didn't run.
+const codexState = ({code = null, security = null}) => {
+  const review = v => v == null ? '&#123;"commit_sha":null,"status":null&#125;'
+    : `&#123;"commit_sha":"h1","has_any_findings":${v === 'dirty'},"has_unresolved_findings":${v === 'dirty'},"status":"completed"&#125;`
+  return [{user: {login: 'chatgpt-codex-connector[bot]'},
+    body: `<!-- codex-review-state:v1 &#123;"code_review":${review(code)},"security_review":${review(security)}&#125; -->`}]
+}
+const claudeSays = verdict => [{context: 'claude-review', state: verdict === 'PASS' ? 'success' : 'failure',
+  updated_at: '2026-11-02T00:00:00Z', description: `Claude review: ${verdict} (shadow, base main)`}]
+
+// ADR-0159: a Claude BLOCK holds the PR; an ESCALATE makes it risky, so it passes once Codex's security review is clean
+// and one reviewer passed it.
+test('a Claude BLOCK blocks even when Codex passed both reviews', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('BLOCK'), comments: codexState({code: 'clean', security: 'clean'})})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude review: BLOCK (shadow, base main)')
+})
+
+test('a Claude ESCALATE with no other review waits for one clean review', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE')})
+  assert.equal(g.state, 'pending', g.out)
+  assert.equal(g.desc, NEEDS_REVIEW)
+  assert.match(g.out, /risky=true/)
+})
+
+test('a Claude ESCALATE passes once Codex passes both its code and security reviews', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'clean'})})
+  assert.equal(g.state, 'success', g.out)
+  assert.equal(g.desc, 'Passed by Codex; Claude escalated, Codex security review clean')
+})
+
+test('a Claude ESCALATE with a clean pass but no clean Codex security review waits for that review', () => {
+  // CodeRabbit's approval on this head is the clean pass; Codex's security review hasn't run.
+  const approved = [{user: {login: 'coderabbitai[bot]'}, commit_id: 'h1', state: 'APPROVED', submitted_at: '2026-11-02T00:00:00Z'}]
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), reviews: approved})
+  assert.equal(g.state, 'pending', g.out)
+  assert.equal(g.desc, 'Passed by CodeRabbit; a risky change also needs a clean Codex security review')
+  // With it clean, the approval carries the PR.
+  const h = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), reviews: approved,
+    comments: codexState({security: 'clean'})})
+  assert.equal(h.state, 'success', h.out)
+  assert.equal(h.desc, 'Passed by CodeRabbit; Claude escalated, Codex security review clean')
+})
+
+test('a Claude ESCALATE with open Codex security findings blocks', () => {
+  const g = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'), comments: codexState({code: 'clean', security: 'dirty'})})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Codex security review has open findings')
+})
+
+test('a Claude failure with no verdict in its description still blocks', () => {
+  const g = runGate({files: ['src/App.cs'], comments: codexState({code: 'clean', security: 'clean'}),
+    status: [{context: 'claude-review', state: 'failure', updated_at: '2026-11-02T00:00:00Z', description: ''}]})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude review: not PASS')
 })
 
 test('a PR into a protected branch other than the default gets no exemption, but is judged by its risky list', () => {
