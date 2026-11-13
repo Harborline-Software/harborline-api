@@ -46,7 +46,8 @@ jobs:
   review:
     if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 minutes for the review, plus 10 for an enforced ESCALATE to wait for review-gate to read it.
+    timeout-minutes: 40
     steps:
       - name: Decide whether this event gets a review
         id: scope
