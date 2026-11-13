@@ -59,9 +59,11 @@ fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times s
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
 # Statuses come newest first, so the first entry per context is the one standing on the head. Each entry names who
 # set it: only the review workflow (github-actions[bot]) can give a Claude verdict, so one set by anyone else blocks.
+# A line break in a description would start a line of its own here, which could pass for a status from the workflow,
+# so each one becomes a space (Claude review on api 497).
 history=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
   | select(.context == "claude-review" or .context == "review-gate")
-  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "")"')
+  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "" | gsub("[\r\n]"; " "))"')
 statuses=$(awk -F'|' '!seen[$1]++' <<<"$history")
 latest=$(cut -d'|' -f1,2,6- <<<"$statuses")
 # Which of the two statuses this run read, by id, so it can tell before it posts whether another one landed meanwhile.
@@ -105,7 +107,9 @@ escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] &
 # - a fresh PASS for the current base clears what lies beneath it, and the read stops there;
 # - a PASS for another base, or from before a retarget, clears nothing and is read past;
 # - a BLOCK, HELD or other failure the workflow set holds the PR, whatever base it names;
-# - an ESCALATE for the current base makes the PR risky, and the read goes on for a BLOCK beneath it.
+# - an ESCALATE makes the PR risky, whatever base it names, as a standing one does, and the read goes on for a BLOCK
+#   beneath it: one from before a retarget, read past here, would otherwise leave an exempt PR needing no review
+#   (Fable on platform 492).
 # Only statuses the review workflow set count, and an error is skipped: a run with no verdict said nothing.
 held=""
 while IFS='|' read -r ctx st at by sid desc; do
@@ -113,7 +117,7 @@ while IFS='|' read -r ctx st at by sid desc; do
   current=false; [[ $desc == *", base $BASE_REF)" ]] && fresh "$at" && current=true
   case $st in
     success) $current && break ;;
-    failure) if [[ $desc == "Claude review: ESCALATE ("* ]]; then $current && escalated=true
+    failure) if [[ $desc == "Claude review: ESCALATE ("* ]]; then escalated=true
              else held=$desc; break; fi ;;
   esac
 done <<<"$history"
@@ -380,12 +384,16 @@ emit() {
 # workflow. A verdict worked out before the new claude-review landed may answer an earlier Claude review, so this run
 # posts nothing, tells the auto-merge job nothing, and leaves the PR to the run started after it, or failing that to
 # the sweep (Codex on app 98).
-# A review-gate that changed under an unchanged claude-review came from another gate run: runs of one PR share a
-# group that cancels the older one, and an older run can still post as it is cancelled. This run read everything
-# after it, so it posts over that status rather than leave it standing until the sweep (Claude review on app 98).
+# A review-gate that changed under an unchanged claude-review came from another gate run, and nothing says which run is
+# newer: runs of one PR share a group that cancels the older one, but an older run can still post as it is cancelled.
+# This run posts a hold over it, so an older run's pass doesn't stand until the sweep (Claude review on app 98), but
+# never a pass, which could replace a newer run's hold (Codex on platform 492); the sweep settles that case.
 now=$(standing)
 if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
   posted=true; echo "review-gate left as it is: the Claude review changed while this run read it"; exit 0
+fi
+if [ "$state" = success ] && [ "$(grep "^$CONTEXT|" <<<"$now" || true)" != "$(grep "^$CONTEXT|" <<<"$seen" || true)" ]; then
+  posted=true; echo "review-gate left as it is: another gate run set it while this run read the PR"; exit 0
 fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
 if [ "$now" = "$seen" ] && grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then

@@ -337,19 +337,35 @@ test('a gate run whose take-back fails sets review-gate to error', () => {
   assert.match(g.posts[2], /review-gate could not finish/)
 })
 
-// Claude review on App #98: runs of one PR cancel the older one, which can still post as it goes. A review-gate that
-// changed under an unchanged claude-review is that older run's, so the newer run posts over it.
-test('a gate run posts over a status an older gate run set while the Claude review stayed the same', () => {
+// Claude review on App #98: runs of one PR cancel the older one, which can still post as it goes. A newer run posts its
+// hold over a review-gate that changed under an unchanged claude-review, so an older run's pass doesn't stand.
+test('a gate run posts a hold over a status another gate run set while the Claude review stayed the same', () => {
   const status = [...claudeAt(1, 'ESCALATE'), gateIs(2, 'pending', 'Waiting')]
   const statusAfter = [...claudeAt(1, 'ESCALATE'), gateIs(5, 'success', 'Passed by Codex; Claude escalated, Codex security review clean')]
   const g = runGate({files: ['src/App.cs'], status, statusAfter, post: true, comments: codexState({code: 'clean', security: 'dirty'})})
   assert.equal(g.code, 0, g.out)
   assert.deepEqual(posted(g), ['failure'], g.out)
-  // Even when its verdict matches the status it first read, it posts, since that is no longer the one standing.
-  const same = runGate({files: ['src/App.cs'], post: true, status: [...claudeAt(1, 'PASS'), gateIs(2, 'success', 'Passed by Claude')],
-    statusAfter: [...claudeAt(1, 'PASS'), gateIs(5, 'failure', 'Blocked: Codex security review has open findings')]})
-  assert.equal(same.code, 0, same.out)
-  assert.deepEqual(posted(same), ['success'], same.out)
+})
+
+// Codex on platform #492: nothing says which gate run is newer, so a run never posts a pass over a review-gate another
+// run set while it read the PR; that status may be a newer run's hold. The sweep settles it.
+test('a gate run posts no pass over a status another gate run set while the Claude review stayed the same', () => {
+  const g = runGate({files: ['src/App.cs'], post: true, status: [...claudeAt(1, 'PASS'), gateIs(2, 'success', 'Passed by Claude')],
+    statusAfter: [...claudeAt(1, 'PASS'), gateIs(5, 'failure', 'Blocked: Claude escalated on an earlier base')]})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(g.posts, [], g.out)
+  assert.match(g.out, /review-gate left as it is: another gate run set it/)
+})
+
+// Claude review on api #497: the gate reads each status as one line, so a line break in a description, here in a
+// review-gate status someone posted, must not read as a Claude PASS from the workflow.
+test('a line break in a status description cannot pass for a Claude verdict', () => {
+  const forged = {context: 'review-gate', id: 9, state: 'pending', updated_at: '2026-11-03T00:00:00Z', creator: {login: 'ctwoodwa'},
+    description: 'x\nclaude-review|success|2026-11-03T00:00:00Z|github-actions[bot]|8|Claude review: PASS (shadow, base main)'}
+  const g = runGate({files: ['src/App.cs'], comments: codexState({code: 'clean', security: 'clean'}),
+    status: [forged, ...claudeAt(1, 'BLOCK')]})
+  assert.equal(g.state, 'failure', g.out)
+  assert.equal(g.desc, 'Blocked: Claude review: BLOCK (shadow, base main)')
 })
 
 // Claude review on Platform #492: an ESCALATE run that can't read the earlier verdict posts HELD rather than nothing.
@@ -394,6 +410,16 @@ test('a Claude ESCALATE on an exempt-only change still waits for a review', () =
   const g = runGate({files: ['SUPPORT.md'], status: claudeSays('ESCALATE')})
   assert.equal(g.state, 'pending', g.out)
   assert.equal(g.desc, NEEDS_REVIEW)
+  assert.match(g.out, /risky=true/)
+})
+
+// Fable on platform #492: an ESCALATE beneath a PASS for another base still makes the PR risky, even one given before a
+// retarget, so an exempt change still waits for a review and is never armed for auto-merge.
+test('a Claude ESCALATE beneath a PASS for another base still makes an exempt change wait for a review', () => {
+  const g = runGate({files: ['SUPPORT.md'], status: [...claudeAt(2, 'PASS').map(s => ({...s, description: 'Claude review: PASS (shadow, base develop)'})),
+    ...claudeAt(1, 'ESCALATE')], events: [{event: 'base_ref_changed', created_at: '2026-11-03T00:00:00Z'}]})
+  assert.equal(g.state, 'pending', g.out)
+  assert.equal(g.desc, 'Waiting for a clean review of the current base (Claude reviewed an earlier one)')
   assert.match(g.out, /risky=true/)
 })
 

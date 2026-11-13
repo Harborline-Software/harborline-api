@@ -219,7 +219,7 @@ jobs:
             # Only a verdict this workflow set counts, as in review-gate; the listing is newest first.
             if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
                  --jq '.[] | select(.context == "claude-review" and .creator.login == "github-actions[bot]")
-                       | "\(.state)|\(.description // "")"'); then
+                       | "\(.state)|\(.description // "" | gsub("[\r\n]"; " "))"'); then
               if [ "$st" = error ] && [ -n "${prior%%$'\n'*}" ]; then st=keep; fi
               # An ESCALATE keeps any BLOCK or HELD on this head back to the last PASS for this base: a PASS given to
               # another PR with the same head, for another base, doesn't clear it (Fable on platform 492).
@@ -319,7 +319,7 @@ jobs:
             for _ in $(seq 40); do
               sleep 15
               gate=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
-                --jq '.[] | select(.context == "review-gate") | "\(.id)|\(.state)|\(.creator.login // "")|\(.description // "")"') \
+                --jq '.[] | select(.context == "review-gate") | "\(.id)|\(.state)|\(.creator.login // "")|\(.description // "" | gsub("[\r\n]"; " "))"') \
                 || continue
               IFS='|' read -r gate_id gate_state gate_by gate_desc <<<"$gate"
               [ "$gate_id" != "$reset_id" ] && [ "$gate_by" = 'github-actions[bot]' ] || continue
