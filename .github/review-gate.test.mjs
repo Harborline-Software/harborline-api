@@ -78,7 +78,7 @@ const dependabotCommit = (message = dependabotMessage('version-update:semver-pat
 // stub serves from statuses read afterRead on (default the second).
 function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.length ?? 0, comments, reviews, status, fail,
                   base = 'main', rules, baseLists = {}, snapshotFiles = files, totalCommits = commitCount,
-                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null}) {
+                  post = false, statusAfter, afterRead = 2, postFail = 0, autoMerge = null, events}) {
   const dir = mkdtempSync(join(tmpdir(), 'review-gate-'))
   try {
     const bin = join(dir, 'bin'); const fix = join(dir, 'fix'); mkdirSync(bin); mkdirSync(fix)
@@ -93,6 +93,7 @@ function runGate({user = 'ctwoodwa', files, commits, commitCount = commits?.leng
       commits: commits ?? [], total_commits: totalCommits}))
     if (comments) writeFileSync(join(fix, 'comments.json'), JSON.stringify(comments))
     if (reviews) writeFileSync(join(fix, 'reviews.json'), JSON.stringify(reviews))
+    if (events) writeFileSync(join(fix, 'events.json'), JSON.stringify(events))
     // Statuses as the listing returns them, newest first; each was set by the workflows unless a case says otherwise.
     const asListed = list => JSON.stringify(list.map(s => ({creator: {login: 'github-actions[bot]'}, ...s})))
     if (status) writeFileSync(join(fix, 'statuses.json'), asListed(status))
@@ -230,6 +231,41 @@ test('a Claude ESCALATE with open Codex security findings blocks', () => {
   assert.equal(g.desc, 'Blocked: Codex security review has open findings')
 })
 
+// Codex on App #98: an earlier version of the review workflow could post an ESCALATE over a BLOCK on the same head, so
+// the gate reads back to the last PASS. Only the workflow's own failures count; an error (no verdict) says nothing.
+test('a Claude ESCALATE over an earlier BLOCK or HELD on the same head still blocks', () => {
+  const clean = codexState({code: 'clean', security: 'clean'})
+  for (const earlier of ['BLOCK', 'HELD']) {
+    const g = runGate({files: ['src/App.cs'], comments: clean, status: [...claudeAt(3, 'ESCALATE'), ...claudeAt(2, earlier)]})
+    assert.equal(g.state, 'failure', `${earlier}: ${g.out}`)
+    assert.equal(g.desc, `Blocked: an earlier Claude verdict on this head still holds: Claude review: ${earlier} (shadow, base main)`)
+  }
+  // A PASS after the BLOCK cleared it, a BLOCK someone else set never counted, and an error carries no verdict.
+  for (const [name, history] of [
+    ['PASS after BLOCK', [...claudeAt(3, 'ESCALATE'), ...claudeAt(2, 'PASS'), ...claudeAt(1, 'BLOCK')]],
+    ['forged BLOCK', [...claudeAt(3, 'ESCALATE'), ...claudeAt(2, 'BLOCK').map(s => ({...s, creator: {login: 'ctwoodwa'}}))]],
+    ['error', [...claudeAt(3, 'ESCALATE'), {context: 'claude-review', id: 2, state: 'error', updated_at: '2026-11-02T00:00:00Z',
+      description: 'Claude review: no verdict'}]],
+  ]) {
+    const g = runGate({files: ['src/App.cs'], comments: clean, status: history})
+    assert.equal(g.state, 'success', `${name}: ${g.out}`)
+    assert.equal(g.desc, 'Passed by Codex; Claude escalated, Codex security review clean', name)
+  }
+})
+
+// Claude review on api #497: an ESCALATE, like a pass, speaks only for the base it reviewed.
+test('a Claude ESCALATE given for another base, or before a retarget, blocks until the new base is reviewed', () => {
+  const clean = codexState({code: 'clean', security: 'clean'})
+  const other = runGate({files: ['src/App.cs'], comments: clean, status: claudeSays('ESCALATE', 'develop')})
+  assert.equal(other.state, 'failure', other.out)
+  assert.equal(other.desc, 'Blocked: Claude escalated on an earlier base; waiting for a review of the current base')
+  assert.match(other.out, /risky=true/)
+  const retargeted = runGate({files: ['src/App.cs'], status: claudeSays('ESCALATE'),
+    events: [{event: 'base_ref_changed', created_at: '2026-11-03T00:00:00Z'}]})
+  assert.equal(retargeted.state, 'failure', retargeted.out)
+  assert.equal(retargeted.desc, 'Blocked: Claude escalated on an earlier base; waiting for a review of the current base')
+})
+
 // Codex on App #98: the review workflow sets a new claude-review, resets review-gate to pending, then starts a gate run.
 // A run that read the statuses before those writes must not leave its pass standing for a verdict it never read.
 const gateIs = (id, state, description) => ({context: 'review-gate', id, state, updated_at: '2026-11-02T00:00:00Z', description})
@@ -270,6 +306,21 @@ test('a gate run whose take-back fails sets review-gate to error', () => {
   assert.notEqual(g.code, 0, g.out)
   assert.deepEqual(posted(g), ['success', 'pending', 'error'], g.out)
   assert.match(g.posts[2], /review-gate could not finish/)
+})
+
+// Claude review on App #98: runs of one PR cancel the older one, which can still post as it goes. A review-gate that
+// changed under an unchanged claude-review is that older run's, so the newer run posts over it.
+test('a gate run posts over a status an older gate run set while the Claude review stayed the same', () => {
+  const status = [...claudeAt(1, 'ESCALATE'), gateIs(2, 'pending', 'Waiting')]
+  const statusAfter = [...claudeAt(1, 'ESCALATE'), gateIs(5, 'success', 'Passed by Codex; Claude escalated, Codex security review clean')]
+  const g = runGate({files: ['src/App.cs'], status, statusAfter, post: true, comments: codexState({code: 'clean', security: 'dirty'})})
+  assert.equal(g.code, 0, g.out)
+  assert.deepEqual(posted(g), ['failure'], g.out)
+  // Even when its verdict matches the status it first read, it posts, since that is no longer the one standing.
+  const same = runGate({files: ['src/App.cs'], post: true, status: [...claudeAt(1, 'PASS'), gateIs(2, 'success', 'Passed by Claude')],
+    statusAfter: [...claudeAt(1, 'PASS'), gateIs(5, 'failure', 'Blocked: Codex security review has open findings')]})
+  assert.equal(same.code, 0, same.out)
+  assert.deepEqual(posted(same), ['success'], same.out)
 })
 
 // Claude review on Platform #492: an ESCALATE run that can't read the earlier verdict posts HELD rather than nothing.

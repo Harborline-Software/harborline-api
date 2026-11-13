@@ -59,9 +59,10 @@ fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times s
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
 # Statuses come newest first, so the first entry per context is the one standing on the head. Each entry names who
 # set it: only the review workflow (github-actions[bot]) can give a Claude verdict, so one set by anyone else blocks.
-statuses=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
+history=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
   | select(.context == "claude-review" or .context == "review-gate")
-  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "")"' | awk -F'|' '!seen[$1]++')
+  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "")"')
+statuses=$(awk -F'|' '!seen[$1]++' <<<"$history")
 latest=$(cut -d'|' -f1,2,6- <<<"$statuses")
 # Which of the two statuses this run read, by id, so it can tell before it posts whether another one landed meanwhile.
 standing() {
@@ -90,9 +91,23 @@ case $claude_state in
   # A BLOCK holds the PR. An ESCALATE does not block by itself: it makes the PR risky, so it then needs one clean pass
   # from Codex or CodeRabbit and a clean Codex security review (ADR-0159). Any other failure, or one with no verdict
   # in its description, still blocks.
-  failure) [ "$claude_verdict" = ESCALATE ] || blockers+=("${claude_desc:-Claude review: not PASS}") ;;
+  # An ESCALATE, like a pass, speaks only for the base it reviewed: one given before a retarget blocks until the review
+  # of the new base lands (Claude review on api 497).
+  failure) if [ "$claude_verdict" != ESCALATE ]; then blockers+=("${claude_desc:-Claude review: not PASS}")
+           elif ! fresh "$claude_at" || [[ $claude_desc != *", base $BASE_REF)" ]]; then
+             blockers+=("Claude escalated on an earlier base; waiting for a review of the current base"); fi ;;
 esac
 escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] && escalated=true
+# A BLOCK or HELD the review workflow set on this head since its last PASS still holds the PR under a later ESCALATE.
+# The review workflow keeps such a BLOCK itself now, but an earlier version of it could post an ESCALATE over one, so
+# the gate reads back through the head's own history too (Codex on app 98). A run with no verdict sets an error, which
+# is skipped here: it said nothing about the change.
+if $escalated; then
+  held=$(awk -F'|' '$1 == "claude-review" && $4 == "github-actions[bot]" {
+           if ($2 == "success") exit
+           if ($2 == "failure" && $6 !~ /^Claude review: ESCALATE \(/) { print $6; exit } }' <<<"$history")
+  [ -n "$held" ] && blockers+=("an earlier Claude verdict on this head still holds: $held")
+fi
 # An escalated PR lands only when a person queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
 # but one it armed before Claude escalated would still merge on its own, so the gate holds the PR while auto-merge
 # stands that anything but a person turned on, until the owner turns it off or queues the PR (Fable on platform
@@ -349,13 +364,20 @@ emit() {
   if [ -n "${GITHUB_OUTPUT:-}" ]; then printf 'state=%s\nrisky=%s\nhead=%s\n' "$state" "$risky" "$HEAD" >>"$GITHUB_OUTPUT"; fi
 }
 # The review workflow sets a new claude-review, then sets review-gate back to pending, then starts a run of this
-# workflow. A verdict worked out before either landed may answer an earlier Claude review, so this run posts nothing,
-# tells the auto-merge job nothing, and leaves the PR to the run started after them, or failing that to the sweep
-# (Codex on app 98).
+# workflow. A verdict worked out before the new claude-review landed may answer an earlier Claude review, so this run
+# posts nothing, tells the auto-merge job nothing, and leaves the PR to the run started after it, or failing that to
+# the sweep (Codex on app 98).
+# A review-gate that changed under an unchanged claude-review came from another gate run: runs of one PR share a
+# group that cancels the older one, and an older run can still post as it is cancelled. This run read everything
+# after it, so it posts over that status rather than leave it standing until the sweep (Claude review on app 98).
 now=$(standing)
-if [ "$now" != "$seen" ]; then posted=true; echo "review-gate left as it is: its statuses changed while this run read them"; exit 0; fi
+if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
+  posted=true; echo "review-gate left as it is: the Claude review changed while this run read it"; exit 0
+fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
-if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; emit; exit 0; fi
+if [ "$now" = "$seen" ] && grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then
+  posted=true; echo "review-gate unchanged"; emit; exit 0
+fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
 posted=true
