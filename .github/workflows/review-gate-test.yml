@@ -1,6 +1,7 @@
-# review-gate-test: runs .github/tests/review-gate.test.sh when review-gate's script, lists or test change. A plain
-# pull_request run with a read-only token: it runs the PR's own copy of the script against a stand-in gh, needs no
-# secrets and sets no status the gate reads.
+# review-gate-test: runs .github/tests/review-gate.test.sh when review-gate's script, lists or test change, and
+# .github/tests/review-record.test.sh when review.yml or that test changes. A plain pull_request run with a read-only
+# token: it runs the PR's own copies of the scripts against a stand-in gh, needs no secrets and sets no status the gate
+# reads.
 name: review-gate-test
 
 on:
@@ -9,6 +10,8 @@ on:
       - .github/review-gate.sh
       - .github/review-*-paths
       - .github/tests/review-gate.test.sh
+      - .github/tests/review-record.test.sh
+      - .github/workflows/review.yml
       - .github/workflows/review-gate-test.yml
 
 # A new push to a PR cancels that PR's older run; any other event keys on its ref and is never cancelled.
@@ -30,3 +33,4 @@ jobs:
           sparse-checkout: .github
           persist-credentials: false
       - run: bash .github/tests/review-gate.test.sh
+      - run: bash .github/tests/review-record.test.sh

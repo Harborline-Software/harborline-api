@@ -217,7 +217,7 @@ jobs:
               if [ "$verdict" = ESCALATE ] && [[ $prior == "failure|Claude review: BLOCK ("* \
                    || $prior == "failure|Claude review: HELD ("* ]]; then st=keep; held_before=true; fi
             elif [ "$verdict" = ESCALATE ]; then
-              st=held
+              st=held; held_before=true
             else
               st=keep
             fi
@@ -256,7 +256,7 @@ jobs:
             echo "::warning::could not start review-gate"
           fi
           # Enforced, the job fails like the gate holds: on a BLOCK or no verdict, and on an ESCALATE that kept an
-          # earlier BLOCK or HELD. Any other ESCALATE is left to review-gate,
+          # earlier BLOCK or HELD or posted a HELD. Any other ESCALATE is left to review-gate,
           # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
           # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
           # read. The rules are read whole before they are searched, so a failed request can't look like a match.
@@ -268,14 +268,25 @@ jobs:
             echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
             exit 1
           elif [ "$mode" = enforced ] && [ "$held_before" = true ]; then
-            # An ESCALATE that kept an earlier BLOCK or HELD fails as that verdict does (Claude review on platform 492).
-            echo "::error::review verdict ESCALATE, and the earlier BLOCK or HELD it kept on $HEAD_SHA still stands"
+            # An ESCALATE that kept an earlier BLOCK or HELD, or posted a HELD, fails as that status does (Claude review
+            # on platform 492).
+            echo "::error::review verdict ESCALATE, and a BLOCK or HELD on $HEAD_SHA still holds the PR"
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ] \
                && { [ "$cleared" = false ] || [ "$started" = false ]; }; then
             echo "::error::review verdict ESCALATE, and review-gate was not reset and started on $HEAD_SHA to read it"
             exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
+            # This workflow doesn't run when a PR is retargeted, so the rules read below must still be those of the
+            # base the verdict was given against (CodeRabbit on api 497). The base is read again before the lookup
+            # and after the wait; a retarget after the job ends leaves its result on the head, as for any check.
+            same_base() {
+              local now
+              now=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref) && [ "$now" = "$BASE_REF" ] && return 0
+              echo "::error::review verdict ESCALATE, and the PR's base can't be read or is no longer $BASE_REF, the branch it was reviewed against"
+              return 1
+            }
+            same_base || exit 1
             # The name is encoded, keeping its slashes, so a branch like x#y or x%y is read as itself, not as x.
             base_path=$(jq -rn --arg b "$BASE_REF" '$b | @uri | gsub("%2F"; "/")')
             required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$base_path" --paginate \
@@ -303,6 +314,7 @@ jobs:
               echo "::error::review verdict ESCALATE, and review-gate did not answer it on $HEAD_SHA within 10 minutes"
               exit 1
             fi
+            same_base || exit 1
           elif [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
             echo "::error::review verdict $verdict"
             exit 1
