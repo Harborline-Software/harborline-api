@@ -121,7 +121,149 @@ public sealed class RosterPreInsertVerificationTests
             .AttestReceipt(f.Founder, "founder", At.AddMinutes(2));
         await f.MergeRawAsync([copy, candidate]);
         Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
-        Assert.Contains(await f.AuditsAsync(), a => JsonSerializer.Serialize(a.Payload.Payload.Body).Contains("roster.record.receive_attestation_invalid"));
+        var codes = (await f.AuditsAsync()).Select(a => JsonDocument.Parse(JsonSerializer.Serialize(a.Payload.Payload.Body)).RootElement.GetProperty("code").GetString()!).Order().ToArray();
+        Assert.Equal(["roster.record.malformed", "roster.record.receive_attestation_untrusted"], codes);
+    }
+
+    [Fact]
+    public async Task UntrustedSameIdReceiptDoesNotCreateConflict()
+    {
+        await using var f = await Fixture.CreateAsync();
+        using var outsider = KeyPair.Generate();
+        var at = At.AddHours(1);
+        var record = f.Admission(f.Founder, "founder", "same-id", at);
+        var genuine = record.AttestReceipt(f.Founder, "founder", at);
+        var invalid = record.AttestReceipt(new Ed25519Signer(outsider), "outsider", at.AddMilliseconds(1));
+        await f.MergeRawAsync([genuine, invalid]);
+        Assert.Contains(await f.StoredAsync(), r => r.RecordId == record.RecordId);
+        Assert.Empty(await f.AuditsAsync());
+    }
+
+    [Fact]
+    public async Task TwoValidCopiesWithDifferentReceiptsAreRefusedAsConflict()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var at = At.AddHours(1);
+        var record = f.Admission(f.Founder, "founder", "conflicting", at);
+        var first = record.AttestReceipt(f.Founder, "founder", at);
+        var second = record.AttestReceipt(f.Founder, "founder", at.AddMilliseconds(1));
+        await f.MergeRawAsync([first, second]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == record.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.receive_attestation_invalid");
+    }
+
+    [Fact]
+    public async Task ValidLaterAttesterAlsoCreatesReceiptConflict()
+    {
+        await using var f = await Fixture.CreateAsync();
+        using var key = KeyPair.Generate();
+        var signer = new Ed25519Signer(key);
+        var later = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), "later-attester", signer.IssuerId,
+            RosterSigning.SignAdmission(f.Founder, Tenant, "later-attester", signer.IssuerId, "founder", false, At.AddMinutes(3), Guid.NewGuid())))
+            .AttestReceipt(f.Founder, "founder", At.AddMinutes(3));
+        var record = f.Admission(f.Founder, "founder", "conflict-later", At.AddMinutes(2));
+        var first = record.AttestReceipt(f.Founder, "founder", At.AddMinutes(2));
+        var second = record.AttestReceipt(signer, "later-attester", At.AddMinutes(4));
+        await f.MergeRawAsync([first, second, later]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == later.RecordId);
+        Assert.DoesNotContain(stored, r => r.RecordId == record.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.receive_attestation_invalid");
+    }
+
+    [Fact]
+    public async Task InvalidTwinCannotBlockGenuineRevocation()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var at = At.AddHours(1);
+        var genuine = f.Revocation(f.Founder, "founder", "member", at).AttestReceipt(f.Founder, "founder", at);
+        using var outsiderKey = KeyPair.Generate();
+        var twin = (genuine with { RecordId = "copy:" + genuine.RecordId })
+            .AttestReceipt(new Ed25519Signer(outsiderKey), "outsider", at);
+        var late = f.Admission(f.Member, "member", "late-after-revocation", At.AddHours(2))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        await f.MergeRawAsync([twin, genuine, late]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == genuine.RecordId);
+        Assert.DoesNotContain(stored, r => r.RecordId == late.RecordId);
+        var codes = (await f.AuditsAsync()).Select(a => JsonDocument.Parse(JsonSerializer.Serialize(a.Payload.Payload.Body)).RootElement.GetProperty("code").GetString()!).Order().ToArray();
+        Assert.Equal(["roster.record.chain_ineligible", "roster.record.malformed"], codes);
+    }
+
+    [Fact]
+    public async Task RevokedMembersNodeStoresFounderAttestedRevocation()
+    {
+        await using var f = await Fixture.CreateAsync(localMember: true);
+        var at = At.AddHours(1);
+        var record = f.Revocation(f.Founder, "founder", "member", at)
+            .AttestReceipt(f.Founder, "founder", at);
+        await f.MergeRawAsync([record]);
+        Assert.Contains(await f.StoredAsync(), r => r.RecordId == record.RecordId);
+        Assert.Empty(await f.AuditsAsync());
+    }
+
+    [Fact]
+    public async Task LocalRecordMayBeAttestedByItsSigner()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var record = f.Admission(f.Founder, "founder", "locally-admitted", At.AddHours(1));
+        await f.Projection.PublishLocalAsync(record, default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        var stored = Assert.Single(await f.StoredAsync(), r => r.RecordId == record.RecordId);
+        Assert.Equal("founder", stored.ReceiveAttestationOrNull()!.NodePartyId);
+        Assert.Empty(await f.AuditsAsync());
+    }
+
+    [Fact]
+    public async Task RevokedPartyCannotAttestItsOwnRevocation()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var issued = At.AddHours(1);
+        var revoke = f.Revocation(f.Founder, "founder", "member", issued)
+            .AttestReceipt(f.Member, "member", At.AddHours(3));
+        await f.MergeRawAsync([revoke]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == revoke.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.receive_attestation_untrusted");
+    }
+
+    [Fact]
+    public async Task AcceptedReceiptDeterminesLaterStrictPrefixOrder()
+    {
+        await using var f = await Fixture.CreateAsync();
+        using var key = KeyPair.Generate();
+        var signer = new Ed25519Signer(key);
+        var admitted = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), "new-member", signer.IssuerId,
+            RosterSigning.SignAdmission(f.Founder, Tenant, "new-member", signer.IssuerId, "founder", false,
+                At.AddMinutes(2), Guid.Parse("00000000-0000-0000-0000-000000000001"))))
+            .AttestReceipt(f.Founder, "founder", At.AddMinutes(10));
+        var otherKey = KeyPair.Generate().PrincipalId;
+        var candidate = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), "other", otherKey,
+            RosterSigning.SignAdmission(f.Founder, Tenant, "other", otherKey, "founder", false,
+                At.AddMinutes(10), Guid.Parse("00000000-0000-0000-0000-000000000002"))))
+            .AttestReceipt(signer, "new-member", At.AddMinutes(10));
+        await f.MergeRawAsync([admitted, candidate]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == admitted.RecordId);
+        Assert.DoesNotContain(stored, r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.receive_attestation_untrusted");
+    }
+
+    [Fact]
+    public async Task GenesisReceiptIgnoresLaterAdmissionInEvidence()
+    {
+        await using var f = await Fixture.CreateAsync(seed: false);
+        var roster = MemberRoster.Genesis(Tenant, "founder", f.Founder, Verifier, At, Guid.NewGuid())
+            .Admit("founder", f.Founder, "member", f.Member.IssuerId, PermissionSet.Empty,
+                Verifier, At.AddMinutes(1), Guid.NewGuid());
+        var states = roster.EnumerateAdmissions().Select(a => RosterRecordCrdtState.FromAdmission(a)).ToArray();
+        var genesis = states.Single(s => s.IsGenesis).AttestReceipt(f.Member, "member", At);
+        var later = states.Single(s => !s.IsGenesis).AttestReceipt(f.Founder, "founder", At.AddMinutes(1));
+        Func<string, DateTimeOffset, DateTimeOffset> order = (_, issued) => issued;
+        var verify = typeof(RosterCrdtProjection).GetMethod("VerifyInboundRecord",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var code = (string?)verify.Invoke(f.Projection,
+            [genesis, new List<RosterRecordCrdtState> { later }, null, false, order, null, AdmittedInstant.Read(TimeProvider.System)]);
+        Assert.Equal("roster.record.receive_attestation_untrusted", code);
     }
 
     [Fact]
@@ -160,7 +302,7 @@ public sealed class RosterPreInsertVerificationTests
         var bad = f.Revocation(f.Member, "member", "member", At.AddMinutes(2))
             .AttestReceipt(outsider, "outsider", At.AddMinutes(2));
         var revoke = f.Revocation(f.Member, "member", "founder", At.AddMinutes(3))
-            .AttestReceipt(f.Founder, "founder", At.AddMinutes(3));
+            .AttestReceipt(f.Member, "member", At.AddMinutes(3));
         var candidate = f.Admission(f.Founder, "founder", "late", At.AddMinutes(4))
             .AttestReceipt(f.Founder, "founder", At.AddMinutes(4));
         await f.MergeRawAsync([bad, revoke, candidate]);
@@ -363,7 +505,8 @@ public sealed class RosterPreInsertVerificationTests
         var first = earlierLegitimate
             ? f.Revocation(f.Member, "member", "founder", At.AddMinutes(2))
             : f.Revocation(f.Founder, "founder", "member", At.AddHours(1));
-        first = first.AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        first = first.AttestReceipt(earlierLegitimate ? f.Member : f.Founder,
+            earlierLegitimate ? "member" : "founder", At.AddHours(2));
         await f.MergeRawAsync([first]);
         DateTimeOffset? receipt;
         await using (var db = await f.Factory.CreateDbContextAsync())
@@ -721,13 +864,14 @@ public sealed class RosterPreInsertVerificationTests
         public IDbContextFactory<NodeLocalRosterDbContext> Factory => Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         // What the grant store holds for "member" - the replicated chain gates read authority from here now.
         private PermissionSet _memberAuthority = PermissionSet.Empty;
+        private bool _localMember;
 
         private ServiceProvider NewProvider()
         {
             var services = new ServiceCollection();
             services.AddLogging();
             services.AddDbContextFactory<NodeLocalRosterDbContext>(o => o.UseSqlite($"Data Source={Path.Combine(_directory, "roster.db")};Pooling=False"));
-            services.AddSingleton<IOperationSigner>(Founder);
+            services.AddSingleton<IOperationSigner>(_localMember ? Member : Founder);
             services.AddSingleton(_trail);
             services.AddAuthorizationRefusalAudit();
             services.AddSingleton(TimeProvider.System);
@@ -736,12 +880,13 @@ public sealed class RosterPreInsertVerificationTests
             return services.BuildServiceProvider();
         }
         public static async Task<Fixture> CreateAsync(PermissionSet? permissions = null, IAuditTrail? trail = null,
-            KeyPair? founderKey = null, KeyPair? memberKey = null, bool seed = true)
+            KeyPair? founderKey = null, KeyPair? memberKey = null, bool seed = true, bool localMember = false)
         {
             var f = new Fixture(founderKey, memberKey)
             {
                 _trail = trail ?? new InMemoryAuditTrail(),
-                _memberAuthority = permissions ?? PermissionSet.Empty
+                _memberAuthority = permissions ?? PermissionSet.Empty,
+                _localMember = localMember
             };
             Directory.CreateDirectory(f._directory);
             f.Provider = f.NewProvider();
