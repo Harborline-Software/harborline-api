@@ -147,8 +147,11 @@ public sealed class NodeRosterRecord
             }, StringComparer.Ordinal);
 
     internal static IReadOnlyList<MemberRevocationRecord> Revocations(IEnumerable<NodeRosterRecord> rows) =>
-        rows.DistinctBy(row => row.Id).Select(ToCrdtState)
-            .Select(state => state.ToRevocationOrNull()).OfType<MemberRevocationRecord>().ToArray();
+        rows.DistinctBy(row => row.Id).Where(row => row.Kind == (int)RosterRecordKind.Revocation)
+            .Select(ToCrdtState)
+            .Select(state => state.ToRevocationOrNull()
+                ?? throw new InvalidOperationException("Malformed durable revocation record."))
+            .ToArray();
 
     /// <summary>Project a converged CRDT snapshot into its durable read-model row.</summary>
     public static NodeRosterRecord FromCrdtState(RosterRecordCrdtState s)

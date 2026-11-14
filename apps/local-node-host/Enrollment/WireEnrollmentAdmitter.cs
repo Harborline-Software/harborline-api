@@ -241,6 +241,7 @@ public sealed class WireEnrollmentAdmitter
                         .Where(row => row.TeamId == newRoster.TeamId.ToString("D"))
                         .ToArrayAsync(token).ConfigureAwait(false),
                         .. write.ChangeTracker.Entries<NodeRosterRecord>().Select(entry => entry.Entity)];
+                    _ = NodeRosterRecord.Revocations(receiptRows);
                     await _sodAudit.Within(write).RecordMemberAdmittedAsync(
                         tenantId: tenant,
                         teamId: newRoster.TeamId.ToString("D"),

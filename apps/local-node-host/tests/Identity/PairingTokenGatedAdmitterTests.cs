@@ -239,6 +239,46 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         Assert.True(await h.TokenIsBurnedAsync(tokenId));
     }
 
+    [Fact]
+    public async Task PairingCarriesRevocationAndReceiptThroughCodec()
+    {
+        var h = await BuildAsync();
+        var signed = RosterSigning.SignRevocation(h.FounderSigner, Team, "former", FounderPartyId, Now, Guid.NewGuid());
+        var revocation = new MemberRevocationRecord(Team.ToString("D"), "former", signed);
+        var state = RosterRecordCrdtState.FromRevocation(revocation).AttestReceipt(h.FounderSigner, FounderPartyId, Now);
+        await using (var db = await h.Search.RosterFactory.CreateDbContextAsync())
+        {
+            db.Set<NodeRosterRecord>().Add(NodeRosterRecord.FromCrdtState(state));
+            await db.SaveChangesAsync();
+        }
+        var (_, request) = h.MintBindAndSign();
+        var result = await h.Admitter.AdmitAsync(request, CancellationToken.None);
+        Assert.True(result.Accepted);
+        var decoded = EnrollmentWireCodec.DecodeResponse(EnrollmentWireCodec.EncodeResponse(result.Response!));
+        var carried = Assert.Single(decoded.Revocations);
+        Assert.Equal("former", carried.RevokedPartyId);
+        Assert.Equal(signed, carried.Signed);
+        Assert.Equal(state.ReceiveAttestationOrNull(), carried.ReceiveAttestation);
+        Assert.NotNull(carried.ReceiveAttestation);
+    }
+
+    [Fact]
+    public async Task PairingFailsClosedForMalformedDurableRevocation()
+    {
+        var h = await BuildAsync();
+        var signed = RosterSigning.SignRevocation(h.FounderSigner, Team, "former", FounderPartyId, Now, Guid.NewGuid());
+        var state = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Team.ToString("D"), "former", signed));
+        var row = NodeRosterRecord.FromCrdtState(state);
+        row.NonceGuid = "not-a-guid";
+        await using (var db = await h.Search.RosterFactory.CreateDbContextAsync())
+        {
+            db.Set<NodeRosterRecord>().Add(row);
+            await db.SaveChangesAsync();
+        }
+        var (_, request) = h.MintBindAndSign();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Admitter.AdmitAsync(request, CancellationToken.None));
+    }
+
     // ── F1: the token-id binding is DECOUPLED from the (soft) session-evidence field. ──
 
     [Fact(DisplayName = "pairing: the token id is bound into the signed admission even when session evidence is EMPTY (verdict F1 decoupled)")]
@@ -358,6 +398,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
     private sealed class Harness
     {
         public required PairingTokenGatedAdmitter Admitter { get; init; }
+        public required IOperationSigner FounderSigner { get; init; }
         public required NodeTeamRoster Roster { get; init; }
         public required AdmissionCoordinator Coordinator { get; init; }
         public required IAdmissionTokenStore TokenStore { get; init; }
@@ -471,6 +512,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         return new Harness
         {
             Admitter = gated,
+            FounderSigner = founder.Signer,
             Roster = roster,
             Coordinator = coordinator,
             TokenStore = durableTokenStore,

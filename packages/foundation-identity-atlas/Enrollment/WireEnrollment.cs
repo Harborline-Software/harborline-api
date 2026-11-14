@@ -378,6 +378,10 @@ public static class WireEnrollment
         }
         foreach (var record in response.Revocations)
         {
+            if (string.IsNullOrWhiteSpace(record.RevokedPartyId)
+                || !string.Equals(record.TeamId, response.TeamId, StringComparison.Ordinal)
+                || !RosterSigning.VerifyRevocation(teamId, record.RevokedPartyId, record.Signed, verifier))
+                return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
             if (record.Signed.IssuedAt != DateTimeOffset.FromUnixTimeMilliseconds(record.Signed.IssuedAt.ToUnixTimeMilliseconds()))
                 return EnrollmentAdoptionPlan.Failed("malformed_roster_record");
             if (record.ReceiveAttestation is { } receipt
