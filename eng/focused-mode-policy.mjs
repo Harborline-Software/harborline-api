@@ -41,7 +41,7 @@ function category(file) {
     || file === 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'
     || file === 'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md'
     || file === 'packages/contracts/protocol/boundary-inventory.json'
-    // The root ignore file, exact path only: eng/run-exact-clone.mjs reads it.
+    // The root ignore file, exact path only: it changes what git tracks, not compiled code.
     || file === '.gitignore') return 'build-artifact'
   if (/\.cs$/.test(file) && /validat/i.test(file)) return 'validation'
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
