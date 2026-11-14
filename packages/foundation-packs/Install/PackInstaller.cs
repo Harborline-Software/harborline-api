@@ -1993,15 +1993,26 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             }
         }
         var context = new BookingAdmissionContext(id => traits.GetValueOrDefault(id), resources.Contains);
-        foreach (var refusal in BookingDefinitionPackage.Admit(entries, context))
-        {
-            var tail = refusal.Pointer["/entries/".Length..];
-            var slash = tail.IndexOf('/', StringComparison.Ordinal);
-            var index = int.Parse(slash < 0 ? tail : tail[..slash], System.Globalization.CultureInfo.InvariantCulture);
-            var item = items[index];
-            refusals.Add(new PackInstallRefusal(refusal.Code, slash < 0 ? "" : tail[slash..], $"{item.Key}@{item.Version}"));
-        }
+        refusals.AddRange(BookingDefinitionPackage.Admit(entries, context).Select(refusal => BookingRefusal(refusal, items)));
         return refusals;
+    }
+
+    internal static PackInstallRefusal BookingRefusal(DefinitionRefusal refusal, IReadOnlyList<PackContentItem> items)
+    {
+        const string entries = "/entries/";
+        if (refusal.Pointer.StartsWith(entries, StringComparison.Ordinal))
+        {
+            var tail = refusal.Pointer[entries.Length..];
+            var slash = tail.IndexOf('/', StringComparison.Ordinal);
+            if (int.TryParse(slash < 0 ? tail : tail[..slash], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var index) && index < items.Count)
+            {
+                var item = items[index];
+                return new PackInstallRefusal(refusal.Code, slash < 0 ? "" : tail[slash..], $"{item.Key}@{item.Version}");
+            }
+        }
+        // A refusal about the pack as a whole keeps the platform's own pointer and target, as Layout's do.
+        return new PackInstallRefusal(refusal.Code, refusal.Pointer, refusal.Target);
     }
 
     private static Dictionary<string, IReadOnlySet<string>> BuildBookingTraits(
