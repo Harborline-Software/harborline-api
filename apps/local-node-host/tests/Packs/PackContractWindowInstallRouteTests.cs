@@ -389,6 +389,57 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         }
     }
 
+    [Theory(DisplayName = "T-1034 booking-auth-11: a self dependency cannot supply a superseded Resource")]
+    [InlineData("preview")]
+    [InlineData("check")]
+    [InlineData("install")]
+    [InlineData("activate")]
+    public async Task Prior_self_version_cannot_supply_required_resource(string operation)
+    {
+        SeedBookingType();
+        var resource = BookingContent("Resource", "acme.room-resource");
+        resource["from_type_id"] = "acme.room";
+        var json = resource.ToJsonString();
+        var seed = new PackSeedItem("acme.room-resource", PackContentKind.Resource, "1.0.0", json,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(json)));
+        var prior = RecordsInstallClosureGateTests.Producer("acme.contract", "1.0.0", [seed], [], []) with
+        {
+            Dependencies = [new PackDependencyRef("acme.producer", "1.0.0")],
+        };
+        var tenant = NodeTenantFor();
+        _store.Commit(new PackInstallTransaction(tenant, prior,
+            new PackInstallWatermark("acme.contract", "1.0.0", new Dictionary<string, int>()), []));
+        _store.Activate(tenant, "acme.contract", "1.0.0");
+        var content = BookingContent("Bookable", "acme.surface");
+        content["envelope"]!["version"] = "2.0.0";
+        content["on_type_id"] = "acme.room";
+        content["requires"] = new JsonArray("acme.room-resource");
+        var pack = new { key = "acme.contract", version = "2.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = new[] { new { key = "acme.contract", version = "1.0.0" }, new { key = "acme.producer", version = "1.0.0" } },
+            contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "2.0.0", content } } };
+        var route = operation switch { "preview" => PackInstallRoutes.PreviewRoute, "check" => PackInstallRoutes.CheckRoute,
+            _ => PackInstallRoutes.InstallRoute };
+        using var response = await PostBytesAsync(route, await ExportAsync(pack));
+        if (operation == "activate")
+        {
+            Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
+            using var activation = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+                new { packKey = "acme.contract", version = "2.0.0" });
+            Assert.False(activation.IsSuccessStatusCode);
+            Assert.Equal("1.0.0", _store.GetActive(tenant, "acme.contract")!.Version);
+            return;
+        }
+        Assert.Equal(operation == "install" ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray(), item =>
+            item.GetProperty("code").GetString() == "booking.bookable.required_resource_unknown");
+        Assert.Equal("/requires/0", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@2.0.0", refusal.GetProperty("target").GetString());
+        Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
+        Assert.Equal("1.0.0", _store.GetActive(tenant, "acme.contract")!.Version);
+    }
+
     [Fact(DisplayName = "T-1034 booking-auth-11: legacy dependency Resource must be admitted")]
     public async Task Legacy_placeholder_dependency_resource_is_not_admitted()
     {

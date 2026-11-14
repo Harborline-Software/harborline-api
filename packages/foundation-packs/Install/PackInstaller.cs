@@ -1489,7 +1489,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         var installed = collectRefusals ? bound?.Installed ?? _store.ListInstalled(context.Tenant) : null;
         var bookingRefusals = new List<PackInstallRefusal>();
         if (collectRefusals)
-            bookingRefusals.AddRange(BookingAdmissionRefusals(contents, manifest.Dependencies, installed!));
+            bookingRefusals.AddRange(BookingAdmissionRefusals(manifest.Key, contents, manifest.Dependencies, installed!));
         // A Booking refusal must stop reattachment, including during Check.
         if (collectRefusals && (layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)
                 || bookingRefusals.Count > 0))
@@ -1617,7 +1617,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         installed ??= bound?.Installed ?? _store.ListInstalled(context.Tenant);
         if (!collectRefusals)
         {
-            bookingRefusals.AddRange(BookingAdmissionRefusals(contents, manifest.Dependencies, installed));
+            bookingRefusals.AddRange(BookingAdmissionRefusals(manifest.Key, contents, manifest.Dependencies, installed));
             if (bookingRefusals.Count > 0)
             {
                 var refused = HardRefusal(manifest.Key, manifest.Version, bookingRefusals[0].Code,
@@ -1947,9 +1947,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
     }
 
     private static List<PackInstallRefusal> BookingAdmissionRefusals(
-        IReadOnlyList<PackContentItem> contents, IReadOnlyList<PackDependencyRef> dependencies,
+        string candidateKey, IReadOnlyList<PackContentItem> contents, IReadOnlyList<PackDependencyRef> dependencies,
         IReadOnlyList<InstalledPack> installed)
     {
+        // A self-dependency is satisfied by this candidate, never a version activation will supersede.
+        installed = installed.Where(pack => !string.Equals(pack.PackKey, candidateKey, StringComparison.Ordinal)).ToArray();
         var entries = new List<BookingPackEntry>();
         var items = new List<PackContentItem>();
         var refusals = new List<PackInstallRefusal>();
