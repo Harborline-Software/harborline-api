@@ -28,7 +28,9 @@
     <PackageVersion Include="xunit" Version="2.9.3" Justification="R-0032"/>
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" Justification="R-0033"/>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.1" Justification="R-0034"/>
-    <PackageVersion Include="coverlet.collector" Version="10.1.0" Justification="R-0036"/>
+    <!-- T-1226: Hold 10.0.1; 10.1.0 coverage instrumentation makes DesktopActorRekeyTests.
+         No_production_constant_names_the_retired_desktop_actor throw "Literal value was not found" in merge groups. -->
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" Justification="R-0036"/>
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0" Justification="R-0050"/>
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0" Justification="R-0050"/>
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0" Justification="R-0046"/>

@@ -6,6 +6,9 @@ updates:
     # as one `dotnet` group. With .NET 11 GA (R-0183) the previews no longer move by hand (ticket 243); a new
     # major (the next .NET release) still does, so majors of this set are ignored here.
     ignore:
+      # T-1226: 10.1.0 breaks the merge-group coverage run.
+      - dependency-name: "coverlet.collector"
+        versions: ["10.1.0"]
       - dependency-name: "Microsoft.*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "System.*"
