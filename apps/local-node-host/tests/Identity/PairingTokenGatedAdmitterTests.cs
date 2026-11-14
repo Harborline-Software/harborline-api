@@ -276,7 +276,12 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
             await db.SaveChangesAsync();
         }
         var (_, request) = h.MintBindAndSign();
+        var rosterBefore = h.Roster.Current;
         await Assert.ThrowsAsync<InvalidOperationException>(() => h.Admitter.AdmitAsync(request, CancellationToken.None));
+        Assert.Same(rosterBefore, h.Roster.Current);
+        Assert.False(h.Roster.Current.Contains(JoinerPartyId));
+        await using var read = await h.Search.RosterFactory.CreateDbContextAsync();
+        Assert.False(await read.Set<NodeRosterRecord>().AnyAsync(r => r.PartyId == JoinerPartyId));
     }
 
     // ── F1: the token-id binding is DECOUPLED from the (soft) session-evidence field. ──

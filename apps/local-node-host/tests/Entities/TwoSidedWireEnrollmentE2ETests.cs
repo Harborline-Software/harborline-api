@@ -557,11 +557,62 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
         Assert.Equal(revocation.Signed, carried.Signed);
         Assert.Equal(issued, carried.ReceiveAttestation!.ReceivedAt);
         Assert.Equal(a.PartyId, carried.ReceiveAttestation.NodePartyId);
-        var plan = WireEnrollment.ValidateAndPlanAdoption(result.Response, TeamTrustAnchor.FromRoster(a.Roster.Current),
+        var guestKeyOnWire = Convert.ToBase64String(guestKey).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var responseWithGuestKey = result.Response with { MemberTransportKeys = [.. result.Response.MemberTransportKeys,
+            new WireMemberTransportKey(guest.PartyId, guestKeyOnWire)] };
+        Assert.Contains(responseWithGuestKey.MemberTransportKeys, entry => entry.PartyId == guest.PartyId);
+        var plan = WireEnrollment.ValidateAndPlanAdoption(responseWithGuestKey, TeamTrustAnchor.FromRoster(a.Roster.Current),
             b.Signer.Signer.IssuerId, b.PartyId, Verifier, null, at, TimeSpan.FromSeconds(30));
         Assert.True(plan.Succeeded, plan.FailureReason);
         Assert.False(plan.Roster!.Contains(guest.PartyId));
         Assert.DoesNotContain(plan.TransportKeysByParty, entry => entry.Key == guest.PartyId);
+    }
+
+    [Fact]
+    public async Task WireAdmitterDoesNotCommitAdmissionWhenDurableRevocationIsMalformed()
+    {
+        var a = NewNode("malformed-sponsor", "malformed-team");
+        var b = NewNode("malformed-joiner", "malformed-joiner-team");
+        var directory = Path.Combine(Path.GetTempPath(), $"harborline-malformed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        _tempDirs.Add(directory);
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<NodeLocalRosterDbContext>(options =>
+            options.UseSqlite($"Data Source={Path.Combine(directory, "roster.db")};Pooling=False"));
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        var team = a.Roster.Current.TeamId;
+        var signed = RosterSigning.SignRevocation(a.Signer.Signer, team, "former", a.PartyId,
+            DateTimeOffset.UtcNow, Guid.NewGuid());
+        var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(
+            new MemberRevocationRecord(team.ToString("D"), "former", signed)));
+        row.NonceGuid = "not-a-guid";
+        await using (var write = await factory.CreateDbContextAsync())
+        {
+            await write.Database.EnsureCreatedAsync();
+            write.Set<NodeRosterRecord>().Add(row);
+            await write.SaveChangesAsync();
+        }
+        await using var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(),
+            factory, Verifier, a.Signer.Signer, NullLogger<RosterCrdtProjection>.Instance, a.Roster);
+        var teamServices = new ServiceCollection();
+        teamServices.AddSingleton<INodeIdentityProvider>(new InMemoryNodeIdentityProvider(a.TeamScopedIdentity(team)));
+        await using var teamProvider = teamServices.BuildServiceProvider();
+        var active = Substitute.For<IActiveTeamAccessor>();
+        active.Active.Returns(new TeamContext(new TeamId(team), "team", teamProvider, TimeProvider.System));
+        var audit = Substitute.For<IEnrollmentCompensatingControlRecorder>();
+        audit.Within(Arg.Any<object>()).Returns(audit);
+        var admitter = new WireEnrollmentAdmitter(a.Coordinator, a.Roster, a.Signer.Signer, a.PartyId,
+            Verifier, projection, audit, active);
+        var invite = a.Coordinator.CreateInvite(TeamTrustAnchor.FromRoster(a.Roster.Current));
+        var request = WireEnrollment.BuildRequest(invite.TokenId, b.PartyId, b.TransportKeyForTeam(team),
+            b.Signer.Signer, TimeProvider.System.GetUtcNow(), Guid.NewGuid());
+        var rosterBefore = a.Roster.Current;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => admitter.AdmitAsync(request, default));
+        Assert.Same(rosterBefore, a.Roster.Current);
+        Assert.False(a.Roster.Current.Contains(b.PartyId));
+        await using var read = await factory.CreateDbContextAsync();
+        Assert.False(await read.Set<NodeRosterRecord>().AnyAsync(r => r.PartyId == b.PartyId));
     }
 
     [Fact]
@@ -634,6 +685,39 @@ public sealed class TwoSidedWireEnrollmentE2ETests : IAsyncLifetime
             Assert.False(plan.Succeeded);
             Assert.Equal(scenario == "future" ? "roster.record.order_time_future" : "roster.record.receive_attestation_invalid", plan.FailureReason);
         }
+    }
+
+    [Theory]
+    [InlineData("team", "malformed_roster_record")]
+    [InlineData("future-receipt", "roster.record.order_time_future")]
+    [InlineData("unboundable", "roster.record.receive_attestation_invalid")]
+    [InlineData("conflicting", "roster.record.receive_attestation_invalid")]
+    public void EnrollmentRefusesInvalidRevocationEvidence(string scenario, string expected)
+    {
+        using var f = new EnrollmentTimeFixture();
+        var guest = f.Admission("guest", f.Other.PrincipalId, EnrollmentTimeFixture.At.AddSeconds(-20));
+        var signed = RosterSigning.SignRevocation(f.Signer, f.Team, "guest", "founder",
+            EnrollmentTimeFixture.At.AddMinutes(-2), Guid.NewGuid());
+        var received = scenario switch
+        {
+            "future-receipt" => EnrollmentTimeFixture.At.AddSeconds(31),
+            "unboundable" => DateTimeOffset.MinValue,
+            _ => EnrollmentTimeFixture.At.AddSeconds(-10),
+        };
+        var receipt = RosterReceiveAttestationSigning.Sign(f.Signer, "founder",
+            $"revocation:guest:{signed.Nonce:D}", received, signed.Nonce);
+        var team = scenario == "team" ? "10560000-0000-0000-0000-000000000002" : f.Team.ToString("D");
+        var wire = new WireRevocationRecord(team, "guest", signed, receipt);
+        var response = f.WithRecord(guest, null) with { Revocations = [wire] };
+        if (scenario == "conflicting")
+        {
+            var other = RosterReceiveAttestationSigning.Sign(f.Signer, "founder",
+                $"revocation:guest:{signed.Nonce:D}", received.AddSeconds(1), signed.Nonce);
+            response = response with { Revocations = [wire, wire with { ReceiveAttestation = other }] };
+        }
+        var plan = f.Adopt(response);
+        Assert.False(plan.Succeeded);
+        Assert.Equal(expected, plan.FailureReason);
     }
 
     [Theory]
