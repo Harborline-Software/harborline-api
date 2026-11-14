@@ -315,6 +315,7 @@ internal sealed class PairingTokenGatedAdmitter
                     .Where(row => row.TeamId == newRoster.TeamId.ToString("D"))
                     .ToArrayAsync(token).ConfigureAwait(false),
                     .. write.ChangeTracker.Entries<NodeRosterRecord>().Select(entry => entry.Entity)];
+                _ = NodeRosterRecord.Revocations(receiptRows);
                 await _sodAudit.Within(write).RecordMemberAdmittedAsync(
                     tenantId: new TenantId(binding.Membership.TenantId),
                     teamId: newRoster.TeamId.ToString("D"),
@@ -361,7 +362,7 @@ internal sealed class PairingTokenGatedAdmitter
 
         var response = WireEnrollment.BuildResponse(
             newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
-            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows));
+            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows), NodeRosterRecord.Revocations(receiptRows));
         _diag.AdmitOutcome(accepted: true, reason: null, request.JoiningPartyId);
         return PairingAdmitOutcome.Accept(response);
     }

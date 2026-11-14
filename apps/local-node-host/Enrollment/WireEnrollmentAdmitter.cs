@@ -241,6 +241,7 @@ public sealed class WireEnrollmentAdmitter
                         .Where(row => row.TeamId == newRoster.TeamId.ToString("D"))
                         .ToArrayAsync(token).ConfigureAwait(false),
                         .. write.ChangeTracker.Entries<NodeRosterRecord>().Select(entry => entry.Entity)];
+                    _ = NodeRosterRecord.Revocations(receiptRows);
                     await _sodAudit.Within(write).RecordMemberAdmittedAsync(
                         tenantId: tenant,
                         teamId: newRoster.TeamId.ToString("D"),
@@ -295,7 +296,7 @@ public sealed class WireEnrollmentAdmitter
 
         var response = WireEnrollment.BuildResponse(
             newRoster, admitterTransportKey, memberTransportKeys, memberDmKeys,
-            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows));
+            NodeRosterRecord.ReceiveAttestationsBySignature(receiptRows), NodeRosterRecord.Revocations(receiptRows));
         // ADDITIVE DEV DIAGNOSTICS — the admit succeeded; record the accepted party + the admitter's own team-scoped
         // transport key length (never the value), the key the joiner will trust on A's wire HELLO.
         _diag.KeyScoping("transport(admitter-self)", newRoster.TeamId.ToString("D"), admitterTransportKey.Length);
