@@ -1029,51 +1029,6 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             // No append precedence exists for simultaneous roots. Keep the existing unique-genesis rule.
             var competingRoots = anchor is null && pending.Count(s => s.IsGenesis && s.ToAdmissionOrNull() is { } a
                 && MemberRoster.FromSyncedRecords([a], [], _verifier).HasRootGrantHolder()) > 1;
-            var copies = tenant.ToLookup(s => s.RecordId, StringComparer.Ordinal);
-            var conflicts = new HashSet<string>(StringComparer.Ordinal);
-            if (copies.Any(group => group.Select(s => s.ReceiveAttestationOrNull()).Distinct().Skip(1).Any()))
-            {
-                var shadowEvidence = new List<RosterRecordCrdtState>(evidence);
-                var shadowReceipts = new Dictionary<string, DateTimeOffset?>(receipts, StringComparer.Ordinal);
-                DateTimeOffset ShadowOrder(string signature, DateTimeOffset issued) =>
-                    NodeRosterRecord.BoundedOrderTime(issued, shadowReceipts.GetValueOrDefault(signature));
-                var shadowAnchor = anchor;
-                var shadowPending = pending.ToList();
-                bool shadowGrew;
-                do
-                {
-                    shadowGrew = false;
-                    var remaining = new List<RosterRecordCrdtState>();
-                    foreach (var candidate in shadowPending)
-                    {
-                        if (VerifyInboundRecord(candidate, shadowEvidence, shadowAnchor, competingRoots, ShadowOrder, authority, admittedAt) is null)
-                        {
-                            shadowEvidence.Add(candidate);
-                            shadowReceipts.TryAdd(candidate.SignatureB64Url, candidate.ReceiveAttestationOrNull()!.ReceivedAt);
-                            shadowAnchor ??= candidate.IsGenesis ? candidate.ToAdmissionOrNull() : null;
-                            shadowGrew = true;
-                        }
-                        else remaining.Add(candidate);
-                    }
-                    shadowPending = remaining;
-                } while (shadowGrew && shadowPending.Count > 0);
-                foreach (var candidate in pending)
-                {
-                    var receipt = candidate.ReceiveAttestationOrNull();
-                    var prefixEvidence = shadowEvidence.Where(s => s.RecordId != candidate.RecordId).ToList();
-                    var prefixAnchor = candidate.IsGenesis ? anchor : shadowAnchor;
-                    if (VerifyInboundRecord(candidate, prefixEvidence, prefixAnchor, competingRoots, ShadowOrder, authority, admittedAt) is not null)
-                        continue;
-                    if (copies[candidate.RecordId].Any(copy => !Equals(copy.ReceiveAttestationOrNull(), receipt)
-                        && VerifyInboundRecord(copy, prefixEvidence, prefixAnchor, competingRoots, ShadowOrder, authority, admittedAt) is null))
-                        conflicts.Add(candidate.RecordId);
-                }
-            }
-            string? VerifyCandidate(RosterRecordCrdtState candidate)
-            {
-                var code = VerifyInboundRecord(candidate, evidence, anchor, competingRoots, orderTime, authority, admittedAt);
-                return code ?? (conflicts.Contains(candidate.RecordId) ? "roster.record.receive_attestation_invalid" : null);
-            }
             bool grew;
             do
             {
@@ -1081,7 +1036,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 var remaining = new List<RosterRecordCrdtState>();
                 foreach (var candidate in pending)
                 {
-                    var code = VerifyCandidate(candidate);
+                    var code = VerifyInboundRecord(candidate, evidence, anchor, competingRoots, orderTime, authority, admittedAt);
                     if (code is null)
                     {
                         evidence.Add(candidate);
@@ -1095,7 +1050,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             } while (grew && pending.Count > 0);
             foreach (var candidate in pending)
             {
-                var code = VerifyCandidate(candidate)!;
+                var code = VerifyInboundRecord(candidate, evidence, anchor, competingRoots, orderTime, authority, admittedAt)!;
                 var report = code == "roster.genesis.duplicate" ? GenesisRefusal(candidate, admittedAt).Report
                     : new AuthorizationRefusal(code, "Roster record refused",
                     "The record has no valid signature and eligible live signer in the durable genesis chain.",
@@ -1185,7 +1140,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             admissions.Where(a => a.Admission.IsGenesis || orderTime(a.Admission.Signature, a.Admission.IssuedAt) < at),
             preceding.Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at),
             _verifier, orderTime, authority, at);
-        if ((revocation is not null && string.Equals(revocation.RevokedPartyId, receiveAttestation.NodePartyId, StringComparison.Ordinal))
+        if ((revocation is not null && string.Equals(revocation.RevokedPartyId, receiveAttestation.NodePartyId, StringComparison.Ordinal)
+            && !string.Equals(candidate.AdmittedByPartyId, receiveAttestation.NodePartyId, StringComparison.Ordinal))
             || !AttesterIsTrusted(attesterPrefix, receiveAttestation))
             return "roster.record.receive_attestation_untrusted";
         if (admission is not null && !chain.EnumerateAdmissions().Any(a =>
