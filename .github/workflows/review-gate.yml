@@ -11,6 +11,7 @@
 # branch and runs only that code, never anything from the PR's base or head, so a PR cannot change its own pass
 # rule. The PR's files and text are only data the script reads through the API:
 # - pull_request_target: a new head starts out pending, and a new base drops passes given before it.
+#   Auto-merge being turned on or off also starts a run, since the gate holds an escalated PR that an app armed.
 # - issue_comment: Codex and CodeRabbit update their summary comments when a review finishes.
 # - pull_request_review: a submitted, edited or dismissed review (CodeRabbit's verdict lives there). GitHub runs
 #   this event with the PR's copy of this file, so that run only dispatches a check of the PR from the default
@@ -40,7 +41,7 @@ name: review-gate
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review, edited, auto_merge_enabled, auto_merge_disabled]
   issue_comment:
     types: [created, edited]
   pull_request_review:

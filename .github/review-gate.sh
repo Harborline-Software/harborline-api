@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # review-gate: one commit status on a PR's head that says whether the PR has the review PROC-0001 asks for.
 # "Review policy, 2026-11-01": one clean pass from any of the Claude review, Codex or CodeRabbit, and no
-# blocker from any reviewer that ran. A risky change also needs a clean Codex security review.
+# blocker from any reviewer that ran. A risky change also needs a clean Codex security review. A Claude ESCALATE is not a
+# blocker: it marks the PR risky, so it passes once Codex's security review is clean and another reviewer passed it
+# (ADR-0159). A Claude BLOCK still blocks.
 # "Review by risk": a change that touches only paths on the review-exempt list, or a Dependabot
 # patch or minor update that only Dependabot wrote, needs no review, as long as it touches nothing risky. A blocker
 # from a reviewer that ran still blocks.
@@ -55,23 +57,92 @@ fresh() { [[ -z $rebased_at || $1 > "$rebased_at" ]]; }   # ISO 8601 UTC times s
 
 # Claude review: the review workflow sets the claude-review status on the head it reviewed.
 # success = PASS; failure = BLOCK or ESCALATE; error or missing = it did not run.
-# The combined status holds only the latest status per context, so repeated review-gate posts can't push it out.
-statuses=$(gh api "repos/$REPO/commits/$HEAD/status?per_page=100" --paginate --jq '.statuses[]
+# Statuses come newest first, so the first entry per context is the one standing on the head. Each entry names who
+# set it: only the review workflow (github-actions[bot]) can give a Claude verdict, so one set by anyone else blocks.
+# A line break in a description would start a line of its own here, which could pass for a status from the workflow,
+# so each one becomes a space (Claude review on api 497).
+history=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
   | select(.context == "claude-review" or .context == "review-gate")
-  | "\(.context)|\(.state)|\(.updated_at)|\(.description // "")"')
-latest=$(cut -d'|' -f1,2,4- <<<"$statuses")
+  | "\(.context)|\(.state)|\(.updated_at)|\(.creator.login // "")|\(.id)|\(.description // "" | gsub("[\r\n]"; " "))"')
+statuses=$(awk -F'|' '!seen[$1]++' <<<"$history")
+latest=$(cut -d'|' -f1,2,6- <<<"$statuses")
+# Which of the two statuses this run read, by id, so it can tell before it posts whether another one landed meanwhile.
+standing() {
+  local s
+  s=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" --paginate --jq '.[]
+    | select(.context == "claude-review" or .context == "review-gate") | "\(.context)|\(.id)"') || return 1
+  awk -F'|' '!seen[$1]++' <<<"$s" | sort
+}
+seen=$(cut -d'|' -f1,5 <<<"$statuses" | sort)
 claude_at=$(awk -F'|' '$1 == "claude-review" { print $3; exit }' <<<"$statuses")
+claude_by=$(awk -F'|' '$1 == "claude-review" { print $4; exit }' <<<"$statuses")
 claude=$( { grep '^claude-review|' <<<"$latest" || true; } | head -n 1 | cut -d'|' -f2-)
 claude=${claude:-none|}
 claude_state=${claude%%|*}; claude_desc=${claude#*|}
+# The verdict is the word right after "Claude review: ", read by position: the description also carries the PR's base
+# branch, and a branch named, say, release/ESCALATE-fix must not turn a BLOCK into an ESCALATE.
+claude_verdict=$(sed -nE 's/^Claude review: (PASS|BLOCK|ESCALATE) \(.*/\1/p' <<<"$claude_desc")
+if [ "$claude_state" != none ] && [ "$claude_by" != 'github-actions[bot]' ]; then
+  blockers+=("claude-review was not set by the review workflow"); claude_state=forged
+fi
 case $claude_state in
   # A pass counts only for the base it reviewed: the review records the PR's base branch in its description, so a
   # review that finished after a retarget, or one given to another PR with the same head, doesn't count here.
   success) if fresh "$claude_at" && [[ $claude_desc == *", base $BASE_REF)" ]]; then passes+=("Claude")
            else stale+=("Claude"); fi ;;
-  failure) blockers+=("${claude_desc:-Claude review: not PASS}") ;;
+  # A BLOCK holds the PR. An ESCALATE does not block by itself: it makes the PR risky, so it then needs one clean pass
+  # from Codex or CodeRabbit and a clean Codex security review (ADR-0159). Any other failure, or one with no verdict
+  # in its description, still blocks.
+  # An ESCALATE, like a pass, speaks only for the base it reviewed: one given before a retarget blocks until the review
+  # of the new base lands (Claude review on api 497).
+  failure) if [ "$claude_verdict" != ESCALATE ]; then blockers+=("${claude_desc:-Claude review: not PASS}")
+           elif ! fresh "$claude_at" || [[ $claude_desc != *", base $BASE_REF)" ]]; then
+             blockers+=("Claude escalated on an earlier base; waiting for a review of the current base"); fi ;;
 esac
-escalated=false; [[ $claude_desc == *ESCALATE* ]] && escalated=true
+escalated=false; [[ $claude_state == failure && $claude_verdict == ESCALATE ]] && escalated=true
+# The standing status alone can hide an earlier verdict on this head. The review workflow keeps a BLOCK or HELD under a
+# later ESCALATE itself now, but an earlier version of it could post an ESCALATE over one (Codex on app 98), and a PASS
+# given to another PR with the same head, for another base, lands on top of this PR's verdicts without clearing them
+# (Fable on platform 492). So the gate reads back through the head's own history, whatever the standing verdict:
+# - a fresh PASS for the current base clears what lies beneath it, and the read stops there;
+# - a PASS for another base, or from before a retarget, clears nothing and is read past;
+# - a BLOCK, HELD or other failure the workflow set holds the PR, whatever base it names;
+# - an ESCALATE makes the PR risky, whatever base it names, as a standing one does, and the read goes on for a BLOCK
+#   beneath it: one from before a retarget, read past here, would otherwise leave an exempt PR needing no review
+#   (Fable on platform 492).
+# Only statuses the review workflow set count, and an error is skipped: a run with no verdict said nothing.
+held=""
+while IFS='|' read -r ctx st at by sid desc; do
+  [ "$ctx" = claude-review ] && [ "$by" = 'github-actions[bot]' ] || continue
+  current=false; [[ $desc == *", base $BASE_REF)" ]] && fresh "$at" && current=true
+  case $st in
+    success) $current && break ;;
+    failure) if [[ $desc == "Claude review: ESCALATE ("* ]]; then escalated=true
+             else held=$desc; break; fi ;;
+  esac
+done <<<"$history"
+# A standing BLOCK already blocks with its own description; name only one found beneath the standing status.
+if [ -n "$held" ] && ! [[ $claude_state == failure && $claude_verdict != ESCALATE ]]; then
+  blockers+=("an earlier Claude verdict on this head still holds: $held")
+fi
+# An escalated PR lands only when the owner queues it (ADR-0159 decision 4). The auto-merge job never arms a risky PR,
+# but one it armed before Claude escalated would still merge on its own, so the gate holds the PR while auto-merge
+# stands that anyone but a maintainer turned on, until the owner turns it off or queues the PR (Fable on platform
+# 492). Read from GitHub's own record of who enabled it, so a missing name holds the PR too.
+# GitHub lets anyone with write access arm auto-merge, so a person counts only with the admin or maintain role on
+# this repository, read from GitHub; a role that can't be read holds the PR (Codex security review on app #98).
+trusted_armer() {
+  local login=${1#*|} role
+  [ "${1%%|*}" = User ] && [ -n "$login" ] || return 1
+  role=$(gh api "repos/$REPO/collaborators/$login/permission" --jq '.role_name') || return 1
+  [ "$role" = admin ] || [ "$role" = maintain ]
+}
+armed=$(jq -r 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
+               else "" end' <<<"$pr")
+if $escalated && [ -n "$armed" ] && ! trusted_armer "$armed"; then
+  armed_by=${armed#*|}
+  blockers+=("Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself")
+fi
 
 # Codex: its summary comment carries a codex-review-state JSON, with braces written as &#123; and &#125;, and a
 # table row per review with the time that review completed. The verdicts and their times are read from one copy of
@@ -182,7 +253,7 @@ exempt_ok=true
 if [ "$BASE_REF" != "$default_branch" ]; then
   exempt_ok=false
   echo "no review exemption: base $BASE_REF is not $default_branch"
-  guarded=$(gh api "repos/$REPO/rules/branches/$BASE_REF" --jq '[.[] | select(.type == "pull_request")] | length')
+  guarded=$(gh api "repos/$REPO/rules/branches/$(jq -rn --arg b "$BASE_REF" '$b | @uri | gsub("%2F"; "/")')" --jq '[.[] | select(.type == "pull_request")] | length')
   if [ "$guarded" -gt 0 ]; then
     base_list=$(mktemp)
     if gh api -H 'Accept: application/vnd.github.raw' \
@@ -306,6 +377,7 @@ elif $need_security; then
   state=pending; desc="Passed by ${passes[*]}; a risky change also needs a clean Codex security review"
 else
   state=success; desc="Passed by ${passes[*]}"
+  $escalated && desc="$desc; Claude escalated, Codex security review clean"
 fi
 desc=${desc:0:140}
 
@@ -316,9 +388,55 @@ if [ "${DRY_RUN:-}" = 1 ]; then exit 0; fi
 emit() {
   if [ -n "${GITHUB_OUTPUT:-}" ]; then printf 'state=%s\nrisky=%s\nhead=%s\n' "$state" "$risky" "$HEAD" >>"$GITHUB_OUTPUT"; fi
 }
+# The review workflow sets a new claude-review, then sets review-gate back to pending, then starts a run of this
+# workflow. A verdict worked out before the new claude-review landed may answer an earlier Claude review, so this run
+# posts nothing, tells the auto-merge job nothing, and leaves the PR to the run started after it, or failing that to
+# the sweep (Codex on app 98).
+# A review-gate that changed under an unchanged claude-review came from another gate run, and nothing says which run is
+# newer: runs of one PR share a group that cancels the older one, but an older run can still post as it is cancelled.
+# This run posts a hold over it, so an older run's pass doesn't stand until the sweep (Claude review on app 98), but
+# never a pass, which could replace a newer run's hold (Codex on platform 492); the sweep settles that case.
+now=$(standing)
+if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
+  posted=true; echo "review-gate left as it is: the Claude review changed while this run read it"; exit 0
+fi
+if [ "$state" = success ] && [ "$(grep "^$CONTEXT|" <<<"$now" || true)" != "$(grep "^$CONTEXT|" <<<"$seen" || true)" ]; then
+  posted=true; echo "review-gate left as it is: another gate run set it while this run read the PR"; exit 0
+fi
 # The sweep re-checks every 20 minutes; posting an identical status each time only adds noise.
-if grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then posted=true; echo "review-gate unchanged"; emit; exit 0; fi
+if [ "$now" = "$seen" ] && grep -qxF "$CONTEXT|$state|$desc" <<<"$latest"; then
+  posted=true; echo "review-gate unchanged"; emit; exit 0
+fi
 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
   -f description="$desc" -f target_url="$RUN_URL" >/dev/null
 posted=true
+# A new Claude verdict can still land after that check. The review workflow resets review-gate after the verdict, so
+# a reset that lands after this post replaces the pass; if the reset landed first, so did the verdict, and this read
+# finds it and takes the pass back.
+# An escalated PR's pass rests on the auto-merge read at the start; anyone but a maintainer who armed auto-merge since then
+# would have it merge on this pass, so the PR is read again and the pass taken back, unreadable counting as armed
+# (CodeRabbit on api #497). The run that auto_merge_enabled starts holds the PR too; this only narrows the window.
+if [ "$state" = success ]; then
+  now=$(standing || echo 'claude-review|unreadable')
+  takeback=""
+  if [ "$(grep '^claude-review|' <<<"$now" || true)" != "$(grep '^claude-review|' <<<"$seen" || true)" ]; then
+    takeback=pending; desc="The Claude review changed while review-gate read it; waiting for the next check"
+  elif $escalated; then
+    armed=$(gh api "repos/$REPO/pulls/$PR" --jq 'if .auto_merge then "\(.auto_merge.enabled_by.type // "")|\(.auto_merge.enabled_by.login // "")"
+                                               else "" end') || armed="|unreadable"
+    if [ -n "$armed" ] && ! trusted_armer "$armed"; then
+      armed_by=${armed#*|}
+      takeback=failure; desc="Blocked: Claude escalated after ${armed_by:-an unnamed account} armed auto-merge; turn it off and queue the PR yourself"
+    fi
+  fi
+  if [ -n "$takeback" ]; then
+    state=$takeback
+    echo "review-gate: $desc"
+    # If this post fails, the exit handler sets review-gate to error, so the pass doesn't stay (Claude review on App #98).
+    posted=false
+    gh api -X POST "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="$CONTEXT" \
+      -f description="$desc" -f target_url="$RUN_URL" >/dev/null
+    posted=true
+  fi
+fi
 emit

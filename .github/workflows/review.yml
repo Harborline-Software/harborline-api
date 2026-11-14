@@ -4,7 +4,9 @@
 # the step summary only; BLOCK or ESCALATE also comments on the PR.
 #
 # Shadow: the job passes whatever the verdict until the repository variable REVIEW_ENFORCE is 'true'. Then a
-# BLOCK, an ESCALATE or a missing verdict fails it, and the ruleset can require `review` next to `verify`.
+# BLOCK or a missing verdict fails it, and the ruleset can require `review` next to `verify`. An ESCALATE doesn't
+# fail it where the base branch's rules require review-gate and the gate has read it, which holds that PR until
+# Codex's security review is clean (ADR-0159); where they don't, or can't be read, an ESCALATE fails it like a BLOCK.
 # The merge group passes at once, because the queued commit was reviewed on its PR head.
 #
 # Agents push as the owner, so GitHub cannot count an agent's approval. This check is the second key instead.
@@ -21,6 +23,9 @@ name: review
 
 on:
   pull_request_target:
+    # A retarget is caught by review-retarget.yml, which dispatches this workflow for the PR. Listening for `edited`
+    # here would make every title or body edit leave a skipped `review` check on the head, which GitHub counts as a
+    # pass and which would hide an earlier failure (Fable on platform 492).
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   workflow_dispatch:
@@ -44,7 +49,8 @@ jobs:
   review:
     if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 minutes for the review, plus 10 for an enforced ESCALATE to wait for review-gate to read it.
+    timeout-minutes: 40
     steps:
       - name: Decide whether this event gets a review
         id: scope
@@ -175,7 +181,9 @@ jobs:
           set -uo pipefail
           text=''
           if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE")
+            # A result that can't be read counts as no verdict, rather than stopping the step before it records one.
+            text=$(jq -r '[.[] | select(.type == "result")] | last | .result // ""' "$EXECUTION_FILE") \
+              || { echo "::warning::could not read the review's result"; text=''; }
           fi
           # Only the final non-empty line counts, so a verdict quoted from the PR earlier in the reply is ignored.
           last=$(printf '%s\n' "$text" | sed '/^[[:space:]]*$/d' | tail -n 1)
@@ -189,30 +197,140 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$verdict" != PASS ]; then
             body=$(printf '<!-- harborline-review -->\n**Review: %s** (%s, %s)\n\n%s' "$verdict" "$mode" "$HEAD_SHA" "${text:-The reviewer returned no result.}")
-            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$body"
+            # The comment is for people; a failed one mustn't stop the step before it records the verdict (Fable on
+            # platform 492), or an earlier gate pass would stand.
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$body" \
+              || echo "::warning::could not post the review comment; the verdict is still recorded below"
           fi
           # The claude-review status on the reviewed head is what review-gate reads: success is PASS, failure is
           # BLOCK or ESCALATE, and error means no verdict, which review-gate counts as a review that did not run.
+          # review-gate holds a PR on a BLOCK; an ESCALATE marks it risky, so it then needs another clean review
+          # and a clean Codex security review (ADR-0159). Keep the verdict word in the description for that reason.
           # The base branch in the description binds a pass to the diff it reviewed; review-gate checks it.
           # A run with no verdict leaves an earlier verdict on this head in place, so a retry that times out can't
-          # clear a BLOCK. If the earlier state can't be read, it posts nothing rather than risk overwriting one.
+          # clear a BLOCK. Nor can an ESCALATE: a BLOCK on this head stays until a review passes it or a new head is
+          # pushed, so re-running the review until it says ESCALATE gains nothing. If the earlier verdict can't be
+          # read, a run with no verdict posts nothing, and an ESCALATE posts HELD: a failure with no verdict word, so
+          # review-gate holds the PR, it can't overwrite a BLOCK with a weaker verdict, and the ESCALATE isn't lost.
+          # Later ESCALATE runs keep a HELD as they keep a BLOCK.
           case $verdict in PASS) st=success ;; BLOCK|ESCALATE) st=failure ;; *) st=error ;; esac
-          if [ "$st" = error ]; then
-            prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" --paginate \
-              --jq '.statuses[] | select(.context == "claude-review") | .state' || echo unknown)
-            [ -n "$prior" ] && st=keep
+          held_before=false
+          if [ "$st" = error ] || [ "$verdict" = ESCALATE ]; then
+            # Only a verdict this workflow set counts, as in review-gate; the listing is newest first.
+            if prior=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
+                 --jq '.[] | select(.context == "claude-review" and .creator.login == "github-actions[bot]")
+                       | "\(.state)|\(.description // "" | gsub("[\r\n]"; " "))"'); then
+              if [ "$st" = error ] && [ -n "${prior%%$'\n'*}" ]; then st=keep; fi
+              # An ESCALATE keeps any BLOCK or HELD on this head back to the last PASS for this base: a PASS given to
+              # another PR with the same head, for another base, doesn't clear it (Fable on platform 492).
+              if [ "$verdict" = ESCALATE ]; then
+                while IFS='|' read -r pst pdesc; do
+                  if [ "$pst" = success ]; then [[ $pdesc == *", base $BASE_REF)" ]] && break
+                  elif [[ $pst == failure && ( $pdesc == "Claude review: BLOCK ("* || $pdesc == "Claude review: HELD ("* ) ]]; then
+                    st=keep; held_before=true; break
+                  fi
+                done <<<"$prior"
+              fi
+            elif [ "$verdict" = ESCALATE ]; then
+              st=held; held_before=true
+            else
+              st=keep
+            fi
           fi
+          desc="Claude review: $verdict ($mode, base $BASE_REF)"
+          if [ "$st" = held ]; then
+            st=failure; desc="Claude review: HELD (ESCALATE, earlier verdict unreadable; $mode, base $BASE_REF)"
+          fi
+          # GitHub takes at most 140 characters. Cutting keeps the verdict word, and a cut PASS loses its base, so the
+          # gate doesn't count it.
+          desc=${desc:0:140}
+          recorded=true
           if [ "$st" = keep ]; then
-            echo "No verdict; leaving the earlier claude-review status on $HEAD_SHA as it is"
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
-              -f description="Claude review: $verdict ($mode, base $BASE_REF)" \
-              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
-              || echo "::warning::could not set the claude-review status"
+            echo "Leaving the earlier claude-review status on $HEAD_SHA as it is ($verdict this run)"
+          elif ! gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$st" -f context=claude-review \
+              -f description="$desc" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; then
+            recorded=false
+            echo "::warning::could not set the claude-review status"
           fi
-          gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" \
-            -f pr="$PR" || echo "::warning::could not start review-gate"
-          if [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
+          # review-gate's status on this head may be one it set for an earlier verdict, perhaps a pass. Setting it
+          # pending holds the PR until the gate reads this verdict: the run started here does, and failing that the
+          # gate's 20-minute sweep.
+          cleared=true
+          if ! reset_id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending -f context=review-gate \
+              -f description="Waiting for review-gate to read the latest Claude review" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .id) \
+             || [ -z "$reset_id" ]; then
+            cleared=false
+            echo "::warning::could not reset the review-gate status"
+          fi
+          started=true
+          if ! gh workflow run review-gate.yml --repo "$GITHUB_REPOSITORY" \
+              --ref "${{ github.event.repository.default_branch }}" -f pr="$PR"; then
+            started=false
+            echo "::warning::could not start review-gate"
+          fi
+          # Enforced, the job fails like the gate holds: on a BLOCK or no verdict, and on an ESCALATE that kept an
+          # earlier BLOCK or HELD or posted a HELD. Any other ESCALATE is left to review-gate,
+          # which passes it only with a clean Codex security review (ADR-0159), but only where the base branch's rules
+          # require review-gate: otherwise nothing would hold it, so it fails here, as it does when the rules can't be
+          # read. The rules are read whole before they are searched, so a failed request can't look like a match.
+          # A verdict that wasn't recorded leaves an earlier one, perhaps a PASS, for the gate to read, so enforced, the
+          # job fails whatever this run said.
+          # Enforced, an ESCALATE also fails unless review-gate was reset and started on this head, so a pass the gate
+          # gave an earlier verdict can't stand for it.
+          if [ "$mode" = enforced ] && [ "$recorded" = false ]; then
+            echo "::error::review verdict $verdict was not recorded on $HEAD_SHA, so review-gate can't hold it"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$held_before" = true ]; then
+            # An ESCALATE that kept an earlier BLOCK or HELD, or posted a HELD, fails as that status does (Claude review
+            # on platform 492).
+            echo "::error::review verdict ESCALATE, and a BLOCK or HELD on $HEAD_SHA still holds the PR"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ] \
+               && { [ "$cleared" = false ] || [ "$started" = false ]; }; then
+            echo "::error::review verdict ESCALATE, and review-gate was not reset and started on $HEAD_SHA to read it"
+            exit 1
+          elif [ "$mode" = enforced ] && [ "$verdict" = ESCALATE ]; then
+            # The rules read below must still be those of the base the verdict was given against (CodeRabbit on api
+            # 497). The base is read again before the lookup and after the wait; a retarget after that dispatches a
+            # new review (review-retarget.yml), whose verdict replaces this one's claude-review status.
+            same_base() {
+              local now
+              now=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .base.ref) && [ "$now" = "$BASE_REF" ] && return 0
+              echo "::error::review verdict ESCALATE, and the PR's base can't be read or is no longer $BASE_REF, the branch it was reviewed against"
+              return 1
+            }
+            same_base || exit 1
+            # The name is encoded, keeping its slashes, so a branch like x#y or x%y is read as itself, not as x.
+            base_path=$(jq -rn --arg b "$BASE_REF" '$b | @uri | gsub("%2F"; "/")')
+            required=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$base_path" --paginate \
+              --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') \
+              || required=''
+            if ! grep -qx review-gate <<<"$required"; then
+              echo "::error::review verdict ESCALATE, and $BASE_REF's rules don't require review-gate to hold it"
+              exit 1
+            fi
+            # A gate run that read an earlier verdict can still post its pass after the reset (Codex on app 98), so
+            # the job waits until review-gate answers this one: a status the gate workflow set after the reset that
+            # holds the PR, or a pass that says Claude escalated. A pass that doesn't say so was worked out from an
+            # earlier verdict, and the run started above replaces it.
+            answered=false
+            for _ in $(seq 40); do
+              sleep 15
+              gate=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/statuses?per_page=100" --paginate \
+                --jq '.[] | select(.context == "review-gate") | "\(.id)|\(.state)|\(.creator.login // "")|\(.description // "" | gsub("[\r\n]"; " "))"') \
+                || continue
+              IFS='|' read -r gate_id gate_state gate_by gate_desc <<<"$gate"
+              [ "$gate_id" != "$reset_id" ] && [ "$gate_by" = 'github-actions[bot]' ] || continue
+              if [ "$gate_state" != success ] || [[ $gate_desc == *"Claude escalated"* ]]; then answered=true; break; fi
+            done
+            if ! $answered; then
+              echo "::error::review verdict ESCALATE, and review-gate did not answer it on $HEAD_SHA within 10 minutes"
+              exit 1
+            fi
+            same_base || exit 1
+          elif [ "$mode" = enforced ] && [ "$verdict" != PASS ]; then
             echo "::error::review verdict $verdict"
             exit 1
           fi
