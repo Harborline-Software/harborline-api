@@ -9,7 +9,7 @@ export const PROJECT='apps/local-node-host/tests/tests.csproj'
 export const FILTER='FullyQualifiedName~FormDefinitionRouteTests|FullyQualifiedName~RoleGateAdmissionTests.AdmissionMatrix_UsesAuthorityDerivedOwnerAndRefusesBeforeStore'
 const TENANCY='scope-tenancy-identity-tenant'
 const APPROVED_ROW={score:60.23,break:60,tested:1139,killed:778,timeout:2,survived:359,noCoverage:156,measured:'2026-10-05',commit:'560dfc26',tool:'dotnet-stryker 5.0.0',run:'node eng/mutation-report.mjs --full --only apps/local-node-host/tests/tests.csproj --slice scope-tenancy-identity-tenant (winbox, 109 min); T-1005'}
-const SDK='11.0.100-rc.1.26425.128'
+const SDK='11.0.100'
 export function tool(exe,args,options) { return spawnSync(exe,args,options) }
 // Stryker 5's --version is a report/project option requiring a value, not a
 // tool-version switch. Bind the restored local package separately from startup.
