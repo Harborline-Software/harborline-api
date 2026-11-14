@@ -23,6 +23,8 @@ public static class LocalNodeTenantKeyComposition
         services.AddSingleton(provider);
         services.AddSingleton<ITenantKeyProvider>(provider);
         services.AddSingleton<ITenantKeyDestroyer>(provider);
+        // T-521/content-store-epoch-key-store: the content store's tenant key is this provider's version-2 stored key.
+        services.AddSingleton<IVersionedTenantKeyProvider>(provider);
         return services;
     }
 }

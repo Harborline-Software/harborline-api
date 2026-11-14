@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>Harborline.Api.Foundation.Recovery</PackageId>
     <AssemblyName>Harborline.Api.Foundation.Recovery</AssemblyName>
     <RootNamespace>Harborline.Api.Foundation.Recovery</RootNamespace>

@@ -1,0 +1,324 @@
+# T-521 epoch rotation — 2026-11-11
+
+Scope: `T-521/content-store-epoch-key-store`, API draft PR #472. Control source:
+`3030625341fe129304543ee3ecce82dc9c5d3fca`, slice acceptance 3, 4 and 8, ADR 0116 decisions 3–8,
+DES-0054 §10 and accepted ADR 0127 decisions 1–5. ADR 0127 settles the previously open backup signal:
+the host exposes backup handles, R1 opens none, and any open handle blocks key and byte destruction.
+No snapshot backup, marker file or speculative backup detection was added.
+
+API main `ca90c914` was merged normally as `0fffc324`. Its platform pin `22491171` is an ancestor of this
+branch's `2d820840b2f49815db65270e6bdb1ffbae7c3be7` (platform #431), so the newer branch pin was retained.
+Main advanced during validation to `c231e44787065285e43788995c2b08173c45b302` (the Cbor security update),
+which was merged normally as `94a7abd8`; its dependency change is inherited, not a slice-owned edit.
+The exact-pin local feed built all 36 producers successfully. The pre-change merged branch's Release build
+and ContentStore/ArchTests/affected Entities catalog run passed 636/636, with zero skipped tests.
+
+## Oracles
+
+- Registration: slice literals `content-key-rotation`, `schedule`, `sys.sched.content-key-rotation`,
+  `content-store`; both registrations resolved from the actual composition.
+- Rotation, batching and destruction: ADR 0116's literal 90-day rotation and 30-day waiting period,
+  including one-tick-before/exact-boundary assertions. Two independent committed rows and one-row batches
+  establish full traversal; persisted files and row epoch IDs establish the result.
+- Retirement: an actual SQLite reader prevents `TRUNCATE`, independently before retirement and after its
+  SQL fence; `.pending` must not exist until the reader releases. A remaining epoch file is the refusal oracle.
+- Backups: ADR 0127's any-open-handle rule, tested with nested handles, both key phases, immediate byte
+  deletion and deferred sweeping. File existence is asserted before and after the final handle closes.
+- Erasure: unencrypted SQLite with `secure_delete=OFF` demonstrably retains the deleted item's wrapped-key
+  bytes in the database after the waiting period. A separately written HKDF/AES-GCM unwrap uses the
+  producer format's literal purpose/AAD strings. It succeeds before destruction and fails afterward because
+  the actual epoch key is gone; this does not claim raw-disk secure deletion.
+- Actor/metadata: the slice's `sys.scheduler` identity and fail-closed unreadable pending timestamp.
+- Crash recovery: literal payloads `hello` and `still-staged`, actual persisted bookkeeping and epoch files,
+  and child exit code 73 plus a named reached-step signal. Each restart decrypts the committed item and
+  independently unwraps the staged row, resumes the rotation, then checks both again.
+
+## Hand mutations
+
+Each mutation was applied alone, compiled and run against its named test, then the original source was restored
+byte-for-byte. All twelve produced assertion/test failures, not compile errors. No threshold, baseline, test
+selection policy or suppression was changed. Names below are methods on `NodeContentStoreTests`.
+
+| ID | Mutation | Killing test |
+| --- | --- | --- |
+| R1 | Wrong run kind | `Rotation_run_uses_the_slice_literals_and_the_sweeps_registration_shape` |
+| R2 | Ignore the rotation period | `Rotation_rewraps_multiple_batches_and_waits_thirty_days_across_restart` |
+| R3 | Stop after one rewrap batch | `Rotation_rewraps_multiple_batches_and_waits_thirty_days_across_restart` |
+| R4 | Ignore a failed batch checkpoint | `An_unfinished_TRUNCATE_checkpoint_cannot_start_the_destruction_wait` |
+| R5 | Ignore the post-fence checkpoint | `The_checkpoint_after_fencing_old_pins_must_finish_before_the_wait_is_marked` |
+| R6 | Ignore the rotation backup guard | `Backup_handles_gate_both_retirement_and_destruction_and_byte_sweeping` |
+| R7 | Ignore the destruction waiting period | `Rotation_rewraps_multiple_batches_and_waits_thirty_days_across_restart` |
+| R8 | Keep the destroyed epoch file | `Rotation_rewraps_multiple_batches_and_waits_thirty_days_across_restart` |
+| R9 | Ignore the immediate byte-deletion backup guard | `Backup_handles_gate_both_retirement_and_destruction_and_byte_sweeping` |
+| R10 | Ignore the conditional sweep-deletion backup guard | `Backup_handles_gate_both_retirement_and_destruction_and_byte_sweeping` |
+| R11 | Accept a non-scheduler actor | `Rotation_refuses_a_non_scheduler_actor_before_changing_the_current_epoch` |
+| R12 | Treat corrupt metadata as zero | `Unreadable_pending_metadata_refuses_instead_of_destroying_a_key` |
+
+Raw logs and the machine-readable mutation receipt are in the thread-created directory
+`/private/tmp/t521-epoch-20261111-PEzy1R` (`hand-R1.log` through `hand-R12.log`, `hand-mutations.json`).
+These are hand-mutation results, not a Stryker score or certificate.
+
+## Acceptance 8: real key-store process crashes
+
+Executed on macOS 27.2, arm64, .NET SDK `11.0.100-rc.1.26425.128`. The installed SDK compiles the
+worker fixture; no extra project, package or runtime is installed. A separate process exits at each actual
+boundary, leaving the real SQLCipher database, key directory and content files for the parent to reopen:
+
+- Epoch file: device flush, rename, directory flush.
+- Current pointer: device flush, rename, directory flush.
+- Rewrap: batch commit, successful checkpoint.
+- Retirement: SQL fence, successful checkpoint, durable pending timestamp.
+- Destruction: unlink, directory flush.
+
+All 13 injection cases passed independently and were repeated successfully before final integrated validation.
+These are process-crash tests, not power-cut tests: OS caches survive process exit, so they do not prove that
+removing a flush would lose data on a power failure. No such flush-removal mutation is claimed.
+
+## Final integrated validation
+
+After both main merges, the Release build/restore passed with zero errors and 411 warnings (the initial baseline
+also had 411); no warning suppression was added. The final run passed **657/657**, zero skipped,
+including all **131 ContentStore cases** and all **13 child-process crashes**:
+
+```sh
+dotnet build apps/local-node-host/tests/tests.csproj -c Release --disable-build-servers -m:1
+dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --disable-build-servers -m:1 \
+  --filter 'FullyQualifiedName~ContentStore|FullyQualifiedName~ArchTests|FullyQualifiedName~LocalNodePatternAModuleCatalogTests'
+```
+
+The final TRX is `final-tests/final-main.trx` in the thread's scratch directory; build/test logs are
+`final-main-build.log` and `final-main-tests.log`. The earlier `final.trx` records the same 657/657 result before
+the dependency update. No final test failure needed a clean-main comparison. The repository's
+`eng/verify-boundaries.sh` passed, including its gate self-tests. The identity-R3 scanner passed over 5,771 tracked
+files with zero unexempted hits; contract generation `--check` and the codegen guard suite passed.
+This is not a full exact-clone/quality/Stryker gate run.
+
+`eng/dependency-ledger.mjs` passed its package justifications, central pins, NuGet licence checks and lockfile policy,
+but returned 1 because both existing pnpm audits returned 1 (`apps/capability-host` and `packages/contracts`).
+Both failures were reproduced with `pnpm audit --audit-level high` in a fresh, untouched `git archive` of main
+`c231e44787065285e43788995c2b08173c45b302`. Each existing NAS audit request exhausted its retries and returned
+`[23] The operation was aborted due to timeout`. Logs: `main-capability-audit.log` and `main-contracts-audit.log`.
+This is an audit-service failure, not a clean vulnerability report. No dependency/audit/registry configuration was
+changed to work around it. The final boundary/preflight suite was rerun after the security merge and passed.
+
+Linux and Windows execution remain outstanding. The worker is portable and has no host skip, but macOS evidence
+does not satisfy acceptance 8's explicit Linux-and-Windows host requirement. Host enablement and schedule dispatch
+remain under the existing content-store host hold; this slice adds the registration and executable handler at the
+same seam as the staging sweep, not an independently enabled background timer.
+
+## 2026-11-11 — parent-directory durability review repair
+
+Codex review thread `discussion_r4538399917` identified that syncing the tenant directory alone did not persist
+the entries for newly created `content-epochs` and tenant directories in their parents. The shared durable writer
+now syncs the leaf and every ancestor through the existing filesystem root after rename and before returning.
+It does this even when directories already exist: an interrupted attempt can leave them visible without having
+completed their parent syncs. Any sync exception propagates; no successful write is reported on that path.
+The change covers epoch creation, the current pointer and rotation metadata without changing their callers.
+
+`NodeContentEpochDirectoryTests.cs` adds four deterministic regression cases. The oracle is acceptance 3 and
+ADR 0116 decision 5: the literal `tenant-keys/content-epochs/<tenant>` hierarchy must be persisted before a
+key write succeeds. Two cases record the actual sync callback's directory order while also performing the native
+sync, for a newly created hierarchy and one already visible after interrupted creation. Two cases inject an
+`IOException` at the `content-epochs` or `tenant-keys` parent sync and require that exact failure, not success.
+
+The authorized native retry reproduced all four failures before the fix (`directory-red.log`); the fixed writer
+passed all four (`directory-green.log`). Hand mutation D1 stops traversal after the leaf, restoring the original
+defect; all four tests failed (`directory-hand-mutation.log`), and the source was restored before final validation.
+This is deterministic call-order/error-propagation evidence, not a hardware
+power-cut experiment or proof that removing a native fsync primitive loses data. Logs remain in the thread's
+owned scratch directory `/private/tmp/t521-epoch-20261111-PEzy1R`.
+
+The final Release build/restore passed with zero errors and 93 incremental-build warnings. The ContentStore,
+ArchTests and affected Entities catalog filter passed 661/661, zero skipped, including all 13 real crash cases.
+The final TRX is `directory-final-tests/directory-final.trx`; build/test logs are `directory-final-build.log` and
+`directory-final-tests.log`. Boundary/preflight self-tests, identity-R3 scan, contract generation `--check`, the
+32-case codegen guard suite and `git diff --check` passed. The sandbox boundary run could not obtain process
+identity for its gate-lock self-tests; the unchanged command passed natively. No registry/audit configuration,
+test threshold or warning policy was changed. The previously reproduced clean-main audit-service failures and
+outstanding Linux/Windows host evidence remain as recorded above; no full gate or Stryker score is claimed.
+
+## 2026-11-11 — tenant wrapping-key durability review repair
+
+Control #1316 merged as `f61408b293230495ac92759be0b816d8bc5352f1`, widening this slice's touches under
+M11's acceptance 1/3/8 ruling. Codex P1 `discussion_r4538753294` correctly identified that an epoch key's
+durability cannot compensate for a buffered-only tenant wrapping key in a different directory branch.
+
+`FileSystemTenantKeyStore.TryCreateAsync` now writes a unique same-directory temporary file, calls
+`FileStream.Flush(flushToDisk: true)`, closes it and atomically publishes it without overwriting another
+creator's record. It syncs the leaf directory and every ancestor through the existing filesystem root
+before returning, including an already-visible hierarchy left by an interrupted creation. A losing creator
+also completes that directory barrier before returning false. File-flush and directory-sync failures escape;
+only a final-path collision in the rename is treated as an existing record. Temporary files are cleaned up.
+The public constructor, interface, record paths and other callers are unchanged. The host's native helper
+cannot be called from the lower-layer recovery package without reversing its dependency; the shared store
+therefore uses the same libc open/fsync/close pattern locally. Windows retains the file flush and atomic
+publication, with no directory-fsync equivalent, as in the existing epoch writer.
+
+The new `CryptoShred/FileSystemTenantKeyStoreTests.cs` has 11 cases. Its oracles are the slice's acceptance 3,
+ADR 0116 decision 5 and M11's dated Log literal: temp file, disk flush, atomic publication, then parent fsync,
+with no success after a failed flush. An internal stream factory lets a real FileStream subclass observe the
+actual `Flush(bool)` call, perform the real base flush, or inject a disk-flush failure; no public test API or
+project/friend-assembly configuration was added. Directory callbacks record the literal parent chain while
+performing native syncs. Coverage also pins fresh/interrupted hierarchy handling, failure propagation even
+when a record already exists, create-once concurrency, cancellation cleanup, read/delete/prefix behavior and
+existing slot validation. The callback tests are deterministic ordering/failure evidence, not power-cut tests.
+
+Before the repair, the native regression run failed 7/11 cases (`red.log`); the repaired run passed 11/11
+(`green.log`). Three hand mutations were run separately against the real store and then restored:
+
+| Mutation | Change | Killing regression | Result |
+| --- | --- | --- | --- |
+| F1 | Replace `Flush(true)` with `await FlushAsync(ct)` only | `Acceptance_3_flushes_to_disk_before_atomic_publication_and_directory_sync` and `Acceptance_3_a_disk_flush_failure_prevents_publication_and_success` | 2 failed, 9 passed |
+| F2 | Sync only the leaf, omitting its parents | Both fresh/interrupted parent-chain cases and both existing/new-record parent-sync-failure cases | 4 failed, 7 passed |
+| F3 | Permit the final rename to overwrite an existing key | `Concurrent_creators_keep_one_complete_winner_and_clean_up_temporary_files` | 1 failed, 10 passed |
+
+Logs are in this thread's scratch directory `/private/tmp/t521-tenant-durability-20261111`, named
+`mutation-F1.log`, `mutation-F2.log` and `mutation-F3.log`. These are hand mutations, not a Stryker score.
+In particular F1 proves the actual stream call requests a disk flush rather than a buffered-only flush;
+it does not simulate a device that lies about persistence.
+
+After restoring the source, `dotnet build apps/local-node-host/tests/tests.csproj -c Release
+--disable-build-servers -m:1` passed with zero errors and two existing CA1031 warnings in unchanged recovery
+files. `dotnet test` with `--no-build --no-restore` and filter
+`FullyQualifiedName~CryptoShred|FullyQualifiedName~ContentStore|FullyQualifiedName~ArchTests|FullyQualifiedName~LocalNodePatternAModuleCatalogTests`
+passed 701/701, zero skipped, including all 13 real process-crash cases. The TRX is
+`final-tests/tenant-durability-final.trx`; logs are `final-build.log` and `final-tests.log` in that scratch directory.
+No final affected-test failure required a clean-main comparison. API main `a83d7588122ac1ec6c4bbc3e94be60477eba22b1`
+was merged normally; its platform pin is older than this slice's required `2d820840`, which remains unchanged.
+Linux/Windows host execution and hardware power-cut evidence remain unclaimed. The PR stays draft and the
+existing host-enablement hold remains in place.
+
+Final fast checks passed: `bash eng/verify-boundaries.sh` (including its preflight/guard self-tests),
+`HARBORLINE_CONTROL_REPO=/Users/chris/Projects/Harborline/harborline-control bash eng/identity-r3-scan.sh`
+(5,774 tracked files, zero unexempted hits), contract generation `--check`, all 32 codegen guard cases and
+`git diff --check`. The boundary self-tests could not identify their processes in the sandbox and passed on
+the unchanged native retry. The VSTest socket was likewise blocked in the sandbox; the authorized native
+retry produced the red/green/mutation results above. Logs are `fast-boundaries.log`, `fast-identity.log`,
+`fast-codegen.log` and `fast-codegen-tests.log`. No dependency, registry, audit, threshold, warning-policy or
+test-skip configuration changed; no full exact-clone/quality/Stryker gate is claimed. The prior audit-service
+failure remains historical evidence at main `c231e44787065285e43788995c2b08173c45b302`, not a new audit result for this head.
+
+## 2026-11-12 — bounded key durability and review repairs
+
+The key writers sync the file directory through their own store root, inclusive. Only the call that atomically
+creates the root syncs its parent. Exact-list regressions replace prefix-only assertions, and both stores have
+an injected barrier that throws above an existing root while the write still succeeds. Tenant-key reads of
+already-visible records complete the same bounded barrier before returning, including after a prior writer's
+failed sync. The recovery package carries its own macOS directory F_FULLFSYNC request, matching the byte-store
+policy. On Windows both key writers use MoveFileExW with MOVEFILE_WRITE_THROUGH; only the epoch writer adds
+MOVEFILE_REPLACE_EXISTING, preserving the tenant store's create-once behavior. This includes rotation metadata
+written through the epoch writer. The byte store's Windows behavior is unchanged.
+
+An unset retention binds to a configured legal floor; nonpositive floors and configured retention below the
+floor refuse startup. The complete migration target models are reconstructed from the full snapshot: the
+epoch target matches it, and bookkeeping removes only the later epoch entity, properties and indexes.
+Rotation skips unrecognized epoch names without rewrap or deletion and logs each once per run. DeleteAsync
+now cites ADR 0114 d3/d5; the existing backup-handle regression already proves removal leaves the file during
+an open backup and sweeping removes it after closure.
+
+**Oracles:** fsync(2) and the owner's bounded-root ruling supply the literal ordered directory lists and
+above-root failure property; opaque record fixtures contain literal `visible-key`/`wrapped-key` bytes.
+DES-0046 compliance-ck-3 and ADR 0116 d7 supply the literal 365-day floor, refused 180-day retention and stable
+refusal code. The historical schema supplies literal 44/45 entity counts and the banking/entity property
+checks; both generated target bodies were also compared with their reconstructed historical snapshots.
+The stray-file fixture contains literal `leave alone` bytes and asserts one literal log message per run.
+ADR 0114 d3/d5 supply the existing backup deletion/sweep property.
+
+**Test-first:** the unchanged production code failed 14 cases, passed 31, skipped zero in the regression
+filter. After repair, Release build and the full CryptoShred + ContentStore + ArchTests + affected Entities
+catalog filter passed **711/711**, skipped zero. The TRX contains **13/13 passed** real key-store crash cases.
+Run-scoped packages and logs are under `/private/tmp/t521r`; `red-ready.log`, `green.log`, and the ignored
+`apps/local-node-host/tests/TestResults/{red,green}.trx` record these runs. No new mutation score is claimed.
+These macOS process-exit results do not establish hardware power-cut durability or Windows execution.
+
+**Gate:** eng/verify.sh ran once after repair in its own process session with TMPDIR
+`/private/tmp/t521g-tzw03jp8` and run-scoped NuGet caches. It exited 1 at preflight:
+`HARBORLINE_QUALITY_REPO does not name an existing checkout (/Users/christopherwood/Projects/Harborline/harborline-quality)`.
+See `/private/tmp/t521r/verify-final.log`. No gate configuration or thresholds changed. The pinned local feed
+was built natively from an isolated standalone platform clone at `2d820840`; .feed remains ignored.
+Acceptance 8 remains outstanding until verify-linux and a Windows verify run pass; Chris owns the manual
+Windows workflow dispatch. The ready-for-review state and host-enablement hold remain owner-managed.
+
+## Control #1389 — synchronous resolution and analyzer repair
+
+M11's 2026-11-13 ruling authorizes the recovery interfaces, implementations and project change. The 17 new
+quality-baseline instances were confirmed absent from origin/main at `0da1c6ea1b87066e210a6c06af60625bdf53cd1a`.
+The CI log lists seven recovery and three epoch-store SYSLIB1054 instances, three CA2101 instances, and one
+each of VSTHRD002, VSTHRD103, CA1822 and CA1068.
+
+- LibraryImport partial methods retain every native entry point, write-through/replacement flag and fsync
+  ordering; Windows path strings explicitly marshal UTF-16 and libc paths UTF-8. Only the recovery project
+  gains AllowUnsafeBlocks; the node-host project and the quality baseline are unchanged.
+- The synchronous versioned resolver accepts only version 2, refuses legacy/unsupported versions before
+  calling a legacy provider, reads storage on every call and keeps no tenant-key cache. ResolveKeyAsync stays.
+- Both stores implement synchronous read/create. The filesystem create is the shared synchronous durable
+  core used by TryCreateAsync too: real Flush(true), close, publication and the bounded directory barrier.
+  Concurrent publication is serialized across store instances in the node process; the new Task.Run test
+  exposed two successful no-overwrite moves before this fix. Async reads retain their async file read.
+- NodeTenantContentKeyProvider calls the synchronous resolver directly. The refusal Code member is static;
+  the shared epoch writer's CancellationToken is last and every caller was updated.
+- All 13 crash cases now use the real filesystem-backed, synchronously resolved tenant key in parent,
+  crashed child and restarted reader. Committed content and the independently opened staged wrap are still
+  verified. The fixture hierarchy root is the literal 32 bytes of 0x61; no production key constant is an oracle.
+
+**Test-first and oracles:** 11 new regressions failed against the API stubs/old adapter before implementation.
+The first implemented run passed 171/172 and exposed the competing-creator race; after its repair the full
+ContentStore | TenantKey | CryptoShred filter passed **172/172, zero skipped**, including all **13 crash cases**
+and all **11 new sync cases**. The sync durability tests observe the actual FileStream.Flush(true), assert
+literal fixture bytes and exact directory lists, inject file/directory failures, and preserve create-once
+semantics across two instances. The resolver uses separately AES-GCM-wrapped literal 0x42/0x43 keys in a
+literal slot fixture to prove uncached reads across destruction/recreation. Literal versions 0, 1 and 3
+refuse without calling the legacy provider; the adapter probe requires version 2 and content-store on each
+call. These oracles follow control #1389 and ADR 0116 d4/d5, without reading production expected constants.
+
+**Analyzer evidence:** the Release focused-test build ran with RunAnalyzers=true,
+RunAnalyzersDuringBuild=true, HARBORLINE_GATE_QUALITY=1 and HarborlineRoslynSarifDirectory under
+`/private/tmp/t521fix/sarif`. Both production projects emitted SARIF (recovery: 4 existing diagnostics;
+node host: 538 existing diagnostics). All 13 emitted SARIF files were inspected, including non-console
+levels: **zero SYSLIB1054, CA2101, VSTHRD002, VSTHRD103, CA1822 or CA1068 instances in changed files**, and no
+other diagnostics in those changed production files. No baseline, suppression, severity, audit or registry
+configuration was changed. The local quality tool remains unavailable because this Mac has no quality
+checkout; this is analyzer-build evidence, not a passing whole quality-baseline gate or a Windows run.
+
+Logs and the analyzer summary are under `/private/tmp/t521fix`: `red.log`, `concurrency-red.log`,
+`green-analyzers.log`, `analyzer-summary.json`. The ignored final TRX is
+`apps/local-node-host/tests/TestResults/sync-green.trx`. No out-of-scope file changes were needed.
+
+## Windows crash-worker compiler repair after main/API #496 merge
+
+Merged origin/main at `ff75c3d4` normally as `1b09c2a6124d2bf3a6ab006faa3d58f677821627`.
+That consumes API #496's layout-eng-31 / T-735 timing-parity repair; that prior perf failure was not this slice's.
+No rebase, force push, queue action, auto-merge action, workflow dispatch or rerun was used.
+
+**Actual Windows failure:** downloaded `verify-windows-hosted-evidence-43356356389` from run 43356356389
+(job 131659218798) read-only into `/private/tmp/t521-win-43356356389`. The artifact's
+`exact-clone-09aab3a7679305e7583810706d07c9fd6fcfb2d9-host-baseline-match.log` shows all 13 failures at
+BuildCrashWorkerAsync's compiler-exit assertion, before the child worker runs:
+`error CS0009: Metadata file ... could not be opened -- PE image doesn't contain managed metadata.`
+The paths include native runtime DLLs (`coreclr.dll`, `hostpolicy.dll`, `aspnetcorev2_inprocess.dll`) and
+native `vec0.dll` from the test output directory. The log's SHA-256 is
+`b3442dc955c47d5c3a620888f9f9918e7d093fe416f4058b8b356a43484508c4`.
+
+The compiler reference collector enumerated every `*.dll` as though it were a managed assembly. On Windows,
+those directories also contain native PE DLLs. Reference candidates now pass PEReader.HasMetadata before
+filename deduplication. File handles are disposed before csc consumes the response file. There is no OS
+branch, filename blacklist, skipped case, widened timeout, relaxed exit-code assertion or product-store change.
+
+**Portable reproduction and oracle:** a small PEBuilder-generated native DLL has a code section but no CLI
+metadata. The actual worker compiler, with this DLL injected among its candidates in a path containing spaces,
+reproduced the Windows CS0009 on this Mac. A second regression supplies a native DLL before a managed assembly
+with the same basename and requires the managed fixture to survive filtering/deduplication. Both tests failed
+before the metadata filter (2 failed / 0 passed) and pass afterward. The oracle is the captured csc failure
+and the native/managed PE metadata distinction, plus the literal expected managed candidate list; it does not
+read a production constant or weaken any of the 13 existing crash assertions.
+
+**Local validation:** Release focused ContentStore tests pass **146/146, zero skipped**, including both new
+compiler regressions and **13/13 original real-key-store crash cases**. Boundary/preflight self-tests pass;
+identity-R3 scans 5,776 tracked files with zero unexempted hits; contract generation --check passes; all
+32 codegen guards pass; git diff --check passes. Logs are under `/private/tmp/t521-winfix` (`red.log`,
+`green.log`, `boundaries.log`, `identity.log`, `codegen.log`, `codegen-tests.log`), with the ignored TRX at
+`apps/local-node-host/tests/TestResults/windows-compiler-green.trx`.
+
+**Windows could not be run here.** This is a portable reproduction and macOS validation, not a passing
+Windows verification claim. The new head needs fresh CI/Windows evidence and Chris's fresh queue approval;
+the approval for 09aab3a7 is not reused. Readiness remains unchanged.

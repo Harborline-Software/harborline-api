@@ -8,24 +8,25 @@ public sealed class InMemoryTenantKeyStore : IStoredTenantKeyStore
     private readonly ConcurrentDictionary<string, byte[]> _records = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
-    public Task<ReadOnlyMemory<byte>?> ReadAsync(string slot, CancellationToken ct)
+    public ReadOnlyMemory<byte>? Read(string slot, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult(
-            _records.TryGetValue(slot, out var value)
-                ? (ReadOnlyMemory<byte>?)value.ToArray()
-                : null);
+        return _records.TryGetValue(slot, out var value) ? (ReadOnlyMemory<byte>?)value.ToArray() : null;
     }
 
     /// <inheritdoc />
-    public Task<bool> TryCreateAsync(
-        string slot,
-        ReadOnlyMemory<byte> wrappedKey,
-        CancellationToken ct)
+    public bool TryCreate(string slot, ReadOnlyMemory<byte> wrappedKey, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult(_records.TryAdd(slot, wrappedKey.ToArray()));
+        return _records.TryAdd(slot, wrappedKey.ToArray());
     }
+
+    /// <inheritdoc />
+    public Task<ReadOnlyMemory<byte>?> ReadAsync(string slot, CancellationToken ct) => Task.FromResult(Read(slot, ct));
+
+    /// <inheritdoc />
+    public Task<bool> TryCreateAsync(string slot, ReadOnlyMemory<byte> wrappedKey, CancellationToken ct) =>
+        Task.FromResult(TryCreate(slot, wrappedKey, ct));
 
     /// <inheritdoc />
     public Task DeleteAsync(string slot, CancellationToken ct)

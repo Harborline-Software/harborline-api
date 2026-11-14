@@ -2336,7 +2336,8 @@ builder.Services.AddNodeKnowledgeGraphSearch();
 // supplied through the producer's IContentStoreStorage and IContentStoreQuotaBase ports on every role.
 Harborline.Api.LocalNodeHost.Data.ContentStore.NodeContentStoreComposition.AddNodeContentStore(
     builder.Services,
-    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"));
+    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"),
+    builder.Configuration);
 
 // ── PERS-1 — STORAGE-ROLE durable, mandatory-envelope-at-rest blob store (ADR 0137 D4 / C-3; ADR 0127 seam) ──
 //

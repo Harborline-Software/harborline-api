@@ -22,10 +22,12 @@ public sealed partial class NodeContentByteStore : IContentByteStore
     private const int FullFsyncCommand = 51; // F_FULLFSYNC, <sys/fcntl.h>
     private static readonly byte[] Magic = "HLCSBYT1"u8.ToArray();
     private readonly object _gate = new();
+    private readonly ContentStoreBackupActivity _backups;
 
     /// <summary>Creates the byte port over a directory the node owns.</summary>
-    public NodeContentByteStore(string directory)
+    public NodeContentByteStore(string directory, ContentStoreBackupActivity? backups = null)
     {
+        _backups = backups ?? new();
         DirectoryPath = Path.GetFullPath(directory);
         var created = !Directory.Exists(DirectoryPath);
         Directory.CreateDirectory(DirectoryPath);
@@ -94,23 +96,29 @@ public sealed partial class NodeContentByteStore : IContentByteStore
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask DeleteAsync(Guid itemKey, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// ADR 0114 decisions 3 and 5: removal commits bookkeeping first. While a backup is open, leave the file;
+    /// content-staging-sweep removes these unreferenced bytes after the backup closes.
+    /// </summary>
+    public async ValueTask DeleteAsync(Guid itemKey, CancellationToken cancellationToken = default)
     {
+        using var destruction = await _backups.TryEnterDestructionAsync(cancellationToken).ConfigureAwait(false);
+        if (destruction is null) return;
         lock (_gate) Delete(itemKey);
-        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
-    public ValueTask<bool> DeleteIfWrittenAtOrBeforeAsync(Guid itemKey, DateTimeOffset cutoff, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> DeleteIfWrittenAtOrBeforeAsync(Guid itemKey, DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {
+        using var destruction = await _backups.TryEnterDestructionAsync(cancellationToken).ConfigureAwait(false);
+        if (destruction is null) return false;
         lock (_gate)
         {
             var path = PathOf(itemKey);
             var current = File.Exists(path) ? path : path + Temporary;
-            if (!File.Exists(current) || File.GetLastWriteTimeUtc(current) > cutoff.UtcDateTime) return ValueTask.FromResult(false);
+            if (!File.Exists(current) || File.GetLastWriteTimeUtc(current) > cutoff.UtcDateTime) return false;
             Delete(itemKey);
-            return ValueTask.FromResult(true);
+            return true;
         }
     }
 
@@ -173,7 +181,7 @@ public sealed partial class NodeContentByteStore : IContentByteStore
         await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false) == buffer.Length;
 
     // fsync on a file does not cover its directory entry (fsync(2)), so a rename is durable only after this. Windows has no equivalent.
-    private static void SyncDirectory(string directory)
+    internal static void SyncDirectory(string directory)
     {
         if (OperatingSystem.IsWindows()) return;
         var descriptor = Open(directory, 0);
