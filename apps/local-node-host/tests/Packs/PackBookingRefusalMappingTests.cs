@@ -9,7 +9,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 /// <summary>
 /// T-1034 follow-up to api #502: a platform Booking refusal that does not point under
-/// <c>/entries/{index}</c> stays a pack-level refusal with the platform's code, pointer and target.
+/// <c>/entries/{index}</c> stays a pack-level refusal with the platform's pointer and target.
 /// The pinned platform (22491171, <c>BookingDefinitionPackage.cs:64</c>) only emits entry pointers,
 /// so no route can produce one; the mapping is driven directly.
 /// </summary>
@@ -32,10 +32,10 @@ public sealed class PackBookingRefusalMappingTests
     [InlineData("/envelope/contract")]
     public void Pointer_outside_an_entry_keeps_the_platform_refusal(string pointer)
     {
-        var mapped = PackInstaller.BookingRefusal(
+        var place = PackInstaller.BookingRefusalPlace(
             new DefinitionRefusal("booking.pack.content_unsupported", pointer, "platform.target"), Items);
 
-        Assert.Equal(new PackInstallRefusal("booking.pack.content_unsupported", pointer, "platform.target"), mapped);
+        Assert.Equal((pointer, "platform.target"), place);
     }
 
     [Theory(DisplayName = "T-1034 follow-up: a Booking refusal under an entry names that definition")]
@@ -43,9 +43,9 @@ public sealed class PackBookingRefusalMappingTests
     [InlineData("/entries/0/requires/0", "/requires/0")]
     public void Pointer_under_an_entry_names_the_definition(string pointer, string expected)
     {
-        var mapped = PackInstaller.BookingRefusal(
+        var place = PackInstaller.BookingRefusalPlace(
             new DefinitionRefusal("booking.bookable.required_resource_unknown", pointer), Items);
 
-        Assert.Equal(new PackInstallRefusal("booking.bookable.required_resource_unknown", expected, "acme.surface@1.0.0"), mapped);
+        Assert.Equal((expected, "acme.surface@1.0.0"), place);
     }
 }
