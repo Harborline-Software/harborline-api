@@ -48,7 +48,6 @@
     <Project Path="packages/blocks-reports/Harborline.Blocks.Reports.csproj" />
     <Project Path="packages/blocks-workflow-interpreter/Harborline.Blocks.Workflow.Interpreter.csproj" />
     <Project Path="packages/blocks-workflow/Harborline.Blocks.Workflow.csproj" />
-    <Project Path="packages/client-dotnet/Harborline.Client.csproj" />
     <Project Path="packages/contracts/Harborline.Contracts.csproj" />
     <Project Path="packages/documents-pdfsharp/Harborline.Documents.PdfSharp.csproj" />
     <Project Path="packages/federation-common/Harborline.Federation.Common.csproj" />
