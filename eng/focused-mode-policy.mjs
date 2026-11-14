@@ -40,7 +40,10 @@ function category(file) {
     // Exact inputs of the other executable inventory fences, not format-wide allowances.
     || file === 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'
     || file === 'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md'
-    || file === 'packages/contracts/protocol/boundary-inventory.json') return 'build-artifact'
+    || file === 'packages/contracts/protocol/boundary-inventory.json'
+    // The root ignore file, exact path only: it controls which untracked files git ignores; no build,
+    // test or scan step reads it.
+    || file === '.gitignore') return 'build-artifact'
   if (/\.cs$/.test(file) && /validat/i.test(file)) return 'validation'
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
   if (/\.(cs|dll|exe|pdb|nupkg|so|dylib|bin)$/.test(file)) return 'binary'
