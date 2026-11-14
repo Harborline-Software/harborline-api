@@ -42,10 +42,12 @@ stryker-setup-*.js
 # User-specific files
 *.rsuser
 *.suo
-*.user
 *.userosscache
 *.sln.docstates
 *.DotSettings.user
+# Deliberately NOT ignored: *.user. MSBuild imports <Project>.csproj.user into the build, and
+# eng/verify-receipt.mjs refuses to record a pass while `git status` shows changes, so these must
+# stay visible there or a receipt could vouch for HEAD after a build that used local overrides.
 
 # Visual Studio cache and options
 .vs/
