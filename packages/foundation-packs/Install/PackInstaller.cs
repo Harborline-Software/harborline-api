@@ -1490,22 +1490,31 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         var bookingRefusals = new List<PackInstallRefusal>();
         if (collectRefusals)
             bookingRefusals.AddRange(BookingAdmissionRefusals(contents, manifest.Dependencies, installed!));
-        // Undecodable bodies cannot enter reattachment or composed-body parsing, even during Check.
+        // A Booking refusal must stop reattachment, including during Check.
         if (collectRefusals && (layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)
-                || bookingRefusals.Any(refusal => refusal.Code == BookingDefinitionCodes.BodyInvalid)))
+                || bookingRefusals.Count > 0))
         {
             // Check can inspect verified manifest and installed metadata without decoding any body.
             // Keep this barrier ahead of floors, reattachment, composed admission and all mutations.
             var safeInstalled = installed!;
             var safeWatermark = bound is not null && string.Equals(bound.PackKey, manifest.Key, StringComparison.Ordinal)
                 ? bound.Watermark : _store.GetWatermark(context.Tenant, manifest.Key);
-            var safeRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, [], _platform);
+            var bodiesDecodable = !layoutRefusals.Any(refusal => refusal.Code == LayoutDefinitionCodes.BodyInvalid)
+                && !bookingRefusals.Any(refusal => refusal.Code == BookingDefinitionCodes.BodyInvalid);
+            var safeRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, bodiesDecodable ? contents : [], _platform);
             var safeReferences = DetectUnmetContentReferences(safeInstalled, manifest, contents);
             var safeDependencies = DetectUnmetDependencies(safeInstalled, manifest);
             var safeWatermarkHits = new List<PackWatermarkHit>();
             if (safeWatermark is not null && PackVersion.IsDowngrade(safeWatermark.Version, manifest.Version))
                 safeWatermarkHits.Add(new PackWatermarkHit(PackWatermarkHitKind.VersionDowngrade,
                     $"version {manifest.Version} is below the installed watermark {safeWatermark.Version}"));
+            if (safeWatermark is not null && bodiesDecodable)
+            {
+                var weakened = PackSafetyFloors.Weakened(safeWatermark.Floors, PackSafetyFloors.ExtractFloors(contents));
+                if (weakened.Count > 0)
+                    safeWatermarkHits.Add(new PackWatermarkHit(PackWatermarkHitKind.FloorWeakened,
+                        $"safety floor(s) weakened below the watermark: {string.Join(", ", weakened)}"));
+            }
 
             var collected = earlyRefusals.ToList();
             collected.AddRange(layoutRefusals.Where(refusal => !collected.Contains(refusal)));
@@ -1534,8 +1543,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
                         dependency.MalformedPin ? PackInstallCodes.RefusedMalformedDependencyPin : PackInstallCodes.RefusedUnmetDependency,
                         pointer));
             }
-            if (safeWatermarkHits.Count > 0 && !collected.Contains(new PackInstallRefusal(PackInstallCodes.RefusedDowngrade, "/")))
-                collected.Add(new PackInstallRefusal(PackInstallCodes.RefusedDowngrade, "/"));
+            foreach (var hit in safeWatermarkHits)
+            {
+                var code = hit.Kind == PackWatermarkHitKind.VersionDowngrade
+                    ? PackInstallCodes.RefusedDowngrade : PackInstallCodes.RefusedFloorWeakened;
+                if (!collected.Contains(new PackInstallRefusal(code, "/")))
+                    collected.Add(new PackInstallRefusal(
+                        hit.Kind == PackWatermarkHitKind.VersionDowngrade
+                            ? PackInstallCodes.RefusedDowngrade : PackInstallCodes.RefusedFloorWeakened, "/"));
+            }
             var layoutAdmissionRefusals = collected;
             var refused = HardRefusal(
                 manifest.Key, manifest.Version, layoutAdmissionRefusals[0].Code, revocationStale,
@@ -1953,39 +1969,27 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
 
         if (entries.Count == 0) return refusals;
 
-        var traits = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-        var seenTypes = new HashSet<string>(StringComparer.Ordinal);
-        void AddType(ReadOnlySpan<byte> json)
+        var traits = BuildBookingTraits(contents.Where(item => item.Kind == PackContentKind.AssetTypeDefinition)
+            .Select(item => Encoding.UTF8.GetString(item.CanonicalBytes.Span)), dependencies, installed);
+        var resources = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var producer in installed.Where(pack => dependencies.Any(dependency => dependency.Key == pack.PackKey
+                     && dependency.Version == pack.Version)))
         {
-            try
+            var producerTraits = BuildBookingTraits(producer.SeedItems.Where(item => item.Kind == PackContentKind.AssetTypeDefinition)
+                .Select(item => item.CanonicalJson), producer.Dependencies, installed);
+            var producerContext = new BookingAdmissionContext(id => producerTraits.GetValueOrDefault(id), _ => false);
+            foreach (var resource in producer.SeedItems.Where(item => item.Kind == PackContentKind.Resource))
             {
-                var document = RecordTypeDefinitionJson.Deserialize(json);
-                if (string.IsNullOrWhiteSpace(document.RecordTypeId)) return;
-                if (!seenTypes.Add(document.RecordTypeId))
+                try
                 {
-                    traits.Remove(document.RecordTypeId);
-                    return;
+                    var entry = new BookingPackEntry((int)resource.Kind, resource.Key, resource.Version,
+                        PlatformPackageContent.PresentJson(Encoding.UTF8.GetBytes(resource.CanonicalJson)));
+                    if (BookingDefinitionPackage.Admit([entry], producerContext).Count == 0)
+                        resources.Add(resource.Key);
                 }
-                if (document.Envelope is null || RecordTypeDefinitionJson.FirstMissing(document) is not null)
-                    return;
-                traits.Add(document.RecordTypeId, (document.Traits ?? []).Select(trait => trait.TraitId)
-                    .ToHashSet(StringComparer.Ordinal));
+                catch (System.Text.Json.JsonException) { }
             }
-            catch (System.Text.Json.JsonException) { }
         }
-        foreach (var item in contents.Where(item => item.Kind == PackContentKind.AssetTypeDefinition))
-            AddType(item.CanonicalBytes.Span);
-        foreach (var (key, exposure) in RecordsInstallClosureGate.ReadExposures(dependencies, installed))
-        {
-            var producer = installed.Single(pack => pack.PackKey == exposure.PackageId
-                && dependencies.Any(dependency => dependency.Key == pack.PackKey && dependency.Version == pack.Version));
-            var seed = producer.SeedItems.Single(item => item.Key == key);
-            AddType(Encoding.UTF8.GetBytes(seed.CanonicalJson));
-        }
-        var resources = installed.Where(pack => dependencies.Any(dependency => dependency.Key == pack.PackKey
-                && dependency.Version == pack.Version))
-            .SelectMany(pack => pack.SeedItems).Where(item => item.Kind == PackContentKind.Resource)
-            .Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
         var context = new BookingAdmissionContext(id => traits.GetValueOrDefault(id), resources.Contains);
         foreach (var refusal in BookingDefinitionPackage.Admit(entries, context))
         {
@@ -1996,6 +2000,39 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             refusals.Add(new PackInstallRefusal(refusal.Code, slash < 0 ? "" : tail[slash..], $"{item.Key}@{item.Version}"));
         }
         return refusals;
+    }
+
+    private static Dictionary<string, IReadOnlySet<string>> BuildBookingTraits(
+        IEnumerable<string> ownTypes, IReadOnlyList<PackDependencyRef> declared, IReadOnlyList<InstalledPack> installed)
+    {
+        var resolved = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+        var seenTypes = new HashSet<string>(StringComparer.Ordinal);
+        void AddType(string json)
+        {
+            try
+            {
+                var document = RecordTypeDefinitionJson.Deserialize(Encoding.UTF8.GetBytes(json));
+                if (string.IsNullOrWhiteSpace(document.RecordTypeId)) return;
+                if (!seenTypes.Add(document.RecordTypeId))
+                {
+                    resolved.Remove(document.RecordTypeId);
+                    return;
+                }
+                if (document.Envelope is null || RecordTypeDefinitionJson.FirstMissing(document) is not null)
+                    return;
+                resolved.Add(document.RecordTypeId, (document.Traits ?? []).Select(trait => trait.TraitId)
+                    .ToHashSet(StringComparer.Ordinal));
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+        foreach (var json in ownTypes) AddType(json);
+        foreach (var (key, exposure) in RecordsInstallClosureGate.ReadExposures(declared, installed))
+        {
+            var producer = installed.Single(pack => pack.PackKey == exposure.PackageId
+                && declared.Any(dependency => dependency.Key == pack.PackKey && dependency.Version == pack.Version));
+            AddType(producer.SeedItems.Single(item => item.Key == key).CanonicalJson);
+        }
+        return resolved;
     }
 
     private IReadOnlyList<PackInstallRefusal> LayoutAdmissionRefusals(IReadOnlyList<PackContentItem> contents)
