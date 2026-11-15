@@ -80,7 +80,8 @@ internal static class PlatformSeedIntake
     /// Maps what the unchanged conversion cannot onto the pack the node installs (T-584 seed-released-navigation.md
     /// 58 and 59): the export's package-level <c>capabilityRequirements</c>, and each navigation body's
     /// <c>workspaceItem</c> and <c>entriesItem</c> pointers, resolved from the items they name to the api's
-    /// <c>labelKey</c>, <c>itemIds</c> and <c>items</c>. A pointer that does not resolve is refused, never dropped.
+    /// <c>labelKey</c>, <c>itemIds</c> and <c>items</c>; and each view item's version, from its own body. A pointer or
+    /// version that does not resolve is refused, never dropped.
     /// </summary>
     internal static PackExportRequest ResolveForInstall(PackExportRequest request, ReadOnlySpan<byte> export)
     {
@@ -101,7 +102,9 @@ internal static class PlatformSeedIntake
         var contents = request.Contents
             .Select(item => item.Kind == PackContentKind.NavWorkspaceConfig
                 ? item with { Content = ResolveNavigation(item.Key, item.Content.DeepClone(), payloads) }
-                : item)
+                : item.Kind == PackContentKind.ViewDefinition
+                    ? item with { Version = BodyVersion(item.Key, item.Content) }
+                    : item)
             .ToArray();
         return request with { Contents = contents, CapabilityRequirements = requirements };
     }
@@ -130,6 +133,15 @@ internal static class PlatformSeedIntake
         }
         return body;
     }
+
+    /// <summary>
+    /// A view carries its own version in its body (DES-0017 views-ck-2 and views-ck-7); the seed revision is the
+    /// package's. The body is that statement's one carrier (ADR-0102 decision 5), so the item takes its value.
+    /// </summary>
+    private static string BodyVersion(string key, JsonNode body) =>
+        body["version"] is JsonValue value && value.TryGetValue<string>(out var version) && !string.IsNullOrWhiteSpace(version)
+            ? version
+            : throw Refuse("platform-seed-view-version-missing", $"The view body '{key}' carries no version of its own.");
 
     private static JsonNode? Pointed(string key, JsonNode? pointer, Dictionary<string, JsonNode?> payloads) =>
         pointer is JsonValue value && value.TryGetValue<string>(out var id) && payloads.TryGetValue(id, out var payload)

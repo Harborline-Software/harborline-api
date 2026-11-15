@@ -282,6 +282,43 @@ public sealed class PlatformSeedIntakeTests
         Assert.Equal("platform-seed-navigation-unresolved", refused.Code);
     }
 
+    [Fact]
+    public void Acceptance_1_each_view_installs_at_its_own_body_version_not_the_seed_revision()
+    {
+        // DES-0017 views-ck-2/ck-7 and ADR-0102 decision 5: the body carries the view's version; 2.0.0 is the package's.
+        // The expected versions are read here from the raw export, independently of conversion and the intake.
+        using var export = JsonDocument.Parse(PlatformSeedTestBundle.Export());
+        var bodyVersions = export.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("content").GetProperty("payload"))
+            .Where(payload => payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("contentKind", out var kind) && kind.GetString() == "ViewDefinition")
+            .ToDictionary(payload => payload.GetProperty("definitionKey").GetString()!,
+                payload => payload.GetProperty("body").GetProperty("version").GetString()!);
+
+        var views = PlatformSeedTestBundle.Request("fixture-author").Contents
+            .Where(item => item.Kind == Harborline.Api.Foundation.Packs.Model.PackContentKind.ViewDefinition)
+            .ToDictionary(item => item.Key, item => item.Version);
+
+        Assert.Equal(39, views.Count);
+        Assert.Equal(bodyVersions, views);
+        Assert.All(views.Values, version => Assert.Equal("1.0.0", version));
+    }
+
+    [Theory]
+    [InlineData("\"key\":\"platform.list.views\",\"version\":\"1.0.0\"", "\"key\":\"platform.list.views\"")]
+    [InlineData("\"key\":\"platform.list.views\",\"version\":\"1.0.0\"", "\"key\":\"platform.list.views\",\"version\":\"\"")]
+    [InlineData("\"key\":\"platform.list.views\",\"version\":\"1.0.0\"", "\"key\":\"platform.list.views\",\"version\":1")]
+    public void A_view_body_with_no_usable_version_is_refused_not_defaulted(string original, string corrupted)
+    {
+        var text = Encoding.UTF8.GetString(PlatformSeedTestBundle.Export());
+        Assert.Equal(1, text.Split(original).Length - 1);
+
+        var refused = Assert.Throws<PlatformSeedRefusedException>(() => PlatformPackPreloadHostedService.ReadExportRequest(
+            Encoding.UTF8.GetBytes(text.Replace(original, corrupted, StringComparison.Ordinal)), "fixture-author"));
+
+        Assert.Equal("platform-seed-view-version-missing", refused.Code);
+    }
+
     private static (PlatformSeedBundle Bundle, PlatformSeedReferent Referent) Corrupt(string corruption)
     {
         var good = PlatformSeedTestBundle.Build();
