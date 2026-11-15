@@ -12,6 +12,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.ContentStore;
 // even when LocalNode:DataDirectory points elsewhere. Runs the real Program wiring.
 // Oracle: the legacy footprint layout a fresh root claims, written as literals (LocalNode on Windows and macOS, local-node on
 // Linux), the record's directory names (tenant-keys, content-epochs) and the tenant directory rule (SHA-256 hex of the id).
+[Collection("Node content store")]
 public sealed class NodeContentEpochKeyPlacementTests
 {
     [Fact]
