@@ -14,7 +14,6 @@ using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 
 using NSubstitute;
-using Harborline.Blocks.BuilderDefinitions;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Forms;
@@ -146,7 +145,7 @@ public sealed class CatalogueFieldSourceContractTests
     public void Pack_text_that_is_not_a_complete_internationalized_text_refuses_closed(
         string property, string malformed)
     {
-        var release = JsonNode.Parse(PlatformPackageSeed.LoadCheckedInExport())!.AsObject();
+        var release = JsonNode.Parse(Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.LoadCheckedInExport())!.AsObject();
         var author = release["items"]!.AsArray().Single(item =>
             item!["content"]!["payload"]!["definitionKey"]?.GetValue<string>() == "platform.pack.author")!["content"]!["payload"]!["body"]!;
         var overlay = author["overlay"]!.AsObject();
@@ -166,7 +165,7 @@ public sealed class CatalogueFieldSourceContractTests
     [Fact]
     public void Pack_text_with_duplicate_case_variant_refuses_closed()
     {
-        var release = JsonNode.Parse(PlatformPackageSeed.LoadCheckedInExport())!.AsObject();
+        var release = JsonNode.Parse(Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.LoadCheckedInExport())!.AsObject();
         var author = release["items"]!.AsArray().Single(item =>
             item!["content"]!["payload"]!["definitionKey"]?.GetValue<string>() == "platform.pack.author")!["content"]!["payload"]!["body"]!;
         author["overlay"]!["Title"] = JsonNode.Parse("{}");

@@ -255,7 +255,19 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, "platform.pack.author")));
         Assert.Empty(store.ListInstalled(tenant));
 
-        await preload.PreloadAsync(tenant, CancellationToken.None);
+        var record = await preload.PreloadAsync(tenant, CancellationToken.None);
+
+        // T-670/api-seed-intake acceptance line 1: expected values are computed here from the bundle bytes.
+        var exportSha256 = PlatformSeedTestBundle.Sha256(PlatformSeedTestBundle.Published.Export!);
+        var receiptSha256 = PlatformSeedTestBundle.Sha256(PlatformSeedTestBundle.Published.ReleaseReceipt!);
+        Assert.NotNull(record);
+        Assert.Equal("2.0.0", record.Revision);
+        Assert.Equal(exportSha256, record.ExportSha256);
+        Assert.Equal($"{exportSha256}  platform-pack.export.json", record.Sha256SumsLine);
+        Assert.Equal($"harborline-platform@{PlatformSeedTestBundle.Commit} release-receipt.json sha256:{receiptSha256}",
+            record.ReleaseReceipt);
+        Assert.Equal(signer.Signer.IssuerId.ToBase64Url(), record.LocalSigner);
+        Assert.Equal("2.0.0", store.GetActive(tenant, PlatformPackPreloadHostedService.PackKey)?.Version);
 
         var activation = Assert.Single(observed.Activations);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
