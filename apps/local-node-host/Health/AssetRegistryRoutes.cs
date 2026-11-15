@@ -367,6 +367,14 @@ public static class AssetRegistryRoutes
             var now = new Instant(actAuthority.At);
             var container = await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var path = await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
+            var decisions = new Dictionary<string, bool>(StringComparer.Ordinal) { [id] = true };
+            if (container is { } parent && !await RequestAuthorization.AllowedAsync(http, actAuthority,
+                    ReadEntityRequest.AuthorizationCapability, parent.Value, decisions, ct).ConfigureAwait(false))
+                container = null;
+            var visiblePath = new List<RegistryEntityId>(path.Count);
+            foreach (var ancestor in path)
+                if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
+                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);
             var values = boundRecords is null
                 ? null
                 : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
@@ -381,7 +389,7 @@ public static class AssetRegistryRoutes
                 if (accepted.Request.CorrelationId is { } correlation)
                     http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
             }
-            return Results.Ok(ToDetailWire(entity, container, path, values) with
+            return Results.Ok(ToDetailWire(entity, container, visiblePath, values) with
             { AuditId = receipt, CorrelationId = receipt is not null ? accepted?.Request.CorrelationId : null });
         });
 
@@ -507,8 +515,7 @@ public static class AssetRegistryRoutes
                 return Results.Unauthorized();
             if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
-            // Same act as the point read: the container read is decided for the record it addresses, before
-            // the repository is touched. Children are projected under the container's decision.
+            // T-1080: decide each child and ancestor at record grain under the act's authority.
             AuthorizationDecision? accepted = null;
             var actAuthority = RequestAuthorization.Authority(http, tenant, clock);
             var denied = await RequestAuthorization.RefusalAsync(
@@ -528,8 +535,15 @@ public static class AssetRegistryRoutes
             var path = await edges.GetContainmentPathAsAtAsync(tenant, container, at, ct).ConfigureAwait(false);
 
             var children = new List<EntityWire>(childIds.Count);
+            var decisions = new Dictionary<string, bool>(StringComparer.Ordinal) { [id] = true };
+            var visiblePath = new List<RegistryEntityId>(path.Count);
+            foreach (var ancestor in path)
+                if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
+                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);
             foreach (var childId in childIds)
             {
+                if (!await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
+                        childId.Value, decisions, ct).ConfigureAwait(false)) continue;
                 var child = await entities.GetByIdAsync(tenant, childId, ct).ConfigureAwait(false);
                 if (child is not null)
                     children.Add(ToEntityWire(child));
@@ -539,7 +553,7 @@ public static class AssetRegistryRoutes
             return Results.Ok(new TreeResponse(
                 Container: container.Value,
                 AsOf: at.Value.ToString("O", CultureInfo.InvariantCulture),
-                Path: path.Select(p => p.Value).ToArray(),
+                Path: visiblePath.Select(p => p.Value).ToArray(),
                 Children: children.ToArray(),
                 AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });

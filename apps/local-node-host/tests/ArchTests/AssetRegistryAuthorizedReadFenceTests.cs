@@ -23,6 +23,42 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 public sealed class AssetRegistryAuthorizedReadFenceTests
 {
     [Fact]
+    public void Tree_and_detail_projections_require_record_decisions()
+    {
+        var source = File.ReadAllText(AuditAppendSymbolInventory.ResolveSourcePath(
+            "apps/local-node-host/Health/AssetRegistryRoutes.cs"));
+        Assert.True(ProjectionDecisionsPresent(source));
+        var treeStart = source.IndexOf("private static void MapTree(", StringComparison.Ordinal);
+        var detail = source[..treeStart];
+        var tree = source[treeStart..];
+        Assert.False(ProjectionDecisionsPresent(detail.Replace(ProjectionGuards[0], "", StringComparison.Ordinal) + tree));
+        Assert.False(ProjectionDecisionsPresent(detail.Replace(ProjectionGuards[1], "", StringComparison.Ordinal) + tree));
+        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(ProjectionGuards[1], "", StringComparison.Ordinal)));
+        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(ProjectionGuards[2], "", StringComparison.Ordinal)));
+    }
+
+    private static string[] ProjectionGuards =>
+    [
+        "if (container is { } parent && !await RequestAuthorization.AllowedAsync(http, actAuthority,\n                    ReadEntityRequest.AuthorizationCapability, parent.Value, decisions, ct).ConfigureAwait(false))\n                container = null;",
+        "if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,\n                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);",
+        "if (!await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,\n                        childId.Value, decisions, ct).ConfigureAwait(false)) continue;",
+    ];
+
+    private static bool ProjectionDecisionsPresent(string source)
+    {
+        var tree = source.IndexOf("private static void MapTree(", StringComparison.Ordinal);
+        if (tree < 0) return false;
+        var detail = source[..tree];
+        var treeSource = source[tree..];
+        return detail.Contains(ProjectionGuards[0], StringComparison.Ordinal)
+            && detail.Contains(ProjectionGuards[1], StringComparison.Ordinal)
+            && treeSource.Contains(ProjectionGuards[1], StringComparison.Ordinal)
+            && treeSource.Contains(ProjectionGuards[2], StringComparison.Ordinal)
+            && detail.Contains("ToDetailWire(entity, container, visiblePath, values)", StringComparison.Ordinal)
+            && treeSource.Contains("Path: visiblePath.Select(p => p.Value).ToArray()", StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Entity_read_route_inventory_is_exact_and_every_read_reaches_the_gate_first()
     {
         // Class: authorized read. Reason: ADR 0060 — the typed-entity rows are projected only after the

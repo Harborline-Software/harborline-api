@@ -378,9 +378,94 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Tree_shows_only_children_the_caller_can_open_and_records_one_act()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000003580a1");
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var hidden = new RegistryEntityId("re_00000000000000000000000004");
+        await _repository.UpsertAsync(new RegistryEntity
+        {
+            Id = hidden, TenantId = tenant, Type = new EntityTypeId(UnitType),
+            DisplayName = "Hidden child", CreatedAt = at,
+        }, at);
+        await _edges.AddAsync(new TypedRelationship
+        {
+            Id = new TypedRelationshipId("hidden-edge"), TenantId = tenant, Kind = RelationshipKind.Contains,
+            From = new RegistryEntityId("re_00000000000000000000000001"), To = hidden, EffectiveFrom = at,
+        });
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000002"));
+
+        using var tree = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/tree");
+        Assert.Equal(HttpStatusCode.OK, tree.StatusCode);
+        var body = await tree.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("re_00000000000000000000000002", Assert.Single(body.GetProperty("children").EnumerateArray()).GetProperty("id").GetString());
+        Assert.DoesNotContain("Hidden child", body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(hidden.Value, body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("count", body.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(tree.Headers, header => header.Key.Contains("count", StringComparison.OrdinalIgnoreCase));
+        var rows = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(new AuditQuery(tenant))) rows.Add(row);
+        var receipt = Assert.Single(rows);
+        Assert.Equal("RecordRead", receipt.EventType.Value);
+        Assert.Equal("re_00000000000000000000000001", receipt.Target!.Value.RecordId);
+        Assert.Equal("re_00000000000000000000000001", receipt.Payload.Payload.Body["recordId"]);
+
+        using var allowed = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000002");
+        using var refused = await _client.GetAsync($"{AssetBase}/entities/{hidden.Value}");
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reads_omit_refused_ancestors_and_container_without_redeciding_ids()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000003580a1");
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var outer = new RegistryEntityId("re_00000000000000000000000005");
+        var hidden = new RegistryEntityId("re_00000000000000000000000006");
+        var root = new RegistryEntityId("re_00000000000000000000000007");
+        var target = new RegistryEntityId("re_00000000000000000000000001");
+        foreach (var ancestor in new[] { root, outer, hidden })
+            await _repository.UpsertAsync(new RegistryEntity
+            {
+                Id = ancestor, TenantId = tenant, Type = new EntityTypeId(UnitType), DisplayName = "Ancestor", CreatedAt = at,
+            }, at);
+        foreach (var (from, to, edge) in new[] { (root, outer, "root-edge"), (outer, hidden, "outer-edge"), (hidden, target, "inner-edge") })
+        {
+            await _edges.AddAsync(new TypedRelationship
+            {
+                Id = new TypedRelationshipId(edge), TenantId = tenant, Kind = RelationshipKind.Contains,
+                From = from, To = to, EffectiveFrom = at,
+            });
+        }
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000005"));
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000007"));
+        string[] expected = ["re_00000000000000000000000007", "re_00000000000000000000000005", "re_00000000000000000000000001"];
+
+        using var detail = await _client.GetAsync($"{AssetBase}/entities/{target.Value}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var body = await detail.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("containerId").ValueKind);
+        Assert.Equal(expected, body.GetProperty("path").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(1, _authorizationRequests.Count(x => x.Target.RecordId == hidden.Value));
+        Assert.Equal(1, _authorizationRequests.Count(x => x.Target.RecordId == target.Value));
+
+        _authorizationRequests.Clear();
+        using var tree = await _client.GetAsync($"{AssetBase}/entities/{target.Value}/tree");
+        Assert.Equal(HttpStatusCode.OK, tree.StatusCode);
+        var treeBody = await tree.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(expected, treeBody.GetProperty("path").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(1, _authorizationRequests.Count(x => x.Target.RecordId == hidden.Value));
+        Assert.Equal(1, _authorizationRequests.Count(x => x.Target.RecordId == target.Value));
+    }
+
+    [Fact]
     public async Task Selected_tree_reads_its_children_and_edges_when_another_team_is_active()
     {
         await SeedSelectedTenantSubResourcesAsync();
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000002"));
 
         using var response = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/tree");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -403,7 +488,15 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             _edges.Reads.ToArray());
         Assert.Empty(_conditions.Reads);
         Assert.Empty(_submissions.Reads);
-        AssertSelectedRecordAuthorization();
+        Assert.Equal(2, _authorizationRequests.Count);
+        Assert.Equal(new[] { "re_00000000000000000000000001", "re_00000000000000000000000002" },
+            _authorizationRequests.Select(request => request.Target.RecordId));
+        Assert.All(_authorizationRequests, request =>
+        {
+            Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", request.Tenant.Value);
+            Assert.Equal("selected-holder", request.Principal.Value);
+            Assert.Equal("records:read", request.Act.Operation.Value);
+        });
     }
 
     [Fact]
