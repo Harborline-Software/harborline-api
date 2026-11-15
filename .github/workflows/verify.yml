@@ -335,6 +335,31 @@ jobs:
         with:
           version: 11.1.3
 
+      # The @main feed action below packs the pinned platform with cwd .platform, whose global.json
+      # pins the platform's own SDK (rollForward disable). Install that SDK here, beside the API's,
+      # so this job does not depend on which revision of the action main carries.
+      - name: Read the recorded platform pin
+        id: platform_sdk_pin
+        run: echo "commit=$(jq -r '.commit' eng/platform-pin.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the pinned platform's global.json
+        uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.platform_sdk_pin.outputs.commit }}
+          path: .platform-sdk
+          sparse-checkout: global.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Install the pinned platform's SDK beside the API's
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: .platform-sdk/global.json
+
+      - name: Drop the global.json-only checkout
+        run: rm -rf .platform-sdk
+
       # Credential-bearing verifier and all its imports come from protected main,
       # independently of the pull-request checkout. Candidate API gates still run below.
       - uses: Harborline-Software/harborline-api/.github/actions/platform-feed@main

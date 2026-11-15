@@ -180,7 +180,16 @@ resolved local tag fixed it. Shell syntax and diff whitespace checks also pass.
 
 ## Exact SDK-11 image ready
 
-`toolchain.Dockerfile` now pins Microsoft's official Linux ARM64 SDK image by
+The PR 488 toolchain layers the pinned Platform RC SDK and its runtimes and
+packs beside the API GA SDK. On macOS, the non-root ARM64 image compiled and ran
+hello-world apps with both SDKs, built all 36 packages from Platform 22491171,
+and passed the actual all-lane `verifyPreflight()` prerequisites. Both official
+ARM64 archive hashes match Microsoft release metadata; image identities and
+the exact source inputs are recorded in `toolchain-readiness.json`. The replay
+evidence is in `/private/tmp/pr488-sdk-proof/evidence-20261113` on the Mac.
+This is not a full gate, GitHub run, or coverage qualification.
+
+The previous image qualification at main a82e96a pinned Microsoft's official Linux ARM64 SDK image by
 manifest digest. `toolchain-readiness.json` records the matching official archive
 SHA-512, image/config digests, local image identity, exact source/pins and measured
 tool versions. Ubuntu Resolute supplies the exact SDK/runtime and PowerShell.
@@ -195,6 +204,9 @@ and the first mini full-gate goal. There is no additional permission prerequisit
 for routine image preparation or that approved bounded run. Protected landing,
 the existing smoke sequence, actual runner admission controls and required checks
 remain execution prerequisites; no queue/protection bypass is implied.
+
+Publishing the current image and registering it on the runner remain separate
+steps; the local qualification does not authorize landing or queueing this PR.
 
 
 ## SDK-11 resource and consumer-runtime correction

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -21,6 +22,7 @@ using Harborline.Api.Blocks.Reports;
 using Harborline.Api.Blocks.Reports.Cartridges.TrialBalance;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.DataExchangeDefinitions;
 using Harborline.Api.Foundation.Definitions;
@@ -191,32 +193,515 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
     [InlineData("Bookable")]
     public async Task Install_admits_an_item_declaring_the_current_app_contract(string kind)
     {
-        var window = PlatformPackageSeed.ContractWindow;
+        if (kind != "Layout") SeedBookingType();
 
         using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
-            await ExportAsync(PackBody(kind, new { major = window.Major, minor = window.Minor })));
+            await ExportAsync(PackBody(kind, new { major = 1, minor = 0 })));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
     }
 
-    /// <summary>
-    /// Pins today's interim behaviour: an item with no <c>envelope.contract</c> still installs. This is a
-    /// staged rollout, not a tolerated-missing policy (T-572 Q4 and Q6 keep "no grace period"), and the
-    /// missing-declaration half of ck-8 is not Holds until the follow-up lands. That follow-up refuses
-    /// <c>definition.contract.missing</c> at install and render once the authoring surfaces stamp the
-    /// contract and the shipped templates declare <c>{major: 1, minor: 0}</c>, and it deletes this test.
-    /// </summary>
-    [Theory(DisplayName = "T-572 S4: interim, an item with no envelope contract still installs (deleted by the definition.contract.missing follow-up)")]
+    [Theory(DisplayName = "T-1034 kernel-core-ck-8: placeholder Booking definitions are refused")]
     [InlineData("Resource")]
     [InlineData("Bookable")]
-    public async Task Interim_install_admits_an_item_with_no_declared_contract(string kind)
+    public async Task Placeholder_booking_definition_is_refused(string kind)
     {
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(new
+            {
+                key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+                description = "contract window pack", scopeTier = "Vertical",
+                contents = new[] { new { key = "acme.surface", kind, version = "1.0.0",
+                    content = new { envelope = new { identity = "acme.surface", version = "1.0.0",
+                        tenant = NodeTenantFor().Value, contract = new { major = 1, minor = 0 } } } } },
+            }));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("booking.definition.kind_mismatch", refusal.GetProperty("code").GetString());
+        Assert.Equal("/kind", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Theory(DisplayName = "T-1034 booking-auth-20: an unknown record type is refused")]
+    [InlineData("Resource", "booking.definition.type_unknown", "/from_type_id")]
+    [InlineData("Bookable", "booking.definition.type_unknown", "/on_type_id")]
+    public async Task Booking_unknown_record_type_is_refused(string kind, string code, string pointer)
+    {
+        var content = BookingContent(kind, "acme.surface");
+        if (kind == "Bookable") content["requires"] = new JsonArray();
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+                description = "contract window pack", scopeTier = "Vertical",
+                contents = new[] { new { key = "acme.surface", kind, version = "1.0.0", content } } }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(code, refusal.GetProperty("code").GetString());
+        Assert.Equal(pointer, refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Fact(DisplayName = "T-1034 booking-auth-20: Preview, Check and Install share Booking admission")]
+    public async Task All_plan_paths_refuse_unknown_booking_type()
+    {
+        using (var seed = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody("Layout", new { major = 1, minor = 0 }, key: "acme.seed"))))
+            Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+        var content = BookingContent("Bookable", "acme.surface");
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract", description = "contract window pack",
+            scopeTier = "Vertical", contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "1.0.0", content } } };
+        var bytes = await ExportAsync(pack);
+        var before = JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor()));
+        foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
+        {
+            using var response = await PostBytesAsync(route, bytes);
+            Assert.Equal(route == PackInstallRoutes.InstallRoute ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+            Assert.Equal("booking.definition.type_unknown", refusal.GetProperty("code").GetString());
+            Assert.Equal("/on_type_id", refusal.GetProperty("pointer").GetString());
+            Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+            Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor())));
+        }
+    }
+
+    [Theory(DisplayName = "T-1034 DES-0025 section 7: undecodable Booking bodies refuse before state changes")]
+    [InlineData("null")]
+    [InlineData("{")]
+    public async Task Undecodable_booking_body_is_refused(string raw)
+    {
+        SeedBookingType();
+        var bytes = await ExportAsync(PackBody("Resource", new { major = 1, minor = 0 }));
+        var codec = new PackFileCodec();
+        var file = Assert.IsType<PackFile>(codec.TryDecode(bytes));
+        var envelope = Assert.IsType<SignedOperation<PackSignatureSubject>>(file.Envelope);
+        var rawBytes = Encoding.UTF8.GetBytes(raw);
+        var contents = file.Contents.Select(item => item.Key == "acme.surface"
+            ? item with { ContentBase64 = Convert.ToBase64String(rawBytes) } : item).ToList();
+        var manifest = envelope.Payload.Manifest with { Contents = envelope.Payload.Manifest.Contents.Select(item =>
+            item.Key == "acme.surface" ? item with { ContentAddress = Cid.FromBytes(rawBytes) } : item).ToList() };
+        var signature = await new Ed25519Signer(_key).SignAsync(envelope.Payload with { Manifest = manifest },
+            envelope.IssuedAt, Guid.NewGuid());
+        bytes = codec.Encode(file with { Envelope = signature, Contents = contents });
+        var before = JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor()));
+        foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
+        {
+            using var response = await PostBytesAsync(route, bytes);
+            Assert.Equal(route == PackInstallRoutes.InstallRoute ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+            Assert.Equal("booking.definition.body_invalid", refusal.GetProperty("code").GetString());
+            Assert.Equal("", refusal.GetProperty("pointer").GetString());
+            Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+            Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor())));
+        }
+    }
+
+    [Theory(DisplayName = "T-1034 booking-ck-3, booking-auth-11, booking-ck-17: platform Booking refusals retain their definition pointers")]
+    [InlineData("trait", "booking.resource.type_not_admitted", "/from_type_id")]
+    [InlineData("resource", "booking.bookable.required_resource_unknown", "/requires/0")]
+    [InlineData("identity", "booking.envelope.mismatch", "/envelope/identity")]
+    public async Task Booking_refusals_name_the_definition(string failure, string code, string pointer)
+    {
+        var kind = failure == "trait" ? "Resource" : "Bookable";
+        var content = BookingContent(kind, "acme.surface");
+        content[kind == "Resource" ? "from_type_id" : "on_type_id"] = "acme.room";
+        if (failure == "resource") content["requires"] = new JsonArray("acme.missing");
+        if (failure == "identity") content["envelope"]!["identity"] = "acme.other";
+        var record = BookingRecordType(false);
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical", contents = new object[]
+            {
+                new { key = "acme.room", kind = "AssetTypeDefinition", version = "1.0.0", content = record },
+                new { key = "acme.surface", kind, version = "1.0.0", content },
+            } };
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(pack));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(code, refusal.GetProperty("code").GetString());
+        Assert.Equal(pointer, refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    internal static JsonObject BookingRecordType(bool resourceTrait, string package = "acme.contract")
+    {
+        var record = JsonNode.Parse("""
+            {"class_id":"acme.assets","envelope":{"contract":{"major":1,"minor":0},"package_id":"acme.contract","section":"acme","tenant":"tenant-a"},"fields":[],"name":"Room","record_class":"master","record_type_id":"acme.room"}
+            """)!.AsObject();
+        record["envelope"]!["package_id"] = package;
+        if (resourceTrait)
+            record["traits"] = JsonNode.Parse("""[{"trait_id":"platform.trait.bookable-resource","version":"1.0.0","slot_bindings":[]}]""");
+        return record;
+    }
+
+    [Theory(DisplayName = "T-1034 booking-auth-20: only declared dependencies supply Booking types and Resources")]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task Booking_dependency_is_resolved_only_when_declared(bool declared, bool succeeds)
+    {
+        var record = BookingRecordType(true, "acme.producer").ToJsonString();
+        var resource = BookingContent("Resource", "acme.room-resource");
+        resource["from_type_id"] = "acme.room";
+        PackSeedItem Seed(string key, PackContentKind kind, string body) =>
+            new(key, kind, "1.0.0", body, Cid.FromBytes(Encoding.UTF8.GetBytes(body)));
+        var producer = RecordsInstallClosureGateTests.Producer("acme.producer", "1.0.0",
+            [Seed("acme.type", PackContentKind.AssetTypeDefinition, record),
+             Seed("acme.room-resource", PackContentKind.Resource, resource.ToJsonString())],
+            ["acme.type"], [new PackExposedDefinition("acme.type", "1.0.0", "sha256:" + new string('a', 64))]);
+        _store.Commit(new PackInstallTransaction(NodeTenantFor(), producer,
+            new PackInstallWatermark("acme.producer", "1.0.0", new Dictionary<string, int>()), []));
+        var content = BookingContent("Bookable", "acme.surface");
+        content["on_type_id"] = "acme.room";
+        content["requires"] = new JsonArray("acme.room-resource");
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = declared ? new[] { new { key = "acme.producer", version = "1.0.0" } } : [],
+            contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "1.0.0", content } } };
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(pack));
+        Assert.Equal(succeeds ? HttpStatusCode.OK : HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(succeeds, body.GetProperty("installed").GetBoolean());
+        if (!succeeds)
+        {
+            Assert.Equal("install", body.GetProperty("stage").GetString());
+            var refusals = body.GetProperty("refusals").EnumerateArray().ToArray();
+            Assert.Equal(2, refusals.Length);
+            Assert.Equal("booking.definition.type_unknown", refusals[0].GetProperty("code").GetString());
+            Assert.Equal("/on_type_id", refusals[0].GetProperty("pointer").GetString());
+            Assert.Equal("acme.surface@1.0.0", refusals[0].GetProperty("target").GetString());
+            Assert.Equal("booking.bookable.required_resource_unknown", refusals[1].GetProperty("code").GetString());
+            Assert.Equal("/requires/0", refusals[1].GetProperty("pointer").GetString());
+            Assert.Equal("acme.surface@1.0.0", refusals[1].GetProperty("target").GetString());
+            Assert.Single(_store.ListInstalled(NodeTenantFor()));
+        }
+    }
+
+    [Theory(DisplayName = "T-1034 booking-auth-11: a self dependency cannot supply a superseded Resource")]
+    [InlineData("preview")]
+    [InlineData("check")]
+    [InlineData("install")]
+    [InlineData("activate")]
+    public async Task Prior_self_version_cannot_supply_required_resource(string operation)
+    {
+        SeedBookingType();
+        var resource = BookingContent("Resource", "acme.room-resource");
+        resource["from_type_id"] = "acme.room";
+        var json = resource.ToJsonString();
+        var seed = new PackSeedItem("acme.room-resource", PackContentKind.Resource, "1.0.0", json,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(json)));
+        var prior = RecordsInstallClosureGateTests.Producer("acme.contract", "1.0.0", [seed], [], []) with
+        {
+            Dependencies = [new PackDependencyRef("acme.producer", "1.0.0")],
+        };
+        var tenant = NodeTenantFor();
+        _store.Commit(new PackInstallTransaction(tenant, prior,
+            new PackInstallWatermark("acme.contract", "1.0.0", new Dictionary<string, int>()), []));
+        _store.Activate(tenant, "acme.contract", "1.0.0");
+        var content = BookingContent("Bookable", "acme.surface");
+        content["envelope"]!["version"] = "2.0.0";
+        content["on_type_id"] = "acme.room";
+        content["requires"] = new JsonArray("acme.room-resource");
+        var pack = new { key = "acme.contract", version = "2.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = new[] { new { key = "acme.contract", version = "1.0.0" }, new { key = "acme.producer", version = "1.0.0" } },
+            contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "2.0.0", content } } };
+        var route = operation switch { "preview" => PackInstallRoutes.PreviewRoute, "check" => PackInstallRoutes.CheckRoute,
+            _ => PackInstallRoutes.InstallRoute };
+        using var response = await PostBytesAsync(route, await ExportAsync(pack));
+        if (operation == "activate")
+        {
+            Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
+            using var activation = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+                new { packKey = "acme.contract", version = "2.0.0" });
+            Assert.False(activation.IsSuccessStatusCode);
+            Assert.Equal("1.0.0", _store.GetActive(tenant, "acme.contract")!.Version);
+            return;
+        }
+        Assert.Equal(operation == "install" ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray(), item =>
+            item.GetProperty("code").GetString() == "booking.bookable.required_resource_unknown");
+        Assert.Equal("/requires/0", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@2.0.0", refusal.GetProperty("target").GetString());
+        Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
+        Assert.Equal("1.0.0", _store.GetActive(tenant, "acme.contract")!.Version);
+    }
+
+    [Fact(DisplayName = "T-1034 booking-auth-11: legacy dependency Resource must be admitted")]
+    public async Task Legacy_placeholder_dependency_resource_is_not_admitted()
+    {
+        var record = BookingRecordType(true, "acme.producer").ToJsonString();
+        PackSeedItem Seed(string key, PackContentKind kind, string body) =>
+            new(key, kind, "1.0.0", body, Cid.FromBytes(Encoding.UTF8.GetBytes(body)));
+        var producer = RecordsInstallClosureGateTests.Producer("acme.producer", "1.0.0",
+            [Seed("acme.type", PackContentKind.AssetTypeDefinition, record),
+             Seed("acme.room-resource", PackContentKind.Resource, "{}")],
+            ["acme.type"], [new PackExposedDefinition("acme.type", "1.0.0", "sha256:" + new string('a', 64))]);
+        _store.Commit(new PackInstallTransaction(NodeTenantFor(), producer,
+            new PackInstallWatermark("acme.producer", "1.0.0", new Dictionary<string, int>()), []));
+        var before = JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor()));
+        var content = BookingContent("Bookable", "acme.surface");
+        content["on_type_id"] = "acme.room";
+        content["requires"] = new JsonArray("acme.room-resource");
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = new[] { new { key = "acme.producer", version = "1.0.0" } },
+            contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "1.0.0", content } } };
+        var bytes = await ExportAsync(pack);
+        foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
+        {
+            using var response = await PostBytesAsync(route, bytes);
+            Assert.Equal(route == PackInstallRoutes.InstallRoute ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+            Assert.Equal("booking.bookable.required_resource_unknown", refusal.GetProperty("code").GetString());
+            Assert.Equal("/requires/0", refusal.GetProperty("pointer").GetString());
+            Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+            Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor())));
+        }
+    }
+
+    [Theory(DisplayName = "T-1034 DES-0007 s7 collisions have no guessed winner")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Duplicate_record_type_ids_are_unknown_in_either_dependency_order(bool reverse)
+    {
+        foreach (var key in new[] { "acme.first", "acme.second" })
+        {
+            var record = BookingRecordType(true, key).ToJsonString();
+            var seed = new PackSeedItem(key + ".type", PackContentKind.AssetTypeDefinition, "1.0.0", record,
+                Cid.FromBytes(Encoding.UTF8.GetBytes(record)));
+            var producer = RecordsInstallClosureGateTests.Producer(key, "1.0.0", [seed], [seed.Key],
+                [new PackExposedDefinition(seed.Key, "1.0.0", "sha256:" + new string('a', 64))]);
+            _store.Commit(new PackInstallTransaction(NodeTenantFor(), producer,
+                new PackInstallWatermark(key, "1.0.0", new Dictionary<string, int>()), []));
+        }
+        var before = JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor()));
+        var content = BookingContent("Resource", "acme.surface");
+        content["from_type_id"] = "acme.room";
+        var dependencies = new[] { new { key = "acme.first", version = "1.0.0" }, new { key = "acme.second", version = "1.0.0" } };
+        if (reverse) Array.Reverse(dependencies);
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical", dependencies,
+            contents = new[] { new { key = "acme.surface", kind = "Resource", version = "1.0.0", content } } };
+        var bytes = await ExportAsync(pack);
+        var file = Assert.IsType<PackFile>(new PackFileCodec().TryDecode(bytes));
+        var envelope = Assert.IsType<SignedOperation<PackSignatureSubject>>(file.Envelope);
+        Assert.Equal(reverse ? new[] { "acme.second", "acme.first" } : new[] { "acme.first", "acme.second" },
+            envelope.Payload.Manifest.Dependencies.Select(dependency => dependency.Key));
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, bytes);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("booking.definition.type_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("/from_type_id", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(NodeTenantFor())));
+    }
+
+    [Fact(DisplayName = "T-1034 booking-auth-20: a malformed exposed type fails closed")]
+    public async Task Malformed_exposed_record_type_is_unknown()
+    {
+        var record = BookingRecordType(true);
+        record["traits"] = new JsonArray((JsonNode?)null);
+        SeedBookingType(record);
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody("Resource", new { major = 1, minor = 0 })));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("booking.definition.type_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("/from_type_id", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.Single(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Fact(DisplayName = "T-1034 DES-0014 C3: Check preserves Booking refusals before reattachment")]
+    public async Task Check_booking_refusal_precedes_reattachment_refusal()
+    {
+        SeedBookingType();
+        var oldContent = BookingContent("Resource", "acme.surface");
+        oldContent["from_type_id"] = "acme.room";
+        var oldJson = oldContent.ToJsonString();
+        var seed = new PackSeedItem("acme.surface", PackContentKind.Resource, "1.0.0", oldJson,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(oldJson)));
+        var floorJson = """{"name":"c","safetyFloors":{"scoring":3}}""";
+        var floorSeed = new PackSeedItem("acme.floor", PackContentKind.StandardsCatalog, "1.0.0", floorJson, Cid.FromBytes(Encoding.UTF8.GetBytes(floorJson)));
+        var prior = RecordsInstallClosureGateTests.Producer("acme.contract", "1.0.0", [seed, floorSeed], [], []);
+        var tenant = NodeTenantFor();
+        _store.Commit(new PackInstallTransaction(tenant, prior,
+            new PackInstallWatermark("acme.contract", "1.0.0", new Dictionary<string, int> { ["scoring"] = 3 }), []));
+        _store.SaveOverride(tenant, "acme.contract", new PackTenantOverride("acme.floor",
+            JsonNode.Parse("""{"safetyFloors":{"scoring":"bad"}}""")!));
+        var before = JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.contract"));
+        async Task<JsonElement> Check(string type)
+        {
+            var content = BookingContent("Resource", "acme.surface");
+            content["envelope"]!["version"] = "2.0.0";
+            content["from_type_id"] = type;
+            var pack = new { key = "acme.contract", version = "2.0.0", name = "Acme Contract",
+                description = "contract window pack", scopeTier = "Vertical",
+                dependencies = new[] { new { key = "acme.producer", version = "1.0.0" } },
+                contents = new object[] { new { key = "acme.surface", kind = "Resource", version = "2.0.0", content },
+                    new { key = "acme.floor", kind = "StandardsCatalog", version = "2.0.0", content = new { name = "c", safetyFloors = new { scoring = 3 } } } } };
+            using var response = await PostBytesAsync(PackInstallRoutes.CheckRoute, await ExportAsync(pack));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<JsonElement>();
+        }
+        var control = await Check("acme.room");
+        Assert.Equal("platform-package-safety-floor-malformed", Assert.Single(control.GetProperty("refusals").EnumerateArray()).GetProperty("code").GetString());
+        var body = await Check("acme.unknown");
+        Assert.Equal("Refused", body.GetProperty("verdict").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray(), item =>
+            item.GetProperty("code").GetString() == "booking.definition.type_unknown");
+        Assert.Equal("booking.definition.type_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("/from_type_id", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@2.0.0", refusal.GetProperty("target").GetString());
+        Assert.Equal(before, JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.contract")));
+        Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
+    }
+
+    [Fact(DisplayName = "T-1034 DES-0014 C3: Check collects Booking and dependency refusals without duplicating the contract refusal")]
+    public async Task Check_collects_booking_refusals_once()
+    {
+        using (var seed = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody("Layout", new { major = 1, minor = 0 }, key: "acme.seed"))))
+            Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+        var content = BookingContent("Bookable", "acme.surface");
+        content["envelope"]!["contract"]!["major"] = 2;
+        content["requires"] = new JsonArray("acme.missing-resource");
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = new[] { new { key = "acme.missing", version = "1.0.0" } },
+            contents = new[] { new { key = "acme.surface", kind = "Bookable", version = "1.0.0", content } } };
+        using var response = await PostBytesAsync(PackInstallRoutes.CheckRoute, await ExportAsync(pack));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Refused", body.GetProperty("verdict").GetString());
+        var refusals = body.GetProperty("refusals").EnumerateArray().ToArray();
+        Assert.Equal(4, refusals.Length);
+        Assert.Equal("definition.contract.out_of_window", refusals[0].GetProperty("code").GetString());
+        Assert.Equal("/envelope/contract", refusals[0].GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusals[0].GetProperty("target").GetString());
+        Assert.Equal("booking.definition.type_unknown", refusals[1].GetProperty("code").GetString());
+        Assert.Equal("/on_type_id", refusals[1].GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusals[1].GetProperty("target").GetString());
+        Assert.Equal("booking.bookable.required_resource_unknown", refusals[2].GetProperty("code").GetString());
+        Assert.Equal("/requires/0", refusals[2].GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusals[2].GetProperty("target").GetString());
+        Assert.Equal("pack.install.refused.unmet_dependency", refusals[3].GetProperty("code").GetString());
+        Assert.Equal("/dependencies/0", refusals[3].GetProperty("pointer").GetString());
+        Assert.DoesNotContain(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+    }
+
+    [Fact(DisplayName = "T-1034 DES-0025 section 7: a Resource and its Bookable install together")]
+    public async Task Resource_and_requiring_bookable_install_together()
+    {
+        SeedBookingType();
+        var resource = BookingContent("Resource", "acme.resource");
+        resource["from_type_id"] = "acme.room";
+        var bookable = BookingContent("Bookable", "acme.bookable");
+        bookable["on_type_id"] = "acme.room";
+        bookable["requires"] = new JsonArray("acme.resource");
+        var pack = new { key = "acme.contract", version = "1.0.0", name = "Acme Contract",
+            description = "contract window pack", scopeTier = "Vertical",
+            dependencies = new[] { new { key = "acme.producer", version = "1.0.0" } },
+            contents = new object[] { new { key = "acme.resource", kind = "Resource", version = "1.0.0", content = resource },
+                new { key = "acme.bookable", kind = "Bookable", version = "1.0.0", content = bookable } } };
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(pack));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(body.GetProperty("installed").GetBoolean());
+        var installed = _store.GetVersion(NodeTenantFor(), "acme.contract", "1.0.0");
+        Assert.NotNull(installed);
+        Assert.Contains(installed.SeedItems, item => item.Key == "acme.resource" && (int)item.Kind == 18);
+        Assert.Contains(installed.SeedItems, item => item.Key == "acme.bookable" && (int)item.Kind == 19);
+    }
+
+    [Fact(DisplayName = "T-1034 DES-0025 section 7: a Booking refusal preserves installed state")]
+    public async Task Booking_refusal_preserves_the_installed_state()
+    {
+        SeedBookingType();
+        using (var initial = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody("Resource", new { major = 1, minor = 0 }))))
+            Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        var tenant = NodeTenantFor();
+        _store.Activate(tenant, "acme.contract", "1.0.0");
+        _store.SaveOverride(tenant, "acme.contract", new PackTenantOverride("acme.surface", new JsonObject { ["name"] = "Tenant room" }));
+        var installed = JsonSerializer.Serialize(_store.ListInstalled(tenant));
+        var active = JsonSerializer.Serialize(_store.GetActive(tenant, "acme.contract"));
+        var watermark = JsonSerializer.Serialize(_store.GetWatermark(tenant, "acme.contract"));
+        var overrides = JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.contract"));
+        var content = BookingWindowContent("Resource", new { major = 1, minor = 0 });
+        content["envelope"]!["version"] = "2.0.0";
+        content["from_type_id"] = "acme.unknown";
+        var pack = new { key = "acme.contract", version = "2.0.0", name = "Acme Contract", description = "contract window pack",
+            scopeTier = "Vertical", dependencies = new[] { new { key = "acme.producer", version = "1.0.0" } },
+            contents = new[] { new { key = "acme.surface", kind = "Resource", version = "2.0.0", content } } };
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(pack));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("booking.definition.type_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("/from_type_id", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@2.0.0", refusal.GetProperty("target").GetString());
+        Assert.Equal(installed, JsonSerializer.Serialize(_store.ListInstalled(tenant)));
+        Assert.Equal(active, JsonSerializer.Serialize(_store.GetActive(tenant, "acme.contract")));
+        Assert.Equal(watermark, JsonSerializer.Serialize(_store.GetWatermark(tenant, "acme.contract")));
+        Assert.Equal(overrides, JsonSerializer.Serialize(_store.GetOverrides(tenant, "acme.contract")));
+    }
+
+    internal static JsonObject BookingContent(string kind, string key) => new()
+    {
+        ["kind"] = kind == "Resource" ? "resource" : "bookable",
+        ["envelope"] = new JsonObject
+        {
+            ["identity"] = key, ["version"] = "1.0.0", ["tenant"] = NodeTenantFor().Value,
+            ["cascade_layer"] = "domain_package", ["provenance"] = new JsonObject { ["kind"] = "package", ["package"] = "acme" },
+            ["retention_class"] = "definition", ["legal_hold"] = false, ["requires"] = new JsonArray(),
+            ["contract"] = new JsonObject { ["major"] = 1, ["minor"] = 0 },
+        },
+        ["name"] = "Surface",
+        [kind == "Resource" ? "from_type_id" : "on_type_id"] = "acme.unknown",
+        [kind == "Resource" ? "capacity_kind" : "duration_intervals_minutes"] = kind == "Resource" ? JsonValue.Create("exclusive") : new JsonArray(90),
+        [kind == "Resource" ? "availability_from" : "requires"] = kind == "Resource" ? JsonValue.Create("supply.hours") : new JsonArray(),
+    };
+
+    [Theory(DisplayName = "T-1034 kernel-core-ck-8: Booking without a declared contract is refused by platform admission")]
+    [InlineData("Resource")]
+    [InlineData("Bookable")]
+    public async Task Booking_without_a_declared_contract_is_refused(string kind)
+    {
+        SeedBookingType();
         using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
             await ExportAsync(PackBody(kind, contract: null)));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("installed").GetBoolean());
+        Assert.Equal("install", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal("definition.contract.missing", refusal.GetProperty("code").GetString());
+        Assert.Equal("/envelope/contract", refusal.GetProperty("pointer").GetString());
+        Assert.Equal("acme.surface@1.0.0", refusal.GetProperty("target").GetString());
+        Assert.DoesNotContain(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
     }
 
     [Fact]
@@ -241,15 +726,14 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
     public async Task Check_collects_the_contract_refusal()
     {
         // Check is exposed once something is installed.
-        var window = PlatformPackageSeed.ContractWindow;
         using (var seed = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(
-            PackBody("Layout", new { major = window.Major, minor = window.Minor }, key: "acme.seed"))))
+            PackBody("Layout", new { major = 1, minor = 0 }, key: "acme.seed"))))
         {
             Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
         }
 
         using var response = await PostBytesAsync(PackInstallRoutes.CheckRoute,
-            await ExportAsync(PackBody("Layout", new { major = window.Major + 1, minor = 0 })));
+            await ExportAsync(PackBody("Layout", new { major = 2, minor = 0 })));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -697,18 +1181,17 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
 
     private static void AssertReportsTheSeedWindow(JsonElement body)
     {
-        var window = PlatformPackageSeed.ContractWindow;
         var contract = body.GetProperty("contract");
-        Assert.Equal(window.Major, contract.GetProperty("app_major").GetInt32());
-        Assert.Equal(window.Minor, contract.GetProperty("app_minor").GetInt32());
-        Assert.Equal([window.OldestMajor, window.Major],
+        Assert.Equal(1, contract.GetProperty("app_major").GetInt32());
+        Assert.Equal(0, contract.GetProperty("app_minor").GetInt32());
+        Assert.Equal([1, 1],
             contract.GetProperty("window").EnumerateArray().Select(edge => edge.GetInt32()));
     }
 
     private async Task<byte[]> ExportAsync(object body)
     {
         using var response = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, body);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         return await response.Content.ReadAsByteArrayAsync();
     }
 
@@ -733,10 +1216,32 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
                 key = "acme.surface",
                 kind,
                 version = "1.0.0",
-                content = kind == "Layout" ? (object)LayoutContent(contract) : new { envelope = new { contract } },
+                content = kind == "Layout" ? LayoutContent(contract) : BookingWindowContent(kind, contract),
             },
         },
+        dependencies = kind == "Layout" ? Array.Empty<object>() : [new { key = "acme.producer", version = "1.0.0" }],
     };
+
+    private static JsonObject BookingWindowContent(string kind, object? contract)
+    {
+        var content = BookingContent(kind, "acme.surface");
+        content[kind == "Resource" ? "from_type_id" : "on_type_id"] = "acme.room";
+        content["envelope"]!["contract"] = JsonSerializer.SerializeToNode(contract);
+        return content;
+    }
+
+    private void SeedBookingType(JsonObject? record = null)
+    {
+        record ??= BookingRecordType(true, "acme.producer");
+        record["envelope"]!["package_id"] = "acme.producer";
+        var body = record.ToJsonString();
+        var seed = new PackSeedItem("acme.type", PackContentKind.AssetTypeDefinition, "1.0.0", body,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(body)));
+        var producer = RecordsInstallClosureGateTests.Producer("acme.producer", "1.0.0", [seed], ["acme.type"],
+            [new PackExposedDefinition("acme.type", "1.0.0", "sha256:" + new string('a', 64))]);
+        _store.Commit(new PackInstallTransaction(NodeTenantFor(), producer,
+            new PackInstallWatermark("acme.producer", "1.0.0", new Dictionary<string, int>()), []));
+    }
 
     private static JsonObject LayoutContent(object? contract)
     {

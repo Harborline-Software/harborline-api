@@ -87,6 +87,19 @@ class PromotionTests(unittest.TestCase):
             proof.subprocess, 'run', side_effect=self.dotnet if not failure else subprocess.CalledProcessError(1, 'dotnet')):
             proof.consume(self.stage, VERSION)
 
+    def test_consumer_project_uses_real_temporary_path(self):
+        actual = Path(self.temporary.name) / 'actual'
+        actual.mkdir()
+        link = Path(self.temporary.name) / 'link'
+        try:
+            link.symlink_to(actual, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f'directory symlinks unavailable: {error}')
+        with patch.object(tempfile, 'tempdir', str(link)):
+            self.consume()
+        project = Path(self.calls[0][2])
+        self.assertEqual(project.parents[2], link.resolve())
+
     def test_success_transfer_and_tarball_hash_binding(self):
         self.consume()
         proof.verify(self.stage, VERSION, seal=True)

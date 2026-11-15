@@ -12,6 +12,8 @@ import {buildEnvironment} from './platform-feed-environment.mjs'
 import {crashSignatures, diagnosticContainerRun} from './platform-feed-crash-diagnostics.mjs'
 import {probePidOneRestore} from './platform-feed-pid1-probe.mjs'
 
+const apiImage = 'mcr.microsoft.com/dotnet/sdk@sha256:7913685c883a29dd8ba79da96172f5c6b29ed9be706ebe95935e3ef45f19c9c1'
+
 export function safeFailure(error) {
   const result = {kind: Number.isInteger(error?.status) ? 'command-exit' : 'validation-or-spawn'}
   if (Number.isInteger(error?.status) && error.status >= 0 && error.status <= 255) result.exitCode = error.status
@@ -41,7 +43,7 @@ export function qualify(platform) {
   const evidencePath = path.join(root, '.claude/platform-feed-qualification/evidence.json')
   mkdirSync(path.dirname(evidencePath), {recursive: true})
   const evidence = {schemaVersion: 1, profile: 'Linux Docker Node24', apiCommit: execute('git', ['-C', root, 'rev-parse', 'HEAD']).trim(),
-    node: process.version, image: profile.image, trustedCrossRunHit: false, apiValidationReused: false,
+    node: process.version, image: profile.image, apiImage, trustedCrossRunHit: false, apiValidationReused: false,
     hostedEndToEndSpeedupMeasured: false, stages: []}
   const record = (stage, details = {}) => {
     evidence.stages.push({stage, ...details}); writeFileSync(evidencePath, JSON.stringify(evidence, null, 2))
@@ -85,7 +87,7 @@ export function qualify(platform) {
       '--tmpfs', '/tmp:rw,nosuid,nodev,size=1073741824', '--network', 'bridge',
       '-e', 'HOME=/tmp', '-e', 'DOTNET_CLI_HOME=/tmp', '-e', 'DOTNET_CLI_TELEMETRY_OPTOUT=1',
       '-e', `NUGET_PACKAGES=${packages}`, '--mount', `type=bind,source=${directory},target=${directory}`,
-      '--workdir', clone, profile.image, 'dotnet', 'restore', 'Harborline.Api.slnx', '--packages', packages,
+      '--workdir', clone, apiImage, 'dotnet', 'restore', 'Harborline.Api.slnx', '--packages', packages,
       '--configfile', path.join(clone, 'nuget.config'), '-nodeReuse:false', '-maxcpucount:4'],
     {encoding: 'utf8', env: buildEnvironment(), stdio: 'pipe', maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60 * 1000})
     record('full-api-restore', {durationMs: Date.now() - started})
