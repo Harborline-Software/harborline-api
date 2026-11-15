@@ -41,7 +41,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
     }
 
     /// <summary>
-    /// Apply all foundation-events migrations (001 through 003). Idempotent — safe to call on every host start. The
+    /// Apply the foundation-events migrations, including event positions. Idempotent — safe to call on every host start. The
     /// composition root invokes this once at startup, or
     /// <c>AddFoundationEvents()</c> (PR 6) does it during DI build.
     /// </summary>
@@ -51,7 +51,6 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
                  {
                      "001-create-domain-events.sql",
                      "002-create-handler-cursors.sql",
-                     "003-event-positions.sql",
                  })
         {
             var sql = LoadEmbeddedSql(resourceName);
@@ -59,6 +58,32 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
             cmd.CommandText = sql;
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        await using var positions = _connection.CreateCommand();
+        positions.CommandText = """
+            BEGIN IMMEDIATE;
+            CREATE TABLE IF NOT EXISTS event_positions (
+                position INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id)
+            );
+            INSERT OR IGNORE INTO event_positions(event_id)
+                SELECT event_id FROM domain_events ORDER BY event_id;
+            CREATE TRIGGER IF NOT EXISTS domain_events_assign_position AFTER INSERT ON domain_events
+            BEGIN
+                INSERT INTO event_positions(event_id) VALUES (NEW.event_id);
+            END;
+            CREATE TABLE IF NOT EXISTS event_handler_positions (
+                handler_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (handler_id, tenant_id)
+            );
+            INSERT OR IGNORE INTO event_handler_positions(handler_id, tenant_id, position)
+                SELECT c.handler_id, c.tenant_id, p.position
+                FROM event_handler_cursors c JOIN event_positions p ON p.event_id = c.last_handled_event_id;
+            COMMIT;
+            """;
+        await positions.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
