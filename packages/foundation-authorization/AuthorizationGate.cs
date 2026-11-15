@@ -101,7 +101,7 @@ public sealed class AuthorizationGate(
         ct.ThrowIfCancellationRequested();
 
         var derivedRoster = await rosterConstraints
-            .ReadAsync(request.Principal, request.Tenant, request.At, ct)
+            .ReadAsync(request.Principal, request.Tenant, request.Instant, ct)
             .ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         derivedRoster ??= new AuthorizationRosterInputs(

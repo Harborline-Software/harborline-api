@@ -382,7 +382,7 @@ public sealed class AdminNarrowMemberGrantTests
         var target = await ConferAsync(h, tenant, member, "records:read");
         var store = new NodeEfGrantStore(h.SearchStore.Factory);
         var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId).ToArray();
-        var roster = System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default));
+        var roster = System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, FounderAuthority(setup.TenantId).Instant, default));
         var result = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
             target.GrantId.ToString(), FounderAuthority(setup.TenantId));
         Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
@@ -391,7 +391,7 @@ public sealed class AdminNarrowMemberGrantTests
             target.GrantId.ToString(), FounderAuthority(setup.TenantId));
         Assert.Equal(result.AuditId, replay!.AuditId);
         Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId));
-        Assert.Equal(roster, System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default)));
+        Assert.Equal(roster, System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, FounderAuthority(setup.TenantId).Instant, default)));
         Assert.Equal(GrantStatus.Revoked, (await store.FindAsync(tenant, target.GrantId))!.Status);
         // Roster admission independently conveys a member role; removing one grant must not strip it.
         Assert.Contains("records:read", await AtomsAsync(h, tenant, member));

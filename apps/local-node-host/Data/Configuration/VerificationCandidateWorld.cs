@@ -380,7 +380,7 @@ internal sealed class VerificationCandidateWorld
     private sealed class VerificationRosterConstraintReader : IAuthorizationRosterConstraintReader
     {
         public ValueTask<AuthorizationRosterInputs?> ReadAsync(ActorId principal, TenantId tenant,
-            DateTimeOffset at, CancellationToken cancellationToken = default) =>
+            AdmittedInstant at, CancellationToken cancellationToken = default) =>
             ValueTask.FromResult<AuthorizationRosterInputs?>(
                 new(principal.Value, Member: true, Ejected: false) { RegistryMember = true });
     }

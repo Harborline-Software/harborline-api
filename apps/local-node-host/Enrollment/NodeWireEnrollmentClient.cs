@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Kernel.Security.Keys;
+using Harborline.Api.Kernel.Sync.Handshake;
 using Harborline.Api.Kernel.Sync.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 
@@ -212,7 +213,7 @@ public sealed class NodeWireEnrollmentClient
 
         // 4) Validate A's response against the OUT-OF-BAND invite anchor → the adoption plan (fail-closed).
         var plan = WireEnrollment.ValidateAndPlanAdoption(
-            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier, _rosterAuthority, at);
+            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier, _rosterAuthority, at, HandshakeProtocol.HelloTimestampSkew);
         if (!plan.Succeeded || plan.Roster is null)
         {
             return EnrollmentOutcome.Failed(plan.FailureReason ?? "validation_failed");

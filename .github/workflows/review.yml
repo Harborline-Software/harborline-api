@@ -130,6 +130,8 @@ jobs:
             --allowedTools "Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Read,Glob,Grep"
             --disallowedTools "Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch"
             --max-turns 40
+            --model claude-opus-5-5
+            --effort high
           prompt: |
             You are the independent reviewer for pull request #${{ steps.scope.outputs.pr }} in ${{ github.repository }}.
             Another agent wrote it and will land it on green checks, so you are the only second look it gets.

@@ -104,7 +104,8 @@ test('exact-clone records platform-feed between artifact check and dotnet-restor
   assert.match(source, /exact-clone-platform-feed\.mjs/)
   // Execute the real step recorder and pre-restore route with controlled child exits.
   const runBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
-  const route = source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
+  const route = source.slice(source.indexOf('  process.env.NUGET_PACKAGES ='), source.indexOf('  // Sanity:'))
+    + source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
   for (const qualityEnabled of [false, true]) for (const exitCode of [0, 1]) {
     const steps = []
     const calls = []
@@ -150,7 +151,8 @@ test('recorder fixture remains independent of a surrounding live handoff', () =>
 test('composed exact-clone handoff isolates restore and refuses consumption failure before compilation', () => {
   const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
   const runBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
-  const route = source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
+  const route = source.slice(source.indexOf('  process.env.NUGET_PACKAGES ='), source.indexOf('  // Sanity:'))
+    + source.slice(source.indexOf("  steps.push({id: 'clone-carries-no-artifacts'"), source.indexOf("  run('dotnet-build'"))
   for (const [restored, proofExit] of [[true, 0], [true, 1], [false, 0]]) {
     const steps = [], calls = [], directories = [], observedRoots = []
     const environment = {HARBORLINE_PLATFORM_FEED_HANDOFF_PATH: '/verified-transfer.json',
@@ -168,16 +170,15 @@ test('composed exact-clone handoff isolates restore and refuses consumption fail
     if (proofExit === 0) execute()
     else assert.throws(execute, /Verified dependency bytes were not consumed/)
     assert.deepEqual(steps.map(step => step.id), ['clone-carries-no-artifacts', 'validation-reuse-contracts', 'platform-feed', 'dotnet-restore', ...(restored ? ['platform-feed-consumption'] : [])])
-    if (!restored) {
-      assert.equal(environment.NUGET_PACKAGES, '/old-global-cache')
-      assert.deepEqual(directories, []); assert.deepEqual(observedRoots, [])
-      continue
-    }
-    assert.equal(steps[4].passed, proofExit === 0); assert.deepEqual(observedRoots, [path.join('/scratch', 'nuget-packages')])
-    assert.equal(calls[3].cache, path.join('/scratch', 'nuget-packages'))
+    assert.deepEqual(observedRoots, [path.join('/scratch', 'nuget-packages')])
+    assert.equal(calls[1].cache, path.join('/scratch', 'nuget-packages'))
     assert.equal(calls[2].cache, path.join('/scratch', 'nuget-packages'))
-    assert.deepEqual(calls[3].args, ['eng/platform-feed-consumption.mjs', '/scratch/clone', path.join('/scratch', 'nuget-packages')])
     assert.deepEqual(directories, [path.join('/scratch', 'nuget-packages')])
+    if (restored) {
+      assert.equal(steps[4].passed, proofExit === 0)
+      assert.equal(calls[3].cache, path.join('/scratch', 'nuget-packages'))
+      assert.deepEqual(calls[3].args, ['eng/platform-feed-consumption.mjs', '/scratch/clone', path.join('/scratch', 'nuget-packages')])
+    }
   }
 })
 

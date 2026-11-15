@@ -23,6 +23,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Definitions;
 /// six stages through <see cref="WritePipeline.RunAsync"/> under one <see cref="DefinitionWriteAdmission"/>, which
 /// the authorize stage compares with the definition the write touches.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class DefinitionWritePipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 2, 9, 0, 0, TimeSpan.Zero);

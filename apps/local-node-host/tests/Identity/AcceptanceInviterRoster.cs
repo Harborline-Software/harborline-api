@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -8,7 +9,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 internal sealed class AcceptanceInviterRoster(string tenant, string inviterParty, DateTimeOffset at)
     : IVerifiedTenantRosterReader
 {
-    public Task<MemberRoster> ReadAsync(TenantId tenantId, CancellationToken cancellationToken = default)
+    public Task<MemberRoster> ReadAsync(TenantId tenantId, AdmittedInstant admittedAt, CancellationToken cancellationToken = default)
     {
         using var key = KeyPair.Generate();
         return Task.FromResult(MemberRoster.Genesis(Guid.Parse(tenant), inviterParty,

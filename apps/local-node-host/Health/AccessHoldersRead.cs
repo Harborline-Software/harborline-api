@@ -61,7 +61,7 @@ internal static class AccessHoldersRead
 
         var services = http.RequestServices;
         var grants = await services.GetRequiredService<IGrantStore>().SnapshotAsync(tenant, ct).ConfigureAwait(false);
-        var roster = await services.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(tenant, ct)
+        var roster = await services.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(tenant, authority.Instant, ct)
             .ConfigureAwait(false);
         var parties = services.GetRequiredService<ICanonicalPrincipalPartyReader>();
         var rosterParties = roster.Members.Select(member => member.PartyId).ToHashSet(StringComparer.Ordinal);

@@ -1777,7 +1777,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     {
         private MemberRoster _roster = roster;
 
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) =>
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) =>
             Task.FromResult(_roster);
 
         public void Admit(string partyId, PrincipalId publicKey, PermissionSet permissions)
@@ -1796,7 +1796,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
 
     private sealed class FixedRosterReader(MemberRoster roster) : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => Task.FromResult(roster);
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) => Task.FromResult(roster);
     }
 
     private sealed class RecordingPartyBindingMinter : IWebJoinerPartyBindingMinter

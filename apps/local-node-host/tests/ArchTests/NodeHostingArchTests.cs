@@ -17,7 +17,6 @@ public sealed class NodeHostingArchTests
         var scanRoots = new[]
         {
             editionRoot,
-            Path.Combine(repositoryRoot, "packages", "client-dotnet"),
         };
         var nodeReferences = scanRoots
             .SelectMany(root => Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))

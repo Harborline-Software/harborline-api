@@ -6,8 +6,38 @@ using System.Text.Json;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 
+[Trait("Holds", "kernel-core-eng-3")]
 public sealed class RosterGateDecisionTests
 {
+    [Theory]
+    [InlineData("ordinary")]
+    [InlineData("membership")]
+    [InlineData("prospective")]
+    public async Task All_decision_entry_points_replace_forged_roster_and_deny_with_kernel_derivation(string entry)
+    {
+        var request = TestAuthorization.Write(new TenantId("tenant"))
+            .Request(AuthorizationOperation.Parse("members:manage"), "members", "handover") with
+        {
+            Roster = new AuthorizationRosterInputs("forged", Member: true, Ejected: false)
+            { RequireMember = false, RequireGrantCoverage = false },
+            GrantRefusal = "caller.chosen",
+        };
+        var gate = TestAuthorization.GateWithRoster(allowed: true, roster: null);
+
+        var decision = entry switch
+        {
+            "membership" => await gate.DecideMembershipAdmissionAsync(request),
+            "prospective" => await gate.DecideProspectiveAdministratorAsync(request),
+            _ => await gate.DecideAsync(request),
+        };
+
+        Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
+        Assert.Equal(request.Principal.Value, decision.Request.Roster!.PartyId);
+        Assert.False(decision.Request.Roster.Member);
+        Assert.True(decision.Request.Roster.Ejected);
+        Assert.Null(decision.Request.GrantRefusal);
+    }
+
     [Theory]
     [InlineData("/", "/", true)]
     [InlineData("/", "/records/one", true)]

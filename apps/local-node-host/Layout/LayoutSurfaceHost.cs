@@ -67,7 +67,9 @@ public sealed class LayoutAuditDegradedException()
 /// Timing parity is by construction: every resolution completes no earlier than
 /// <see cref="LayoutSurfaceOptions.ResponseFloor"/> after it starts, and ends on a spin onto that
 /// deadline. The gate decision, the outbox write and the gate-log append that only a denial costs all
-/// finish inside the floor, so nothing path-dependent happens after it. A resolution that finishes after the floor has leaked its path's timing; it is counted
+/// finish inside the floor, so nothing path-dependent happens after it. A caller's own completion work, such
+/// as a route's read receipt and response body, runs inside the floor too when passed as
+/// <c>insideFloor</c> (T-1195), so only the send is left after it. A resolution that finishes after the floor has leaked its path's timing; it is counted
 /// on <see cref="LayoutDenialAlarms"/>, which <see cref="LayoutDenialHealthCheck"/> reports.
 /// </para>
 /// </remarks>
@@ -82,6 +84,10 @@ public sealed class LayoutSurfaceHost(
     /// <paramref name="startedAt"/> is the <see cref="TimeProvider.GetTimestamp"/> the response floor counts from. A
     /// route passes the moment its handler began, so its own decisions and lookups are inside the deadline rather
     /// than adding their jitter ahead of it (T-735). Null counts from this call.
+    /// <paramref name="insideFloor"/>, when given, runs on the resolution after every piece of denial-side work and
+    /// before the deadline wait, on every path, so its cost is inside the floor rather than after it (T-1195: the
+    /// route's read receipt and response body). When it throws, the floor is still waited out and its own exception
+    /// is the one thrown, unless it is a cancellation of <paramref name="ct"/>.
     /// </summary>
     public async Task<LayoutBindingResolution> ResolveAsync(
         LayoutDefinition definition,
@@ -92,6 +98,7 @@ public sealed class LayoutSurfaceHost(
         ActorId principal,
         string requestId,
         long? startedAt = null,
+        Func<LayoutBindingResolution, CancellationToken, Task>? insideFloor = null,
         CancellationToken ct = default)
     {
         var started = startedAt ?? time.GetTimestamp();
@@ -137,6 +144,23 @@ public sealed class LayoutSurfaceHost(
         // outbox for the drain.
         await trace.AppendAsync().ConfigureAwait(false);
 
+        if (insideFloor is not null)
+        {
+            try
+            {
+                await insideFloor(resolution, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // The caller has gone: no response leaves, so there is no deadline to keep.
+            }
+            catch
+            {
+                // The step's own failure still ends on the deadline, and a cancellation of the wait must not replace it.
+                await PadAsync(started, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+        }
         await PadAsync(started, ct).ConfigureAwait(false);
         return resolution;
     }

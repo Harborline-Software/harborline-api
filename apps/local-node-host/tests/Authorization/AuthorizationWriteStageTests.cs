@@ -50,6 +50,7 @@ using NSubstitute;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class AuthorizationWriteStageTests
 {
     [Fact]

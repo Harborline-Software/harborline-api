@@ -41,7 +41,7 @@ public static class PackContractWindowCheck
             if (item.Kind is not (PackContentKind.Layout or PackContentKind.Resource or PackContentKind.Bookable
                 or PackContentKind.TemplateDefinition or PackContentKind.FormDefinition or PackContentKind.TaxonomyDefinition
                 or PackContentKind.ReportDefinition or PackContentKind.ViewDefinition or PackContentKind.ScheduleDefinition
-                or PackContentKind.DataExchangeDefinition))
+                or PackContentKind.DataExchangeDefinition or PackContentKind.WorkflowDefinition))
             {
                 continue;
             }

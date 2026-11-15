@@ -16,6 +16,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// <see cref="WritePipeline.RunAsync"/> inside one atomic unit. Validate refuses a new parent that is the child
 /// or one of its descendants, so the closure table never gains a cycle; every refusal leaves the edges as they were.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class HierarchyReparentPipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);

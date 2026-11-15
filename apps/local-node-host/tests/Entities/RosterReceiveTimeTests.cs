@@ -15,6 +15,22 @@ public sealed class RosterReceiveTimeTests
 {
     private static readonly DateTimeOffset At = DateTimeOffset.UnixEpoch.AddDays(20);
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void ReceiptVerificationRefusesSubMillisecondTampering(int ticks)
+    {
+        using var key = KeyPair.Generate();
+        var signer = new Ed25519Signer(key);
+        var verifier = new Ed25519Verifier();
+        var nonce = Guid.NewGuid();
+        var receipt = RosterReceiveAttestationSigning.Sign(signer, "founder", "record", At.AddTicks(1), nonce);
+        Assert.Equal(At, receipt.ReceivedAt);
+        Assert.True(RosterReceiveAttestationSigning.Verify("record", nonce, receipt, verifier));
+        Assert.False(RosterReceiveAttestationSigning.Verify("record", nonce,
+            receipt with { ReceivedAt = receipt.ReceivedAt.AddTicks(ticks) }, verifier));
+    }
+
     [Fact]
     public void ReceiveWindowHasStrictLowerBoundaryAndPreservesLegacyAndInWindowTimes()
     {

@@ -192,7 +192,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
         MemberRoster roster;
         try
         {
-            roster = await _rosterReader.ReadAsync(tenant, cancellationToken).ConfigureAwait(false);
+            roster = await _rosterReader.ReadAsync(tenant, admitted, cancellationToken).ConfigureAwait(false);
         }
         catch (VerifiedTenantRosterRefusedException)
         {

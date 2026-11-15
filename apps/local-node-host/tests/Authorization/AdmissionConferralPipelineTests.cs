@@ -19,6 +19,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 /// commit stage has saved) persists no definition, role, grant or audit entry. Real keyed search store; the
 /// commit and crash faults are SQLite triggers on the real tables.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class AdmissionConferralPipelineTests : IAsyncLifetime
 {
     private static readonly TenantId Tenant = TenantId.FromString("tenant-ck10-conferral");

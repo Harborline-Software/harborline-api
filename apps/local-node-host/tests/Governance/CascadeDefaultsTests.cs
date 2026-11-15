@@ -500,7 +500,9 @@ public sealed class CascadeDefaultsTests
         var token = await provider.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, now);
         var engine = provider.GetRequiredService<IFormEngine>();
         using var candidate = JsonDocument.Parse("""{"title":"12345678"}""");
-        var authority = TestAuthorization.FormWrite(token, new("contact"), now);
+        // A3: a known, non-null correlation id rides the submit's authority.
+        var authority = TestAuthorization.FormWrite(token, new("contact"), now,
+            Guid.Parse("11480000-0000-4000-8000-0000000000a3"));
         var receipt = await engine.SaveWithReceiptAsync(new("contact"), candidate, token, authority, CancellationToken.None);
         var view = await engine.RenderAsync(new("contact"), receipt.InstanceId, token, CancellationToken.None);
         var title = view.Sections.SelectMany(section => section.Fields).Single(field => field.Name == "title");
@@ -520,7 +522,7 @@ public sealed class CascadeDefaultsTests
         Assert.Equal(authority.At, mint.OccurredAt);
         Assert.Equal(0, mint.FormatVersion);
         // A3: the submit's correlation id is the join key, and there is no second row to join.
-        Assert.Equal(authority.CorrelationId?.ToString("D"), mint.Payload.Payload.Body["correlation_id"]);
+        Assert.Equal("11480000-0000-4000-8000-0000000000a3", (string?)mint.Payload.Payload.Body["correlation_id"]);
     }
 
     [Fact(DisplayName = "T-1148 A4: a failed create leaves no audit row of any kind")]

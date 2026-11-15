@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -89,14 +90,16 @@ internal static class SelectedSessionIdentityRoutes
     internal static void MapPermissions(
         IEndpointRouteBuilder app,
         IVerifiedTenantRosterReader rosterReader,
+        TimeProvider timeProvider,
         IActiveTeamAccessor activeTeam)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(rosterReader);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(activeTeam);
         app.MapGet(
             PermissionsPath,
-            (Delegate)((HttpContext context) => PermissionsAsync(context, rosterReader, activeTeam)));
+            (Delegate)((HttpContext context) => PermissionsAsync(context, rosterReader, timeProvider, activeTeam)));
     }
 
     /// <summary>
@@ -128,6 +131,7 @@ internal static class SelectedSessionIdentityRoutes
     internal static async Task<IResult> PermissionsAsync(
         HttpContext context,
         IVerifiedTenantRosterReader rosterReader,
+        TimeProvider timeProvider,
         IActiveTeamAccessor? activeTeam = null)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -174,8 +178,9 @@ internal static class SelectedSessionIdentityRoutes
         // exactly the members it was asked about.
         try
         {
+            var admittedAt = AdmittedInstant.Read(timeProvider);
             var roster = await rosterReader
-                .ReadAsync(ActiveTeamTenantContext.ProjectTenantId(activeTeam!.Active!.TeamId), context.RequestAborted)
+                .ReadAsync(ActiveTeamTenantContext.ProjectTenantId(activeTeam!.Active!.TeamId), admittedAt, context.RequestAborted)
                 .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(roster.GenesisPartyId))
             {

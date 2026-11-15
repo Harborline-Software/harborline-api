@@ -13,16 +13,64 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// <summary>In-process T-733 parity proof for the Layout host seam at publication and at render.</summary>
 public sealed class LayoutPublishRegistersTests
 {
+    [Fact(DisplayName = "layout-bound-3: the host supplies the released field-control register instance")]
+    public void BuildSuppliesTheReleasedFieldControlRegister()
+    {
+        Assert.Same(LayoutFieldControlRegistry.Released, Host().Build().FieldControls);
+    }
+
+    [Fact(DisplayName = "layout-bound-8: the host supplies the released validation-rule register instance")]
+    public void BuildSuppliesTheReleasedValidationRuleRegister()
+    {
+        Assert.Same(LayoutValidationRuleRegistry.Released, Host().Build().ValidationRules);
+    }
+
+    [Theory(DisplayName = "layout-bound-8: publish admission receives the selected validation-rule register")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PublishAdmissionReceivesTheSelectedValidationRuleRegister(bool supplyValidationRules)
+    {
+        LayoutHostRegisters? received = null;
+        var host = new LayoutPublishRegisters(
+            new(), new(SupplyValidationRules: supplyValidationRules),
+            (definition, registers, author) =>
+            {
+                received = registers;
+                LayoutDefinitionAdmission.ValidateForPublish(definition, registers, author);
+            });
+
+        host.ValidateForPublish(Sealed(CaptureSurface(new(true, []))), AllowAccess.Instance);
+
+        Assert.NotNull(received);
+        // T-1013 Claim scope: publish receives the released instance under its supply option.
+        if (supplyValidationRules)
+            Assert.Same(LayoutValidationRuleRegistry.Released, received.ValidationRules);
+        else
+            Assert.Null(received.ValidationRules);
+    }
+
     [Fact(DisplayName = "layout-bound-3: the host supplies released controls for publish and refuses an unregistered control")]
     public void ReleasedAndUnknownFieldControlsGoThroughTheHostPublishSeam()
     {
         var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)]);
 
-        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), AllowAccess.Instance);
+        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("text")))), AllowAccess.Instance);
 
         AssertRefused(
             () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("signature")))), AllowAccess.Instance),
             LayoutDefinitionCodes.FieldControlUnknown);
+    }
+
+    [Fact(DisplayName = "layout-bound-3: the host publishes currency with decimals and refuses precision")]
+    public void ReleasedCurrencyParametersGoThroughTheHostPublishSeam()
+    {
+        var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Number, HasValueDomain: false)]);
+
+        AssertRefused(
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("currency", JsonSerializer.Deserialize<JsonElement>("{\"precision\":2}"))))), AllowAccess.Instance),
+            "layout.capture.control_parameters_invalid", "/blocks/0/capture/control/parameters");
+
+        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("currency", JsonSerializer.Deserialize<JsonElement>("{\"decimals\":2}"))))), AllowAccess.Instance);
     }
 
     [Fact(DisplayName = "layout-bound-3: omitting the host field-control register fails closed")]
@@ -33,7 +81,7 @@ public sealed class LayoutPublishRegistersTests
             options: new(SupplyFieldControls: false));
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), AllowAccess.Instance),
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("text")))), AllowAccess.Instance),
             LayoutDefinitionCodes.FieldControlUnknown);
     }
 
@@ -64,11 +112,21 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)]);
 
-        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))), AllowAccess.Instance);
+        AssertRefused(
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, ["rules.value-required"]))), AllowAccess.Instance),
+            "layout.capture.validation_rule_unknown", "/blocks/0/capture/validation_rules/0");
 
         AssertRefused(
             () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, ["rules.unknown"]))), AllowAccess.Instance),
-            LayoutDefinitionCodes.ValidationRuleUnknown);
+            "layout.capture.validation_rule_unknown");
+    }
+
+    [Fact(DisplayName = "layout-bound-8: the host publishes a required capture without a named rule")]
+    public void RequiredCapturePublishesWithoutANamedRule()
+    {
+        var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)]);
+
+        host.ValidateForPublish(Sealed(CaptureSurface(new(true, []))), AllowAccess.Instance);
     }
 
     [Fact(DisplayName = "layout-bound-8: omitting the host validation-rule register fails closed")]
@@ -79,8 +137,8 @@ public sealed class LayoutPublishRegistersTests
             options: new(SupplyValidationRules: false));
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))), AllowAccess.Instance),
-            LayoutDefinitionCodes.ValidationRuleUnknown);
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, ["rules.value-required"]))), AllowAccess.Instance),
+            "layout.capture.validation_rule_unknown");
     }
 
     [Fact(DisplayName = "layout-bound-3: the host supplies released controls at render and refuses an unregistered control")]
@@ -88,7 +146,7 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host();
 
-        await RenderAsync(host, Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))));
+        await RenderAsync(host, Sealed(CaptureSurface(new(false, [], Control: new("text")))));
 
         await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, [], Control: new("signature")))), LayoutDefinitionCodes.FieldControlUnknown);
     }
@@ -98,7 +156,7 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host(options: new(SupplyFieldControls: false));
 
-        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), LayoutDefinitionCodes.FieldControlUnknown);
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, [], Control: new("text")))), LayoutDefinitionCodes.FieldControlUnknown);
     }
 
     [Fact(DisplayName = "layout-bound-7: the host supplies installed-pack pages at render and refuses an unknown page")]
@@ -123,9 +181,9 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host();
 
-        await RenderAsync(host, Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))));
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, ["rules.value-required"]))), "layout.capture.validation_rule_unknown");
 
-        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, ["rules.unknown"]))), LayoutDefinitionCodes.ValidationRuleUnknown);
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, ["rules.unknown"]))), "layout.capture.validation_rule_unknown");
     }
 
     /// <summary>
@@ -139,7 +197,7 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host(options: new(SupplyValidationRules: false));
 
-        var rendered = await RenderAsync(host, Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))));
+        var rendered = await RenderAsync(host, Sealed(CaptureSurface(new(false, ["rules.value-required"]))));
 
         Assert.Equal("reference", Assert.Single(rendered.Plan.Flow).BlockId);
     }
@@ -161,10 +219,10 @@ public sealed class LayoutPublishRegistersTests
         LayoutPublishRegisterOptions? options = null)
         => new(new LayoutPublishState(recordFields, pageLayouts, pageMasters), options);
 
-    private static void AssertRefused(Action publish, string code)
+    private static void AssertRefused(Action publish, string code, string? pointer = null)
     {
         var refused = Assert.Throws<DefinitionRefusalException>(publish);
-        Assert.Contains(refused.Refusals, refusal => refusal.Code == code);
+        Assert.Contains(refused.Refusals, refusal => refusal.Code == code && (pointer is null || refusal.Pointer == pointer));
     }
 
     // The store admits any body, so the render seam alone decides: a body persisted under other

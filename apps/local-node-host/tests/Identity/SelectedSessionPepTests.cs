@@ -537,6 +537,7 @@ public sealed class SelectedSessionPepTests
 
         public Task<MemberRoster> ReadAsync(
             TenantId tenantId,
+            AdmittedInstant admittedAt,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Current);
     }
@@ -547,6 +548,7 @@ public sealed class SelectedSessionPepTests
     {
         public Task<MemberRoster> ReadAsync(
             TenantId tenantId,
+            AdmittedInstant admittedAt,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(MemberRoster.FromSyncedRecords(admissions, [], verifier));
     }
@@ -616,6 +618,7 @@ public sealed class SelectedSessionPepTests
     {
         public Task<MemberRoster> ReadAsync(
             TenantId tenantId,
+            AdmittedInstant admittedAt,
             CancellationToken cancellationToken = default) =>
             throw new VerifiedTenantRosterRefusedException(
                 VerifiedTenantRosterRefusal.Tampered,

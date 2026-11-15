@@ -7,8 +7,17 @@ namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 /// observable effect, a refusal at any stage stops the write there, and commit and react receive exactly
 /// the value validate sealed.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
+[Trait("Holds", "kernel-core-eng-10")]
 public sealed class WritePipelineExecutorTests
 {
+    // ADR-0038 supplies the oracle independently of the executor's declaration.
+    private static readonly WritePipelineStage[] Adr0038 =
+    [
+        WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
+        WritePipelineStage.Validate, WritePipelineStage.Commit, WritePipelineStage.React,
+    ];
+
     [Fact(DisplayName = "ck-10 executor: the six stages run in the declared ADR 0038 order, observed and entered alike")]
     public async Task RunsTheSixStagesInTheDeclaredOrder()
     {
@@ -17,8 +26,8 @@ public sealed class WritePipelineExecutorTests
 
         var result = await WritePipeline.RunAsync(write, observer, CancellationToken.None);
 
-        Assert.Equal(WritePipeline.Order, write.Entered);
-        Assert.Equal(WritePipeline.Order, observer.Stages);
+        Assert.Equal(Adr0038, write.Entered);
+        Assert.Equal(Adr0038, observer.Stages);
         Assert.Equal("reacted:sealed:mutated:bound", result);
         Assert.True(write.Committed);
     }
@@ -38,7 +47,7 @@ public sealed class WritePipelineExecutorTests
             WritePipeline.RunAsync(write, null, CancellationToken.None).AsTask());
 
         Assert.Equal(refusing, refusal.Stage);
-        Assert.Equal(WritePipeline.Order.TakeWhile(stage => stage != refusing).Append(refusing), write.Entered);
+        Assert.Equal(Adr0038.TakeWhile(stage => stage != refusing).Append(refusing), write.Entered);
         Assert.Equal(refusing == WritePipelineStage.React, write.Committed);
     }
 
@@ -63,8 +72,8 @@ public sealed class WritePipelineExecutorTests
         var result = await WritePipeline.RunAsync(write, observer, CancellationToken.None);
 
         Assert.Null(result);
-        Assert.Equal(WritePipeline.Order.Take(2), write.Entered);
-        Assert.Equal(WritePipeline.Order.Take(2), observer.Stages);
+        Assert.Equal(Adr0038.Take(2), write.Entered);
+        Assert.Equal(Adr0038.Take(2), observer.Stages);
         Assert.False(write.Committed);
     }
 
@@ -89,7 +98,7 @@ public sealed class WritePipelineExecutorTests
 
         Assert.True(cancellation.IsCancellationRequested);
         Assert.Equal("reacted:sealed:mutated:bound", result);
-        Assert.Equal(WritePipeline.Order, write.Entered);
+        Assert.Equal(Adr0038, write.Entered);
         Assert.False(write.ReactToken.CanBeCanceled);
     }
 

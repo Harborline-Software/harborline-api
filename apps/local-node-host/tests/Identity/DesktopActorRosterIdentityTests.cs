@@ -94,7 +94,7 @@ public sealed class DesktopActorRosterIdentityTests
 
     private sealed class FixedRosterReader(MemberRoster roster) : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => Task.FromResult(roster);
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) => Task.FromResult(roster);
     }
 
     private sealed class NullPartyReader : ICanonicalPrincipalPartyReader

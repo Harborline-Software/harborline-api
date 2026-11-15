@@ -18,6 +18,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// Every replacement is admitted at validate before commit opens the atomic unit, so one refused replacement
 /// stops the split before anything is written.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class HierarchySplitPipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);

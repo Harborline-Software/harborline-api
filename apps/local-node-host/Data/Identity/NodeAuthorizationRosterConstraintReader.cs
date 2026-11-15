@@ -15,14 +15,14 @@ public sealed class NodeAuthorizationRosterConstraintReader(
     public async ValueTask<AuthorizationRosterInputs?> ReadAsync(
         ActorId principal,
         TenantId tenant,
-        DateTimeOffset at,
+        AdmittedInstant at,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var party = await parties.ResolveAsync(
                 tenant, new PrincipalUserId(principal.Value), cancellationToken).ConfigureAwait(false);
-            var roster = await rosters.ReadAsync(tenant, cancellationToken).ConfigureAwait(false);
+            var roster = await rosters.ReadAsync(tenant, at, cancellationToken).ConfigureAwait(false);
             var registryMember = false;
             if (memberships is not null && Guid.TryParse(tenant.Value, out var teamId))
             {

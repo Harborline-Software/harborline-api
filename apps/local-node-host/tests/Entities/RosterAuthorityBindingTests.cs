@@ -1,11 +1,16 @@
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Crdt;
+using Harborline.Api.Kernel.Crdt.Backends;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Roster;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Tests.Search;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,12 +48,12 @@ public sealed class RosterAuthorityBindingTests
         if (!admitterGranted)
         {
             var refusal = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(
-                () => reader.ReadAsync(Tenant, default));
+                () => reader.ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default));
             Assert.Contains("not reachable", refusal.Message, StringComparison.Ordinal);
             return;
         }
 
-        var rebuilt = await reader.ReadAsync(Tenant, default);
+        var rebuilt = await reader.ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
         Assert.Contains(rebuilt.Members, m => m.PartyId == "admin");
         Assert.Contains(rebuilt.Members, m => m.PartyId == "chain");
     }
@@ -60,7 +65,7 @@ public sealed class RosterAuthorityBindingTests
         var signers = await SeedChainAsync(store, Admitter);
         await using var host = ComposedHost(store, signers.Founder);
 
-        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, default);
+        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
 
         Assert.Contains(rebuilt.Members, member => member.PartyId == "chain");
     }
@@ -78,7 +83,7 @@ public sealed class RosterAuthorityBindingTests
             revokeChain: true);
         await using var host = ComposedHost(store, signers.Founder);
 
-        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, default);
+        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, AdmittedInstant.Read(host.GetRequiredService<TimeProvider>()), default);
 
         // The admission stands either way; the signed revocation is applied only when the revoker's grant
         // carries members:revoke, and is dropped otherwise.
@@ -106,7 +111,7 @@ public sealed class RosterAuthorityBindingTests
         // B is "chain": it joined through "admin", not through the genesis root, so its adoption stands or
         // falls on the admitter's grant - read here through the SAME composed binding the projection uses.
         var plan = WireEnrollment.ValidateAndPlanAdoption(
-            response, response.Anchor, signers.ChainKey, "chain", new Ed25519Verifier(), authority);
+            response, response.Anchor, signers.ChainKey, "chain", new Ed25519Verifier(), authority, At, TimeSpan.FromSeconds(30));
 
         Assert.Equal(admitterGranted, plan.Succeeded);
         if (!admitterGranted) Assert.Equal("joiner_not_in_roster", plan.FailureReason);
@@ -142,6 +147,260 @@ public sealed class RosterAuthorityBindingTests
         Assert.Equal(0, clock.Reads);
     }
 
+    [Theory]
+    [InlineData(false, 31, 31, false)]
+    [InlineData(true, 31, 31, false)]
+    [InlineData(false, 30, 30, true)]
+    [InlineData(true, 30, 30, true)]
+    [InlineData(false, 0, 60, false)]
+    [InlineData(true, 0, 60, false)]
+    public Task Synced_inserts_refuse_future_time_and_admit_the_window_edge(
+        bool revoke, int issuedAhead, int receivedAhead, bool allowed) =>
+        AssertAuthorityReadAsync(revoke, issuedAhead, receivedAhead, allowed, rebuilding: false);
+
+    [Theory]
+    [InlineData(false, 31, 31, false)]
+    [InlineData(true, 31, 31, false)]
+    [InlineData(false, 30, 30, true)]
+    [InlineData(true, 30, 30, true)]
+    public Task Live_rebuild_authority_reads_cap_remote_time_and_admit_the_window_edge(
+        bool revoke, int issuedAhead, int receivedAhead, bool allowed) =>
+        AssertAuthorityReadAsync(revoke, issuedAhead, receivedAhead, allowed, rebuilding: true);
+
+    [Theory]
+    [InlineData(-1, -1)]
+    [InlineData(29, 29)]
+    [InlineData(30, 30)]
+    [InlineData(31, 30)]
+    public void Authority_mint_takes_the_minimum_for_each_grant_read(int orderAhead, int expectedAhead)
+    {
+        var grants = new WindowedGrantReader(At, revoke: false);
+        var authority = GrantStoreRosterAuthority.CapAt(new GrantStoreRosterAuthority(grants), AdmittedInstant.FromRecordedAct(At))!;
+
+        authority.PermissionsFor(Team.ToString("D"), "admin", At.AddSeconds(orderAhead));
+        authority.PermissionsFor(Team.ToString("D"), "admin", At.AddSeconds(orderAhead));
+
+        Assert.Equal([At.AddSeconds(expectedAhead), At.AddSeconds(expectedAhead)], grants.Reads);
+        Assert.All(grants.Reads, instant => Assert.InRange(instant, At.AddSeconds(-1), At.AddSeconds(30)));
+    }
+
+    [Fact]
+    public async Task A_duplicate_genesis_refusal_reuses_the_reconciles_one_admitted_instant()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock, roster: new NodeTeamRoster(signers.Local));
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var alternate = MemberRoster.Genesis(Team, "alternate", new Ed25519Signer(KeyPair.Generate()),
+            new Ed25519Verifier(), At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(alternate.EnumerateAdmissions().Single())
+            .AttestReceipt(signers.Founder, "founder", At);
+        await using var db = store.CreateRosterContext();
+        var states = (await db.RosterRecords.ToListAsync()).Select(NodeRosterRecord.ToCrdtState).Append(candidate);
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        raw.Mutate(schema => schema.PushMany(states));
+
+        await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+            raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Null(projection.RebuildFailure);
+        Assert.Contains(projection.RefusalReports, refusal => refusal.Code == "roster.genesis.duplicate");
+        Assert.Equal(1, clock.Reads);
+    }
+
+    [Fact]
+    public async Task Local_publish_reuses_its_act_instant_without_leaking_into_the_next_reconcile()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock);
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var admittedAt = AdmittedInstant.Read(clock);
+        var genesis = signers.Local.EnumerateAdmissions().Single(admission => admission.Admission.IsGenesis);
+
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default,
+            admittedAt: admittedAt);
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Equal(1, clock.Reads);
+        await projection.ReconcileAsync(default);
+        Assert.Equal(2, clock.Reads);
+    }
+
+    [Fact]
+    public async Task Local_publish_does_not_lend_its_instant_to_push_triggered_inbound_apply()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new FixedClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock);
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var admittedAt = AdmittedInstant.Read(clock);
+        var genesis = signers.Local.EnumerateAdmissions().Single(admission => admission.Admission.IsGenesis);
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        await using var db = store.CreateRosterContext();
+        raw.Mutate(schema => schema.PushMany(db.RosterRecords.AsNoTracking().ToList().Select(NodeRosterRecord.ToCrdtState)));
+        var delta = raw.EncodeDelta(ReadOnlyMemory<byte>.Empty);
+        Task? gossip = null;
+        projection.LocalDeltaProduced += (_, _) => gossip = Task.Run(() =>
+            projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta, default));
+
+        await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), default,
+            admittedAt: admittedAt);
+        Assert.NotNull(gossip);
+        await gossip;
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Equal(2, clock.Reads);
+    }
+
+    private static async Task AssertAuthorityReadAsync(
+        bool revoke, int issuedAhead, int receivedAhead, bool allowed, bool rebuilding)
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter, includeChain: revoke);
+        var live = new NodeTeamRoster(signers.Local);
+        var grants = new WindowedGrantReader(At.AddSeconds(receivedAhead), revoke);
+        await using var host = ComposedHost(store, signers.Founder, new FixedClock(At), grants, live);
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        var verifier = new Ed25519Verifier();
+        var issuedAt = At.AddSeconds(issuedAhead);
+        var candidate = revoke
+            ? RosterRecordCrdtState.FromRevocation(signers.Local.SignRevoke(
+                "admin", signers.Admin, "chain", verifier, issuedAt, Guid.NewGuid()).Signed)
+            : RosterRecordCrdtState.FromAdmission(signers.Local.Admit(
+                "admin", signers.Admin, "chain", signers.ChainKey, PlainMember, verifier, issuedAt, Guid.NewGuid())
+                .EnumerateAdmissions().Single(admission => admission.PartyId == "chain"));
+        candidate = candidate.AttestReceipt(signers.Founder, "founder", At.AddSeconds(receivedAhead));
+
+        if (rebuilding)
+        {
+            var states = signers.Local.EnumerateAdmissions()
+                .Select(admission => RosterRecordCrdtState.FromAdmission(admission)
+                    .AttestReceipt(signers.Founder, "founder", admission.Admission.IssuedAt))
+                .Append(candidate).ToArray();
+            projection.RebuildLiveRoster(states);
+        }
+        else
+        {
+            await using var db = store.CreateRosterContext();
+            var states = (await db.RosterRecords.ToListAsync()).Select(NodeRosterRecord.ToCrdtState).Append(candidate);
+            await using var raw = new CrdtProjection<RosterCrdtSchema>(
+                new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+            raw.Mutate(schema => schema.PushMany(states));
+            await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+                raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+            await using var persisted = store.CreateRosterContext();
+            Assert.Equal(allowed, await persisted.RosterRecords.AnyAsync(row => row.Id == candidate.RecordId));
+        }
+
+        await projection.DrainPendingReconcilesAsync();
+        Assert.Null(projection.RebuildFailure);
+        Assert.Equal(revoke ? !allowed : allowed, live.Current.Contains("chain"));
+        if (rebuilding || allowed) Assert.Contains(At.AddSeconds(30), grants.Reads);
+        else Assert.DoesNotContain(At.AddSeconds(30), grants.Reads);
+        Assert.All(grants.Reads, instant => Assert.True(instant <= At.AddSeconds(30), $"Uncapped authority read: {instant:O}"));
+    }
+
+    [Theory]
+    [InlineData(60, false)]
+    [InlineData(30, true)]
+    public async Task Insert_refuses_future_order_time_without_ejecting_the_tenant(int receivedAhead, bool accepted)
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter, includeChain: false);
+        var live = new NodeTeamRoster(signers.Local);
+        var grants = new ExpiringGrantReader(At.AddSeconds(45));
+        await using var host = ComposedHost(store, signers.Founder, new FixedClock(At), grants, live);
+        var candidate = RosterRecordCrdtState.FromAdmission(signers.Local.Admit(
+                "admin", signers.Admin, "chain", signers.ChainKey, PlainMember,
+                new Ed25519Verifier(), At, Guid.NewGuid())
+            .EnumerateAdmissions().Single(admission => admission.PartyId == "chain"))
+            .AttestReceipt(signers.Founder, "founder", At.AddSeconds(receivedAhead));
+        await using var db = store.CreateRosterContext();
+        var states = (await db.RosterRecords.ToListAsync()).Select(NodeRosterRecord.ToCrdtState).Append(candidate);
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        raw.Mutate(schema => schema.PushMany(states));
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+
+        await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+            raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+        await projection.DrainPendingReconcilesAsync();
+
+        await using var persisted = store.CreateRosterContext();
+        Assert.Equal(accepted, await persisted.RosterRecords.AnyAsync(row => row.Id == candidate.RecordId));
+        Assert.Null(projection.RebuildFailure);
+        Assert.True(live.Current.Contains("admin"));
+        Assert.Equal(accepted, live.Current.Contains("chain"));
+        if (!accepted)
+        {
+            Assert.Contains(projection.RefusalReports, refusal => refusal.Code == "roster.record.order_time_future");
+            Assert.DoesNotContain(At.AddSeconds(30), grants.Reads);
+            Assert.DoesNotContain(At.AddSeconds(60), grants.Reads);
+        }
+        var later = await host.GetRequiredService<IVerifiedTenantRosterReader>()
+            .ReadAsync(Tenant, AdmittedInstant.FromRecordedAct(At.AddSeconds(60)), default);
+        Assert.Contains(later.Members, member => member.PartyId == "admin");
+        if (!accepted) Assert.DoesNotContain(later.Members, member => member.PartyId == "chain");
+        else Assert.Contains(later.Members, member => member.PartyId == "chain");
+    }
+
+    [Fact]
+    public async Task Durable_future_receipt_is_capped_in_reader_and_final_reconcile()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter, includeChain: false);
+        var candidate = RosterRecordCrdtState.FromAdmission(signers.Local.Admit(
+                "admin", signers.Admin, "chain", signers.ChainKey, PlainMember,
+                new Ed25519Verifier(), At, Guid.NewGuid())
+            .EnumerateAdmissions().Single(admission => admission.PartyId == "chain"))
+            .AttestReceipt(signers.Founder, "founder", At.AddSeconds(60));
+        await using var db = store.CreateRosterContext();
+        db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(candidate));
+        await db.SaveChangesAsync();
+        var grants = new ExpiringGrantReader(At.AddSeconds(45));
+        var live = new NodeTeamRoster(signers.Local);
+        await using var host = ComposedHost(store, signers.Founder, new FixedClock(At), grants, live);
+        var reader = new VerifiedTenantRosterReader(host.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
+            new Ed25519Verifier(), new GrantStoreRosterAuthority(grants));
+
+        var rebuilt = await reader.ReadForRebuildAsync(Tenant, AdmittedInstant.FromRecordedAct(At), default);
+        Assert.Contains(rebuilt.Members, member => member.PartyId == "chain");
+        Assert.Contains(At.AddSeconds(30), grants.Reads);
+        Assert.All(grants.Reads, instant => Assert.True(instant <= At.AddSeconds(30)));
+        grants.Reads.Clear();
+        await using var raw = new CrdtProjection<RosterCrdtSchema>(
+            new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+        raw.Mutate(schema => schema.PushMany(db.RosterRecords.AsNoTracking().ToList().Select(NodeRosterRecord.ToCrdtState)));
+        var projection = host.GetRequiredService<RosterCrdtProjection>();
+        await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+            raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+        await projection.DrainPendingReconcilesAsync();
+
+        Assert.Null(projection.RebuildFailure);
+        Assert.True(live.Current.Contains("chain"));
+        Assert.Contains(At.AddSeconds(30), grants.Reads);
+        Assert.All(grants.Reads, instant => Assert.True(instant <= At.AddSeconds(30)));
+    }
+
+    private sealed class ExpiringGrantReader(DateTimeOffset endsAt) : IAuthorizationInstallRootReader
+    {
+        internal List<DateTimeOffset> Reads { get; } = [];
+
+        public ValueTask<PermissionSet> ReadAsync(ActorId principal, TenantId tenant, AdmittedInstant at,
+            CancellationToken cancellationToken = default)
+        {
+            Reads.Add(at.Value);
+            return ValueTask.FromResult(principal.Value == "admin" && at.Value < endsAt ? Admitter : PlainMember);
+        }
+    }
+
     // ---- fixture ------------------------------------------------------------------------------------------
 
     private sealed record Signers(Ed25519Signer Founder, Ed25519Signer Admin, PrincipalId ChainKey, MemberRoster Local);
@@ -152,7 +411,7 @@ public sealed class RosterAuthorityBindingTests
     /// Optionally appends admin's signed revocation of "chain".
     /// </summary>
     private static async Task<Signers> SeedChainAsync(
-        SearchTestStore store, PermissionSet adminPermissions, bool revokeChain = false)
+        SearchTestStore store, PermissionSet adminPermissions, bool revokeChain = false, bool includeChain = true)
     {
         var verifier = new Ed25519Verifier();
         var founder = new Ed25519Signer(KeyPair.Generate());
@@ -161,7 +420,8 @@ public sealed class RosterAuthorityBindingTests
 
         var roster = MemberRoster.Genesis(Team, "founder", founder, verifier, At, Guid.NewGuid());
         roster = roster.Admit("founder", founder, "admin", admin.IssuerId, Admitter, verifier, At, Guid.NewGuid());
-        roster = roster.Admit("admin", admin, "chain", chainKey, PlainMember, verifier, At, Guid.NewGuid());
+        if (includeChain)
+            roster = roster.Admit("admin", admin, "chain", chainKey, PlainMember, verifier, At, Guid.NewGuid());
 
         MemberRevocationRecord? revocation = null;
         if (revokeChain)
@@ -191,8 +451,9 @@ public sealed class RosterAuthorityBindingTests
         var grants = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
         await grants.ConferAdmissionGrantAsync(Tenant, "admin", "founder", adminPermissions, At,
             AdmissionConferralAuthority.SignedAdmission(roster));
-        await grants.ConferAdmissionGrantAsync(Tenant, "chain", "admin", PlainMember, At,
-            AdmissionConferralAuthority.SignedAdmission(roster));
+        if (includeChain)
+            await grants.ConferAdmissionGrantAsync(Tenant, "chain", "admin", PlainMember, At,
+                AdmissionConferralAuthority.SignedAdmission(roster));
 
         return new Signers(founder, admin, chainKey, roster);
     }
@@ -203,6 +464,31 @@ public sealed class RosterAuthorityBindingTests
         private int _reads;
         internal int Reads => _reads;
         public override DateTimeOffset GetUtcNow() => start.AddMinutes(Interlocked.Increment(ref _reads));
+    }
+
+    private sealed class FixedClock(DateTimeOffset instant) : TimeProvider
+    {
+        internal int Reads { get; private set; }
+        public override DateTimeOffset GetUtcNow()
+        {
+            Reads++;
+            return instant;
+        }
+    }
+
+    private sealed class WindowedGrantReader(DateTimeOffset startsAt, bool revoke) : IAuthorizationInstallRootReader
+    {
+        internal List<DateTimeOffset> Reads { get; } = [];
+
+        public ValueTask<PermissionSet> ReadAsync(ActorId principal, TenantId tenant, AdmittedInstant at,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(Tenant, tenant);
+            if (principal.Value != "admin") return ValueTask.FromResult(PlainMember);
+            Reads.Add(at.Value);
+            var baseline = revoke ? PermissionSet.Of(Permission.MembersAdmit, TeamRolePermissions.RecordsRead) : PlainMember;
+            return ValueTask.FromResult(at.Value >= startsAt ? Admitter : baseline);
+        }
     }
 
     /// <summary>Records what the REAL composed authority was asked, and passes the call straight through.</summary>
@@ -218,7 +504,8 @@ public sealed class RosterAuthorityBindingTests
     }
 
     private static ServiceProvider ComposedHost(
-        SearchTestStore store, Ed25519Signer signer, TimeProvider? clock = null)
+        SearchTestStore store, Ed25519Signer signer, TimeProvider? clock = null,
+        IAuthorizationInstallRootReader? grants = null, NodeTeamRoster? roster = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -228,6 +515,8 @@ public sealed class RosterAuthorityBindingTests
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();
         services.AddNodeAuthorizationModel();
+        if (grants is not null) services.AddSingleton(grants);
+        if (roster is not null) services.AddSingleton(roster);
         return services.BuildServiceProvider();
     }
 

@@ -25,6 +25,7 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 
 /// <summary>ck-10 S5a: configuration activation uses the real executor over the durable SQLCipher host store.</summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
 {
     private static readonly DateTimeOffset Frozen = new(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);

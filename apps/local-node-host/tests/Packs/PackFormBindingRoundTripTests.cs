@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -16,6 +18,7 @@ using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
@@ -223,9 +226,17 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
     [Fact(DisplayName = "ticket 737: Layout, Resource, and Bookable definitions round-trip headlessly")]
     public async Task Layout_and_Booking_definitions_round_trip_headlessly()
     {
+        var record = PackContractWindowInstallRouteTests.BookingRecordType(true, "acme.producer").ToJsonString();
+        var seed = new PackSeedItem("acme.type", PackContentKind.AssetTypeDefinition, "1.0.0", record,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(record)));
+        var producer = RecordsInstallClosureGateTests.Producer("acme.producer", "1.0.0", [seed], ["acme.type"],
+            [new PackExposedDefinition("acme.type", "1.0.0", "sha256:" + new string('a', 64))]);
+        _packStore.Commit(new PackInstallTransaction(NodeTenant.Resolve(_activeTeam), producer,
+            new PackInstallWatermark("acme.producer", "1.0.0", new Dictionary<string, int>()), []));
         var packFile = await CliExportAsync(PackBody(
             bindingKey: null,
             typeContentVersion: "1.1.0",
+            dependencies: [("acme.producer", "1.0.0")],
             additionalContents: LayoutAndBookingContents(),
             includeBaseContents: false));
 
@@ -246,10 +257,10 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         var tenant = NodeTenant.Resolve(_activeTeam);
         var active = _packStore.GetActive(tenant, PackKey);
         Assert.NotNull(active);
-        var seedKeys = active!.SeedItems.Select(item => (item.Key, item.Kind)).ToArray();
-        Assert.Contains(("layout.booking.surface", PackContentKind.Layout), seedKeys);
-        Assert.Contains(("booking.room", PackContentKind.Resource), seedKeys);
-        Assert.Contains(("booking.room-visit", PackContentKind.Bookable), seedKeys);
+        var seedKeys = active!.SeedItems.Select(item => (item.Key, Kind: (int)item.Kind)).ToArray();
+        Assert.Contains(("layout.booking.surface", 17), seedKeys);
+        Assert.Contains(("booking.room", 18), seedKeys);
+        Assert.Contains(("booking.room-visit", 19), seedKeys);
     }
 
     [Fact(DisplayName = "ticket 357: a binding naming a form the pack does not contain is refused at verify by name")]
@@ -519,12 +530,20 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         },
     };
 
-    private static IReadOnlyList<object> LayoutAndBookingContents() =>
-    [
-        new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = LayoutContent() },
-        new { key = "booking.room", kind = "Resource", version = "1.0.0", content = new { definition = "resource" } },
-        new { key = "booking.room-visit", kind = "Bookable", version = "1.0.0", content = new { definition = "bookable" } },
-    ];
+    private static IReadOnlyList<object> LayoutAndBookingContents()
+    {
+        var resource = PackContractWindowInstallRouteTests.BookingContent("Resource", "booking.room");
+        resource["from_type_id"] = "acme.room";
+        var bookable = PackContractWindowInstallRouteTests.BookingContent("Bookable", "booking.room-visit");
+        bookable["on_type_id"] = "acme.room";
+        bookable["requires"] = new JsonArray("booking.room");
+        return
+        [
+            new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = LayoutContent() },
+            new { key = "booking.room", kind = "Resource", version = "1.0.0", content = resource },
+            new { key = "booking.room-visit", kind = "Bookable", version = "1.0.0", content = bookable },
+        ];
+    }
 
     private static JsonElement LayoutContent() => JsonSerializer.Deserialize<JsonElement>(
         LayoutDefinitionJson.SerializeCanonical(new LayoutDefinition(

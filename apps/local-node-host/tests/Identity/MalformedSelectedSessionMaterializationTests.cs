@@ -284,7 +284,7 @@ public sealed class MalformedSelectedSessionMaterializationTests
 
     private sealed class ThrowingRosterReader : IVerifiedTenantRosterReader
     {
-        public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) =>
+        public Task<MemberRoster> ReadAsync(TenantId team, AdmittedInstant admittedAt, CancellationToken ct) =>
             throw new InvalidOperationException("Malformed session must refuse before roster resolution.");
     }
 

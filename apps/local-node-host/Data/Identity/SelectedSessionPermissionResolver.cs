@@ -128,11 +128,11 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             // without touching the grant store's authorization epoch, so each request reads the signed
             // roster edge directly. A grant bundle is only the honest authority for a web invitee whose
             // atlas edge is deliberately deferred until device enrollment.
+            var evaluatedAt = AdmittedInstant.Read(_timeProvider);
             var roster = await _rosterReader
-                .ReadAsync(principal.TenantId, cancellationToken)
+                .ReadAsync(principal.TenantId, evaluatedAt, cancellationToken)
                 .ConfigureAwait(false);
             // Derive the live inputs once; the gate decides each permission projected into this session.
-            var evaluatedAt = AdmittedInstant.Read(_timeProvider);
             // Ticket 293 slice 4 fix 4 — ONE key across planes. The edge is looked up under the SAME actor
             // id the gate is asked about: since ticket 294 slice 2a the roster's PartyId carries
             // CanonicalPartyBinding.PrincipalUserId.Value, while principal.CanonicalParty is the People

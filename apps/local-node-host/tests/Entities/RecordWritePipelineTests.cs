@@ -21,8 +21,16 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// <see cref="WritePipeline.RunAsync"/>. Each refusal stops the write at its stage, and delete now binds
 /// the record it removes and records the accepted act.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class RecordWritePipelineTests
 {
+    // ADR-0038 supplies the expected order independently of production.
+    private static readonly WritePipelineStage[] Adr0038 =
+    [
+        WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
+        WritePipelineStage.Validate, WritePipelineStage.Commit, WritePipelineStage.React,
+    ];
+
     private static readonly DateTimeOffset At = new(2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("records-pipeline");
     private static readonly ActorId Actor = new("records-operator");
@@ -37,7 +45,7 @@ public sealed class RecordWritePipelineTests
 
         var written = await h.Writer.CreateWithReceiptAsync(Schema, body, Options("created"), Authority);
 
-        Assert.Equal(WritePipeline.Order, h.Stages);
+        Assert.Equal(Adr0038, h.Stages);
         var stored = await h.Entities.GetAsync(written.Entity);
         Assert.Equal("created", stored!.Body.RootElement.GetProperty("name").GetString());
         Assert.Equal(At, stored.CreatedAt);
@@ -64,7 +72,7 @@ public sealed class RecordWritePipelineTests
         using var body = JsonDocument.Parse("""{"name":"after"}""");
 
         await h.Writer.UpdateAsync(id, body, new UpdateOptions(Actor), Authority);
-        Assert.Equal(WritePipeline.Order, h.Stages);
+        Assert.Equal(Adr0038, h.Stages);
         Assert.Equal("after", (await h.Entities.GetAsync(id))!.Body.RootElement.GetProperty("name").GetString());
 
         h.Stages.Clear();
@@ -81,7 +89,7 @@ public sealed class RecordWritePipelineTests
 
         await h.Writer.DeleteAsync(id, new DeleteOptions(Actor, Justification: "gone"), Authority);
 
-        Assert.Equal(WritePipeline.Order, h.Stages);
+        Assert.Equal(Adr0038, h.Stages);
         Assert.Null(await h.Entities.GetAsync(id));
         var call = Assert.Single(h.Trail.ReceivedCalls(), c => c.GetMethodInfo().Name == nameof(IAuthorizedAuditTrail.AppendAuthorizedAsync));
         var record = (AuditRecord)call.GetArguments()[0]!;

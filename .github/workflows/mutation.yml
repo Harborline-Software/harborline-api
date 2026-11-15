@@ -98,6 +98,17 @@ jobs:
       - name: Validate and select the recorded Platform pin
         run: node .github/workloads/select-platform-pin.mjs
 
+      # full-mutation.sh packs with cwd .platform, whose global.json pins the platform's own SDK.
+      # Same install directory as the API's SDK above, so both stay on the one dotnet. Zip, not tar:
+      # Git's usr\bin tar is on PATH by now on Windows and reads the C: in the archive path as a host.
+      - name: Install the pinned Platform's SDK beside the API's
+        uses: actions/setup-dotnet@v6
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+          DOTNET_INSTALL_SKIP_TAR: '1'
+        with:
+          global-json-file: .platform/global.json
+
       - name: Reserved full mutation and isolated feed
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then

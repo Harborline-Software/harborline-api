@@ -21,11 +21,67 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// <see cref="WritePipeline.RunAsync"/> under the decision the caller carried. Each refusal stops at its own stage
 /// and leaves the grant in force.
 /// </summary>
+[Trait("Holds", "kernel-core-ck-10")]
 public sealed class GrantRevocationWritePipelineTests
 {
     private static readonly DateTimeOffset At = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("grant-pipeline");
     private static readonly ActorId Admin = new("grant-admin");
+
+    [Theory]
+    [InlineData("review")]
+    [InlineData("scope")]
+    [InlineData("handover")]
+    [InlineData("admission")]
+    public async Task Carried_decision_for_another_grant_refuses_before_any_dependency(string act)
+    {
+        var grants = Substitute.For<IGrantStore>();
+        var factory = Substitute.For<IDbContextFactory<NodeLocalSearchDbContext>>();
+        var writer = new AuthorizedGrantRevocationWriter(grants, factory);
+        var current = GrantId.New();
+        var otherDecision = Decision(GrantId.New());
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            switch (act)
+            {
+                case "review":
+                    await writer.RecordReviewAsync(Tenant, current, At, Admin, otherDecision);
+                    break;
+                case "scope":
+                    await writer.NarrowScopeAsync(Tenant, current, ScopeExpression.Parse("/records"),
+                        GrantId.New(), Evidence(Admin, At), otherDecision);
+                    break;
+                case "handover":
+                    await writer.HandoverAsync(Tenant, current, null!, Evidence(Admin, At), otherDecision);
+                    break;
+                default:
+                    await writer.NarrowAsync(Tenant, current, PermissionSet.Of(TeamRolePermissions.RecordsWrite),
+                        Evidence(Admin, At), Guid.NewGuid(), otherDecision);
+                    break;
+            }
+        });
+
+        Assert.Empty(grants.ReceivedCalls());
+        Assert.Empty(factory.ReceivedCalls());
+    }
+
+    [Theory]
+    [InlineData("someone-else", 0)]
+    [InlineData("grant-admin", 1)]
+    public async Task Review_actor_and_instant_must_match_the_carried_decision(string actor, int minutes)
+    {
+        var grants = Substitute.For<IGrantStore>();
+        var writer = new AuthorizedGrantRevocationWriter(grants,
+            Substitute.For<IDbContextFactory<NodeLocalSearchDbContext>>());
+        var current = GrantId.New();
+
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() => writer.RecordReviewAsync(
+            Tenant, current, At.AddMinutes(minutes), new ActorId(actor), Decision(current)));
+
+        Assert.Equal("admittedDecision", refused.ParamName);
+        Assert.Empty(grants.ReceivedCalls());
+    }
 
     // ADR 0038's order, written out here rather than read from WritePipeline.Order.
     private static readonly WritePipelineStage[] SixStages =
