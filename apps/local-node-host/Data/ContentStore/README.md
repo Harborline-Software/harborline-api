@@ -12,10 +12,12 @@ The node backs the platform content store's three ports (DES-0054, ADR 0113, ADR
 
 An epoch or rotation-metadata write flushes its temporary file to the device, renames it, then syncs the containing
 directory and each ancestor up to and including the epoch-key store's root. The tenant-key store uses the same bounded
-chain for record writes and reads of existing records. A write syncs its store root's parent only when that same call
-created the root. A root left visible by an earlier crashed call does not have its parent entry synced by a later call;
-the later call's barrier therefore does not establish durability of that earlier root creation. Any directory-sync
-failure propagates instead of allowing the caller to publish a successful key write.
+chain for record writes and reads of existing records. Both stores create a missing root and its missing ancestors one
+level at a time; each directory a call creates owes its parent a sync, recorded before any sync runs. An owed sync stays
+owed, across store instances in the process, until it succeeds: every later write or read completes it, deepest first,
+before returning. The owed set lives in memory, so a process restart forgets a sync a failed call left owed, and a later
+call does not then establish durability of that earlier root creation. Any directory-sync failure propagates instead of
+allowing the caller to publish a successful key write.
 
 The content store's tenant key is the tenant's version-2 stored key (`NodeTenantContentKeyProvider`), which destroying the
 tenant's keys removes. Rotation settings bind from `LocalNode:ContentStore:KeyRotation` (`ContentKeyRotationSettings`).
