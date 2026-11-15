@@ -13,10 +13,13 @@ public sealed class NodeContentStoreStorage : IContentStoreStorage
     private readonly NodeContentByteStore _bytes;
 
     /// <summary>Composes the ports with one backup fence for both forms of destruction.</summary>
-    public NodeContentStoreStorage(IDbContextFactory<LocalNodeDbContext> contexts, string dataDirectory)
+    /// <param name="contexts">The node's database.</param>
+    /// <param name="dataDirectory">The directory that holds <c>content/</c> beside the database.</param>
+    /// <param name="tenantKeysDirectory">The tenant-key store's root, the same one the stored tenant keys use; epoch keys go in its <c>content-epochs/</c>.</param>
+    public NodeContentStoreStorage(IDbContextFactory<LocalNodeDbContext> contexts, string dataDirectory, string tenantKeysDirectory)
     {
         _bytes = new(Path.Combine(dataDirectory, "content"), Backups);
-        Epochs = new NodeContentEpochKeyStore(Path.Combine(dataDirectory, "tenant-keys", NodeContentEpochKeyStore.DirectoryName));
+        Epochs = new NodeContentEpochKeyStore(Path.Combine(tenantKeysDirectory, NodeContentEpochKeyStore.DirectoryName));
         Bookkeeping = new NodeContentBookkeeping(contexts);
     }
 

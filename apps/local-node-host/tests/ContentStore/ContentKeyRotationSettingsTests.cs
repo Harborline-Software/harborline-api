@@ -105,7 +105,7 @@ public sealed class ContentKeyRotationSettingsTests
         var services = new ServiceCollection();
 
         var refusal = Assert.Throws<ContentKeyRotationSettingException>(() =>
-            services.AddNodeContentStore(Path.GetTempPath(), Config(("WaitingPeriod", "31.00:00:00"))));
+            services.AddNodeContentStore(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "tenant-keys"), Config(("WaitingPeriod", "31.00:00:00"))));
 
         Assert.Equal("LocalNode:ContentStore:KeyRotation:WaitingPeriod", refusal.Setting);
         Assert.Empty(services);

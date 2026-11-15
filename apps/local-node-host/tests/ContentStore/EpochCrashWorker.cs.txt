@@ -29,7 +29,7 @@ internal static class EpochCrashWorker
         services.AddSingleton<IHarborlineEntityModule, DefinitionArchiveEntityModule>();
         using var provider = services.BuildServiceProvider();
         var clock = new Clock(long.Parse(arguments[1], CultureInfo.InvariantCulture));
-        var storage = new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), arguments[0]);
+        var storage = new NodeContentStoreStorage(provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), arguments[0], Path.Combine(arguments[0], "tenant-keys"));
         var store = new InMemoryContentStore(new(300_000, 600_000, 600_000, TimeSpan.FromMinutes(1)), new NodeTenantContentKeyProvider(new StoredTenantKeyProvider(new FileSystemTenantKeyStore(Path.Combine(arguments[0], "tenant-keys")), Enumerable.Repeat((byte)0x61, 32).ToArray())), clock, storage);
         Action<string> crash = step =>
         {

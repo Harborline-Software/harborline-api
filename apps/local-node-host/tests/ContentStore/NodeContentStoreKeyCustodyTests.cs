@@ -101,7 +101,7 @@ public sealed partial class NodeContentStoreTests
     {
         var services = new ServiceCollection();
         services.ConfigureStoredTenantKeys(Path.Combine(_node.DataDirectory, "tenant-keys"), HierarchyRoot, new NoLegacyKeys());
-        services.AddNodeContentStore(_node.DataDirectory);
+        services.AddNodeContentStore(_node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         using var provider = services.BuildServiceProvider();
 
         var keys = Assert.IsType<NodeTenantContentKeyProvider>(provider.GetRequiredService<ITenantContentKeyProvider>());

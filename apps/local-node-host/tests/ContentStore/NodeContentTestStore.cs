@@ -24,7 +24,7 @@ internal sealed class NodeContentTestStore : IDisposable
         DataDirectory = directory;
         _provider = Compose(directory);
         Contexts = _provider.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
-        Storage = new NodeContentStoreStorage(Contexts, directory);
+        Storage = new NodeContentStoreStorage(Contexts, directory, Path.Combine(directory, "tenant-keys"));
         Factories.Add(Storage.Bookkeeping, Contexts);
     }
 

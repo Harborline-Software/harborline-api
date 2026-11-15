@@ -33,7 +33,7 @@ public sealed partial class NodeContentStoreTests
     [InlineData("destroy:directory-flushed")]
     public async Task A_process_crash_at_each_rotation_step_keeps_every_real_database_row_readable(string step)
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = CrashStore(storage);
         var reference = await Commit(store, await Put(store));
         await Put(store, "still-staged"u8.ToArray());

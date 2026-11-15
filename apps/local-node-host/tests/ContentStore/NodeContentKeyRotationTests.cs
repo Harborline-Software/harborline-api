@@ -19,7 +19,7 @@ public sealed partial class NodeContentStoreTests
     [Fact]
     public async Task Rotation_leaves_stray_epoch_files_untouched()
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = Store(storage: storage);
         var reference = await Commit(store, await Put(store, "content"u8.ToArray()));
         var stray = Path.Combine(EpochDirectory, "stray.epoch");
@@ -46,7 +46,7 @@ public sealed partial class NodeContentStoreTests
         Assert.Equal("schedule", NodeContentKeyRotation.TriggerKind);
         Assert.Equal("sys.sched.content-key-rotation", NodeContentKeyRotation.Schedule);
         var services = new ServiceCollection();
-        services.AddNodeContentStore(_node.DataDirectory);
+        services.AddNodeContentStore(_node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         using var provider = services.BuildServiceProvider();
         Assert.Equal("content-store", provider.GetRequiredService<RunKindRegistry>().Require(new("content-key-rotation")).OwningEngine);
         Assert.Equal("content-store", provider.GetRequiredService<RunKindRegistry>().Require(new("content-staging-sweep")).OwningEngine);
@@ -55,7 +55,7 @@ public sealed partial class NodeContentStoreTests
     [Fact]
     public async Task Rotation_rewraps_multiple_batches_and_waits_thirty_days_across_restart()
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = Store(storage: storage);
         var firstReference = await Commit(store, await Put(store, "first"u8.ToArray()));
         var secondReference = await Commit(store, await Put(store, "second"u8.ToArray()), "second-record");
@@ -90,7 +90,7 @@ public sealed partial class NodeContentStoreTests
     [Fact]
     public async Task Backup_handles_gate_both_retirement_and_destruction_and_byte_sweeping()
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = Store(storage: storage);
         var reference = await Commit(store, await Put(store));
         var first = (await _node.Storage.Epochs.GetCurrentAsync(Tenant))!.EpochId;
@@ -198,7 +198,7 @@ public sealed partial class NodeContentStoreTests
     [Fact]
     public async Task Rotation_refuses_a_non_scheduler_actor_before_changing_the_current_epoch()
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = Store(storage: storage);
         await Commit(store, await Put(store));
         var first = (await storage.Epochs.GetCurrentAsync(Tenant))!.EpochId;
@@ -212,7 +212,7 @@ public sealed partial class NodeContentStoreTests
     [Fact]
     public async Task Unreadable_pending_metadata_refuses_instead_of_destroying_a_key()
     {
-        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory);
+        var storage = new NodeContentStoreStorage(_node.Contexts, _node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         var store = Store(storage: storage);
         await Commit(store, await Put(store));
         var first = (await storage.Epochs.GetCurrentAsync(Tenant))!.EpochId;
@@ -261,7 +261,7 @@ public sealed partial class NodeContentStoreTests
             .Options;
         var contexts = new Factory(options, [new ContentStoreEntityModule(), new AuditEventEntityModule(), new DefinitionArchiveEntityModule()]);
         await using (var context = contexts.CreateDbContext()) await context.Database.EnsureCreatedAsync();
-        return (new(contexts, directory), contexts);
+        return (new(contexts, directory, Path.Combine(directory, "tenant-keys")), contexts);
     }
 
     private static async Task<byte[]> OpenLeftoverWrap(NodeContentStoreStorage storage, ContentStoreItem item, byte[]? tenantKey = null)

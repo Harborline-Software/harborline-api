@@ -248,6 +248,9 @@ using (var footprintServices = new ServiceCollection()
 }
 builder.Services.AddSingleton(installIdentityProvider);
 builder.Services.AddSingleton(installFootprintProvider);
+// M11 ruling of 2026-11-13: one tenant-key root, from the install footprint, for the stored tenant keys and the content
+// store's epoch keys alike, whatever LocalNode:DataDirectory says.
+var tenantKeysDirectory = Path.Combine(installFootprint.DataDirectory, "tenant-keys");
 builder.Services.PostConfigure<LocalNodeOptions>(options =>
     options.ApplyInstallFootprint(
         installFootprint,
@@ -2162,7 +2165,7 @@ builder.Services.AddNodeKnowledgeGraphSearch();
     var legacyTenantKeys =
         new Harborline.Api.LocalNodeHost.Data.Search.Vector.RootSeedTenantKeyProvider(rootSeed);
     builder.Services.ConfigureStoredTenantKeys(
-        Path.Combine(installFootprint.DataDirectory, "tenant-keys"),
+        tenantKeysDirectory,
         keyHierarchy.AtRestRootKey.Span,
         legacyTenantKeys);
 
@@ -2337,6 +2340,7 @@ builder.Services.AddNodeKnowledgeGraphSearch();
 Harborline.Api.LocalNodeHost.Data.ContentStore.NodeContentStoreComposition.AddNodeContentStore(
     builder.Services,
     localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"),
+    tenantKeysDirectory,
     builder.Configuration);
 
 // ── PERS-1 — STORAGE-ROLE durable, mandatory-envelope-at-rest blob store (ADR 0137 D4 / C-3; ADR 0127 seam) ──
