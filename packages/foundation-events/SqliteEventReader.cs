@@ -170,7 +170,7 @@ public sealed class SqliteEventReader : IEventReader
         cmd.Parameters.AddWithValue("$event_id", eventId);
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return true;
-        return !reader.IsDBNull(0) && DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture) <= _clock.GetUtcNow();
+        return !await reader.IsDBNullAsync(0, ct).ConfigureAwait(false) && DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture) <= _clock.GetUtcNow();
     }
 
     private async Task<long> GetCursorAsync(

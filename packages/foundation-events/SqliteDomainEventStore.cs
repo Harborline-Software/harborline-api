@@ -171,7 +171,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
     public async Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
         TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken = default)
     {
-        if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT e.event_id, e.event_type, e.schema_version, e.occurred_at, e.recorded_at_utc,
