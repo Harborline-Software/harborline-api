@@ -26,6 +26,16 @@ namespace Harborline.Api.Foundation.Events;
 /// </remarks>
 public sealed class SqliteDomainEventStore : IDomainEventStore
 {
+    private const string PageByPositionSql = """
+        SELECT e.event_id, e.event_type, e.schema_version, e.occurred_at, e.recorded_at_utc,
+               e.tenant_id, e.originating_replica_id, e.idempotency_key,
+               e.causation_id, e.correlation_id, e.producer_cluster, e.payload_json, p.position
+        FROM event_tenant_positions t INDEXED BY idx_event_tenant_positions_tenant_position
+        CROSS JOIN event_positions p ON p.position = t.position
+        CROSS JOIN domain_events e ON e.event_id = p.event_id
+        WHERE t.tenant_id = $tenant_id AND t.position > $position
+        ORDER BY t.position LIMIT $limit;
+        """;
     private readonly SqliteConnection _connection;
     private readonly TimeProvider _clock;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -66,8 +76,21 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
                 position INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id)
             );
+            CREATE TABLE IF NOT EXISTS event_tenant_positions (
+                tenant_id TEXT NOT NULL,
+                position INTEGER NOT NULL PRIMARY KEY REFERENCES event_positions(position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_tenant_positions_tenant_position
+                ON event_tenant_positions(tenant_id, position);
+            CREATE TRIGGER IF NOT EXISTS event_positions_assign_tenant AFTER INSERT ON event_positions
+            BEGIN
+                INSERT INTO event_tenant_positions(tenant_id, position)
+                    SELECT tenant_id, NEW.position FROM domain_events WHERE event_id = NEW.event_id;
+            END;
             INSERT OR IGNORE INTO event_positions(event_id)
                 SELECT event_id FROM domain_events ORDER BY event_id;
+            INSERT OR IGNORE INTO event_tenant_positions(tenant_id, position)
+                SELECT e.tenant_id, p.position FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id;
             CREATE TRIGGER IF NOT EXISTS domain_events_assign_position AFTER INSERT ON domain_events
             BEGIN
                 INSERT INTO event_positions(event_id) VALUES (NEW.event_id);
@@ -173,14 +196,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
         await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT e.event_id, e.event_type, e.schema_version, e.occurred_at, e.recorded_at_utc,
-                   e.tenant_id, e.originating_replica_id, e.idempotency_key,
-                   e.causation_id, e.correlation_id, e.producer_cluster, e.payload_json, p.position
-            FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id
-            WHERE e.tenant_id = $tenant_id AND p.position > $position
-            ORDER BY p.position LIMIT $limit;
-            """;
+        cmd.CommandText = PageByPositionSql;
         cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
         cmd.Parameters.AddWithValue("$position", afterPosition);
         cmd.Parameters.AddWithValue("$limit", batchSize);

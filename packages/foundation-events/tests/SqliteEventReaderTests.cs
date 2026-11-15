@@ -7,6 +7,65 @@ namespace Harborline.Api.Foundation.Events.Tests;
 public sealed class SqliteEventReaderTests
 {
     [Fact]
+    public async Task Page_query_seeks_tenant_and_position_without_sorting()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var store = new SqliteDomainEventStore(connection, new TestClock());
+        await store.ApplyMigrationsAsync();
+        var query = (string)typeof(SqliteDomainEventStore)
+            .GetField("PageByPositionSql", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .GetRawConstantValue()!;
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "EXPLAIN QUERY PLAN " + query;
+        cmd.Parameters.AddWithValue("$tenant_id", "tenant-a");
+        cmd.Parameters.AddWithValue("$position", 100000L);
+        cmd.Parameters.AddWithValue("$limit", 100);
+        var plan = new List<string>();
+        await using var rows = await cmd.ExecuteReaderAsync();
+        while (await rows.ReadAsync()) plan.Add(rows.GetString(3));
+        Assert.Contains(plan, detail => detail.Contains("idx_event_tenant_positions_tenant_position", StringComparison.Ordinal)
+            && detail.Contains("tenant_id=? AND position>?", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan, detail => detail.Contains("USE TEMP B-TREE", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Migration_indexes_existing_positions_per_tenant_and_new_appends()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var store = new SqliteDomainEventStore(connection, new TestClock());
+        await store.ApplyMigrationsAsync();
+        var clock = new TestClock();
+        foreach (var (id, tenant) in new[] { ("z", "tenant-a"), ("b", "tenant-b"), ("a", "tenant-a") })
+            await store.AppendAsync(new DomainEventEnvelope<string>
+            {
+                EventId = id, EventType = "Test.Happened", SchemaVersion = 1,
+                OccurredAt = clock.GetUtcNow(), TenantId = new TenantId(tenant), OriginatingReplicaId = new ReplicaId("replica"),
+                IdempotencyKey = id, Payload = "payload"
+            });
+        await using (var oldSchema = connection.CreateCommand())
+        {
+            oldSchema.CommandText = "DROP TRIGGER event_positions_assign_tenant; DROP TABLE event_tenant_positions;";
+            await oldSchema.ExecuteNonQueryAsync();
+        }
+        await store.ApplyMigrationsAsync();
+        await store.ApplyMigrationsAsync();
+        var page = await store.GetAfterPositionAsync(new TenantId("tenant-a"), 1, 10);
+        Assert.Equal(new[] { "a" }, page.Select(e => e.EventId));
+        Assert.Equal(3, Assert.Single(page).Position);
+        await store.AppendAsync(new DomainEventEnvelope<string>
+        {
+            EventId = "0", EventType = "Test.Happened", SchemaVersion = 1,
+            OccurredAt = clock.GetUtcNow(), TenantId = new TenantId("tenant-b"), OriginatingReplicaId = new ReplicaId("replica"),
+            IdempotencyKey = "0", Payload = "payload"
+        });
+        var next = await store.GetAfterPositionAsync(new TenantId("tenant-b"), 2, 10);
+        Assert.Equal("0", Assert.Single(next).EventId);
+        Assert.Equal(4, next[0].Position);
+    }
+
+    [Fact]
     public void Solution_lists_foundation_events_tests()
     {
         var solution = Path.GetFullPath("../../../../../../Harborline.Api.slnx", AppContext.BaseDirectory);
