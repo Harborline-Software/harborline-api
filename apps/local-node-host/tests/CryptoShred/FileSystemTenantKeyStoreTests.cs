@@ -234,8 +234,97 @@ public sealed class FileSystemTenantKeyStoreTests : IDisposable
         Assert.Same(failure, Assert.Throws<IOException>(() => store.Read("tenant:v2", default)));
         var synced = new List<string>();
         Assert.Equal("sync-key"u8.ToArray(), CreateStore(syncDirectory: synced.Add).Read("tenant:v2", default)!.Value.ToArray());
-        Assert.Equal(new[] { Path.Combine(_directory, "tenant"), _directory }, synced);
+        Assert.Equal(new[] { Path.GetDirectoryName(_directory)!, Path.Combine(_directory, "tenant"), _directory }, synced);
         Assert.Single(Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories));
+    }
+
+    // Oracle: the 2026-11-12 M11 ruling (1). A barrier owed for a failed sync stays owed until it succeeds, and every
+    // instance completes it before a read or write returns.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void An_owed_root_parent_sync_is_completed_before_a_retried_create_returns(bool sameInstance)
+    {
+        var parent = Path.GetDirectoryName(_directory)!;
+        var failParent = true;
+        var synced = new List<string>();
+        Action<string> sync = directory =>
+        {
+            if (failParent && directory == parent) throw new IOException("parent sync failure");
+            synced.Add(directory);
+        };
+        var first = CreateStore(syncDirectory: sync);
+        Assert.Throws<IOException>(() => first.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default));
+        failParent = false;
+        synced.Clear();
+
+        var retry = sameInstance ? first : CreateStore(syncDirectory: sync);
+        Assert.True(retry.TryCreate("tenant:v3", "sync-key"u8.ToArray(), default));
+
+        Assert.Contains(parent, synced);
+        synced.Clear();
+        Assert.True(retry.TryCreate("tenant:v4", "sync-key"u8.ToArray(), default));
+        Assert.DoesNotContain(parent, synced);
+    }
+
+    [Fact]
+    public async Task A_read_after_a_failed_create_completes_the_owed_parent_sync_or_refuses()
+    {
+        var parent = Path.GetDirectoryName(_directory)!;
+        var failure = new IOException("parent sync failure");
+        var failing = CreateStore(syncDirectory: directory =>
+        {
+            if (directory == parent) throw failure;
+        });
+        Assert.Same(failure, Assert.Throws<IOException>(() => failing.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default)));
+        Assert.Same(failure, Assert.Throws<IOException>(() => failing.Read("tenant:v2", default)));
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => failing.ReadAsync("tenant:v2", default)));
+
+        var synced = new List<string>();
+        Assert.Equal("sync-key"u8.ToArray(), (await CreateStore(syncDirectory: synced.Add).ReadAsync("tenant:v2", default))!.Value.ToArray());
+        Assert.Equal(parent, synced[0]);
+    }
+
+    [Fact]
+    public async Task A_read_during_a_create_waits_for_the_owed_parent_sync()
+    {
+        var parent = Path.GetDirectoryName(_directory)!;
+        using var parentSyncStarted = new ManualResetEventSlim();
+        using var releaseParentSync = new ManualResetEventSlim();
+        var readerSynced = new List<string>();
+        var writer = CreateStore(syncDirectory: directory =>
+        {
+            if (directory != parent) return;
+            parentSyncStarted.Set();
+            releaseParentSync.Wait();
+            throw new IOException("parent sync failure");
+        });
+        var create = Task.Run(() => writer.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default));
+        Assert.True(parentSyncStarted.Wait(TimeSpan.FromSeconds(10)));
+
+        var read = Task.Run(() => CreateStore(syncDirectory: readerSynced.Add).Read("tenant:v2", default));
+        Assert.NotSame(read, await Task.WhenAny(read, Task.Delay(200)));
+        releaseParentSync.Set();
+
+        await Assert.ThrowsAsync<IOException>(() => create);
+        Assert.Equal("sync-key"u8.ToArray(), (await read)!.Value.ToArray());
+        Assert.Equal(parent, readerSynced[0]);
+    }
+
+    // Oracle: the CodeRabbit thread on line 135 and the 2026-11-12 ruling: each directory a create makes owes its parent a sync,
+    // and no sync reaches above a directory that already existed.
+    [Fact]
+    public void A_root_two_levels_below_an_existing_directory_syncs_both_new_entries()
+    {
+        Directory.CreateDirectory(_directory);
+        var fresh = Path.Combine(_directory, "fresh");
+        var root = Path.Combine(fresh, "tenant-keys");
+        var synced = new List<string>();
+        var store = CreateStore(syncDirectory: synced.Add, rootDirectory: root);
+
+        Assert.True(store.TryCreate("tenant:v2", "sync-key"u8.ToArray(), default));
+
+        Assert.Equal(new[] { Path.Combine(root, "tenant"), root, fresh, _directory }, synced);
     }
 
     [Fact]
@@ -266,12 +355,12 @@ public sealed class FileSystemTenantKeyStoreTests : IDisposable
     private string RecordPath => Path.Combine(_directory, "tenant", "v2.key");
 
     private FileSystemTenantKeyStore CreateStore(
-        Func<string, FileStream>? createStream = null, Action<string>? syncDirectory = null) =>
+        Func<string, FileStream>? createStream = null, Action<string>? syncDirectory = null, string? rootDirectory = null) =>
         (FileSystemTenantKeyStore)Activator.CreateInstance(
             typeof(FileSystemTenantKeyStore), BindingFlags.Instance | BindingFlags.NonPublic, null,
             new object[]
             {
-                _directory,
+                rootDirectory ?? _directory,
                 createStream ?? (path => new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true)),
                 syncDirectory ?? NodeContentByteStore.SyncDirectory
             }, null)!;

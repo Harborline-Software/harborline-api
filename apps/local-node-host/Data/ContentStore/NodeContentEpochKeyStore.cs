@@ -25,15 +25,26 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
     private const string Extension = ".epoch";
     private static readonly byte[] Magic = "HLCSEPK1"u8.ToArray();
     private readonly string _root;
+    private readonly Action<string> _syncDirectory;
+    // Directory syncs owed at and above each store root: the parent of every directory a write made there, from its mkdir
+    // until that sync succeeds. Every instance completes them before a read or write returns (2026-11-12 ruling (1)).
+    // ponytail: in-process only, so a restart forgets a barrier a failed sync left owed; a durable marker would carry it over.
+    private static readonly Dictionary<string, List<string>> OwedSyncs = new(StringComparer.Ordinal);
     internal static Action<string>? AfterDurableStep { get; set; }
     // ponytail: one node process writes this directory, so one gate orders the compare-and-switch; several writers need a file lock.
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>Opens the store at <paramref name="directory"/>, which is created on first write.</summary>
     public NodeContentEpochKeyStore(string directory)
+        : this(directory, NodeContentByteStore.SyncDirectory)
+    {
+    }
+
+    internal NodeContentEpochKeyStore(string directory, Action<string> syncDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        _syncDirectory = syncDirectory;
     }
 
     /// <summary>The store's directory.</summary>
@@ -52,6 +63,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
     /// <inheritdoc />
     public async ValueTask<ContentEpochKey?> GetAsync(TenantId tenant, Guid epochId, CancellationToken cancellationToken = default)
     {
+        CompleteOwedSyncs(_root, _syncDirectory);
         byte[] bytes;
         try
         {
@@ -74,7 +86,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
         try
         {
             if (File.Exists(path)) throw new InvalidOperationException("That epoch already exists.");
-            await WriteDurablyAsync(path, Encode(epoch), _root, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await WriteDurablyAsync(path, Encode(epoch), _root, _syncDirectory, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -90,7 +102,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
         {
             if (await ReadCurrentAsync(tenant, cancellationToken).ConfigureAwait(false) != expectedCurrent) return false;
             if (!File.Exists(EpochPath(tenant, epochId))) throw new InvalidOperationException("That epoch does not exist.");
-            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), _root, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await WriteDurablyAsync(CurrentPath(tenant), Encoding.ASCII.GetBytes(epochId.ToString("N")), _root, _syncDirectory, cancellationToken).ConfigureAwait(false);
             return true;
         }
         finally
@@ -120,6 +132,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
 
     private async ValueTask<Guid?> ReadCurrentAsync(TenantId tenant, CancellationToken cancellationToken)
     {
+        CompleteOwedSyncs(_root, _syncDirectory);
         string text;
         try
         {
@@ -140,7 +153,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
         var relative = Path.GetRelativePath(root, directory);
         if (relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ArgumentException("The key file must be inside its store root.", nameof(path));
-        var rootCreated = CreateRoot(root);
+        CreateRoot(root);
         Directory.CreateDirectory(directory);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -161,7 +174,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
                 sync(ancestor.FullName);
                 if (ancestor.FullName == root) break;
             }
-            if (rootCreated) sync(Path.GetDirectoryName(root)!);
+            CompleteOwedSyncs(root, sync);
             AfterFileStep(path, "directory-flushed");
         }
         finally
@@ -170,14 +183,45 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
         }
     }
 
-    private static bool CreateRoot(string root)
+    // Syncs climb from the deepest owed parent; each leaves the set only when its sync succeeds.
+    private static void CompleteOwedSyncs(string root, Action<string> sync)
     {
-        if (Directory.Exists(root)) return false;
-        Directory.CreateDirectory(Path.GetDirectoryName(root)!);
-        var created = OperatingSystem.IsWindows() ? CreateDirectoryWindows(root, IntPtr.Zero) : MakeDirectory(root, 511) == 0;
-        if (created) return true;
+        lock (OwedSyncs)
+        {
+            if (!OwedSyncs.TryGetValue(root, out var owed)) return;
+            while (owed.Count > 0)
+            {
+                sync(owed[^1]);
+                owed.RemoveAt(owed.Count - 1);
+            }
+            OwedSyncs.Remove(root);
+        }
+    }
+
+    // Creates the root and its missing ancestors one level at a time, top down. Each directory this call makes owes its parent a
+    // sync, recorded before any sync can fail; a directory that already existed owes nothing and nothing above it is synced.
+    private static void CreateRoot(string root)
+    {
+        var missing = new Stack<string>();
+        for (var directory = root; directory is not null && !Directory.Exists(directory); directory = Path.GetDirectoryName(directory))
+            missing.Push(directory);
+        if (missing.Count == 0) return;
+        lock (OwedSyncs)
+        {
+            foreach (var directory in missing)
+            {
+                if (!MakeDirectory(directory)) continue;
+                if (!OwedSyncs.TryGetValue(root, out var owed)) OwedSyncs[root] = owed = [];
+                owed.Add(Path.GetDirectoryName(directory)!);
+            }
+        }
+    }
+
+    private static bool MakeDirectory(string directory)
+    {
+        if (OperatingSystem.IsWindows() ? CreateDirectoryWindows(directory, IntPtr.Zero) : MakeDirectoryPosix(directory, 511) == 0) return true;
         var error = Marshal.GetLastWin32Error();
-        if ((error == 17 || error == 183) && Directory.Exists(root)) return false;
+        if ((error == 17 || error == 183) && Directory.Exists(directory)) return false;
         throw new Win32Exception(error);
     }
 
@@ -200,7 +244,7 @@ public sealed partial class NodeContentEpochKeyStore : IContentEpochKeyStore, ID
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
     [LibraryImport("libc", EntryPoint = "mkdir", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int MakeDirectory(string path, uint mode);
+    private static partial int MakeDirectoryPosix(string path, uint mode);
 
     private static void AfterFileStep(string path, string step)
     {

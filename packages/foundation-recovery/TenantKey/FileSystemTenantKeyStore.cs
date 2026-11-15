@@ -8,6 +8,10 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
 {
     // Serialize compare-and-publish across store instances in the node; File.Move's Unix no-overwrite check can race.
     private static readonly object PublicationGate = new();
+    // Directory syncs owed at and above each store root: the parent of every directory a create made there, from its mkdir
+    // until that sync succeeds. Every instance completes them before a read or write returns (2026-11-12 ruling (1)).
+    // ponytail: in-process only, so a restart forgets a barrier a failed sync left owed; a durable marker would carry it over.
+    private static readonly Dictionary<string, List<string>> OwedSyncs = new(StringComparer.Ordinal);
     private readonly string _rootDirectory;
     private readonly Func<string, FileStream> _createStream;
     private readonly Action<string> _syncDirectory;
@@ -33,6 +37,7 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
     {
         ct.ThrowIfCancellationRequested();
         var path = GetRecordPath(slot);
+        CompleteOwedSyncs();
         byte[] bytes;
         try
         {
@@ -59,7 +64,7 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
         ct.ThrowIfCancellationRequested();
         var path = GetRecordPath(slot);
         var directory = Path.GetDirectoryName(path)!;
-        var rootCreated = CreateRoot(_rootDirectory);
+        CreateRoot();
         Directory.CreateDirectory(directory);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -85,7 +90,7 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
             }
 
             SyncChain(directory);
-            if (rootCreated) _syncDirectory(Path.GetDirectoryName(_rootDirectory)!);
+            CompleteOwedSyncs();
             return created;
         }
         finally
@@ -98,6 +103,7 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
     public async Task<ReadOnlyMemory<byte>?> ReadAsync(string slot, CancellationToken ct)
     {
         var path = GetRecordPath(slot);
+        CompleteOwedSyncs();
         byte[] bytes;
         try
         {
@@ -128,14 +134,45 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
         }
     }
 
-    private static bool CreateRoot(string root)
+    // Syncs climb from the deepest owed parent; each leaves the set only when its sync succeeds.
+    private void CompleteOwedSyncs()
     {
-        if (Directory.Exists(root)) return false;
-        Directory.CreateDirectory(Path.GetDirectoryName(root)!);
-        var created = OperatingSystem.IsWindows() ? CreateDirectoryWindows(root, IntPtr.Zero) : MakeDirectory(root, 511) == 0;
-        if (created) return true;
+        lock (OwedSyncs)
+        {
+            if (!OwedSyncs.TryGetValue(_rootDirectory, out var owed)) return;
+            while (owed.Count > 0)
+            {
+                _syncDirectory(owed[^1]);
+                owed.RemoveAt(owed.Count - 1);
+            }
+            OwedSyncs.Remove(_rootDirectory);
+        }
+    }
+
+    // Creates the root and its missing ancestors one level at a time, top down. Each directory this call makes owes its parent a
+    // sync, recorded before any sync can fail; a directory that already existed owes nothing and nothing above it is synced.
+    private void CreateRoot()
+    {
+        var missing = new Stack<string>();
+        for (var directory = _rootDirectory; directory is not null && !Directory.Exists(directory); directory = Path.GetDirectoryName(directory))
+            missing.Push(directory);
+        if (missing.Count == 0) return;
+        lock (OwedSyncs)
+        {
+            foreach (var directory in missing)
+            {
+                if (!MakeDirectory(directory)) continue;
+                if (!OwedSyncs.TryGetValue(_rootDirectory, out var owed)) OwedSyncs[_rootDirectory] = owed = [];
+                owed.Add(Path.GetDirectoryName(directory)!);
+            }
+        }
+    }
+
+    private static bool MakeDirectory(string directory)
+    {
+        if (OperatingSystem.IsWindows() ? CreateDirectoryWindows(directory, IntPtr.Zero) : MakeDirectoryPosix(directory, 511) == 0) return true;
         var error = Marshal.GetLastWin32Error();
-        if ((error == 17 || error == 183) && Directory.Exists(root)) return false;
+        if ((error == 17 || error == 183) && Directory.Exists(directory)) return false;
         throw new Win32Exception(error);
     }
 
@@ -158,7 +195,7 @@ public sealed partial class FileSystemTenantKeyStore : IStoredTenantKeyStore
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool CreateDirectoryWindows(string path, IntPtr securityAttributes);
     [LibraryImport("libc", EntryPoint = "mkdir", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int MakeDirectory(string path, uint mode);
+    private static partial int MakeDirectoryPosix(string path, uint mode);
 
     private static void SyncDirectory(string directory)
     {
