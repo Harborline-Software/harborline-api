@@ -118,12 +118,14 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
 
     /// <summary>
     /// Converts the platform export mechanically (T-667's <see cref="ReleasedPackConversion"/>) and checks the
-    /// released form text of every form it carries. Callers pass only a verified export.
+    /// released form text of every form it carries, after the intake maps the package-level capability requirements
+    /// and resolves the navigation pointers (PlatformSeedIntake.ResolveForInstall). Callers pass only a verified export.
     /// </summary>
     internal static PackExportRequest ReadExportRequest(ReadOnlySpan<byte> export, string authoringPrincipal)
     {
-        var request = ReleasedPackConversion.Convert(export, authoringPrincipal).Request
+        var converted = ReleasedPackConversion.Convert(export, authoringPrincipal).Request
             ?? throw new InvalidDataException("The platform export carries no platform definitions.");
+        var request = PlatformSeedIntake.ResolveForInstall(converted, export);
         foreach (var item in request.Contents.Where(item => item.Kind == PackContentKind.FormDefinition))
             ValidateReleasedFormText(item.Content);
         return request;

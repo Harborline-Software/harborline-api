@@ -238,6 +238,50 @@ public sealed class PlatformSeedIntakeTests
         Assert.Equal("overlay.title must be an InternationalizedTextDto with a populated default locale", refused.Message);
     }
 
+    [Fact]
+    public void The_intake_carries_the_package_level_capability_requirements_to_the_installed_pack()
+    {
+        // seed-released-navigation.md:58: catalogue-field-source-v1 declares the capability once, at package level.
+        var request = PlatformSeedTestBundle.Request("fixture-author");
+
+        Assert.Equal(["forms.catalogue-field-source"], request.CapabilityRequirements);
+    }
+
+    [Fact]
+    public void The_workshop_pointers_resolve_to_the_api_navigation_shape()
+    {
+        // seed-released-navigation.md:59; the literal is the workshop the api installed at 1.6.1.
+        var request = PlatformSeedTestBundle.Request("fixture-author");
+        var workshop = request.Contents.Single(item => item.Key == "platform.workshop").Content;
+
+        string[] pillars = ["asset-types", "forms", "workflows", "standards", "defaults", "terminology", "documents",
+            "taxonomies", "reports", "data-exchanges", "standing-rules", "schedules", "views"];
+        var expected = JsonNode.Parse($$"""
+            {"seedWorkspaces":[{"id":"workshop","labelKey":"workshop.workspace","groups":[{"id":"definitions",
+            "labelKey":"workshop.definitions","itemIds":{{JsonSerializer.Serialize(pillars)}},
+            "items":{{JsonSerializer.Serialize(pillars.Select(id => new { id, labelKey = $"workshop.{id}" }))}}}]}],
+            "panelSet":[{"id":"inspector","binding":"panels.inspector.toggle","shortcut":"mod+shift+i",
+            "defaultWidth":360,"minimumHeight":180,"defaultOpen":false}]}
+            """);
+        Assert.True(JsonNode.DeepEquals(expected, workshop), workshop.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("\"workspaceItem\":\"platform-package-ck-5\"", "\"workspaceItem\":\"platform-package-ck-99\"")]
+    [InlineData("\"entriesItem\":\"platform-package-ck-6\"", "\"entriesItem\":\"platform-package-ck-99\"")]
+    [InlineData("\"labelKey\":\"workshop.workspace\"", "\"title\":\"workshop.workspace\"")]
+    [InlineData("{\"members\":[{\"id\":\"asset-types\"", "{\"entries\":[{\"id\":\"asset-types\"")]
+    public void A_workshop_pointer_that_does_not_resolve_is_refused_not_dropped(string original, string corrupted)
+    {
+        var text = Encoding.UTF8.GetString(PlatformSeedTestBundle.Export());
+        Assert.Equal(1, text.Split(original).Length - 1);
+
+        var refused = Assert.Throws<PlatformSeedRefusedException>(() => PlatformPackPreloadHostedService.ReadExportRequest(
+            Encoding.UTF8.GetBytes(text.Replace(original, corrupted, StringComparison.Ordinal)), "fixture-author"));
+
+        Assert.Equal("platform-seed-navigation-unresolved", refused.Code);
+    }
+
     private static (PlatformSeedBundle Bundle, PlatformSeedReferent Referent) Corrupt(string corruption)
     {
         var good = PlatformSeedTestBundle.Build();

@@ -1,6 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+
+using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Model;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -71,6 +75,74 @@ internal static class PlatformSeedIntake
         return new VerifiedPlatformSeed(export, revision, exportSha256, $"{exportSha256}  {ExportFile}",
             $"harborline-platform@{commit} {ReceiptFile} sha256:{receiptSha256}");
     }
+
+    /// <summary>
+    /// Maps what the unchanged conversion cannot onto the pack the node installs (T-584 seed-released-navigation.md
+    /// 58 and 59): the export's package-level <c>capabilityRequirements</c>, and each navigation body's
+    /// <c>workspaceItem</c> and <c>entriesItem</c> pointers, resolved from the items they name to the api's
+    /// <c>labelKey</c>, <c>itemIds</c> and <c>items</c>. A pointer that does not resolve is refused, never dropped.
+    /// </summary>
+    internal static PackExportRequest ResolveForInstall(PackExportRequest request, ReadOnlySpan<byte> export)
+    {
+        var root = JsonNode.Parse(export)!;
+        var payloads = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+        foreach (var item in root["items"]!.AsArray())
+            if (item?["id"] is JsonValue id && id.TryGetValue<string>(out var key))
+                payloads.TryAdd(key, item["content"]?["payload"]);
+
+        var requirements = root["capabilityRequirements"] switch
+        {
+            null => [],
+            JsonArray array when array.All(entry => entry is JsonValue value && value.TryGetValue<string>(out _)) =>
+                array.Select(entry => entry!.GetValue<string>()).ToArray(),
+            _ => throw Refuse("platform-seed-capability-requirements-malformed",
+                "The export's capabilityRequirements is not a list of capability names."),
+        };
+        var contents = request.Contents
+            .Select(item => item.Kind == PackContentKind.NavWorkspaceConfig
+                ? item with { Content = ResolveNavigation(item.Key, item.Content.DeepClone(), payloads) }
+                : item)
+            .ToArray();
+        return request with { Contents = contents, CapabilityRequirements = requirements };
+    }
+
+    private static JsonNode ResolveNavigation(string key, JsonNode body, Dictionary<string, JsonNode?> payloads)
+    {
+        foreach (var workspace in body["seedWorkspaces"]?.AsArray().OfType<JsonObject>() ?? [])
+        {
+            if (workspace.Remove("workspaceItem", out var workspaceItem))
+                workspace["labelKey"] = Text(Pointed(key, workspaceItem, payloads)?["labelKey"], key);
+            foreach (var group in workspace["groups"]?.AsArray().OfType<JsonObject>() ?? [])
+            {
+                if (!group.Remove("entriesItem", out var entriesItem)) continue;
+                if (Pointed(key, entriesItem, payloads)?["members"] is not JsonArray members)
+                    throw Unresolved(key);
+                var entries = members
+                    .Select(member => (Id: Text(member?["id"], key), LabelKey: Text(member?["labelKey"], key),
+                        Order: member?["order"] is JsonValue order && order.TryGetValue<int>(out var at) ? at : throw Unresolved(key)))
+                    .OrderBy(entry => entry.Order)
+                    .ToArray();
+                group["itemIds"] = new JsonArray(entries.Select(entry => (JsonNode?)entry.Id).ToArray());
+                group["items"] = new JsonArray(entries
+                    .Select(entry => (JsonNode?)new JsonObject { ["id"] = entry.Id, ["labelKey"] = entry.LabelKey })
+                    .ToArray());
+            }
+        }
+        return body;
+    }
+
+    private static JsonNode? Pointed(string key, JsonNode? pointer, Dictionary<string, JsonNode?> payloads) =>
+        pointer is JsonValue value && value.TryGetValue<string>(out var id) && payloads.TryGetValue(id, out var payload)
+            ? payload
+            : throw Unresolved(key);
+
+    private static string Text(JsonNode? node, string key) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text)
+            ? text
+            : throw Unresolved(key);
+
+    private static PlatformSeedRefusedException Unresolved(string key) => Refuse("platform-seed-navigation-unresolved",
+        $"A navigation pointer in '{key}' does not resolve to an export item carrying the api's shape.");
 
     private static Dictionary<string, string> ParseSums(byte[] sums)
     {
