@@ -43,6 +43,7 @@ using Harborline.Api.LocalNodeHost.Tests.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Governance;
@@ -54,7 +55,7 @@ public sealed class CascadeDefaultsTests
     [InlineData("platform.binding.records-read", "bafkreib6tp3widcpawwq43y3kvzqk2hqgxgtabsqxnskemfstgkjlww3xy")]
     public void Released_platform_binding_uses_canonical_sealed_role_and_pinned_content(string key, string expectedCid)
     {
-        var request = PlatformPackPreloadHostedService.ReadExportRequest("fixture-author");
+        var request = PlatformSeedTestBundle.Request("fixture-author");
         var source = Assert.Single(request.Contents, item => item.Key == key);
         Assert.Equal("1.1.0", source.Version);
         Assert.Equal(RoleReference.Administrator.ToString(), source.Content["offeredRoles"]![0]!.GetValue<string>());
@@ -67,8 +68,8 @@ public sealed class CascadeDefaultsTests
     {
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
-        var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.6.1", request.Version);
+        var request = PlatformSeedTestBundle.Request(keys.PrincipalId.ToBase64Url());
+        Assert.Equal("2.0.0", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);

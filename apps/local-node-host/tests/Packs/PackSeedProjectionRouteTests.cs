@@ -248,7 +248,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
                 new PackValidator(new PackContentPiiScanner()),
                 new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System),
             signer, observed, store, trust, PackRevocationList.Empty, _activeTeam, TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity(),
+            PlatformSeedTestBundle.Published, PlatformSeedTestBundle.PublishedReferent);
         Assert.Empty(await views.ListDefinitionsAsync(tenant.Value, CancellationToken.None));
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, "platform.detail.form")));
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, "platform.pack.author")));
@@ -265,7 +266,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.False(summary.ProjectionRefused);
         Assert.Equal(2, summary.FormDefinitionsPublished);
         var active = Assert.IsType<InstalledPack>(store.GetActive(tenant, "harborline.platform"));
-        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         string[] expectedViewKeys =
         [
@@ -336,12 +337,12 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             var plan = Assert.IsType<RenderPlan>(plans.Get(
                 tenant, PackContentKind.ViewDefinition, definition.Key, "1.0.0"));
             Assert.Equal("harborline.platform", plan.PackKey);
-            Assert.Equal("1.6.1", plan.PackVersion);
+            Assert.Equal("2.0.0", plan.PackVersion);
             Assert.Equal("layout.table", plan.Bindings.GetProperty("viewKind").GetString());
             var entry = Assert.Single(currentViews.Entries, candidate => candidate.Id == definition.Key);
-            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "pack"), entry.Provenance);
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "pack"), entry.Provenance);
             Assert.NotNull(entry.RenderPlan);
-            Assert.Equal("1.6.1", entry.RenderPlan!.PackVersion);
+            Assert.Equal("2.0.0", entry.RenderPlan!.PackVersion);
         }
 
         foreach (var formKey in new[] { "platform.detail.form", "platform.pack.author" })
@@ -351,7 +352,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             Assert.Equal("1.0.1", form!.Version.ToString());
             Assert.Equal(FormDefinitionStatus.Published, form.Status);
             Assert.Equal("harborline.platform", form.PackSource?.PackId);
-            Assert.Equal("1.6.1", form.PackSource?.PackVersion);
+            Assert.Equal("2.0.0", form.PackSource?.PackVersion);
         }
     }
 

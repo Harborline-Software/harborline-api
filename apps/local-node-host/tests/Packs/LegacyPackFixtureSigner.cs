@@ -92,47 +92,20 @@ internal static class LegacyPackFixtureSigner
 
     internal static async Task<byte[]> SignPlatformCompiledShapeProbeAsync(PackExportRequest request, IOperationSigner signer)
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
-            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        using var buffer = new MemoryStream();
-        await stream.CopyToAsync(buffer);
-        var recipe = buffer.ToArray();
-        Assert.Equal("513a2816fff731d73f63572197f7f8e31f48f19a798dd5941d9b45c5e08e1c50",
-            Convert.ToHexStringLower(SHA256.HashData(recipe)));
-        var expected = ReadRequest(recipe, signer.IssuerId.ToBase64Url());
+        // T-670: the probe extends the platform export as the node converts it, not an api-maintained document.
+        var expected = PlatformSeedTestBundle.Request(signer.IssuerId.ToBase64Url());
         Assert.Equal("harborline.platform", request.Key);
-        Assert.Equal("1.6.1", request.Version);
+        Assert.Equal("2.0.0", request.Version);
         Assert.Equal(expected.Name, request.Name);
         Assert.Equal(expected.Description, request.Description);
         Assert.Equal(expected.ScopeTier, request.ScopeTier);
         Assert.Equal(expected.Epoch, request.Epoch);
-        Assert.Equal(new PackContentRename[]
-        {
-            new("harborline.platform.FormDefinition", "FormDefinition"),
-            new("harborline.platform.WorkflowDefinition", "WorkflowDefinition"),
-            new("harborline.platform.StandardsCatalog", "StandardsCatalog"),
-            new("harborline.platform.NavWorkspaceConfig", "NavWorkspaceConfig"),
-            new("harborline.platform.CascadeDefaults", "CascadeDefaults"),
-            new("harborline.platform.AssetTypeDefinition", "AssetTypeDefinition"),
-            new("harborline.platform.TerminologyOverride", "TerminologyOverride"),
-            new("harborline.platform.TemplateDefinition", "TemplateDefinition"),
-            new("harborline.platform.TaxonomyDefinition", "TaxonomyDefinition"),
-            new("harborline.platform.ReportDefinition", "ReportDefinition"),
-            new("harborline.platform.ViewDefinition", "ViewDefinition"),
-            new("harborline.platform.ScheduleDefinition", "ScheduleDefinition"),
-            new("harborline.platform.DataExchangeDefinition", "DataExchangeDefinition"),
-            new("harborline.platform.StandingRuleDefinition", "StandingRuleDefinition"),
-            new("harborline.platform.RoleDefinition", "RoleDefinition"),
-            new("harborline.platform.AuthorizationCapabilityBinding", "AuthorizationCapabilityBinding"),
-            new("harborline.platform.Layout", "Layout"),
-            new("harborline.platform.Resource", "Resource"),
-            new("harborline.platform.Bookable", "Bookable"),
-        }, request.RenamedFrom);
-        Assert.Null(request.DisplayName);
-        Assert.Null(request.Tagline);
-        Assert.Null(request.Category);
-        Assert.Null(request.IconRef);
-        Assert.Null(request.ExposedDefinitions);
+        Assert.Equal(expected.RenamedFrom, request.RenamedFrom);
+        Assert.Equal(expected.DisplayName, request.DisplayName);
+        Assert.Equal(expected.Tagline, request.Tagline);
+        Assert.Equal(expected.Category, request.Category);
+        Assert.Equal(expected.IconRef, request.IconRef);
+        Assert.Equal(expected.ExposedDefinitions, request.ExposedDefinitions);
         Assert.Equal(expected.Dependencies, request.Dependencies);
         Assert.Equal(expected.CapabilityRequirements, request.CapabilityRequirements);
         Assert.Equal(expected.ProviderSlot, request.ProviderSlot);

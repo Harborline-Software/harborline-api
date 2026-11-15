@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Blocks.BuilderDefinitions;
 
 using Xunit;
 
@@ -23,8 +24,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 
 public sealed class SeededHealthBrowseViewTests
 {
-    private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
-    private const string PackVersion = "1.6.1";
+    private const string PackVersion = "2.0.0";
     private const string DefinitionVersion = "1.0.0";
     private const string GridKind = "layout.table";
 
@@ -81,7 +81,7 @@ public sealed class SeededHealthBrowseViewTests
     public void New_platform_views_match_the_immutable_predecessor_after_only_the_canonical_kind_projection()
     {
         using var current = ReadPack();
-        Assert.Equal("1.6.1", current.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2.0.0", current.RootElement.GetProperty("version").GetString());
         using var legacy = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(
             AppContext.BaseDirectory, "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json")));
         Assert.Equal("1.6.0", legacy.RootElement.GetProperty("version").GetString());
@@ -217,10 +217,15 @@ public sealed class SeededHealthBrowseViewTests
         }
     }
 
+    /// <summary>T-670: the platform 2.0.0 export as the node converts it, in the transport item shape.</summary>
     private static JsonDocument ReadPack()
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(PackResource)!;
-        return JsonDocument.Parse(stream);
+        var request = PlatformPackPreloadHostedService.ReadExportRequest(PlatformPackageSeed.LoadCheckedInExport(), "fixture-author");
+        var contents = new JsonArray(request.Contents.Select(item => (JsonNode)new JsonObject
+        {
+            ["key"] = item.Key, ["kind"] = item.Kind.ToString(), ["version"] = item.Version, ["content"] = item.Content.DeepClone(),
+        }).ToArray());
+        return JsonDocument.Parse(new JsonObject { ["version"] = request.Version, ["contents"] = contents }.ToJsonString());
     }
 
     private static IEnumerable<JsonElement> ViewItems(JsonDocument document) =>

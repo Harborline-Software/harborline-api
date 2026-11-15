@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "22491171929b455ac09cdca4b01a8f65eb9c4039",
-  "recordedAt": "2026-11-06 (M11: exact platform PR 421 merge commit 22491171, which T-521 content-store-bookkeeping-in-node-model needs for the producer's bookkeeping and byte ports. It also includes platform PRs 412, 418, 420, 413, 417, 372, 371 and the T-1137 change, none of which changes an API call site. The complete exact-pin feed and the host build passed locally on Windows; the gate result is on API PR 465.)",
+  "commit": "8149a57920a94eb478642115ded4f357b2dc1107",
+  "recordedAt": "2026-11-15 (T-670/api-seed-intake: platform PR 477 merge commit 8149a579, the first platform main commit that carries ef481bc9 (platform PR 466: the seed 2.0.0 export with the pillar view bodies and seed-definition entries) and pins the GA SDK 11.0.100. ef481bc9 itself pins SDK 11.0.100-rc.1, which the API toolchain does not have; later main retires Harborline.Blocks.RelativeChains (platform PR 482), which changes the 36-package producer inventory.)",
   "why": [
+    "Consume the platform seed 2.0.0 export (T-670/api-seed-intake) so tests build the release bundle from the platform's own export bytes in Harborline.Blocks.BuilderDefinitions (ADR-0144).",
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
     "Consume landed Records definition documents/codecs/catalogue identities and canonical owned-definition exposure before interface-version aggregation through the existing36-package inventory.",

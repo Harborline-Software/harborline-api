@@ -186,7 +186,7 @@ public sealed partial class AccessAdministrationPreloadTests
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         var prior = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value));
-        var source = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var source = PlatformSeedTestBundle.Request(_signer.Signer.IssuerId.ToBase64Url());
         var canonicalSource = WithVersionAndCurrentViewKinds(source, "1.6.2-atomicity-probe.0");
         var replacement = canonicalSource with
         {

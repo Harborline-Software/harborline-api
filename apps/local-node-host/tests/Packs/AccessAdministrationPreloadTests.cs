@@ -224,7 +224,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             new NoActiveTeam(),
             TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity(),
+            PlatformSeedTestBundle.Published, PlatformSeedTestBundle.PublishedReferent);
 
         _app.Use(async (http, next) =>
         {
@@ -258,7 +259,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     {
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         var releasedAuthor = Assert.Single(
-            PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url()).Contents,
+            PlatformSeedTestBundle.Request(_signer.Signer.IssuerId.ToBase64Url()).Contents,
             item => item.Key == "platform.pack.author");
         var releasedTitle = releasedAuthor.Content["overlay"]!["title"]!["values"]!["en"]!.GetValue<string>();
         Assert.Equal("Author a domain pack", releasedTitle);
@@ -272,7 +273,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var listedBinding = listedBody.GetProperty("catalogueFieldBinding");
         Assert.Equal("harborline.platform",
             listedBinding.GetProperty("provenance").GetProperty("packKey").GetString());
-        Assert.Equal("1.6.1",
+        Assert.Equal("2.0.0",
             listedBinding.GetProperty("provenance").GetProperty("packVersion").GetString());
         var listedSourceBinding = JsonSerializer.Deserialize<CatalogueFieldSourceBinding>(listedBinding)!;
         var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
@@ -316,7 +317,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             projection.Values["title"].GetProperty("values").GetProperty("en").GetString());
         Assert.Equal("1.0.1", projection.Values["version"].GetString());
         Assert.True(projection.ReadOnly);
-        Assert.Equal("1.6.1", projection.DetailBinding.Provenance.PackVersion);
+        Assert.Equal("2.0.0", projection.DetailBinding.Provenance.PackVersion);
         Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "1.0.1")!.DefinitionHash,
             projection.DetailBinding.DefinitionHash);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
@@ -687,7 +688,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var preservedLegacy = _store.GetVersion(Tenant, legacy.Key, "1.3.0")!;
         Assert.Equal(PackLifecycleState.Superseded, preservedLegacy.Lifecycle);
@@ -712,7 +713,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(FormDefinitionStatus.Published, newAuthor.Status);
         Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
         Assert.Equal("Author a domain pack", newAuthor.Overlay.Title!.Values["en"]);
-        Assert.Equal("1.6.1", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
+        Assert.Equal("2.0.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
@@ -776,16 +777,16 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             var plan = Assert.IsType<RenderPlan>(_renderPlans.Get(
                 Tenant, PackContentKind.ViewDefinition, view.Key, "1.0.0"));
             Assert.Equal("harborline.platform", plan.PackKey);
-            Assert.Equal("1.6.1", plan.PackVersion);
+            Assert.Equal("2.0.0", plan.PackVersion);
             Assert.Equal("layout.table", plan.Bindings.GetProperty("viewKind").GetString());
             var entry = Assert.Single(currentViews.Entries, candidate => candidate.Id == view.Key);
-            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "pack"), entry.Provenance);
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "pack"), entry.Provenance);
             Assert.NotNull(entry.RenderPlan);
-            Assert.Equal("1.6.1", entry.RenderPlan!.PackVersion);
+            Assert.Equal("2.0.0", entry.RenderPlan!.PackVersion);
         }
 
         Assert.Equal(
-            new[] { "1.3.0", "1.6.1" },
+            new[] { "1.3.0", "2.0.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
@@ -820,7 +821,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
-        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         Assert.DoesNotContain(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
         var currentFormType = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
@@ -845,11 +846,11 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             "Layout", "Resource", "Bookable",
         }, types.Select(item => item.Name));
         Assert.All(types, item => Assert.Equal(
-            new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+            new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
         var activeBefore = JsonSerializer.Serialize(active);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         Assert.Equal(activeBefore, JsonSerializer.Serialize(_store.GetActive(Tenant, "harborline.platform")));
-        Assert.Equal(new[] { "1.6.0", "1.6.1" }, _store.ListInstalled(Tenant)
+        Assert.Equal(new[] { "1.6.0", "2.0.0" }, _store.ListInstalled(Tenant)
             .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
         Assert.Equal(2, _audit.Query(Tenant).Count(item => item.Action == PackInstallAuditAction.Activated));
     }
@@ -902,8 +903,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new("harborline.platform.Resource", "Resource"),
             new("harborline.platform.Bookable", "Bookable"),
         ];
-        var request = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        Assert.Equal("1.6.1", request.Version);
+        var request = PlatformSeedTestBundle.Request(_signer.Signer.IssuerId.ToBase64Url());
+        Assert.Equal("2.0.0", request.Version);
         Assert.Equal(expectedRenames, request.RenamedFrom);
         var observed = new ObservedOverrideUpgradeInstaller(_installer);
         var preload = new PlatformPackPreloadHostedService(
@@ -913,7 +914,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 timeProvider: TimeProvider.System),
             _signer, observed, _store, TrustingTheNodeKey(), PackRevocationList.Empty,
             new NoActiveTeam(), TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity(),
+            PlatformSeedTestBundle.Published, PlatformSeedTestBundle.PublishedReferent);
 
         await preload.PreloadAsync(Tenant, CancellationToken.None);
 
@@ -926,7 +928,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(file);
         Assert.Equal(expectedRenames, file!.Envelope!.Payload.Manifest.RenamedFrom);
         var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
-        Assert.Equal("1.6.1", active.Version);
+        Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var retained = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal("harborline.platform.FormDefinition", retained.ContentKey);
@@ -950,7 +952,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var repeated = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal("harborline.platform.FormDefinition", repeated.ContentKey);
         Assert.Equal("""{"provenance":{"kind":null}}""", repeated.OverlayPatch.ToJsonString());
-        Assert.Equal(new[] { "1.6.0", "1.6.1" }, _store.ListInstalled(Tenant)
+        Assert.Equal(new[] { "1.6.0", "2.0.0" }, _store.ListInstalled(Tenant)
             .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
     }
 

@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Blocks.BuilderDefinitions;
 
 using Xunit;
 
@@ -17,36 +18,38 @@ public sealed class CatalogueTests
     [Fact]
     public void Released_platform_export_source_has_the_pinned_fixture_digest()
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
-            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        Assert.Equal("513a2816fff731d73f63572197f7f8e31f48f19a798dd5941d9b45c5e08e1c50",
-            Convert.ToHexStringLower(SHA256.HashData(stream)));
+        // T-670: the source is the platform's own 2.0.0 export at the pin, not an api document.
+        Assert.Equal("7c8d4f266495ce4f66e696065bbc286fed4bb427b4e618180764419858bebb79",
+            Convert.ToHexStringLower(SHA256.HashData(PlatformPackageSeed.LoadCheckedInExport())));
     }
 
     [Fact]
     public void Platform_export_carries_only_catalogue_bootstrap_content()
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
-            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        using var document = JsonDocument.Parse(stream);
-        var contents = document.RootElement.GetProperty("contents").EnumerateArray().ToArray();
+        using var document = JsonDocument.Parse(PlatformPackageSeed.LoadCheckedInExport());
+        var contents = document.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("content").GetProperty("payload"))
+            .Where(payload => payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("definitionKey", out _))
+            .Select(payload => (Kind: payload.GetProperty("contentKind").GetString(), Key: payload.GetProperty("definitionKey").GetString()))
+            .ToArray();
 
-        Assert.Equal("harborline.platform", document.RootElement.GetProperty("key").GetString());
-        Assert.Equal(19, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
+        Assert.Equal("harborline.platform", document.RootElement.GetProperty("packageKey").GetString());
+        // T-670: the platform seed carries no RecordType item; the system types are compiled descriptors.
+        Assert.Equal(0, contents.Count(item => item.Kind == "RecordType"));
         var allowedKinds = new[]
         {
             "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition", "FormDefinition", "CascadeDefaults",
         };
-        Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
-        Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
+        Assert.All(contents, item => Assert.Contains(item.Kind, allowedKinds));
+        Assert.DoesNotContain(contents, item => item.Kind is
             "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
-        Assert.Equal(new[] { "platform.detail.form", "platform.pack.author" }, contents.Where(item => item.GetProperty("kind").GetString() == "FormDefinition").Select(item => item.GetProperty("key").GetString()));
-        Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
-        Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read" },
-            contents.Where(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding")
-                .Select(item => item.GetProperty("key").GetString()));
-        Assert.Equal(39, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
-        Assert.Equal("platform.defaults.pack-author", Assert.Single(contents, item => item.GetProperty("kind").GetString() == "CascadeDefaults").GetProperty("key").GetString());
+        Assert.Equal(new[] { "platform.detail.form", "platform.pack.author" }, contents.Where(item => item.Kind == "FormDefinition").Select(item => item.Key));
+        Assert.Equal(2, contents.Count(item => item.Kind == "RoleDefinition"));
+        // T-670: the platform seed adds platform.binding.audit-read.
+        Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read", "platform.binding.audit-read" },
+            contents.Where(item => item.Kind == "AuthorizationCapabilityBinding").Select(item => item.Key));
+        Assert.Equal(39, contents.Count(item => item.Kind == "ViewDefinition"));
+        Assert.Equal("platform.defaults.pack-author", Assert.Single(contents, item => item.Kind == "CascadeDefaults").Key);
     }
 
     [Fact]
@@ -90,24 +93,10 @@ public sealed class CatalogueTests
     [Fact]
     public void New_platform_recipe_qualifies_only_the_transport_keys_and_advances_the_immutable_version()
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
-            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        using var document = JsonDocument.Parse(stream);
-        Assert.Equal("1.6.1", document.RootElement.GetProperty("version").GetString());
-        Assert.Equal(new[]
-        {
-            "harborline.platform.FormDefinition", "harborline.platform.WorkflowDefinition",
-            "harborline.platform.StandardsCatalog", "harborline.platform.NavWorkspaceConfig",
-            "harborline.platform.CascadeDefaults", "harborline.platform.AssetTypeDefinition",
-            "harborline.platform.TerminologyOverride", "harborline.platform.TemplateDefinition",
-            "harborline.platform.TaxonomyDefinition", "harborline.platform.ReportDefinition",
-            "harborline.platform.ViewDefinition", "harborline.platform.ScheduleDefinition",
-            "harborline.platform.DataExchangeDefinition", "harborline.platform.StandingRuleDefinition",
-            "harborline.platform.RoleDefinition", "harborline.platform.AuthorizationCapabilityBinding",
-            "harborline.platform.Layout", "harborline.platform.Resource", "harborline.platform.Bookable",
-        }, document.RootElement.GetProperty("contents").EnumerateArray()
-            .Where(item => item.GetProperty("kind").GetString() == "RecordType")
-            .Select(item => item.GetProperty("key").GetString()));
+        var request = PlatformPackPreloadHostedService.ReadExportRequest(PlatformPackageSeed.LoadCheckedInExport(), "fixture-author");
+        Assert.Equal("2.0.0", request.Version);
+        // T-670: the platform seed carries no RecordType transport keys; the compiled descriptors below name them.
+        Assert.DoesNotContain(request.Contents, item => item.Kind == PackContentKind.RecordType);
         Assert.Equal(new[]
         {
             "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
