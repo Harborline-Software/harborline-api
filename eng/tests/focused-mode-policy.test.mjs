@@ -92,6 +92,26 @@ test('executable inventory allowances do not admit neighboring TSV, Markdown or 
   }
 })
 
+test('only the events test mutation config requires the compiled OFF/ON selector', () => {
+  const file = 'packages/foundation-events/tests/stryker-config.json'
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.deepEqual(plan.changes, [{path: file, status: 'M', kind: 'build-artifact'}])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).project, 'apps/local-node-host/tests/tests.csproj')
+  for (const other of [
+    'packages/foundation-events/stryker-config.json',
+    'packages/other/tests/stryker-config.json',
+    'packages/foundation-events/tests/stryker-config.json.bak',
+  ]) {
+    const nearMiss = classifyFocusedModes([{status: 'M', path: other}])
+    assert.deepEqual(nearMiss.changes, [{path: other, status: 'M', kind: 'unknown'}])
+    assert.equal(nearMiss.selection, 'unsupported')
+    assert.deepEqual(nearMiss.requiredModes, ['coverage-off', 'coverage-on'])
+    assert.throws(() => requireRunnableSelection(nearMiss), /unsupported-selection/)
+  }
+})
+
 test('only pack recipe exports under _shared packs count as binary inputs', () => {
   for (const file of ['_shared/packs/platform/notes.json', '_shared/conformance/packs/x.export.json.bak', '_shared/other/x.export.json']) {
     const plan = classifyFocusedModes([{status: 'M', path: file}])

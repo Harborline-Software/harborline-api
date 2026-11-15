@@ -41,6 +41,8 @@ function category(file) {
     || file === 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'
     || file === 'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md'
     || file === 'packages/contracts/protocol/boundary-inventory.json'
+    // Only eng/mutation-report.mjs reads this config.
+    || file === 'packages/foundation-events/tests/stryker-config.json'
     // The root ignore file, exact path only: it controls which untracked files git ignores; no build,
     // test or scan step reads it.
     || file === '.gitignore') return 'build-artifact'
