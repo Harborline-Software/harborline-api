@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Hosting;
-using Harborline.Api.Foundation.Assets.Common;
 
 namespace Harborline.Api.Foundation.Events;
 
@@ -8,39 +7,33 @@ namespace Harborline.Api.Foundation.Events;
 /// on a polling interval per
 /// <c>cross-cluster-event-bus-design.md</c> §5 + §6. Each tick
 /// invokes <see cref="SqliteEventReader.DrainOnceAsync"/> for the
-/// configured tenant. Handler-side failures are caught + recorded
+/// each tenant with events. Handler-side failures are caught + recorded
 /// inside the reader; the host loop continues regardless.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Single-tenant drain in v1.</b> The host takes a single
-/// <see cref="TenantId"/> at construction. Multi-tenant Anchor
-/// instances (rare; canonical model is one tenant per local replica)
-/// will need a v2 enhancement that walks a tenant catalogue. The
-/// drain loop tolerates a default-constructed tenant context (treats
-/// as system sentinel) so the dispatcher can run during early
-/// bootstrap before tenant context is available.
-/// </para>
-/// </remarks>
 public sealed class EventDispatcherHost : BackgroundService
 {
     private readonly SqliteEventReader _reader;
-    private readonly TenantId _tenantId;
     private readonly TimeSpan _pollInterval;
     private readonly int _batchSize;
 
     public EventDispatcherHost(
         SqliteEventReader reader,
-        TenantId? tenantId = null,
         TimeSpan? pollInterval = null,
         int batchSize = 100)
     {
         _reader       = reader ?? throw new ArgumentNullException(nameof(reader));
-        _tenantId     = tenantId ?? TenantId.System;
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
         if (batchSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Must be > 0.");
         _batchSize = batchSize;
+    }
+
+    /// <summary>Drain one batch for every tenant with stored events.</summary>
+    public async Task DrainOnceAsync(CancellationToken cancellationToken = default)
+    {
+        var tenants = await _reader.GetTenantsAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var tenant in tenants)
+            await _reader.DrainOnceAsync(tenant, _batchSize, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -50,7 +43,7 @@ public sealed class EventDispatcherHost : BackgroundService
         {
             try
             {
-                await _reader.DrainOnceAsync(_tenantId, _batchSize, stoppingToken).ConfigureAwait(false);
+                await DrainOnceAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

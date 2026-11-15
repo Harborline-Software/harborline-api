@@ -37,7 +37,7 @@ public interface IDomainEventStore
 
     /// <summary>
     /// Read events strictly after <paramref name="afterEventId"/> in
-    /// ULID (event-id) order, up to <paramref name="batchSize"/>.
+    /// store position order, up to <paramref name="batchSize"/>.
     /// Tenant-scoped. Pass <c>null</c> for <paramref name="afterEventId"/>
     /// to read from the beginning.
     /// </summary>
@@ -46,6 +46,10 @@ public interface IDomainEventStore
         string? afterEventId,
         int batchSize,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Read events after a store-assigned position in commit order.</summary>
+    Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
+        TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Look up an event by its idempotency key within the supplied
@@ -67,6 +71,8 @@ public interface IDomainEventStore
 /// </summary>
 public sealed record RawDomainEvent
 {
+    /// <summary>Store-assigned durable position.</summary>
+    public long Position { get; init; }
     public required string EventId { get; init; }
     public required string EventType { get; init; }
     public required int SchemaVersion { get; init; }

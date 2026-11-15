@@ -90,16 +90,19 @@ public sealed class SqliteEventReader : IEventReader
         foreach (var reg in _handlers.Values)
         {
             var cursor = await GetCursorAsync(reg.HandlerId, tenantId, cancellationToken).ConfigureAwait(false);
-            var events = await _store.GetAfterCursorAsync(tenantId, cursor, batchSize, cancellationToken)
+            var events = await _store.GetAfterPositionAsync(tenantId, cursor, batchSize, cancellationToken)
                 .ConfigureAwait(false);
             foreach (var evt in events)
             {
+                if (!await IsRetryDueAsync(reg.HandlerId, tenantId, evt.EventId, cancellationToken).ConfigureAwait(false))
+                    break;
+
                 if (reg.EventTypeFilter is not null && evt.EventType != reg.EventTypeFilter)
                 {
                     // Filter mismatch — advance cursor past this event
                     // so the handler doesn't keep re-evaluating it.
                     await SetCursorAsync(
-                            reg.HandlerId, tenantId, evt.EventId, _clock.GetUtcNow(), cancellationToken)
+                            reg.HandlerId, tenantId, evt.EventId, evt.Position, _clock.GetUtcNow(), cancellationToken)
                         .ConfigureAwait(false);
                     continue;
                 }
@@ -109,7 +112,7 @@ public sealed class SqliteEventReader : IEventReader
                     var envelope = ProjectToEnvelope(evt);
                     await reg.Handler.HandleAsync(envelope, cancellationToken).ConfigureAwait(false);
                     await SetCursorAsync(
-                            reg.HandlerId, tenantId, evt.EventId, _clock.GetUtcNow(), cancellationToken)
+                            reg.HandlerId, tenantId, evt.EventId, evt.Position, _clock.GetUtcNow(), cancellationToken)
                         .ConfigureAwait(false);
                     totalProcessed++;
                 }
@@ -127,24 +130,68 @@ public sealed class SqliteEventReader : IEventReader
         return totalProcessed;
     }
 
-    private async Task<string?> GetCursorAsync(
+    internal async Task<IReadOnlyList<TenantId>> GetTenantsAsync(CancellationToken ct)
+    {
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT DISTINCT tenant_id FROM domain_events ORDER BY tenant_id";
+        var tenants = new List<TenantId>();
+        await using var rows = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await rows.ReadAsync(ct).ConfigureAwait(false))
+            tenants.Add(new TenantId { Value = rows.GetString(0) });
+        return tenants;
+    }
+
+    /// <summary>Read exhausted handler failures requiring intervention.</summary>
+    public async Task<IReadOnlyList<HeldEventHandler>> ReadHeldHandlersAsync(CancellationToken cancellationToken = default)
+    {
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT handler_id, tenant_id, event_id, attempt_number FROM event_handler_failures
+            WHERE resolved_at IS NULL AND next_retry_at IS NULL;
+            """;
+        var held = new List<HeldEventHandler>();
+        await using var rows = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
+            held.Add(new HeldEventHandler(rows.GetString(0), new TenantId { Value = rows.GetString(1) }, rows.GetString(2), rows.GetInt32(3)));
+        return held;
+    }
+
+    private async Task<bool> IsRetryDueAsync(string handlerId, TenantId tenantId, string eventId, CancellationToken ct)
+    {
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT next_retry_at FROM event_handler_failures
+            WHERE handler_id = $handler_id AND tenant_id = $tenant_id AND event_id = $event_id
+              AND resolved_at IS NULL
+            ORDER BY attempt_number DESC LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$handler_id", handlerId);
+        cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
+        cmd.Parameters.AddWithValue("$event_id", eventId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return true;
+        return !reader.IsDBNull(0) && DateTimeOffset.Parse(reader.GetString(0), CultureInfo.InvariantCulture) <= _clock.GetUtcNow();
+    }
+
+    private async Task<long> GetCursorAsync(
         string handlerId, TenantId tenantId, CancellationToken ct)
     {
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT last_handled_event_id FROM event_handler_cursors
+            SELECT position FROM event_handler_positions
             WHERE handler_id = $handler_id AND tenant_id = $tenant_id;
             """;
         cmd.Parameters.AddWithValue("$handler_id", handlerId);
         cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
         var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return result switch { string s => s, _ => null };
+        return result is null ? 0 : Convert.ToInt64(result, CultureInfo.InvariantCulture);
     }
 
     private async Task SetCursorAsync(
         string handlerId,
         TenantId tenantId,
         string eventId,
+        long position,
         DateTimeOffset at,
         CancellationToken ct)
     {
@@ -156,10 +203,14 @@ public sealed class SqliteEventReader : IEventReader
             ON CONFLICT(handler_id, tenant_id) DO UPDATE
                 SET last_handled_event_id = $event_id,
                     last_handled_at = $now;
+            INSERT INTO event_handler_positions(handler_id, tenant_id, position)
+            VALUES ($handler_id, $tenant_id, $position)
+            ON CONFLICT(handler_id, tenant_id) DO UPDATE SET position = $position;
             """;
         cmd.Parameters.AddWithValue("$handler_id", handlerId);
         cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
         cmd.Parameters.AddWithValue("$event_id", eventId);
+        cmd.Parameters.AddWithValue("$position", position);
         cmd.Parameters.AddWithValue("$now", at.ToString("O", CultureInfo.InvariantCulture));
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
@@ -168,7 +219,7 @@ public sealed class SqliteEventReader : IEventReader
         string handlerId, RawDomainEvent evt, TenantId tenantId,
         Exception ex, DateTimeOffset at, CancellationToken ct)
     {
-        var attempt = await GetAttemptCountAsync(handlerId, evt.EventId, ct).ConfigureAwait(false) + 1;
+        var attempt = await GetAttemptCountAsync(handlerId, tenantId, evt.EventId, ct).ConfigureAwait(false) + 1;
         var nextRetry = ComputeNextRetry(attempt, at);
 
         await using var cmd = _connection.CreateCommand();
@@ -190,14 +241,15 @@ public sealed class SqliteEventReader : IEventReader
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    private async Task<int> GetAttemptCountAsync(string handlerId, string eventId, CancellationToken ct)
+    private async Task<int> GetAttemptCountAsync(string handlerId, TenantId tenantId, string eventId, CancellationToken ct)
     {
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*) FROM event_handler_failures
-            WHERE handler_id = $handler_id AND event_id = $event_id;
+            WHERE handler_id = $handler_id AND tenant_id = $tenant_id AND event_id = $event_id;
             """;
         cmd.Parameters.AddWithValue("$handler_id", handlerId);
+        cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
         cmd.Parameters.AddWithValue("$event_id", eventId);
         var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
@@ -205,7 +257,7 @@ public sealed class SqliteEventReader : IEventReader
 
     /// <summary>
     /// Backoff schedule per <c>cross-cluster-event-bus-design.md</c>
-    /// §6: 30s / 2m / 10m / 1h / 6h / 24h / 72h. Returns
+    /// §6: 30s / 2m / 10m / 1h / 6h / 24h. Returns
     /// <c>null</c> after 7 attempts (retry exhausted; manual
     /// intervention).
     /// </summary>
@@ -218,7 +270,6 @@ public sealed class SqliteEventReader : IEventReader
             4 => now.AddHours(1),
             5 => now.AddHours(6),
             6 => now.AddHours(24),
-            7 => now.AddHours(72),
             _ => null,
         };
 
@@ -249,3 +300,6 @@ public sealed class SqliteEventReader : IEventReader
         string? EventTypeFilter,
         IEventHandler<RawDomainEvent> Handler);
 }
+
+/// <summary>An exhausted event handler awaiting intervention.</summary>
+public sealed record HeldEventHandler(string HandlerId, TenantId TenantId, string EventId, int AttemptCount);

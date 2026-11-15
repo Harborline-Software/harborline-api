@@ -41,8 +41,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
     }
 
     /// <summary>
-    /// Apply all foundation-events migrations (currently 001 +
-    /// 002). Idempotent — safe to call on every host start. The
+    /// Apply all foundation-events migrations (001 through 003). Idempotent — safe to call on every host start. The
     /// composition root invokes this once at startup, or
     /// <c>AddFoundationEvents()</c> (PR 6) does it during DI build.
     /// </summary>
@@ -52,6 +51,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
                  {
                      "001-create-domain-events.sql",
                      "002-create-handler-cursors.sql",
+                     "003-event-positions.sql",
                  })
         {
             var sql = LoadEmbeddedSql(resourceName);
@@ -128,35 +128,40 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
         if (batchSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Must be > 0.");
 
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = afterEventId is null
-            ? """
-              SELECT event_id, event_type, schema_version, occurred_at, recorded_at_utc,
-                     tenant_id, originating_replica_id, idempotency_key,
-                     causation_id, correlation_id, producer_cluster, payload_json
-              FROM domain_events
-              WHERE tenant_id = $tenant_id
-              ORDER BY event_id ASC
-              LIMIT $limit;
-              """
-            : """
-              SELECT event_id, event_type, schema_version, occurred_at, recorded_at_utc,
-                     tenant_id, originating_replica_id, idempotency_key,
-                     causation_id, correlation_id, producer_cluster, payload_json
-              FROM domain_events
-              WHERE tenant_id = $tenant_id AND event_id > $after_event_id
-              ORDER BY event_id ASC
-              LIMIT $limit;
-              """;
-        cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
+        long position = 0;
         if (afterEventId is not null)
-            cmd.Parameters.AddWithValue("$after_event_id", afterEventId);
-        cmd.Parameters.AddWithValue("$limit", batchSize);
+        {
+            await using var lookup = _connection.CreateCommand();
+            lookup.CommandText = "SELECT p.position FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id WHERE e.tenant_id = $tenant AND e.event_id = $id";
+            lookup.Parameters.AddWithValue("$tenant", tenantId.Value);
+            lookup.Parameters.AddWithValue("$id", afterEventId);
+            var found = await lookup.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (found is null) throw new ArgumentException("Cursor event not found for tenant.", nameof(afterEventId));
+            position = Convert.ToInt64(found, CultureInfo.InvariantCulture);
+        }
+        return await GetAfterPositionAsync(tenantId, position, batchSize, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
+        TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken = default)
+    {
+        if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize));
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT e.event_id, e.event_type, e.schema_version, e.occurred_at, e.recorded_at_utc,
+                   e.tenant_id, e.originating_replica_id, e.idempotency_key,
+                   e.causation_id, e.correlation_id, e.producer_cluster, e.payload_json, p.position
+            FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id
+            WHERE e.tenant_id = $tenant_id AND p.position > $position
+            ORDER BY p.position LIMIT $limit;
+            """;
+        cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
+        cmd.Parameters.AddWithValue("$position", afterPosition);
+        cmd.Parameters.AddWithValue("$limit", batchSize);
         var results = new List<RawDomainEvent>();
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            results.Add(ReadRow(reader));
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) results.Add(ReadRow(reader));
         return results;
     }
 
@@ -172,7 +177,8 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
         cmd.CommandText = """
             SELECT event_id, event_type, schema_version, occurred_at, recorded_at_utc,
                    tenant_id, originating_replica_id, idempotency_key,
-                   causation_id, correlation_id, producer_cluster, payload_json
+                   causation_id, correlation_id, producer_cluster, payload_json,
+                   (SELECT position FROM event_positions WHERE event_id = domain_events.event_id)
             FROM domain_events
             WHERE tenant_id = $tenant_id AND idempotency_key = $idempotency_key
             LIMIT 1;
@@ -205,6 +211,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
         // foundation/Assets/Common/{TenantId,ReplicaId}.cs.
         => new()
         {
+            Position             = reader.GetInt64(12),
             EventId              = reader.GetString(0),
             EventType            = reader.GetString(1),
             SchemaVersion        = reader.GetInt32(2),
