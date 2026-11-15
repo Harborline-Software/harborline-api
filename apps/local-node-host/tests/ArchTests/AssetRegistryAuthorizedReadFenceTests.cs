@@ -31,13 +31,14 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         var treeStart = source.IndexOf("private static void MapTree(", StringComparison.Ordinal);
         var detail = source[..treeStart];
         var tree = source[treeStart..];
-        Assert.False(ProjectionDecisionsPresent(detail.Replace(ProjectionGuards[0], "", StringComparison.Ordinal) + tree));
-        Assert.False(ProjectionDecisionsPresent(detail.Replace(ProjectionGuards[1], "", StringComparison.Ordinal) + tree));
-        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(ProjectionGuards[1], "", StringComparison.Ordinal)));
-        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(ProjectionGuards[2], "", StringComparison.Ordinal)));
+        var guards = ProjectionGuards();
+        Assert.False(ProjectionDecisionsPresent(detail.Replace(guards[0], "", StringComparison.Ordinal) + tree));
+        Assert.False(ProjectionDecisionsPresent(detail.Replace(guards[1], "", StringComparison.Ordinal) + tree));
+        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(guards[1], "", StringComparison.Ordinal)));
+        Assert.False(ProjectionDecisionsPresent(detail + tree.Replace(guards[2], "", StringComparison.Ordinal)));
     }
 
-    private static string[] ProjectionGuards =>
+    private static string[] ProjectionGuards() =>
     [
         "if (container is { } parent && !await RequestAuthorization.AllowedAsync(http, actAuthority,\n                    ReadEntityRequest.AuthorizationCapability, parent.Value, decisions, ct).ConfigureAwait(false))\n                container = null;",
         "if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,\n                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);",
@@ -50,10 +51,11 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         if (tree < 0) return false;
         var detail = source[..tree];
         var treeSource = source[tree..];
-        return detail.Contains(ProjectionGuards[0], StringComparison.Ordinal)
-            && detail.Contains(ProjectionGuards[1], StringComparison.Ordinal)
-            && treeSource.Contains(ProjectionGuards[1], StringComparison.Ordinal)
-            && treeSource.Contains(ProjectionGuards[2], StringComparison.Ordinal)
+        var guards = ProjectionGuards();
+        return detail.Contains(guards[0], StringComparison.Ordinal)
+            && detail.Contains(guards[1], StringComparison.Ordinal)
+            && treeSource.Contains(guards[1], StringComparison.Ordinal)
+            && treeSource.Contains(guards[2], StringComparison.Ordinal)
             && detail.Contains("ToDetailWire(entity, container, visiblePath, values)", StringComparison.Ordinal)
             && treeSource.Contains("Path: visiblePath.Select(p => p.Value).ToArray()", StringComparison.Ordinal);
     }
