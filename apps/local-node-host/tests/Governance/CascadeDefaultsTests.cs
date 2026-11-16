@@ -137,9 +137,7 @@ public sealed class CascadeDefaultsTests
         var platformBindings = bindings.Where(binding => binding.Definition.PublisherPackageId == request.Key).ToArray();
         Assert.Equal(2, platformBindings.Length);
         Assert.All(platformBindings, binding => Assert.Equal(RoleBindingSet.Of(RoleReference.Administrator), binding.EffectiveRoles));
-        var auditor = Assert.Single(bindings, binding => binding.EffectiveRoles.Roles.Contains(RoleReference.Auditor));
-        Assert.Equal(AccessGrantAuthorizationSeed.PackageId, auditor.Definition.PublisherPackageId);
-        Assert.Equal(Permission.AuditRead, auditor.Definition.Operation.Value);
+        Assert.DoesNotContain(bindings, binding => binding.EffectiveRoles.Roles.Contains(RoleReference.Auditor));
         var catalogue = new CatalogueRegistries(store, defaults: defaults);
         Assert.True(catalogue.IsAvailable(PackContentKind.CascadeDefaults));
         var entry = Assert.Single(await catalogue.ReadAsync(Tenant, PackContentKind.CascadeDefaults));
