@@ -141,14 +141,15 @@ public sealed class SqliteEventReader : IEventReader
         return tenants;
     }
 
-    /// <summary>Read exhausted handler failures requiring intervention.</summary>
-    public async Task<IReadOnlyList<HeldEventHandler>> ReadHeldHandlersAsync(CancellationToken cancellationToken = default)
+    /// <summary>Read one tenant's exhausted handler failures requiring intervention.</summary>
+    public async Task<IReadOnlyList<HeldEventHandler>> ReadHeldHandlersAsync(TenantId tenantId, CancellationToken cancellationToken = default)
     {
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT handler_id, tenant_id, event_id, attempt_number FROM event_handler_failures
-            WHERE resolved_at IS NULL AND next_retry_at IS NULL;
+            WHERE tenant_id = $tenant_id AND resolved_at IS NULL AND next_retry_at IS NULL;
             """;
+        cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
         var held = new List<HeldEventHandler>();
         await using var rows = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -206,6 +207,9 @@ public sealed class SqliteEventReader : IEventReader
             INSERT INTO event_handler_positions(handler_id, tenant_id, position)
             VALUES ($handler_id, $tenant_id, $position)
             ON CONFLICT(handler_id, tenant_id) DO UPDATE SET position = $position;
+            UPDATE event_handler_failures SET resolved_at = $now
+            WHERE handler_id = $handler_id AND tenant_id = $tenant_id AND event_id = $event_id
+              AND resolved_at IS NULL;
             """;
         cmd.Parameters.AddWithValue("$handler_id", handlerId);
         cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
@@ -246,7 +250,8 @@ public sealed class SqliteEventReader : IEventReader
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT COUNT(*) FROM event_handler_failures
-            WHERE handler_id = $handler_id AND tenant_id = $tenant_id AND event_id = $event_id;
+            WHERE handler_id = $handler_id AND tenant_id = $tenant_id AND event_id = $event_id
+              AND resolved_at IS NULL;
             """;
         cmd.Parameters.AddWithValue("$handler_id", handlerId);
         cmd.Parameters.AddWithValue("$tenant_id", tenantId.Value);
@@ -257,7 +262,7 @@ public sealed class SqliteEventReader : IEventReader
 
     /// <summary>
     /// Backoff schedule per <c>cross-cluster-event-bus-design.md</c>
-    /// §6: 30s / 2m / 10m / 1h / 6h / 24h. Returns
+    /// §6: 30s / 2m / 10m / 1h / 6h / 24h / 72h. Returns
     /// <c>null</c> after 7 attempts (retry exhausted; manual
     /// intervention).
     /// </summary>
@@ -270,6 +275,7 @@ public sealed class SqliteEventReader : IEventReader
             4 => now.AddHours(1),
             5 => now.AddHours(6),
             6 => now.AddHours(24),
+            7 => now.AddHours(72),
             _ => null,
         };
 

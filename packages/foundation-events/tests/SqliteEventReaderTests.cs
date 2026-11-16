@@ -1,5 +1,7 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TenantId = Harborline.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.Foundation.Events.Tests;
@@ -99,19 +101,21 @@ public sealed class SqliteEventReaderTests
         Assert.Equal(1, handler.Calls);
         await using (var cursor = connection.CreateCommand())
         {
-            cursor.CommandText = "SELECT COUNT(*) FROM event_handler_cursors";
+            cursor.CommandText = "SELECT COUNT(*) FROM event_handler_positions";
             Assert.Equal(0L, await cursor.ExecuteScalarAsync());
         }
         clock.Now = clock.Now.AddSeconds(1);
         Assert.Equal(1, await reader.DrainOnceAsync(tenant, 10));
         Assert.Equal(2, handler.Calls);
         await using var check = connection.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM event_handler_cursors";
+        check.CommandText = "SELECT position FROM event_handler_positions WHERE handler_id = 'handler' AND tenant_id = 'tenant-a'";
         Assert.Equal(1L, await check.ExecuteScalarAsync());
+        check.CommandText = "SELECT resolved_at FROM event_handler_failures";
+        Assert.Equal("2026-01-01T00:00:30.0000000+00:00", await check.ExecuteScalarAsync());
     }
 
     [Fact]
-    public async Task Seventh_failure_holds_handler_visibly_and_blocks_later_events()
+    public async Task Eighth_failure_holds_handler_visibly_and_blocks_later_events()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -129,19 +133,183 @@ public sealed class SqliteEventReaderTests
                 OccurredAt = clock.GetUtcNow(), TenantId = tenant, OriginatingReplicaId = new ReplicaId("replica"),
                 IdempotencyKey = id, Payload = "payload"
             });
-        foreach (var seconds in new[] { 0, 30, 120, 600, 3600, 21600, 86400 })
+        await DriveToHoldAsync(reader, clock, tenant);
+        clock.Now = clock.Now.AddDays(10);
+        Assert.Equal(0, await reader.DrainOnceAsync(tenant, 10));
+        Assert.Equal(8, handler.Calls);
+        var held = Assert.Single(await reader.ReadHeldHandlersAsync(tenant));
+        Assert.Equal("held", held.HandlerId);
+        Assert.Equal("tenant-a", held.TenantId.Value);
+        Assert.Equal("event-a", held.EventId);
+        Assert.Equal(8, held.AttemptCount);
+        Assert.Empty(await reader.ReadHeldHandlersAsync(new TenantId("tenant-b")));
+    }
+
+    // cross-cluster-event-bus-design.md §6, quoted by T-1227 as "a 30 s to 72 h backoff":
+    // the first failure, then retries after 30 s, 2 m, 10 m, 1 h, 6 h, 24 h and 72 h.
+    private static async Task DriveToHoldAsync(SqliteEventReader reader, TestClock clock, TenantId tenant)
+    {
+        foreach (var seconds in new[] { 0, 30, 120, 600, 3600, 21600, 86400, 259200 })
         {
             clock.Now = clock.Now.AddSeconds(seconds);
             Assert.Equal(0, await reader.DrainOnceAsync(tenant, 10));
         }
-        clock.Now = clock.Now.AddDays(10);
+    }
+
+    [Fact]
+    public async Task Released_hold_counts_attempts_again_from_one()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var reader = new SqliteEventReader(connection, store, clock);
+        var tenant = new TenantId("tenant-a");
+        var handler = new AlwaysFailHandler();
+        await reader.RegisterHandlerAsync("held", null, handler);
+        await AppendAsync(store, clock, "event-a", "tenant-a");
+        await DriveToHoldAsync(reader, clock, tenant);
+        await using (var release = connection.CreateCommand())
+        {
+            release.CommandText = "UPDATE event_handler_failures SET resolved_at = '2026-01-10T00:00:00.0000000+00:00'";
+            await release.ExecuteNonQueryAsync();
+        }
         Assert.Equal(0, await reader.DrainOnceAsync(tenant, 10));
-        Assert.Equal(7, handler.Calls);
-        var held = Assert.Single(await reader.ReadHeldHandlersAsync());
-        Assert.Equal("held", held.HandlerId);
-        Assert.Equal("tenant-a", held.TenantId.Value);
-        Assert.Equal("event-a", held.EventId);
-        Assert.Equal(7, held.AttemptCount);
+        Assert.Equal(9, handler.Calls);
+        Assert.Empty(await reader.ReadHeldHandlersAsync(tenant));
+        await using var latest = connection.CreateCommand();
+        latest.CommandText = "SELECT attempt_number FROM event_handler_failures WHERE resolved_at IS NULL";
+        Assert.Equal(1L, await latest.ExecuteScalarAsync());
+    }
+
+    [Fact]
+    public async Task Tick_drains_later_tenant_and_logs_when_earlier_tenant_read_throws()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var reader = new SqliteEventReader(connection, store, clock);
+        var handler = new RecordingHandler();
+        await reader.RegisterHandlerAsync("handler", null, handler);
+        await using (var unreadable = connection.CreateCommand())
+        {
+            unreadable.CommandText = """
+                INSERT INTO domain_events(event_id,event_type,schema_version,occurred_at,recorded_at_utc,tenant_id,originating_replica_id,idempotency_key,producer_cluster,payload_json)
+                VALUES ('event-a','Test.Happened',1,'not-a-time','2026-01-01T00:00:00Z','tenant-a','replica','event-a','test','{}');
+                """;
+            await unreadable.ExecuteNonQueryAsync();
+        }
+        await AppendAsync(store, clock, "event-b", "tenant-b");
+        var logger = new ListLogger();
+        await new EventDispatcherHost(reader, logger).DrainOnceAsync();
+        Assert.Equal(new[] { "event-b" }, handler.Seen);
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.IsType<FormatException>(entry.Exception);
+        Assert.Contains("tenant-a", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Tick_lets_cancellation_through_instead_of_moving_to_next_tenant()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var reader = new SqliteEventReader(connection, store, clock);
+        using var cancellation = new CancellationTokenSource();
+        var handler = new CancellingHandler(cancellation);
+        await reader.RegisterHandlerAsync("handler", null, handler);
+        await AppendAsync(store, clock, "event-a", "tenant-a");
+        await AppendAsync(store, clock, "event-b", "tenant-b");
+        var logger = new ListLogger();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new EventDispatcherHost(reader, logger).DrainOnceAsync(cancellation.Token));
+        Assert.Equal(new[] { "tenant-a" }, handler.Seen);
+        Assert.Empty(logger.Entries);
+    }
+
+    [Fact]
+    public void Store_position_is_not_public_on_raw_events()
+        => Assert.Null(typeof(RawDomainEvent).GetProperty("Position"));
+
+    [Fact]
+    public async Task Failed_position_migration_rolls_back_so_a_later_append_commits()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"t1227-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={path};Pooling=False";
+        try
+        {
+            await using var connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync();
+            await using (var conflicting = connection.CreateCommand())
+            {
+                conflicting.CommandText = "CREATE TABLE event_handler_positions (handler_id TEXT NOT NULL);";
+                await conflicting.ExecuteNonQueryAsync();
+            }
+            var clock = new TestClock();
+            var store = new SqliteDomainEventStore(connection, clock);
+            await Assert.ThrowsAsync<SqliteException>(() => store.ApplyMigrationsAsync());
+            await AppendAsync(store, clock, "event-a", "tenant-a");
+            await using var other = new SqliteConnection(connectionString);
+            await other.OpenAsync();
+            await using var count = other.CreateCommand();
+            count.CommandText = "SELECT COUNT(*) FROM domain_events";
+            Assert.Equal(1L, await count.ExecuteScalarAsync());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Rerun_migrations_consume_no_positions()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        foreach (var id in new[] { "event-a", "event-b", "event-c" })
+            await AppendAsync(store, clock, id, "tenant-a");
+        await store.ApplyMigrationsAsync();
+        await store.ApplyMigrationsAsync();
+        await AppendAsync(store, clock, "event-d", "tenant-a");
+        var page = await store.GetAfterPositionAsync(new TenantId("tenant-a"), 3, 10);
+        Assert.Equal(4L, Assert.Single(page).Position);
+    }
+
+    private static Task<string> AppendAsync(SqliteDomainEventStore store, TestClock clock, string id, string tenant)
+        => store.AppendAsync(new DomainEventEnvelope<string>
+        {
+            EventId = id, EventType = "Test.Happened", SchemaVersion = 1,
+            OccurredAt = clock.GetUtcNow(), TenantId = new TenantId(tenant), OriginatingReplicaId = new ReplicaId("replica"),
+            IdempotencyKey = id, Payload = "payload"
+        });
+
+    private sealed class CancellingHandler(CancellationTokenSource cancellation) : IEventHandler<RawDomainEvent>
+    {
+        public List<string> Seen { get; } = [];
+        public Task HandleAsync(DomainEventEnvelope<RawDomainEvent> envelope, CancellationToken cancellationToken = default)
+        {
+            Seen.Add(envelope.TenantId.Value);
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        }
+    }
+
+    private sealed class ListLogger : ILogger<EventDispatcherHost>
+    {
+        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, exception, formatter(state, exception)));
     }
 
     [Fact]
@@ -162,12 +330,12 @@ public sealed class SqliteEventReaderTests
                 OccurredAt = clock.GetUtcNow(), TenantId = new TenantId(tenant), OriginatingReplicaId = new ReplicaId("replica"),
                 IdempotencyKey = tenant, Payload = "payload"
             });
-        var host = new EventDispatcherHost(reader);
+        var host = new EventDispatcherHost(reader, NullLogger<EventDispatcherHost>.Instance);
         await host.DrainOnceAsync();
         Assert.Contains("tenant-a", handler.Seen);
         Assert.Contains("tenant-b", handler.Seen);
         await using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT tenant_id FROM event_handler_cursors WHERE handler_id = 'handler'";
+        cmd.CommandText = "SELECT tenant_id FROM event_handler_positions WHERE handler_id = 'handler'";
         Assert.Equal("tenant-b", await cmd.ExecuteScalarAsync());
     }
 
@@ -224,8 +392,11 @@ public sealed class SqliteEventReaderTests
             seed.CommandText = """
                 INSERT INTO domain_events(event_id,event_type,schema_version,occurred_at,recorded_at_utc,tenant_id,originating_replica_id,idempotency_key,producer_cluster,payload_json)
                 VALUES ('z','Test.Happened',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','tenant-a','replica','z','test','{}'),
-                       ('a','Test.Happened',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','tenant-a','replica','a','test','{}');
-                INSERT INTO event_handler_cursors(handler_id,tenant_id,last_handled_event_id) VALUES ('handler','tenant-a','a');
+                       ('a','Test.Happened',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','tenant-a','replica','a','test','{}'),
+                       ('y','Test.Happened',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','tenant-b','replica','y','test','{}'),
+                       ('b','Test.Happened',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','tenant-b','replica','b','test','{}');
+                INSERT INTO event_handler_cursors(handler_id,tenant_id,last_handled_event_id)
+                VALUES ('handler','tenant-a','a'), ('handler','tenant-b','b');
                 """;
             await seed.ExecuteNonQueryAsync();
         }
@@ -237,11 +408,20 @@ public sealed class SqliteEventReaderTests
         var page = await store.GetAfterPositionAsync(tenant, 0, 10);
         Assert.Equal(new[] { "a", "z" }, page.Select(e => e.EventId));
         Assert.True(page[0].Position < page[1].Position);
+        var translated = new List<string>();
+        await using (var cursors = connection.CreateCommand())
+        {
+            cursors.CommandText = "SELECT tenant_id || ':' || position FROM event_handler_positions WHERE handler_id = 'handler' ORDER BY tenant_id";
+            await using var rows = await cursors.ExecuteReaderAsync();
+            while (await rows.ReadAsync()) translated.Add(rows.GetString(0));
+        }
+        Assert.Equal(new[] { "tenant-a:1", "tenant-b:2" }, translated);
         var reader = new SqliteEventReader(connection, store, clock);
         var handler = new RecordingHandler();
         await reader.RegisterHandlerAsync("handler", null, handler);
         await reader.DrainOnceAsync(tenant, 10);
-        Assert.Equal(new[] { "z" }, handler.Seen);
+        await reader.DrainOnceAsync(new TenantId("tenant-b"), 10);
+        Assert.Equal(new[] { "z", "y" }, handler.Seen);
     }
 
     [Fact]

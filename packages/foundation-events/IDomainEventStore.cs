@@ -72,7 +72,7 @@ public interface IDomainEventStore
 public sealed record RawDomainEvent
 {
     /// <summary>Store-assigned durable position.</summary>
-    public long Position { get; init; }
+    internal long Position { get; init; }
     public required string EventId { get; init; }
     public required string EventType { get; init; }
     public required int SchemaVersion { get; init; }

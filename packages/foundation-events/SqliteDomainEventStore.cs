@@ -69,9 +69,12 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // Disposing the transaction uncommitted rolls back, so a failed
+        // statement never leaves the shared connection inside a transaction.
+        await using var tx = (SqliteTransaction)await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using var positions = _connection.CreateCommand();
+        positions.Transaction = tx;
         positions.CommandText = """
-            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS event_positions (
                 position INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT NOT NULL UNIQUE REFERENCES domain_events(event_id)
@@ -88,9 +91,12 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
                     SELECT tenant_id, NEW.position FROM domain_events WHERE event_id = NEW.event_id;
             END;
             INSERT OR IGNORE INTO event_positions(event_id)
-                SELECT event_id FROM domain_events ORDER BY event_id;
+                SELECT event_id FROM domain_events
+                WHERE NOT EXISTS (SELECT 1 FROM event_positions p WHERE p.event_id = domain_events.event_id)
+                ORDER BY event_id;
             INSERT OR IGNORE INTO event_tenant_positions(tenant_id, position)
-                SELECT e.tenant_id, p.position FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id;
+                SELECT e.tenant_id, p.position FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id
+                WHERE NOT EXISTS (SELECT 1 FROM event_tenant_positions t WHERE t.position = p.position);
             CREATE TRIGGER IF NOT EXISTS domain_events_assign_position AFTER INSERT ON domain_events
             BEGIN
                 INSERT INTO event_positions(event_id) VALUES (NEW.event_id);
@@ -104,9 +110,9 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
             INSERT OR IGNORE INTO event_handler_positions(handler_id, tenant_id, position)
                 SELECT c.handler_id, c.tenant_id, p.position
                 FROM event_handler_cursors c JOIN event_positions p ON p.event_id = c.last_handled_event_id;
-            COMMIT;
             """;
         await positions.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

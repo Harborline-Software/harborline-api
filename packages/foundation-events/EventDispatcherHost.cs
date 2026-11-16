@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Harborline.Api.Foundation.Events;
 
@@ -8,20 +9,25 @@ namespace Harborline.Api.Foundation.Events;
 /// <c>cross-cluster-event-bus-design.md</c> §5 + §6. Each tick
 /// invokes <see cref="SqliteEventReader.DrainOnceAsync"/> for the
 /// each tenant with events. Handler-side failures are caught + recorded
-/// inside the reader; the host loop continues regardless.
+/// inside the reader. A tenant whose drain itself throws is logged and
+/// stays at its cursor while the tick moves on to the next tenant;
+/// cancellation of the tick's token is never swallowed.
 /// </summary>
 public sealed class EventDispatcherHost : BackgroundService
 {
     private readonly SqliteEventReader _reader;
+    private readonly ILogger<EventDispatcherHost> _logger;
     private readonly TimeSpan _pollInterval;
     private readonly int _batchSize;
 
     public EventDispatcherHost(
         SqliteEventReader reader,
+        ILogger<EventDispatcherHost> logger,
         TimeSpan? pollInterval = null,
         int batchSize = 100)
     {
         _reader       = reader ?? throw new ArgumentNullException(nameof(reader));
+        _logger       = logger ?? throw new ArgumentNullException(nameof(logger));
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
         if (batchSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Must be > 0.");
@@ -33,7 +39,18 @@ public sealed class EventDispatcherHost : BackgroundService
     {
         var tenants = await _reader.GetTenantsAsync(cancellationToken).ConfigureAwait(false);
         foreach (var tenant in tenants)
-            await _reader.DrainOnceAsync(tenant, _batchSize, cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await _reader.DrainOnceAsync(tenant, _batchSize, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // ADR-0172 decision 8: one tenant's failure blocks that tenant
+                // visibly, never the tenants after it.
+                _logger.LogError(ex, "Domain event drain failed for tenant {TenantId}; it stays at its cursor.", tenant.Value);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -55,8 +72,7 @@ public sealed class EventDispatcherHost : BackgroundService
                 // The drain itself failed (not a handler failure — those are
                 // caught inside DrainOnceAsync + recorded to
                 // event_handler_failures). Log + sleep to avoid hot-looping.
-                System.Diagnostics.Debug.WriteLine(
-                    $"EventDispatcherHost drain failure: {ex}");
+                _logger.LogError(ex, "Domain event drain failed; it retries next interval.");
             }
 
             try
