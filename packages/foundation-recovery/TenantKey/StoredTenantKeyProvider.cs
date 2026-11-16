@@ -47,6 +47,25 @@ public sealed class StoredTenantKeyProvider :
     }
 
     /// <inheritdoc />
+    public ReadOnlyMemory<byte> ResolveKey(TenantId tenant, string purpose, int keyVersion, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrEmpty(purpose);
+        if (keyVersion != CurrentKeyVersion)
+            throw new CryptographicException("Synchronous resolution supports only stored key version 2; legacy import requires ResolveKeyAsync.");
+        var slot = BuildTenantSlot(tenant, purpose, keyVersion);
+        var stored = _store.Read(slot, ct);
+        if (stored is not null) return Unwrap(slot, stored.Value.Span, _hierarchyRoot);
+
+        var key = RandomNumberGenerator.GetBytes(KeyLength);
+        if (_store.TryCreate(slot, Wrap(slot, key, _hierarchyRoot), ct)) return key;
+        CryptographicOperations.ZeroMemory(key);
+        stored = _store.Read(slot, ct);
+        if (stored is null) throw new InvalidOperationException($"Stored key slot '{slot}' disappeared during creation.");
+        return Unwrap(slot, stored.Value.Span, _hierarchyRoot);
+    }
+
+    /// <inheritdoc />
     public Task<ReadOnlyMemory<byte>> DeriveKeyAsync(
         TenantId tenant,
         string purpose,
