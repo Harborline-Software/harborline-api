@@ -396,6 +396,16 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Invalid_related_id_is_refused_and_cached()
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = _app.Services };
+        var authority = RequestAuthorization.Authority(http, _tenant, TimeProvider.System);
+        var decisions = new Dictionary<string, bool>();
+        Assert.False(await RequestAuthorization.AllowedAsync(http, authority, "records:read", "a/b", decisions, CancellationToken.None));
+        Assert.False(decisions["a/b"]);
+    }
+
+    [Fact]
     public async Task Tree_query_with_refused_child_id_never_loads_or_projects_it()
     {
         await SeedSelectedTenantSubResourcesAsync();
@@ -426,6 +436,7 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     public async Task Refused_child_does_not_change_tree_body_or_headers()
     {
         await SeedSelectedTenantSubResourcesAsync();
+        _client.DefaultRequestHeaders.Add("X-Correlation-ID", "43300000-0000-4000-8000-000000000021");
         _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000002"));
         const string route = AssetBase + "/entities/re_00000000000000000000000001/tree?asOf=2026-01-02T00%3A00%3A00Z";
         using var before = await _client.GetAsync(route);
@@ -466,11 +477,14 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(NormalizeBody(beforeBody), NormalizeBody(afterBody));
 
         static string[] Headers(HttpResponseMessage response) => response.Headers.Concat(response.Content.Headers)
-            .Where(h => !h.Key.Equals("Date", StringComparison.OrdinalIgnoreCase)
-                && !h.Key.Equals("X-Harborline-Audit-Id", StringComparison.OrdinalIgnoreCase)
-                && !h.Key.Equals("X-Harborline-Audit-Correlation", StringComparison.OrdinalIgnoreCase))
-            .Select(h => h.Key.ToLowerInvariant() + ":" + JsonSerializer.Serialize(h.Value.ToArray()))
+            .Select(h => h.Key.ToLowerInvariant() + ":" +
+                (h.Key.Equals("Date", StringComparison.OrdinalIgnoreCase)
+                    || h.Key.Equals("X-Harborline-Audit-Id", StringComparison.OrdinalIgnoreCase)
+                    || h.Key.Equals("X-Harborline-Audit-Correlation", StringComparison.OrdinalIgnoreCase)
+                    ? "<normalized>" : JsonSerializer.Serialize(h.Value.ToArray())))
             .Order(StringComparer.Ordinal).ToArray();
+        Assert.True(before.Headers.Contains("X-Harborline-Audit-Id"));
+        Assert.True(before.Headers.Contains("X-Harborline-Audit-Correlation"));
         Assert.Equal(Headers(before), Headers(after));
     }
 

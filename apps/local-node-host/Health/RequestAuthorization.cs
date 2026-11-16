@@ -68,6 +68,7 @@ internal readonly record struct RouteRecord
 /// </remarks>
 internal static class RequestAuthorization
 {
+    /// <summary>Refuses undecidable records without an audit row or problem response.</summary>
     internal static async ValueTask<bool> AllowedAsync(
         HttpContext http, AuthorizationWriteContext writeAuthority, string permission, string id,
         Dictionary<string, bool> decisions, CancellationToken ct)

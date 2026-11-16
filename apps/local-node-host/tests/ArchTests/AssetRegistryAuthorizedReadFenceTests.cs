@@ -53,6 +53,16 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
             target => target.DeclaringType == typeof(ITypedRelationshipStore) && IsStoreRead(target),
             type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
         Assert.Equal(4, relationshipReads.Length);
+        var readableCalls = RawMutationPortSymbolInventoryTests.DiscoverCalls(
+            [typeof(AssetRegistryRoutes).Assembly],
+            target => target.DeclaringType == typeof(AssetRegistryRoutes) && target.Name == "ReadableAsync",
+            type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
+        var allowedCalls = RawMutationPortSymbolInventoryTests.DiscoverCalls(
+            [typeof(AssetRegistryRoutes).Assembly],
+            target => target.DeclaringType == typeof(RequestAuthorization) && target.Name == nameof(RequestAuthorization.AllowedAsync),
+            type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
+        Assert.Equal(4, readableCalls.Length);
+        Assert.Equal(2, allowedCalls.Length);
     }
 
     [Theory]
@@ -72,6 +82,17 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         var (guarded, unguarded) = InspectRelatedReads(RelatedProbe(GuardedProjection + " " + planted));
         Assert.Single(unguarded);
         Assert.Equal(new[] { "edges.GetContentsAsAtAsync" }, guarded);
+    }
+
+    [Theory]
+    [InlineData("id = otherId; var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("Change(ref id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("Change(out id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("(id, otherId) = (otherId, id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    public void Written_addressed_id_is_not_trusted(string planted)
+    {
+        var (_, unguarded) = InspectRelatedReads(RelatedProbe(planted));
+        Assert.NotEmpty(unguarded);
     }
 
     [Fact]
@@ -142,13 +163,24 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
     private static bool IsAddressedOrReadable(
         ParenthesizedLambdaExpressionSyntax handler, InvocationExpressionSyntax read, ExpressionSyntax target)
     {
-        if (IsAddressedId(target)) return true;
+        bool Writes(ExpressionSyntax target, string local) => target switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText == local,
+            TupleExpressionSyntax tuple => tuple.Arguments.Any(argument => Writes(argument.Expression, local)),
+            ParenthesizedExpressionSyntax parenthesized => Writes(parenthesized.Expression, local),
+            _ => false,
+        };
+        bool Fixed(string local) => !handler.Body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Any(assignment => Writes(assignment.Left, local))
+            && !handler.Body.DescendantNodes().OfType<ArgumentSyntax>()
+                .Any(argument => (argument.RefKindKeyword.IsKind(SyntaxKind.RefKeyword)
+                    || argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))
+                    && Writes(argument.Expression, local));
+        if (Fixed("id") && IsAddressedId(target)) return true;
         if (target is not IdentifierNameSyntax { Identifier.ValueText: var name }) return false;
         var locals = handler.Body.DescendantNodes().OfType<VariableDeclaratorSyntax>().ToArray();
-        // A reassigned local no longer holds what its declaration proves.
-        bool Fixed(string local) => !handler.Body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
-            .Any(assignment => assignment.Left is IdentifierNameSyntax { Identifier.ValueText: var left } && left == local);
-        if (Fixed(name) && locals.Any(local => local.Identifier.ValueText == name
+        // A written parameter or local no longer holds what its declaration proves.
+        if (Fixed("id") && Fixed(name) && locals.Any(local => local.Identifier.ValueText == name
                 && local.Initializer is { } addressed && IsAddressedId(addressed.Value))) return true;
         return read.Ancestors().OfType<ForEachStatementSyntax>().Any(loop => loop.Identifier.ValueText == name
             && loop.Expression is IdentifierNameSyntax { Identifier.ValueText: var list } && Fixed(list)
