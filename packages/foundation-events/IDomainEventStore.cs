@@ -48,7 +48,7 @@ public interface IDomainEventStore
         CancellationToken cancellationToken = default);
 
     /// <summary>Read events after a store-assigned position in commit order.</summary>
-    Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
+    internal Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
         TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken = default);
 
     /// <summary>

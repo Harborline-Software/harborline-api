@@ -9,9 +9,11 @@ namespace Harborline.Api.Foundation.Events;
 /// <c>cross-cluster-event-bus-design.md</c> §5 + §6. Each tick
 /// invokes <see cref="SqliteEventReader.DrainOnceAsync"/> for the
 /// each tenant with events. Handler-side failures are caught + recorded
-/// inside the reader. A tenant whose drain itself throws is logged and
-/// stays at its cursor while the tick moves on to the next tenant;
-/// cancellation of the tick's token is never swallowed.
+/// inside the reader. A tenant whose drain itself throws stays at its
+/// cursor while the tick moves on to the next tenant: the first failure
+/// logs Error, repeats of the same exception type log Debug, and the
+/// first success logs Information. Cancellation of the tick's token is
+/// never swallowed.
 /// </summary>
 public sealed class EventDispatcherHost : BackgroundService
 {
@@ -19,6 +21,9 @@ public sealed class EventDispatcherHost : BackgroundService
     private readonly ILogger<EventDispatcherHost> _logger;
     private readonly TimeSpan _pollInterval;
     private readonly int _batchSize;
+    // Tenants whose drain is failing, keyed by tenant id; an entry leaves on
+    // recovery. ponytail: not thread-safe; ExecuteAsync drains from one loop.
+    private readonly Dictionary<string, (Type Type, int Polls)> _failing = new(StringComparer.Ordinal);
 
     public EventDispatcherHost(
         SqliteEventReader reader,
@@ -43,12 +48,24 @@ public sealed class EventDispatcherHost : BackgroundService
             try
             {
                 await _reader.DrainOnceAsync(tenant, _batchSize, cancellationToken).ConfigureAwait(false);
+                if (_failing.Remove(tenant.Value, out var ended))
+                    _logger.LogInformation("Domain event drain for tenant {TenantId} recovered after {FailedPolls} failed polls.", tenant.Value, ended.Polls);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // ADR-0172 decision 8: one tenant's failure blocks that tenant
-                // visibly, never the tenants after it.
-                _logger.LogError(ex, "Domain event drain failed for tenant {TenantId}; it stays at its cursor.", tenant.Value);
+                // visibly, never the tenants after it. One Error per failure
+                // episode, not per poll (CWE-779).
+                if (_failing.TryGetValue(tenant.Value, out var episode) && episode.Type == ex.GetType())
+                {
+                    _failing[tenant.Value] = (episode.Type, episode.Polls + 1);
+                    _logger.LogDebug("Domain event drain for tenant {TenantId} still failing with {ExceptionType} ({FailedPolls} polls).", tenant.Value, episode.Type.Name, episode.Polls + 1);
+                }
+                else
+                {
+                    _failing[tenant.Value] = (ex.GetType(), 1);
+                    _logger.LogError(ex, "Domain event drain failed for tenant {TenantId}; it stays at its cursor.", tenant.Value);
+                }
             }
         }
     }

@@ -94,6 +94,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
                 SELECT event_id FROM domain_events
                 WHERE NOT EXISTS (SELECT 1 FROM event_positions p WHERE p.event_id = domain_events.event_id)
                 ORDER BY event_id;
+            -- Cost only: the primary key already ignores duplicates; the NOT EXISTS skips the domain_events lookup.
             INSERT OR IGNORE INTO event_tenant_positions(tenant_id, position)
                 SELECT e.tenant_id, p.position FROM event_positions p JOIN domain_events e ON e.event_id = p.event_id
                 WHERE NOT EXISTS (SELECT 1 FROM event_tenant_positions t WHERE t.position = p.position);
@@ -196,8 +197,12 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
         return await GetAfterPositionAsync(tenantId, position, batchSize, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
+    Task<IReadOnlyList<RawDomainEvent>> IDomainEventStore.GetAfterPositionAsync(
+        TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken)
+        => GetAfterPositionAsync(tenantId, afterPosition, batchSize, cancellationToken);
+
+    /// <summary>Read events after a store-assigned position in commit order.</summary>
+    internal async Task<IReadOnlyList<RawDomainEvent>> GetAfterPositionAsync(
         TenantId tenantId, long afterPosition, int batchSize, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);

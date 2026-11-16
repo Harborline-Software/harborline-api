@@ -184,6 +184,24 @@ public sealed class SqliteEventReaderTests
                 IdempotencyKey = id, Payload = "payload"
             });
         await DriveToHoldAsync(reader, clock, tenant);
+        await using (var waits = connection.CreateCommand())
+        {
+            waits.CommandText = "SELECT attempt_number, failed_at, next_retry_at FROM event_handler_failures ORDER BY attempt_number";
+            var recorded = new List<(long Attempt, TimeSpan? Wait)>();
+            await using var rows = await waits.ExecuteReaderAsync();
+            while (await rows.ReadAsync())
+                recorded.Add((rows.GetInt64(0), rows.IsDBNull(2) ? null
+                    : DateTimeOffset.Parse(rows.GetString(2), System.Globalization.CultureInfo.InvariantCulture)
+                      - DateTimeOffset.Parse(rows.GetString(1), System.Globalization.CultureInfo.InvariantCulture)));
+            // T-1227 Log, 2026-11-16 (control main): "seven waits, 30 s / 2 m / 10 m /
+            // 1 h / 6 h / 24 h / 72 h", and the eighth failure holds (no retry time).
+            Assert.Equal(new (long, TimeSpan?)[]
+            {
+                (1, TimeSpan.FromSeconds(30)), (2, TimeSpan.FromMinutes(2)), (3, TimeSpan.FromMinutes(10)),
+                (4, TimeSpan.FromHours(1)), (5, TimeSpan.FromHours(6)), (6, TimeSpan.FromHours(24)),
+                (7, TimeSpan.FromHours(72)), (8, null),
+            }, recorded);
+        }
         clock.Now = clock.Now.AddDays(10);
         Assert.Equal(0, await reader.DrainOnceAsync(tenant, 10));
         Assert.Equal(8, handler.Calls);
@@ -195,7 +213,7 @@ public sealed class SqliteEventReaderTests
         Assert.Empty(await reader.ReadHeldHandlersAsync(new TenantId("tenant-b")));
     }
 
-    // cross-cluster-event-bus-design.md §6, quoted by T-1227 as "a 30 s to 72 h backoff":
+    // T-1227 Log, 2026-11-16 (control main), from cross-cluster-event-bus-design.md §6:
     // the first failure, then retries after 30 s, 2 m, 10 m, 1 h, 6 h, 24 h and 72 h.
     private static async Task DriveToHoldAsync(SqliteEventReader reader, TestClock clock, TenantId tenant)
     {
@@ -283,9 +301,95 @@ public sealed class SqliteEventReaderTests
         Assert.Empty(logger.Entries);
     }
 
+    // Failure episodes (CWE-779; OWASP Logging Cheat Sheet): one Error with the
+    // exception when a tenant's drain starts failing, Debug while it repeats,
+    // one Information on recovery.
+    [Fact]
+    public async Task Two_failing_polls_log_one_error()
+    {
+        var (connection, reader) = await UnreadableTenantAsync();
+        await using var _ = connection;
+        var logger = new ListLogger();
+        var host = new EventDispatcherHost(reader, logger);
+        await host.DrainOnceAsync();
+        await host.DrainOnceAsync();
+        Assert.Equal(new[] { LogLevel.Error, LogLevel.Debug }, logger.Entries.Select(e => e.Level));
+        Assert.IsType<FormatException>(logger.Entries[0].Exception);
+        Assert.Null(logger.Entries[1].Exception);
+    }
+
+    [Fact]
+    public async Task Failure_recovery_failure_logs_two_errors_and_one_information()
+    {
+        var (connection, reader) = await UnreadableTenantAsync();
+        await using var _ = connection;
+        var logger = new ListLogger();
+        var host = new EventDispatcherHost(reader, logger);
+        await host.DrainOnceAsync();
+        await host.DrainOnceAsync();
+        await ExecAsync(connection, "UPDATE domain_events SET occurred_at = '2026-01-01T00:00:00.0000000+00:00' WHERE event_id = 'event-a'");
+        await host.DrainOnceAsync();
+        await InsertUnreadableAsync(connection, "event-c", "tenant-a");
+        await host.DrainOnceAsync();
+        Assert.Equal(new[] { LogLevel.Error, LogLevel.Debug, LogLevel.Information, LogLevel.Error }, logger.Entries.Select(e => e.Level));
+        Assert.Contains("recovered after 2 failed polls", logger.Entries[2].Message, StringComparison.Ordinal);
+        Assert.Contains("tenant-a", logger.Entries[2].Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Exception_type_change_logs_a_second_error()
+    {
+        var (connection, reader) = await UnreadableTenantAsync();
+        await using var _ = connection;
+        var logger = new ListLogger();
+        var host = new EventDispatcherHost(reader, logger);
+        await host.DrainOnceAsync();
+        await host.DrainOnceAsync();
+        await ExecAsync(connection, "DROP TABLE event_handler_positions");
+        await host.DrainOnceAsync();
+        Assert.Equal(new[] { LogLevel.Error, LogLevel.Debug, LogLevel.Error }, logger.Entries.Select(e => e.Level));
+        Assert.IsType<FormatException>(logger.Entries[0].Exception);
+        Assert.IsType<SqliteException>(logger.Entries[2].Exception);
+    }
+
+    private static async Task<(SqliteConnection, SqliteEventReader)> UnreadableTenantAsync()
+    {
+        var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var reader = new SqliteEventReader(connection, store, clock);
+        await reader.RegisterHandlerAsync("handler", null, new RecordingHandler());
+        await InsertUnreadableAsync(connection, "event-a", "tenant-a");
+        return (connection, reader);
+    }
+
+    private static Task InsertUnreadableAsync(SqliteConnection connection, string id, string tenant)
+        => ExecAsync(connection, $"""
+            INSERT INTO domain_events(event_id,event_type,schema_version,occurred_at,recorded_at_utc,tenant_id,originating_replica_id,idempotency_key,producer_cluster,payload_json)
+            VALUES ('{id}','Test.Happened',1,'not-a-time','2026-01-01T00:00:00Z','{tenant}','replica','{id}','test','{"{}"}');
+            """);
+
+    private static async Task ExecAsync(SqliteConnection connection, string sql)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     [Fact]
     public void Store_position_is_not_public_on_raw_events()
         => Assert.Null(typeof(RawDomainEvent).GetProperty("Position"));
+
+    // Fable P3-c: a page-by-position read is useless outside the package once
+    // Position is internal (CWE-200, as for P3-4).
+    [Fact]
+    public void Store_page_by_position_is_not_public()
+    {
+        Assert.Null(typeof(IDomainEventStore).GetMethod("GetAfterPositionAsync"));
+        Assert.Null(typeof(SqliteDomainEventStore).GetMethod("GetAfterPositionAsync"));
+    }
 
     [Fact]
     public async Task Failed_position_migration_rolls_back_so_a_later_append_commits()
