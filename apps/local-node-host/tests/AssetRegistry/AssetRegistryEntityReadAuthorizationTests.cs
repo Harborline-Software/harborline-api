@@ -687,12 +687,10 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(2, _authorizationRequests.Count);
         Assert.Equal(new[] { "re_00000000000000000000000001", "re_00000000000000000000000002" },
             _authorizationRequests.Select(request => request.Target.RecordId));
-        Assert.All(_authorizationRequests, request =>
-        {
-            Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", request.Tenant.Value);
-            Assert.Equal("selected-holder", request.Principal.Value);
-            Assert.Equal("records:read", request.Act.Operation.Value);
-        });
+        AssertSelectedRecordAuthorization(_authorizationRequests[0],
+            "re_00000000000000000000000001", "/records/re_00000000000000000000000001");
+        AssertSelectedRecordAuthorization(_authorizationRequests[1],
+            "re_00000000000000000000000002", "/records/re_00000000000000000000000002");
     }
 
     [Fact]
@@ -769,13 +767,18 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
 
     private void AssertSelectedRecordAuthorization()
     {
-        var request = Assert.Single(_authorizationRequests);
+        AssertSelectedRecordAuthorization(Assert.Single(_authorizationRequests),
+            "re_00000000000000000000000001", "/records/re_00000000000000000000000001");
+    }
+
+    private static void AssertSelectedRecordAuthorization(AuthorizationGateRequest request, string recordId, string scope)
+    {
         Assert.Equal("aaaa0000-0000-0000-0000-0000003580a1", request.Tenant.Value);
         Assert.Equal("selected-holder", request.Principal.Value);
         Assert.Equal("records:read", request.Act.Operation.Value);
         Assert.Equal("record", request.Target.RecordKind);
-        Assert.Equal("re_00000000000000000000000001", request.Target.RecordId);
-        Assert.Equal("/records/re_00000000000000000000000001", request.Target.Scope.Value);
+        Assert.Equal(recordId, request.Target.RecordId);
+        Assert.Equal(scope, request.Target.Scope.Value);
     }
 
     private async Task SeedSelectedTenantSubResourcesAsync()
