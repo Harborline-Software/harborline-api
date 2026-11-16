@@ -56,6 +56,68 @@ public sealed partial class WorkflowDefinitionRouteTests
         Assert.Equal("unresolved_role", detail.GetProperty("rule").GetString());
     }
 
+    // T-1234: two elements share an id, the first gated by an admissible role and the second by a refused one.
+    // The duplicate is refused before the role gate looks a gate up by id, so no refusal names either element.
+    [Theory(DisplayName = "C3 a duplicated transition or action id is refused as duplicate_id before the role gate, pointing at the whole document")]
+    [InlineData("transitions")]
+    [InlineData("actions")]
+    public async Task C3_DuplicatedGateId(string collection)
+    {
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", DuplicatedGateBody(collection, null, true));
+        await AssertC3(response, "workflow.admission.duplicate_id", "", "SecretRole",
+            "WorkflowDefinition refused at admission");
+        var raw = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("role_gate", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("Role-gated definition refused", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain($"/{collection}/", raw, StringComparison.Ordinal);
+    }
+
+    [Theory(DisplayName = "C3 control: the same gated body with a unique id and no refused role is admitted and stored")]
+    [InlineData("transitions", "t-reject")]
+    [InlineData("actions", "a-notify")]
+    public async Task C3_UniqueGateIdControl(string collection, string unique)
+    {
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", DuplicatedGateBody(collection, unique, false));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"{Base}/{Key}")).StatusCode);
+    }
+
+    [Theory(DisplayName = "C3 role-gate pointer is empty for an id two transitions share and literal for a unique one")]
+    [InlineData("t-approve", "")]
+    [InlineData("t-reject", "/transitions/2/requiredRoles")]
+    public void C3_GatePointer(string secondId, string pointer)
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        body["transitions"]![1]!["requiredRoles"] = new JsonArray("sys.platform-roles/administrator");
+        body["transitions"]![2]!["id"] = secondId;
+        body["transitions"]![2]!["requiredRoles"] = new JsonArray("tenant/SecretRole");
+        using var document = JsonDocument.Parse(body.ToJsonString());
+        Assert.Equal(pointer, Harborline.Api.LocalNodeHost.Health.WorkflowAuthoringC3Wire.Gate(
+            document.RootElement, $"transition:{secondId}", "unresolved_role"));
+    }
+
+    // secondId null duplicates the first gated element's id; refused puts tenant/SecretRole on the second element.
+    private static JsonNode DuplicatedGateBody(string collection, string? secondId, bool refused)
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        JsonNode first, second;
+        if (collection == "transitions")
+        {
+            first = body["transitions"]![1]!;
+            second = body["transitions"]![2]!;
+        }
+        else
+        {
+            first = body["actions"]![0]!;
+            second = first.DeepClone();
+            body["actions"]!.AsArray().Add(second);
+        }
+        first["requiredRoles"] = new JsonArray("sys.platform-roles/administrator");
+        second["id"] = secondId ?? first["id"]!.GetValue<string>();
+        if (refused) second["requiredRoles"] = new JsonArray("tenant/SecretRole");
+        return body;
+    }
+
     [Fact(DisplayName = "C3 provenance refusal uses the whole authored document and never publishes")]
     public async Task C3_Provenance()
     {
