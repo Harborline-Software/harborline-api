@@ -1928,6 +1928,52 @@ public sealed class AuthorizationWriteStageTests
         Assert.Equal("foreign", (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.PublisherPackageId);
     }
 
+    [Theory]
+    [InlineData("administrator-only")]
+    [InlineData("administrator-and-auditor")]
+    [InlineData("different-operation")]
+    public async Task AuthorizationSeed_RejectsNonSupersetStoredAuditOffer(string shape)
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("non-superset-tenant");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var recorded = new SealCapturingStore(configuration);
+        var writer = new AuthorizationDefinitionWriter(recorded, configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var founding = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
+        var roles = shape == "administrator-and-auditor" ? RoleBindingSet.From([new RoleReference("sys.platform-roles", "administrator"), new RoleReference("sys.platform-roles", "auditor")])
+            : RoleBindingSet.Of(new RoleReference("sys.platform-roles", "administrator"));
+        var stored = founding with { OfferedRoles = roles };
+        if (shape == "different-operation") stored = stored with { Operation = AuthorizationOperation.Parse("records:read") };
+        await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
+            AuthorizationConfigurationWriteKind.InstallDefinition, stored, null, 0, 0, at, null));
+        var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at), AuthorizationSeedProfile.Production));
+        Assert.Contains("conflicts with 'audit:read'", error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.Revision);
+        Assert.DoesNotContain(recorded.Sealed, write => write.Kind == AuthorizationConfigurationWriteKind.ReplaceDefinition);
+    }
+
+    [Fact]
+    public async Task SeedReplacementGuard_RejectsForeignPrincipalBeforeReadingState()
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("foreign-seed-principal");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var reads = new RecordingStateReader(configuration);
+        var writer = new AuthorizationDefinitionWriter(configuration, reads,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var definition = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
+        var authority = new AuthorizationWriteContext(new ActorId("foreign"), tenant, AdmittedInstant.FromRecordedAct(at));
+        await Assert.ThrowsAsync<ArgumentException>(async () => await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(definition with { Revision = 2 }), authority));
+        Assert.Equal(0, reads.ReadCount);
+    }
+
     [Fact]
     public async Task AuthorizationSeed_AdministratorInAnotherTenantSealsGlobalBootstrap()
     {

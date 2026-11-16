@@ -114,15 +114,9 @@ internal sealed class AccessGrantAuthorizationSeed(
             [Permission.MembersRevoke] = Roles(),
             [Permission.GrantPermissions] = Roles(),
             [Permission.OrgTransferOwnership] = Roles(),
-            // Ticket 217 / L628 -- the ONE row that offers the sealed platform Auditor role, and the
-            // whole of what Auditor holds. Every other read used to offer it (the read-verb heuristic in
-            // AuthorizationDefinitionAdmission), which is why Auditor could read contacts, the calendar,
-            // stories, comms, the ledger, spatial frames, scheduling, records and the provider config.
-            // Adding `auditor: true` to any other row is now refused at admission, not merely unreviewed.
-            // `nodeOperator: true` because ticket 217 also converts the audit-events route family to resolve
-            // at the gate, and on a desktop install its only caller is the solo founder -- without the offer
-            // the audit viewer is a blanket denial. Holding audit:read alongside everything else is not the
-            // Auditor's least privilege; it is the operator's, and the two are different reviewed rows.
+            // Ticket 217 / L628: this is the reviewed ceiling for audit:read, retaining Auditor so
+            // the platform binding can be admitted. The founding definition below offers only
+            // Administrator and the node operator, preserving the desktop founder's audit viewer.
             [Permission.AuditRead] = Roles(auditor: true, nodeOperator: true),
             // Ticket 212 slice 3 -- reading the trace of your OWN decision. `member: true` because 163's
             // "Why can I do this?" is a question every person asks about their own act, and the read
@@ -171,7 +165,7 @@ internal sealed class AccessGrantAuthorizationSeed(
         };
 
     /// <summary>
-    /// (L675) The reviewed offer this seed publishes for <paramref name="operation"/>, or null when the
+    /// (L675) The reviewed ceiling for <paramref name="operation"/>, or null when the
     /// platform defines no offer for it. This table is the hand-reviewed ceiling for a platform
     /// operation, so a pack that binds one may narrow it but never widen it — see
     /// <see cref="AuthorizationDefinitionAdmission.ExceedsReviewedCeiling"/>. Null means the operation is
@@ -452,9 +446,8 @@ internal sealed class AccessGrantAuthorizationSeed(
     {
         var roles = new List<RoleReference> { RoleReference.Administrator };
         if (member) roles.Add(MemberRole);
-        // `auditor` is true on exactly one row (Permission.AuditRead). AuthorizationDefinitionAdmission
-        // refuses a definition that offers Auditor for any other operation, so a second true here does
-        // not widen the Auditor -- it fails the seed.
+        // The reviewed audit:read ceiling includes Auditor; the founding definition removes it.
+        // Admission refuses an Auditor offer outside the platform audit:read definition.
         if (auditor) roles.Add(RoleReference.Auditor);
         if (nodeOperator) roles.Add(NodeOperatorRole);
         return RoleBindingSet.From(roles);

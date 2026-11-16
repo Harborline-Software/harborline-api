@@ -105,16 +105,9 @@ public sealed class AuthorizationDefinitionAdmission(IRoleVocabularyReader roles
             }
         }
 
-        // Ticket 217 / L628 -- the Auditor's exact least privilege. The sealed platform Auditor role may be
-        // offered by ONE definition and no other: the platform package's `audit:read`. Because that
-        // package's definition id is derived from the operation
-        // (AccessGrantAuthorizationSeed.DefinitionIdFor), naming both the operation and the publisher here
-        // admits exactly one definition, and this admission is the one every write passes through -- the
-        // platform seed, a pack install, and a publisher replacement alike -- so no pack and no tenant can
-        // widen what Auditor holds. It replaces the read-verb heuristic that used to REQUIRE Auditor on
-        // every read-classified operation, which made "read the audit" indistinguishable from "read the
-        // ledger" and left the least privilege neither exact nor reviewable. The converse is deliberately
-        // not enforced: dropping Auditor is a narrowing, and narrowing is always allowed.
+        // Ticket 217 / L628: an Auditor offer is admitted only for audit:read published by
+        // harborline.platform. This clause checks the publisher and operation, not an id or count.
+        // Dropping Auditor remains a permitted narrowing.
         if (definition.OfferedRoles.Roles.Contains(RoleReference.Auditor)
             && !(string.Equals(definition.Operation.Value, Permission.AuditRead, StringComparison.Ordinal)
                 && string.Equals(

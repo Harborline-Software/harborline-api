@@ -138,11 +138,26 @@ public sealed class AuditorSingleCapabilityTests
             PermissionAtom.Parse($"{Permission.AuditRead}@/"),
             RoleBindingSet.Of(RoleReference.Auditor));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var packError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             h.Writer.WriteAsync(new InstallAuthorizationDefinition(impostor)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", packError.Message);
         var accessGrant = impostor with { PublisherPackageId = "harborline.access-grant" };
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var seedError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             h.Writer.WriteAsync(new InstallAuthorizationDefinition(accessGrant)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", seedError.Message);
+    }
+
+    [Fact]
+    public async Task Platform_publisher_cannot_offer_auditor_on_records_read()
+    {
+        await using var h = await Harness.CreateAsync();
+        var definition = new AuthorizationCapabilityDefinition(
+            new AuthorizationCapabilityDefinitionId(Guid.Parse("d1d1d1d1-0000-0000-0000-000000000003")),
+            "harborline.platform", 1, AuthorizationOperation.Parse("records:read"),
+            PermissionAtom.Parse("records:read@/"), RoleBindingSet.Of(RoleReference.Auditor));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Writer.WriteAsync(new InstallAuthorizationDefinition(definition)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", error.Message);
     }
 
     [Fact(DisplayName = "Widening: a tenant binding revision narrows the Auditor away and cannot add it back")]

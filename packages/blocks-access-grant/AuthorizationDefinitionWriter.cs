@@ -165,15 +165,20 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
             .ConfigureAwait(false);
 
     /// <summary>
-    /// Installs one checked-in additive system definition through the ordinary admitted write stages and
-    /// ordinary configuration commit. This is deliberately not the founding bootstrap path: a package
-    /// revision remains installable after Administrator history exists.
+    /// Installs a checked-in additive system definition or replaces a founding definition with its
+    /// compiled offer at the next revision, through ordinary admission and configuration commit.
+    /// This upgrade path remains available after Administrator history seals founding bootstrap.
     /// </summary>
     internal async ValueTask<AuthorizationConfigurationWriteResult> WriteAdditiveSeedRevisionAsync(
         AuthorizationConfigurationCommand command,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
     {
+        if (authority.Principal != AccessGrantAuthorizationSeed.AdditiveSeedPrincipal)
+        {
+            throw new ArgumentException("Only the server-derived authorization seed may write a seed revision.", nameof(authority));
+        }
+
         var validInstall = command is InstallAuthorizationDefinition install
             && install.DeclaringTenantId is null
             && AccessGrantAuthorizationSeed.IsAdditiveSystemDefinition(install.Definition);
@@ -182,10 +187,10 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         var validReplacement = replacement is not null && replacement.DeclaringTenantId is null && current is not null
             && AccessGrantAuthorizationSeed.FoundingDefinitions.Any(expected =>
                 replacement.Definition == expected with { Revision = current.Revision + 1 });
-        if (authority.Principal != AccessGrantAuthorizationSeed.AdditiveSeedPrincipal || !(validInstall || validReplacement))
+        if (!(validInstall || validReplacement))
         {
             throw new ArgumentException(
-                "Only the server-derived authorization seed may install a checked-in additive system definition.",
+                "A seed revision must install a checked-in additive definition or replace a compiled founding definition at the next revision.",
                 nameof(command));
         }
 
@@ -351,8 +356,8 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
             }
             if (additiveSeedRevision)
             {
-                // WriteAdditiveSeedRevisionAsync already proved the exact checked-in definition and the
-                // server-derived seed principal. The remaining five stages are identical to an ordinary write,
+                // WriteAdditiveSeedRevisionAsync proved the server-derived principal and the permitted
+                // additive install or compiled founding replacement. The remaining five stages are identical to an ordinary write,
                 // including definition admission and the non-bootstrap CommitAsync path.
                 return;
             }
