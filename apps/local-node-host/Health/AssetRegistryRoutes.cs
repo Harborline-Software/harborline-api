@@ -642,7 +642,7 @@ public static class AssetRegistryRoutes
                 ReadEntityRequest.AuthorizationCapability, record.Value, decisions, ct).ConfigureAwait(false);
             if (allowed) readable.Add(record);
         }
-        return readable;
+        return readable.AsReadOnly();
     }
 
     private static async ValueTask<RegistryEntityId?> ReadableAsync(

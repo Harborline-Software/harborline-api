@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -375,6 +377,91 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             Assert.Equal(HttpStatusCode.Unauthorized, pointRead.StatusCode);
         Assert.Empty(_repository.ReadTenants);
         _lanDevice = false;
+    }
+
+    [Fact]
+    public async Task Readable_related_ids_cannot_be_mutated_after_the_decision()
+    {
+        var method = typeof(AssetRegistryRoutes).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
+            .Single(m => m.Name == "ReadableAsync" && m.GetParameters()[3].ParameterType == typeof(IReadOnlyList<RegistryEntityId>));
+        var allowed = new RegistryEntityId("re_00000000000000000000000002");
+        var refused = new RegistryEntityId("re_00000000000000000000000004");
+        var decisions = new Dictionary<string, bool> { [allowed.Value] = true, [refused.Value] = false };
+        var pending = (ValueTask<IReadOnlyList<RegistryEntityId>>)method.Invoke(null,
+            [new Microsoft.AspNetCore.Http.DefaultHttpContext(), default(AuthorizationWriteContext), decisions,
+                new[] { allowed, refused }, CancellationToken.None])!;
+        var result = await pending;
+        Assert.Equal("re_00000000000000000000000002", Assert.Single(result).Value);
+        Assert.Throws<NotSupportedException>(() => ((IList<RegistryEntityId>)result).Add(refused));
+    }
+
+    [Fact]
+    public async Task Tree_query_with_refused_child_id_never_loads_or_projects_it()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000003580a1");
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var hidden = new RegistryEntityId("re_00000000000000000000000004");
+        await _repository.UpsertAsync(new RegistryEntity
+        {
+            Id = hidden, TenantId = tenant, Type = new EntityTypeId(UnitType), DisplayName = "Hidden child", CreatedAt = at,
+        }, at);
+        await _edges.AddAsync(new TypedRelationship
+        {
+            Id = new TypedRelationshipId("query-hidden-edge"), TenantId = tenant, Kind = RelationshipKind.Contains,
+            From = new RegistryEntityId("re_00000000000000000000000001"), To = hidden, EffectiveFrom = at,
+        });
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000002"));
+        _repository.ReadIds.Clear();
+        using var response = await _client.GetAsync($"{AssetBase}/entities/re_00000000000000000000000001/tree?asOf=re_00000000000000000000000004");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(_authorizationRequests, request => request.Target.RecordId == "re_00000000000000000000000004");
+        Assert.DoesNotContain("re_00000000000000000000000004", _repository.ReadIds);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("re_00000000000000000000000004", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hidden child", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Refused_child_does_not_change_tree_body_or_headers()
+    {
+        await SeedSelectedTenantSubResourcesAsync();
+        _grantScopes.Add(ScopeExpression.Parse("/records/re_00000000000000000000000002"));
+        const string route = AssetBase + "/entities/re_00000000000000000000000001/tree?asOf=2026-01-02T00%3A00%3A00Z";
+        using var before = await _client.GetAsync(route);
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+        var beforeBody = JsonNode.Parse(await before.Content.ReadAsStringAsync())!.AsObject();
+        Assert.Equal("re_00000000000000000000000002", Assert.Single(beforeBody["children"]!.AsArray())!["id"]!.GetValue<string>());
+        beforeBody["auditId"] = null;
+        beforeBody["correlationId"] = null;
+
+        var tenant = new TenantId("aaaa0000-0000-0000-0000-0000003580a1");
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var hidden = new RegistryEntityId("re_00000000000000000000000004");
+        await _repository.UpsertAsync(new RegistryEntity
+        {
+            Id = hidden, TenantId = tenant, Type = new EntityTypeId(UnitType), DisplayName = "Hidden child", CreatedAt = at,
+        }, at);
+        await _edges.AddAsync(new TypedRelationship
+        {
+            Id = new TypedRelationshipId("differential-hidden-edge"), TenantId = tenant, Kind = RelationshipKind.Contains,
+            From = new RegistryEntityId("re_00000000000000000000000001"), To = hidden, EffectiveFrom = at,
+        });
+        using var after = await _client.GetAsync(route);
+        Assert.Equal(HttpStatusCode.OK, after.StatusCode);
+        Assert.Contains(_authorizationRequests, request => request.Target.RecordId == "re_00000000000000000000000004");
+        var afterBody = JsonNode.Parse(await after.Content.ReadAsStringAsync())!.AsObject();
+        afterBody["auditId"] = null;
+        afterBody["correlationId"] = null;
+        Assert.Equal(beforeBody.ToJsonString(), afterBody.ToJsonString());
+
+        static string[] Headers(HttpResponseMessage response) => response.Headers.Concat(response.Content.Headers)
+            .Where(h => !h.Key.Equals("Date", StringComparison.OrdinalIgnoreCase)
+                && !h.Key.Equals("X-Harborline-Audit-Id", StringComparison.OrdinalIgnoreCase)
+                && !h.Key.Equals("X-Harborline-Audit-Correlation", StringComparison.OrdinalIgnoreCase))
+            .Select(h => h.Key.ToLowerInvariant() + ":" + string.Join(",", h.Value))
+            .Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(Headers(before), Headers(after));
     }
 
     [Fact]
@@ -762,9 +849,11 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     private sealed class ReadTrackingRepository(IRegistryEntityRepository inner) : IRegistryEntityRepository
     {
         public List<TenantId> ReadTenants { get; } = [];
+        public List<string> ReadIds { get; } = [];
         public Task<RegistryEntity?> GetByIdAsync(TenantId tenant, RegistryEntityId id, CancellationToken cancellationToken = default)
         {
             ReadTenants.Add(tenant);
+            ReadIds.Add(id.Value);
             return inner.GetByIdAsync(tenant, id, cancellationToken);
         }
         public Task<IReadOnlyList<RegistryEntity>> ListByTenantAsync(TenantId tenant, bool includeRetired = false, CancellationToken cancellationToken = default)
