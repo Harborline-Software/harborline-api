@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Time;
 
@@ -28,16 +30,26 @@ public sealed class SqliteEventReader : IEventReader
     private readonly SqliteConnection _connection;
     private readonly IDomainEventStore _store;
     private readonly TimeProvider _clock;
+    private readonly ILogger<SqliteEventReader> _logger;
     private readonly ConcurrentDictionary<string, HandlerRegistration> _handlers = new();
 
     public SqliteEventReader(
         SqliteConnection connection,
         IDomainEventStore store,
-        TimeProvider clock)
+        TimeProvider clock) : this(connection, store, clock, null)
+    {
+    }
+
+    public SqliteEventReader(
+        SqliteConnection connection,
+        IDomainEventStore store,
+        TimeProvider clock,
+        ILogger<SqliteEventReader>? logger)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _store      = store      ?? throw new ArgumentNullException(nameof(store));
         _clock      = clock ?? throw new ArgumentNullException(nameof(clock));
+        _logger     = logger ?? NullLogger<SqliteEventReader>.Instance;
     }
 
     /// <inheritdoc />
@@ -257,6 +269,8 @@ public sealed class SqliteEventReader : IEventReader
         cmd.Parameters.AddWithValue("$next_retry_at",
             (object?)nextRetry?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (nextRetry is null)
+            _logger.LogError(ex, "Domain event handler {HandlerId} for tenant {TenantId} is held on event {EventId} after {Attempt} failures.", handlerId, tenantId.Value, evt.EventId, attempt);
     }
 
     private async Task<int> GetAttemptCountAsync(string handlerId, TenantId tenantId, string eventId, CancellationToken ct)

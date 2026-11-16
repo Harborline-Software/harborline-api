@@ -24,6 +24,7 @@ public sealed class EventDispatcherHost : BackgroundService
     // Tenants whose drain is failing, keyed by tenant id; an entry leaves on
     // recovery. ponytail: not thread-safe; ExecuteAsync drains from one loop.
     private readonly Dictionary<string, (Type Type, int Polls)> _failing = new(StringComparer.Ordinal);
+    private (Type Type, int Polls)? _scanFailure;
 
     public EventDispatcherHost(
         SqliteEventReader reader,
@@ -78,6 +79,11 @@ public sealed class EventDispatcherHost : BackgroundService
             try
             {
                 await DrainOnceAsync(stoppingToken).ConfigureAwait(false);
+                if (_scanFailure is { } ended)
+                {
+                    _scanFailure = null;
+                    _logger.LogInformation("Domain event tenant scan recovered after {FailedPolls} failed polls.", ended.Polls);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -86,10 +92,16 @@ public sealed class EventDispatcherHost : BackgroundService
             }
             catch (Exception ex)
             {
-                // The drain itself failed (not a handler failure — those are
-                // caught inside DrainOnceAsync + recorded to
-                // event_handler_failures). Log + sleep to avoid hot-looping.
-                _logger.LogError(ex, "Domain event drain failed; it retries next interval.");
+                if (_scanFailure is { } episode && episode.Type == ex.GetType())
+                {
+                    _scanFailure = (episode.Type, episode.Polls + 1);
+                    _logger.LogDebug("Domain event tenant scan still failing with {ExceptionType} ({FailedPolls} polls).", episode.Type.Name, episode.Polls + 1);
+                }
+                else
+                {
+                    _scanFailure = (ex.GetType(), 1);
+                    _logger.LogError(ex, "Domain event drain failed; it retries next interval.");
+                }
             }
 
             try

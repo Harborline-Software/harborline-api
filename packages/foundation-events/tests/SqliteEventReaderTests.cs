@@ -167,6 +167,30 @@ public sealed class SqliteEventReaderTests
     }
 
     [Fact]
+    public async Task EventDispatcherHost_eighth_failure_logs_hold_once_at_error()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var logger = new ListLogger();
+        var reader = new SqliteEventReader(connection, store, clock, logger);
+        await reader.RegisterHandlerAsync("held", null, new AlwaysFailHandler());
+        await AppendAsync(store, clock, "event-a", "tenant-a");
+        var host = new EventDispatcherHost(reader, logger);
+        foreach (var seconds in new[] { 0, 30, 120, 600, 3600, 21600, 86400, 259200, 86400 })
+        {
+            clock.Now = clock.Now.AddSeconds(seconds);
+            await host.DrainOnceAsync();
+        }
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Contains("held", entry.Message);
+        Assert.Contains("tenant-a", entry.Message);
+    }
+
+    [Fact]
     public async Task Eighth_failure_holds_handler_visibly_and_blocks_later_events()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -306,6 +330,57 @@ public sealed class SqliteEventReaderTests
     // Failure episodes (CWE-779; OWASP Logging Cheat Sheet): one Error with the
     // exception when a tenant's drain starts failing, Debug while it repeats,
     // one Information on recovery.
+    [Fact]
+    public async Task EventDispatcherHost_scan_failure_logs_one_error_across_polls()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        var reader = new SqliteEventReader(connection, store, clock);
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logger = new ListLogger { OnLog = count => { if (count == 3) observed.TrySetResult(); } };
+        using var host = new EventDispatcherHost(reader, logger, TimeSpan.FromMilliseconds(10));
+        await host.StartAsync(CancellationToken.None);
+        await observed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.StopAsync(CancellationToken.None);
+        Assert.Equal(new[] { LogLevel.Error, LogLevel.Debug, LogLevel.Debug }, logger.Entries.Select(entry => entry.Level));
+    }
+
+    [Fact]
+    public async Task EventDispatcherHost_scan_logs_changed_exception_and_recovery()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        var reader = new SqliteEventReader(connection, store, clock);
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logger = new ListLogger
+        {
+            OnLog = count =>
+            {
+                if (count == 2) connection.Close();
+                if (count == 3)
+                {
+                    connection.Open();
+                    using var command = connection.CreateCommand();
+                    command.CommandText = "CREATE TABLE domain_events (tenant_id TEXT); CREATE INDEX idx_domain_events_tenant_eventid ON domain_events (tenant_id);";
+                    command.ExecuteNonQuery();
+                }
+                if (count == 4) observed.TrySetResult();
+            }
+        };
+        using var host = new EventDispatcherHost(reader, logger, TimeSpan.FromMilliseconds(10));
+        await host.StartAsync(CancellationToken.None);
+        await observed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.StopAsync(CancellationToken.None);
+        Assert.Equal(new[] { LogLevel.Error, LogLevel.Debug, LogLevel.Error, LogLevel.Information }, logger.Entries.Select(entry => entry.Level));
+        Assert.IsType<SqliteException>(logger.Entries[0].Exception);
+        Assert.IsType<InvalidOperationException>(logger.Entries[2].Exception);
+        Assert.Contains("1 failed polls", logger.Entries[3].Message);
+    }
+
     [Fact]
     public async Task Two_failing_polls_log_one_error()
     {
@@ -459,13 +534,17 @@ public sealed class SqliteEventReaderTests
         }
     }
 
-    private sealed class ListLogger : ILogger<EventDispatcherHost>
+    private sealed class ListLogger : ILogger<EventDispatcherHost>, ILogger<SqliteEventReader>
     {
+        public Action<int>? OnLog { get; init; }
         public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-            => Entries.Add((logLevel, exception, formatter(state, exception)));
+        {
+            Entries.Add((logLevel, exception, formatter(state, exception)));
+            OnLog?.Invoke(Entries.Count);
+        }
     }
 
     [Fact]
