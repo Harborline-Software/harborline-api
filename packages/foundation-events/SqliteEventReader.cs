@@ -141,7 +141,7 @@ public sealed class SqliteEventReader : IEventReader
                     WHERE e.tenant_id > tenants.tenant_id)
             FROM tenants WHERE tenants.tenant_id IS NOT NULL
         )
-        SELECT tenant_id FROM tenants WHERE tenant_id IS NOT NULL;
+        SELECT tenant_id FROM tenants WHERE tenant_id IS NOT NULL ORDER BY tenant_id;
         """;
 
     internal async Task<IReadOnlyList<TenantId>> GetTenantsAsync(CancellationToken ct)

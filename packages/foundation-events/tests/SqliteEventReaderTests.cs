@@ -51,6 +51,8 @@ public sealed class SqliteEventReaderTests
         while (await rows.ReadAsync()) plan.Add(rows.GetString(3));
         Assert.Contains(plan, detail => detail.Contains("SEARCH domain_events", StringComparison.Ordinal)
             && detail.Contains("idx_domain_events_tenant_eventid", StringComparison.Ordinal));
+        // The recursive step seeks past the previous tenant; without it the step walks the whole index.
+        Assert.Contains(plan, detail => detail.Contains("idx_domain_events_tenant_eventid (tenant_id>?)", StringComparison.Ordinal));
         Assert.DoesNotContain(plan, detail => detail.Contains("SCAN domain_events", StringComparison.Ordinal));
     }
 
