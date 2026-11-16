@@ -430,10 +430,9 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         const string route = AssetBase + "/entities/re_00000000000000000000000001/tree?asOf=2026-01-02T00%3A00%3A00Z";
         using var before = await _client.GetAsync(route);
         Assert.Equal(HttpStatusCode.OK, before.StatusCode);
-        var beforeBody = JsonNode.Parse(await before.Content.ReadAsStringAsync())!.AsObject();
-        Assert.Equal("re_00000000000000000000000002", Assert.Single(beforeBody["children"]!.AsArray())!["id"]!.GetValue<string>());
-        beforeBody["auditId"] = null;
-        beforeBody["correlationId"] = null;
+        var beforeBody = await before.Content.ReadAsStringAsync();
+        var parsed = JsonNode.Parse(beforeBody)!.AsObject();
+        Assert.Equal("re_00000000000000000000000002", Assert.Single(parsed["children"]!.AsArray())!["id"]!.GetValue<string>());
 
         var tenant = new TenantId("aaaa0000-0000-0000-0000-0000003580a1");
         var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
@@ -450,16 +449,27 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         using var after = await _client.GetAsync(route);
         Assert.Equal(HttpStatusCode.OK, after.StatusCode);
         Assert.Contains(_authorizationRequests, request => request.Target.RecordId == "re_00000000000000000000000004");
-        var afterBody = JsonNode.Parse(await after.Content.ReadAsStringAsync())!.AsObject();
-        afterBody["auditId"] = null;
-        afterBody["correlationId"] = null;
-        Assert.Equal(beforeBody.ToJsonString(), afterBody.ToJsonString());
+        var afterBody = await after.Content.ReadAsStringAsync();
+        static string NormalizeBody(string body)
+        {
+            var parsedBody = JsonNode.Parse(body)!.AsObject();
+            foreach (var field in new[] { "auditId", "correlationId" })
+            {
+                if (!parsedBody.ContainsKey(field)) continue;
+                var value = parsedBody[field]?.ToJsonString() ?? "null";
+                var original = "\"" + field + "\":" + value;
+                Assert.Contains(original, body, StringComparison.Ordinal);
+                body = body.Replace(original, "\"" + field + "\":null", StringComparison.Ordinal);
+            }
+            return body;
+        }
+        Assert.Equal(NormalizeBody(beforeBody), NormalizeBody(afterBody));
 
         static string[] Headers(HttpResponseMessage response) => response.Headers.Concat(response.Content.Headers)
             .Where(h => !h.Key.Equals("Date", StringComparison.OrdinalIgnoreCase)
                 && !h.Key.Equals("X-Harborline-Audit-Id", StringComparison.OrdinalIgnoreCase)
                 && !h.Key.Equals("X-Harborline-Audit-Correlation", StringComparison.OrdinalIgnoreCase))
-            .Select(h => h.Key.ToLowerInvariant() + ":" + string.Join(",", h.Value))
+            .Select(h => h.Key.ToLowerInvariant() + ":" + JsonSerializer.Serialize(h.Value.ToArray()))
             .Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(Headers(before), Headers(after));
     }
