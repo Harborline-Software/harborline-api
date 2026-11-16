@@ -366,7 +366,7 @@ public sealed class NodeRecurringInvoiceCrashResumeTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(false, "RRULE FREQ 'HOURLY' is not supported.", "RecurrenceRule has an unsupported FREQ value.")]
+    [InlineData(false, "RRULE FREQ 'HOURLY' is not supported by the bounded subset (DAILY, WEEKLY, MONTHLY or YEARLY).", "RecurrenceRule has an unsupported FREQ value.")]
     [InlineData(true, "RRULE component 'COUNT' value 'x' is invalid.", "RecurrenceRule contains a malformed value.")]
     [InlineData(true, "RRULE component 'COUNT' value 'x' is not a positive integer. trailing", "RecurrenceRule contains a malformed value.")]
     [InlineData(true, "unanchored INTERVAL bad value", "RecurrenceRule contains a malformed value.")]
