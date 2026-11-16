@@ -31,6 +31,56 @@ public sealed class SqliteEventReaderTests
         Assert.DoesNotContain(plan, detail => detail.Contains("USE TEMP B-TREE", StringComparison.Ordinal));
     }
 
+    // Codex P2 (r4578966615): the tick's tenant list must cost one index seek
+    // per tenant, not a pass over event history (CWE-1067; SQLite min/max
+    // optimisation, sqlite.org/optoverview.html#minmax).
+    [Fact]
+    public async Task Tenant_scan_seeks_tenant_index_instead_of_scanning_events()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var store = new SqliteDomainEventStore(connection, new TestClock());
+        await store.ApplyMigrationsAsync();
+        var query = (string)typeof(SqliteEventReader)
+            .GetField("TenantScanSql", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .GetRawConstantValue()!;
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "EXPLAIN QUERY PLAN " + query;
+        var plan = new List<string>();
+        await using var rows = await cmd.ExecuteReaderAsync();
+        while (await rows.ReadAsync()) plan.Add(rows.GetString(3));
+        Assert.Contains(plan, detail => detail.Contains("SEARCH domain_events", StringComparison.Ordinal)
+            && detail.Contains("idx_domain_events_tenant_eventid", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan, detail => detail.Contains("SCAN domain_events", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Tenant_scan_returns_each_interleaved_tenant_once_in_order()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        foreach (var (id, tenant) in new[] { ("e1", "tenant-c"), ("e2", "tenant-a"), ("e3", "tenant-b"), ("e4", "tenant-a"), ("e5", "tenant-c"), ("e6", "tenant-b") })
+            await AppendAsync(store, clock, id, tenant);
+        var reader = new SqliteEventReader(connection, store, clock);
+        var tenants = await reader.GetTenantsAsync(CancellationToken.None);
+        Assert.Equal(new[] { "tenant-a", "tenant-b", "tenant-c" }, tenants.Select(t => t.Value));
+    }
+
+    [Fact]
+    public async Task Tenant_scan_of_no_events_is_empty()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var clock = new TestClock();
+        var store = new SqliteDomainEventStore(connection, clock);
+        await store.ApplyMigrationsAsync();
+        var reader = new SqliteEventReader(connection, store, clock);
+        Assert.Empty(await reader.GetTenantsAsync(CancellationToken.None));
+    }
+
     [Fact]
     public async Task Migration_indexes_existing_positions_per_tenant_and_new_appends()
     {

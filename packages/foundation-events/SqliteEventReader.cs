@@ -130,10 +130,24 @@ public sealed class SqliteEventReader : IEventReader
         return totalProcessed;
     }
 
+    // Loose index scan: each step is one MIN() seek on the tenant index, so
+    // the cost grows with tenants, not event history. UNION (not UNION ALL)
+    // stops the recursion if a step ever repeats a tenant.
+    private const string TenantScanSql = """
+        WITH RECURSIVE tenants(tenant_id) AS (
+            SELECT MIN(tenant_id) FROM domain_events INDEXED BY idx_domain_events_tenant_eventid
+            UNION
+            SELECT (SELECT MIN(e.tenant_id) FROM domain_events e INDEXED BY idx_domain_events_tenant_eventid
+                    WHERE e.tenant_id > tenants.tenant_id)
+            FROM tenants WHERE tenants.tenant_id IS NOT NULL
+        )
+        SELECT tenant_id FROM tenants WHERE tenant_id IS NOT NULL;
+        """;
+
     internal async Task<IReadOnlyList<TenantId>> GetTenantsAsync(CancellationToken ct)
     {
         await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT DISTINCT tenant_id FROM domain_events ORDER BY tenant_id";
+        cmd.CommandText = TenantScanSql;
         var tenants = new List<TenantId>();
         await using var rows = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await rows.ReadAsync(ct).ConfigureAwait(false))
