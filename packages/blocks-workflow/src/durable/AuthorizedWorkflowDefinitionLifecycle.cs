@@ -713,6 +713,12 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
             protected override async ValueTask<RegisterSealed> ValidateAsync(
                 RegisterBound bound, RegisterSealed mutation, CancellationToken ct)
             {
+                // T-1234: the role gate looks gates up by id, so a repeated id is refused first, with every
+                // admission violation, before any gate can be resolved against the wrong element.
+                var admitted = backend.admission.Validate(model);
+                if (admitted is not null
+                    && admitted.Violations.Any(v => v.Code == WorkflowAdmissionCodes.DuplicateId))
+                    throw new WorkflowAdmissionException(admitted);
                 await validate(model, ct).ConfigureAwait(false);
                 backend.admission.EnsureAdmissible(model);
                 if (bound.Stored)
