@@ -1,4 +1,3 @@
-using Harborline.Foundation.Scheduling.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,6 +10,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Foundation.Scheduling.Models;
 
 using Xunit;
 

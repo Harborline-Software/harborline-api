@@ -1,5 +1,3 @@
-using Harborline.Foundation.Scheduling.Models;
-using Harborline.Foundation.Scheduling.Services;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -20,6 +18,8 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Foundation.Scheduling.Models;
+using Harborline.Foundation.Scheduling.Services;
 
 using Xunit;
 

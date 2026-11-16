@@ -1,7 +1,7 @@
-using Harborline.Foundation.Scheduling.Models;
 using System.Text.Json;
 
 using Harborline.Blocks.Calendar.Models;
+using Harborline.Foundation.Scheduling.Models;
 
 namespace Harborline.Api.LocalNodeHost.Data.Scheduling;
 

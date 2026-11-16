@@ -1,5 +1,3 @@
-using Harborline.Foundation.Scheduling.Models;
-using Harborline.Foundation.Scheduling.Services;
 using System.Globalization;
 using System.Text.Json.Serialization;
 
@@ -13,6 +11,8 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Foundation.Scheduling.Models;
+using Harborline.Foundation.Scheduling.Services;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 

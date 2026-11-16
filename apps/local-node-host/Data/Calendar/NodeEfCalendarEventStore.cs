@@ -1,4 +1,3 @@
-using Harborline.Foundation.Scheduling.Models;
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Blocks.Calendar.Models;
 using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Foundation.Scheduling.Models;
 
 namespace Harborline.Api.LocalNodeHost.Data.Calendar;
 
