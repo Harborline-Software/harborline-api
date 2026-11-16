@@ -365,16 +365,13 @@ public static class AssetRegistryRoutes
                 return Results.NotFound();
 
             var now = new Instant(actAuthority.At);
-            var container = await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
-            var path = await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
+            // T-1080 A6: a relationship read exists only as the argument of ReadableAsync, so no undecided
+            // related id has a name to project.
             var decisions = new Dictionary<string, bool>(StringComparer.Ordinal) { [id] = true };
-            if (container is { } parent && !await RequestAuthorization.AllowedAsync(http, actAuthority,
-                    ReadEntityRequest.AuthorizationCapability, parent.Value, decisions, ct).ConfigureAwait(false))
-                container = null;
-            var visiblePath = new List<RegistryEntityId>(path.Count);
-            foreach (var ancestor in path)
-                if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
-                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);
+            var container = await ReadableAsync(http, actAuthority, decisions,
+                await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            var visiblePath = await ReadableAsync(http, actAuthority, decisions,
+                await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
             var values = boundRecords is null
                 ? null
                 : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
@@ -531,19 +528,15 @@ public static class AssetRegistryRoutes
 
             // T-690: one authority, one clock read; an absent or unparseable asOf is the guard's instant.
             var at = ParseInstant(asOf, new Instant(actAuthority.At));
-            var childIds = await edges.GetContentsAsAtAsync(tenant, container, at, ct).ConfigureAwait(false);
-            var path = await edges.GetContainmentPathAsAtAsync(tenant, container, at, ct).ConfigureAwait(false);
+            var decisions = new Dictionary<string, bool>(StringComparer.Ordinal) { [id] = true };
+            var childIds = await ReadableAsync(http, actAuthority, decisions,
+                await edges.GetContentsAsAtAsync(tenant, container, at, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            var visiblePath = await ReadableAsync(http, actAuthority, decisions,
+                await edges.GetContainmentPathAsAtAsync(tenant, container, at, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
 
             var children = new List<EntityWire>(childIds.Count);
-            var decisions = new Dictionary<string, bool>(StringComparer.Ordinal) { [id] = true };
-            var visiblePath = new List<RegistryEntityId>(path.Count);
-            foreach (var ancestor in path)
-                if (await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
-                        ancestor.Value, decisions, ct).ConfigureAwait(false)) visiblePath.Add(ancestor);
             foreach (var childId in childIds)
             {
-                if (!await RequestAuthorization.AllowedAsync(http, actAuthority, ReadEntityRequest.AuthorizationCapability,
-                        childId.Value, decisions, ct).ConfigureAwait(false)) continue;
                 var child = await entities.GetByIdAsync(tenant, childId, ct).ConfigureAwait(false);
                 if (child is not null)
                     children.Add(ToEntityWire(child));
@@ -632,6 +625,34 @@ public static class AssetRegistryRoutes
             return Results.Ok(new SubmissionListResponse(entityId.Value, rows.Select(ToSubmissionWire).ToArray(),
                 AuditId: receipt, CorrelationId: receipt is not null ? accepted?.Request.CorrelationId : null));
         });
+    }
+
+    /// <summary>
+    /// T-1080: the one way a related record (child, ancestor, container) reaches a projection. Each id is
+    /// decided at record grain, fail closed, and only the ones the caller may open come back.
+    /// </summary>
+    private static async ValueTask<IReadOnlyList<RegistryEntityId>> ReadableAsync(
+        HttpContext http, AuthorizationWriteContext actAuthority, Dictionary<string, bool> decisions,
+        IReadOnlyList<RegistryEntityId> related, CancellationToken ct)
+    {
+        var readable = new List<RegistryEntityId>(related.Count);
+        foreach (var record in related)
+        {
+            var allowed = await RequestAuthorization.AllowedAsync(http, actAuthority,
+                ReadEntityRequest.AuthorizationCapability, record.Value, decisions, ct).ConfigureAwait(false);
+            if (allowed) readable.Add(record);
+        }
+        return readable;
+    }
+
+    private static async ValueTask<RegistryEntityId?> ReadableAsync(
+        HttpContext http, AuthorizationWriteContext actAuthority, Dictionary<string, bool> decisions,
+        RegistryEntityId? related, CancellationToken ct)
+    {
+        if (related is null) return null;
+        var allowed = await RequestAuthorization.AllowedAsync(http, actAuthority,
+            ReadEntityRequest.AuthorizationCapability, related.Value.Value, decisions, ct).ConfigureAwait(false);
+        return allowed ? related : null;
     }
 
     private static async ValueTask<Guid?> RecordSubresourceReadAsync(

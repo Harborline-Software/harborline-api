@@ -461,6 +461,91 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(1, _authorizationRequests.Count(x => x.Target.RecordId == target.Value));
     }
 
+    [Fact(DisplayName = "holds T-1080.A6: with every related record refused, no GET route shows one")]
+    public async Task No_read_route_shows_a_related_record_the_caller_cannot_open()
+    {
+        // Oracle: the literal ids and names seeded here, and the T-1080 A2/A3 property that a refused
+        // related record is absent from every response. The routes come from the host's endpoint data
+        // sources, so a new GET route is driven without a hand list.
+        const string addressed = "re_00000000000000000000000010";
+        (string Id, string Name)[] related =
+        [
+            ("re_00000000000000000000000011", "Related parent"),
+            ("re_00000000000000000000000012", "Related grandparent"),
+            ("re_00000000000000000000000013", "Related child one"),
+            ("re_00000000000000000000000014", "Related child two"),
+            ("re_00000000000000000000000015", "Related sibling"),
+            ("re_00000000000000000000000016", "Related grandchild"),
+            ("re_00000000000000000000000017", "Related location"),
+            ("re_00000000000000000000000018", "Related occupant"),
+            ("re_00000000000000000000000019", "Related system"),
+            ("re_00000000000000000000000020", "Related part"),
+        ];
+        var at = new Instant(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        foreach (var (id, name) in related.Append((addressed, "Addressed unit")))
+            await _repository.UpsertAsync(new RegistryEntity
+            {
+                Id = new RegistryEntityId(id), TenantId = _tenant, Type = new EntityTypeId(UnitType),
+                DisplayName = name, CreatedAt = at,
+            }, at);
+        // Every relationship kind, in both directions from the addressed record.
+        (string From, string To, RelationshipKind Kind)[] seeded =
+        [
+            ("re_00000000000000000000000012", "re_00000000000000000000000011", RelationshipKind.Contains),
+            ("re_00000000000000000000000011", addressed, RelationshipKind.Contains),
+            ("re_00000000000000000000000011", "re_00000000000000000000000015", RelationshipKind.Contains),
+            (addressed, "re_00000000000000000000000013", RelationshipKind.Contains),
+            (addressed, "re_00000000000000000000000014", RelationshipKind.Contains),
+            ("re_00000000000000000000000013", "re_00000000000000000000000016", RelationshipKind.Contains),
+            (addressed, "re_00000000000000000000000017", RelationshipKind.LocatedAt),
+            ("re_00000000000000000000000018", addressed, RelationshipKind.LocatedAt),
+            (addressed, "re_00000000000000000000000019", RelationshipKind.PartOfSystem),
+            ("re_00000000000000000000000020", addressed, RelationshipKind.PartOfSystem),
+        ];
+        foreach (var (from, to, kind) in seeded)
+            await _edges.AddAsync(new TypedRelationship
+            {
+                Id = new TypedRelationshipId($"fence-{from}-{to}"), TenantId = _tenant, Kind = kind,
+                From = new RegistryEntityId(from), To = new RegistryEntityId(to), EffectiveFrom = at,
+            });
+        _grantScopes.Add(ScopeExpression.Parse("/records/" + addressed));
+
+        var routes = ((Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)_app).DataSources
+            .SelectMany(source => source.Endpoints).OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Where(route => route.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()
+                ?.HttpMethods.Contains("GET") == true)
+            .ToArray();
+        var statuses = new Dictionary<string, HttpStatusCode>(StringComparer.Ordinal);
+        foreach (var route in routes)
+        {
+            // A route this fence cannot address fails here; it is never skipped.
+            var path = route.RoutePattern.RawText!.Replace("{id}", addressed, StringComparison.Ordinal);
+            Assert.DoesNotContain("{", path, StringComparison.Ordinal);
+            using var response = await _client.GetAsync(path);
+            statuses[route.RoutePattern.RawText] = response.StatusCode;
+            var seen = await response.Content.ReadAsStringAsync() + string.Join("\n",
+                response.Headers.Concat(response.Content.Headers).SelectMany(header => header.Value.Prepend(header.Key)));
+            Assert.All(related, record =>
+            {
+                Assert.DoesNotContain(record.Id, seen, StringComparison.Ordinal);
+                Assert.DoesNotContain(record.Name, seen, StringComparison.Ordinal);
+            });
+        }
+        // The two projecting routes were driven and answered, so the absence above is not a refusal.
+        Assert.Equal(HttpStatusCode.OK, statuses["/api/local-node/asset-registry/entities/{id}"]);
+        Assert.Equal(HttpStatusCode.OK, statuses["/api/local-node/asset-registry/entities/{id}/tree"]);
+
+        // Control: the same seed shows its related records once the caller may open them.
+        _grantScopes.Clear();
+        var detail = await _client.GetStringAsync($"{AssetBase}/entities/{addressed}");
+        Assert.Contains("re_00000000000000000000000011", detail, StringComparison.Ordinal);
+        Assert.Contains("re_00000000000000000000000012", detail, StringComparison.Ordinal);
+        var tree = await _client.GetStringAsync($"{AssetBase}/entities/{addressed}/tree");
+        Assert.Contains("Related child one", tree, StringComparison.Ordinal);
+        Assert.Contains("Related child two", tree, StringComparison.Ordinal);
+        Assert.Contains("re_00000000000000000000000012", tree, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Selected_tree_reads_its_children_and_edges_when_another_team_is_active()
     {
