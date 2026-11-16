@@ -1,0 +1,40 @@
+# review-retarget: when a PR's base branch changes, dispatch a fresh review for it. The gate drops a Claude pass given
+# against another base, and an enforced ESCALATE's result rests on the old base's rules, so a retarget needs a new
+# verdict (Codex on platform 492 and app 98).
+#
+# This lives apart from review.yml on purpose. If review.yml listened for `edited`, every title or body edit would
+# leave a skipped `review` check on the head, which GitHub counts as a pass for a required check, hiding an earlier
+# failed review (Fable on platform 492). This job is named `retarget`, so it never stands in for `review`.
+#
+# It runs on pull_request_target, so the copy of this file is the base branch's, and it reads nothing from the PR but
+# its number. The dispatched review uses the default branch's review.yml, reads the PR from the API, refuses forks and
+# lands in the PR's own concurrency group, so it cancels a review still running against the old base.
+name: review-retarget
+
+on:
+  pull_request_target:
+    types: [edited]
+
+permissions:
+  actions: write
+
+jobs:
+  retarget:
+    if: vars.ACTIONS_ENABLED == 'true' && github.event.changes.base && !github.event.pull_request.draft
+    # On the job, not the workflow: a title or body edit skips this job and so never joins the group, where it could
+    # replace a base change's run still waiting in it (CodeRabbit on app #98).
+    concurrency:
+      group: review-retarget-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch a review of the retargeted PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ github.event.repository.default_branch }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/review.yml/dispatches" \
+            -f ref="$REF" -f "inputs[pr]=$PR"
