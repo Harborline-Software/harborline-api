@@ -72,6 +72,22 @@ public sealed partial class WorkflowDefinitionRouteTests
         Assert.DoesNotContain($"/{collection}/", raw, StringComparison.Ordinal);
     }
 
+    // T-1234: only a repeated id is refused ahead of the role gate. With unique ids, an unresolved role and a
+    // dangling guard on another transition, the role gate still answers first and admission is not reported.
+    [Fact(DisplayName = "C3 unique ids keep the role gate ahead of another admission violation")]
+    public async Task C3_RoleGateBeforeOtherAdmission()
+    {
+        var body = JsonSerializer.SerializeToNode(AdmissibleBody())!;
+        body["transitions"]![1]!["requiredRoles"] = new JsonArray("tenant/SecretRole");
+        body["transitions"]![2]!["guard"] = "secret-guard";
+        using var response = await _client.PutAsJsonAsync($"{Base}/{Key}", body);
+        await AssertC3(response, "authorization.role_gate.unresolved_role",
+            "/transitions/1/requiredRoles", "SecretRole", "Role-gated definition refused");
+        var raw = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("workflow.admission", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-guard", raw, StringComparison.Ordinal);
+    }
+
     [Theory(DisplayName = "C3 control: the same gated body with a unique id and no refused role is admitted and stored")]
     [InlineData("transitions", "t-reject")]
     [InlineData("actions", "a-notify")]
@@ -82,6 +98,7 @@ public sealed partial class WorkflowDefinitionRouteTests
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"{Base}/{Key}")).StatusCode);
     }
 
+    // Transition gates only; a duplicated action id is covered end to end by C3_DuplicatedGateId("actions").
     [Theory(DisplayName = "C3 role-gate pointer is empty for an id two transitions share and literal for a unique one")]
     [InlineData("t-approve", "")]
     [InlineData("t-reject", "/transitions/2/requiredRoles")]

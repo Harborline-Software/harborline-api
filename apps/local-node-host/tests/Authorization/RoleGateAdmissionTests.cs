@@ -368,7 +368,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, AdmittingValidator(), TimeProvider.System);
         using var headAuthored = OrderedWorkflowAuthored("foreign-pack-head-workflow", "1.0.0", pack: true);
         var head = OrderedWorkflow("foreign-pack-head-workflow", "1.0.0", pack: true);
         head = CopyPackSource(head, new PackProjectionSource("vendor-b", "1.0.0"));
@@ -552,7 +552,7 @@ public sealed class RoleGateAdmissionTests
         var entities = new OrderedEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), order);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, AdmittingValidator(), TimeProvider.System);
         var lifecycle = TestAuthorization.WorkflowLifecycle(
             store, TestAuthorization.AllowGate(), new OrderedAdmission(order));
         var id = $"ordered-workflow-{operation}-{lane}";
@@ -623,7 +623,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, AdmittingValidator(), TimeProvider.System);
         var admission = Admission();
         var lifecycle = TestAuthorization.WorkflowLifecycle(store, TestAuthorization.AllowGate(), admission);
         using var authored = WorkflowAuthored("workflow-role-gate", "1.0.0", "tax.roles/missing");
@@ -646,7 +646,7 @@ public sealed class RoleGateAdmissionTests
         var entities = new OrderedEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), []);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, AdmittingValidator(), TimeProvider.System);
         var id = "pack-full-wire-" + operation;
         using var authored = OrderedWorkflowAuthored(id, "1.0.0", pack: true);
         var persistedModel = OrderedWorkflow(id, "1.0.0", pack: true);
@@ -1205,4 +1205,12 @@ public sealed class RoleGateAdmissionTests
         private void KeepEvent() => ActiveChanged?.Invoke(this, new ActiveTeamChangedEventArgs(null, Active));
     }
 
+
+    // The register path reads the admission result directly; an unconfigured double would answer null.
+    private static IWorkflowAdmissionValidator AdmittingValidator()
+    {
+        var admission = Substitute.For<IWorkflowAdmissionValidator>();
+        admission.Validate(default!).ReturnsForAnyArgs(WorkflowAdmissionResult.Valid);
+        return admission;
+    }
 }

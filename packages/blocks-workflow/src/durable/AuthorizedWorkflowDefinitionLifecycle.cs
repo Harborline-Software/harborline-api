@@ -508,8 +508,9 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
     /// <summary>
     /// One register act. The writer runs it through <c>WritePipeline.RunAsync</c>: authorize checks the carried
     /// admission against this definition, bind reads the store, mutate settles the stored status and instant,
-    /// validate runs this façade's role-gate admission and supersession and then the workflow admission and
-    /// conflict checks, commit creates, react returns.
+    /// validate refuses a repeated id with the workflow admission result first, then runs this façade's role-gate
+    /// admission and supersession, then the rest of that same admission result and the conflict check, commit
+    /// creates, react returns.
     /// </summary>
     private ValueTask<WorkflowDefinitionRecord> RegisterCoreAsync(
         WorkflowDefinition candidate,
@@ -716,11 +717,10 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParti
                 // T-1234: the role gate looks gates up by id, so a repeated id is refused first, with every
                 // admission violation, before any gate can be resolved against the wrong element.
                 var admitted = backend.admission.Validate(model);
-                if (admitted is not null
-                    && admitted.Violations.Any(v => v.Code == WorkflowAdmissionCodes.DuplicateId))
+                if (admitted.Violations.Any(v => v.Code == WorkflowAdmissionCodes.DuplicateId))
                     throw new WorkflowAdmissionException(admitted);
                 await validate(model, ct).ConfigureAwait(false);
-                backend.admission.EnsureAdmissible(model);
+                if (!admitted.IsValid) throw new WorkflowAdmissionException(admitted);
                 if (bound.Stored)
                     throw new WorkflowDefinitionConflictException(model.Key, model.Version, model.Tenant);
                 return mutation;
