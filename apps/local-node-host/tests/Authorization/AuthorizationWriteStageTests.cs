@@ -1943,8 +1943,12 @@ public sealed class AuthorizationWriteStageTests
             new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
             new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
         var founding = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
-        var roles = shape == "administrator-and-auditor" ? RoleBindingSet.From([new RoleReference("sys.platform-roles", "administrator"), new RoleReference("sys.platform-roles", "auditor")])
-            : RoleBindingSet.Of(new RoleReference("sys.platform-roles", "administrator"));
+        var roles = shape switch
+        {
+            "administrator-and-auditor" => RoleBindingSet.From([new RoleReference("sys.platform-roles", "administrator"), new RoleReference("sys.platform-roles", "auditor")]),
+            "different-operation" => RoleBindingSet.From([new RoleReference("sys.platform-roles", "administrator"), new RoleReference("tax.roles", "node-operator")]),
+            _ => RoleBindingSet.Of(new RoleReference("sys.platform-roles", "administrator")),
+        };
         var stored = founding with { OfferedRoles = roles };
         if (shape == "different-operation") stored = stored with { Operation = AuthorizationOperation.Parse("records:read") };
         await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
