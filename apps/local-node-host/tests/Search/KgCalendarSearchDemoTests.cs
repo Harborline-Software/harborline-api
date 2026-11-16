@@ -1,3 +1,4 @@
+using Harborline.Foundation.Scheduling.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;

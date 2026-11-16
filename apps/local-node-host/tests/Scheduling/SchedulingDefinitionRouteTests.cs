@@ -1,3 +1,4 @@
+using Harborline.Foundation.Scheduling.Models;
 using System.Reflection;
 using System.Net;
 using System.Net.Http.Json;

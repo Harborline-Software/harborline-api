@@ -1,3 +1,4 @@
+using Harborline.Foundation.Scheduling.Models;
 namespace Harborline.Api.LocalNodeHost.Data.Calendar;
 
 /// <summary>

@@ -1,3 +1,5 @@
+using Harborline.Foundation.Scheduling.Models;
+using Harborline.Foundation.Scheduling.Services;
 using System.Globalization;
 using System.Text.Json.Serialization;
 

@@ -1,3 +1,4 @@
+using Harborline.Foundation.Scheduling.Models;
 using System.Security.Cryptography;
 
 using Microsoft.Data.Sqlite;
