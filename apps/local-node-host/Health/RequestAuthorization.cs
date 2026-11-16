@@ -68,6 +68,32 @@ internal readonly record struct RouteRecord
 /// </remarks>
 internal static class RequestAuthorization
 {
+    /// <summary>Refuses undecidable records without an audit row or problem response.</summary>
+    internal static async ValueTask<bool> AllowedAsync(
+        HttpContext http, AuthorizationWriteContext writeAuthority, string permission, string id,
+        Dictionary<string, bool> decisions, CancellationToken ct)
+    {
+        if (decisions.TryGetValue(id, out var cached)) return cached;
+        var authority = writeAuthority with { Principal = NodeGatePrincipal.Resolve(http) };
+        var allowed = false;
+        var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+        var gate = http.RequestServices.GetService<AuthorizationGate>();
+        if ((selected is null || (authority.Tenant == selected.TenantId && !selected.TenantId.IsSystemSentinel))
+            && gate is not null && !string.IsNullOrWhiteSpace(id))
+        {
+            try
+            {
+                var operation = AuthorizationOperation.Parse(permission);
+                var decision = await gate.DecideAsync(
+                    authority.Request(operation, AuthorizationGate.RecordKindFor(operation), id), ct).ConfigureAwait(false);
+                allowed = decision.Verdict == AuthorizationVerdict.Allowed;
+            }
+            catch (ArgumentException) { }
+        }
+        decisions[id] = allowed;
+        return allowed;
+    }
+
     /// <summary>The server-derived authority for THIS request: the acting PRINCIPAL (the grant subject the
     /// gate decides about - <see cref="NodeGatePrincipal"/>, shared with the production PEP), the tenant,
     /// and the instant the act happens. Never an ambient read.</summary>

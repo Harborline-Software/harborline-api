@@ -25,7 +25,7 @@ case "$*" in
   *"/pulls/1"*)
     jq -n --arg base "$BASE" '{state: "open", draft: false, head: {sha: "abc"}, changed_files: 1,
                                base: {ref: $base, repo: {default_branch: "main"}}}' ;;
-  *"/commits/abc/status"*) echo "claude-review|success|2026-11-01T00:00:00Z|Claude review: PASS (shadow, base $BASE)" ;;
+  *"/commits/abc/statuses"*) echo "claude-review|success|2026-11-01T00:00:00Z|github-actions[bot]|1|Claude review: PASS (shadow, base $BASE)" ;;
   *"pulls?state=open"*) echo 0 ;;
   *) echo "unexpected gh call: $*" >&2; exit 1 ;;
 esac
@@ -44,7 +44,7 @@ run() {
   local got
   if [ "$status" -ne 0 ]; then got=fails; else got=$(grep -o 'risky=[a-z]*' <<<"$out" | tail -n 1); fi
   if [ "$got" = "$want" ]; then echo "ok   $name"; else echo "FAIL $name: want $want, got $got"; echo "$out" | sed 's/^/     /'; failures=$((failures + 1)); fi
-  LAST_LOG=$log
+  LAST_LOG=$log LAST_OUT=$out
 }
 fetched_base_list() { grep -q '/contents/.github/review-risky-paths' "$LAST_LOG"; }
 
@@ -79,6 +79,9 @@ if grep -qs 'working-directory: packages/contracts' "$(dirname "$gate")/workflow
   done
 fi
 run 'main: a product change is not risky' risky=false FILES=src/App.cs
+# The stand-in's Claude pass must read as one, or none of these cases runs the pass path (CodeRabbit on platform 492).
+grep -q ': success: Passed by Claude (' <<<"$LAST_OUT" \
+  || { echo "FAIL the stand-in's Claude pass was not read as a pass"; failures=$((failures + 1)); }
 run 'main: a nested Directory.Build.targets is risky' risky=true FILES=src/Lib/Directory.Build.targets
 run 'main: a nested Directory.Build.rsp is risky' risky=true FILES=src/Lib/Directory.Build.rsp
 for f in NuGet.Config NuGet.config nuget.config src/Lib/NuGet.Config; do

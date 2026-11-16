@@ -30,6 +30,8 @@ public abstract class ContentItemColumns
     public int SegmentSize { get; init; }
     /// <summary>The lifecycle state.</summary>
     public int State { get; init; }
+    /// <summary>The epoch whose key wraps the data key (ADR 0116 decision 1).</summary>
+    public Guid EpochId { get; init; }
 }
 
 /// <summary>A committed item. Its tenant and content id are unique, which decides a duplicate (ADR 0113 decision 2).</summary>
@@ -108,6 +110,18 @@ public sealed class ContentIntegrityRow
     public required string OwnerElement { get; init; }
 }
 
+/// <summary>
+/// One tenant epoch the bookkeeping has retired (ADR 0116 decision 5). The row is the durable marker that refuses every later
+/// pin; an epoch with no row is not retired. The key itself is never here: it lives in the node's stored-key store.
+/// </summary>
+public sealed class ContentEpochRow
+{
+    /// <summary>The epoch's tenant.</summary>
+    public required string TenantId { get; init; }
+    /// <summary>The epoch.</summary>
+    public Guid EpochId { get; init; }
+}
+
 /// <summary>An operation identity a store write used, so a repeated key is refused.</summary>
 public sealed class ContentOperationRow
 {
@@ -134,12 +148,14 @@ public sealed class ContentStoreEntityModule : IHarborlineEntityModule
             entity.ToTable("content_store_items");
             entity.HasKey(row => row.ItemKey);
             entity.HasIndex(row => new { row.TenantId, row.ContentId }).IsUnique();
+            entity.HasIndex(row => new { row.TenantId, row.EpochId });
         });
         modelBuilder.Entity<ContentStagedRow>(entity =>
         {
             entity.ToTable("content_store_staged");
             entity.HasKey(row => row.ItemKey);
             entity.HasIndex(row => row.CreatedUtcTicks);
+            entity.HasIndex(row => new { row.TenantId, row.EpochId });
         });
         modelBuilder.Entity<ContentOwnerRow>(entity =>
         {
@@ -161,6 +177,11 @@ public sealed class ContentStoreEntityModule : IHarborlineEntityModule
         {
             entity.ToTable("content_store_integrity");
             entity.HasKey(row => new { row.TenantId, row.ItemKey });
+        });
+        modelBuilder.Entity<ContentEpochRow>(entity =>
+        {
+            entity.ToTable("content_store_epochs");
+            entity.HasKey(row => new { row.TenantId, row.EpochId });
         });
         modelBuilder.Entity<ContentOperationRow>(entity =>
         {
