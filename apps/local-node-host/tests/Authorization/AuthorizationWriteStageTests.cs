@@ -1834,7 +1834,8 @@ public sealed class AuthorizationWriteStageTests
         var tenant = new TenantId("legacy-auditor-tenant");
         var grants = TestInMemoryAuthorizationStores.GrantStore();
         var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
-        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+        var recorded = new SealCapturingStore(configuration);
+        var writer = new AuthorizationDefinitionWriter(recorded, configuration,
             new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
             new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
         var admin = AdministratorGrant(tenant, at);
@@ -1852,9 +1853,14 @@ public sealed class AuthorizationWriteStageTests
         await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         var row = Assert.Single(await configuration.ListAsync(tenant), r => r.Definition.Operation.Value == "audit:read");
         Assert.Equal(2, row.Definition.Revision);
+        var replacement = Assert.Single(recorded.Sealed, write => write.Kind == AuthorizationConfigurationWriteKind.ReplaceDefinition);
+        Assert.Equal("installer:authorization-additive-seed", replacement.Actor!.Value.Value);
+        Assert.Null(replacement.Decision);
+        Assert.Equal(0, recorded.BootstrapCommits);
         Assert.Equal(RoleBindingSet.From([RoleReference.Administrator, new RoleReference("tax.roles", "node-operator")]), row.Definition.OfferedRoles);
         await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at.AddMinutes(1)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         Assert.Equal(2, (await configuration.ReadStateAsync(row.Definition.DefinitionId)).Definition!.Revision);
+        Assert.Single(recorded.Sealed, write => write.Kind == AuthorizationConfigurationWriteKind.ReplaceDefinition);
     }
 
     [Fact]
@@ -1898,6 +1904,28 @@ public sealed class AuthorizationWriteStageTests
             await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(founding with { Revision = 2 }), seed));
         Assert.Equal("A publisher replacement cannot add an offered role.", error.Message);
         Assert.Equal(1, (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.Revision);
+    }
+
+    [Fact]
+    public async Task AuthorizationSeed_RejectsConflictingStoredFoundingDefinition()
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("conflicting-founding-tenant");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var founding = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
+        Assert.DoesNotContain(RoleReference.Auditor, founding.OfferedRoles.Roles);
+        var conflicting = founding with { PublisherPackageId = "foreign" };
+        await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
+            AuthorizationConfigurationWriteKind.InstallDefinition, conflicting, null, 0, 0, at, null));
+        var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at), AuthorizationSeedProfile.Production));
+        Assert.Contains("conflicts with 'audit:read'", error.Message, StringComparison.Ordinal);
+        Assert.Equal("foreign", (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.PublisherPackageId);
     }
 
     [Fact]
@@ -2108,6 +2136,7 @@ public sealed class AuthorizationWriteStageTests
         : IAuthorizationConfigurationStore
     {
         public List<ValidatedAuthorizationConfigurationWrite> Sealed { get; } = [];
+        public int BootstrapCommits { get; private set; }
 
         public ValueTask CommitAsync(ValidatedAuthorizationConfigurationWrite write, CancellationToken ct = default)
         {
@@ -2119,7 +2148,11 @@ public sealed class AuthorizationWriteStageTests
             ValidatedAuthorizationConfigurationWrite write,
             TenantId tenant,
             IGrantStore grants,
-            CancellationToken ct = default) => inner.CommitBootstrapAsync(write, tenant, grants, ct);
+            CancellationToken ct = default)
+        {
+            BootstrapCommits++;
+            return inner.CommitBootstrapAsync(write, tenant, grants, ct);
+        }
     }
 
     private sealed class RecordingStateReader(InMemoryAuthorizationConfigurationStore inner)

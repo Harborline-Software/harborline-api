@@ -195,6 +195,17 @@ public sealed class AuditorSingleCapabilityTests
         Assert.DoesNotContain(RoleReference.Auditor, row.Definition.OfferedRoles.Roles);
     }
 
+    internal static async Task ProjectPlatformAuditAsync(IServiceProvider provider, TenantId tenant, DateTimeOffset at)
+    {
+        var decision = TestAuthorization.AllowedDecision(tenant, "harborline.platform", "pack", Permission.PackagesOperate, at: at);
+        var authority = new PackProjectionAuthority(decision, "harborline.platform", "2.0.0", tenant, new ActorId("test-operator"), at);
+        var operation = AuthorizationOperation.Parse("audit:read");
+        var definition = new AuthorizationCapabilityDefinition(
+            new AuthorizationCapabilityDefinitionId(Guid.Parse("d1d1d1d1-0000-0000-0000-000000000099")),
+            "harborline.platform", 1, operation, PermissionAtom.Parse("audit:read@/"), RoleBindingSet.Of(RoleReference.Auditor));
+        await provider.GetRequiredService<AuthorizationDefinitionWriter>().WritePackDefinitionAsync(definition, authority);
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;
@@ -229,15 +240,7 @@ public sealed class AuditorSingleCapabilityTests
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
                 .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             if (platform)
-            {
-                var decision = TestAuthorization.AllowedDecision(Tenant, "harborline.platform", "pack", Permission.PackagesOperate, at: At);
-                var authority = new PackProjectionAuthority(decision, "harborline.platform", "2.0.0", Tenant, new ActorId("test-operator"), At);
-                var operation = AuthorizationOperation.Parse("audit:read");
-                var definition = new AuthorizationCapabilityDefinition(
-                    new AuthorizationCapabilityDefinitionId(Guid.Parse("d1d1d1d1-0000-0000-0000-000000000099")),
-                    "harborline.platform", 1, operation, PermissionAtom.Parse("audit:read@/"), RoleBindingSet.Of(RoleReference.Auditor));
-                await harness.Writer.WritePackDefinitionAsync(definition, authority);
-            }
+                await ProjectPlatformAuditAsync(provider, Tenant, At);
             return harness;
         }
 
