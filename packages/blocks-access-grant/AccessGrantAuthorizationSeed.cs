@@ -186,7 +186,8 @@ internal sealed class AccessGrantAuthorizationSeed(
     internal static IReadOnlyList<AuthorizationCapabilityDefinition> FoundingDefinitions { get; } =
         PermissionVocabulary.Operations.Select(operation => new AuthorizationCapabilityDefinition(
             DefinitionIdFor(operation), PackageId, 1, operation,
-            new PermissionAtom(operation, ScopeExpression.Parse("/")), ReviewedOffers[operation.Value]))
+            new PermissionAtom(operation, ScopeExpression.Parse("/")),
+            operation.Value == Permission.AuditRead ? Roles(nodeOperator: true) : ReviewedOffers[operation.Value]))
         .ToArray();
 
     /// <summary>
@@ -239,6 +240,13 @@ internal sealed class AccessGrantAuthorizationSeed(
             AdditiveSeedPrincipal,
             tenant,
             instant);
+        foreach (var definition in FoundingDefinitions)
+        {
+            var existing = (await states.ReadStateAsync(definition.DefinitionId, ct: ct).ConfigureAwait(false)).Definition;
+            if (existing is not null && !existing.OfferedRoles.Equals(definition.OfferedRoles))
+                await writer.WriteAdditiveSeedRevisionAsync(
+                    new ReplaceAuthorizationDefinition(definition with { Revision = existing.Revision + 1 }), additiveAuthority, ct).ConfigureAwait(false);
+        }
         foreach (var definition in await FindMissingAsync(AdditiveSystemDefinitions, ct).ConfigureAwait(false))
         {
             await writer.WriteAdditiveSeedRevisionAsync(
@@ -284,7 +292,8 @@ internal sealed class AccessGrantAuthorizationSeed(
             if (existing.PublisherPackageId != definition.PublisherPackageId
                 || existing.Operation != definition.Operation
                 || existing.Atom != definition.Atom
-                || !existing.OfferedRoles.Equals(definition.OfferedRoles))
+                || (!existing.OfferedRoles.Equals(definition.OfferedRoles)
+                    && !(FoundingDefinitions.Contains(definition) && definition.OfferedRoles.IsSubsetOf(existing.OfferedRoles))))
             {
                 throw new InvalidOperationException(
                     $"Authorization seed definition '{definition.DefinitionId.Value}' conflicts with '{definition.Operation}'.");

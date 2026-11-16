@@ -119,7 +119,7 @@ public sealed class AuthorizationDefinitionAdmission(IRoleVocabularyReader roles
             && !(string.Equals(definition.Operation.Value, Permission.AuditRead, StringComparison.Ordinal)
                 && string.Equals(
                     definition.PublisherPackageId,
-                    AccessGrantAuthorizationSeed.PackageId,
+                    "harborline.platform",
                     StringComparison.Ordinal)))
         {
             throw new InvalidOperationException(

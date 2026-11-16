@@ -1828,6 +1828,79 @@ public sealed class AuthorizationWriteStageTests
     }
 
     [Fact]
+    public async Task AuthorizationSeed_NarrowsLegacyAuditOfferOnAdministeredInstallOnce()
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("legacy-auditor-tenant");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var admin = AdministratorGrant(tenant, at);
+        var authority = new AuthorizationWriteContext(admin.Subject, tenant, AdmittedInstant.FromRecordedAct(at));
+        foreach (var definition in AccessGrantAuthorizationSeed.FoundingDefinitions)
+        {
+            var old = definition.Operation.Value == "audit:read"
+                ? definition with { OfferedRoles = RoleBindingSet.From([RoleReference.Administrator, RoleReference.Auditor, new RoleReference("tax.roles", "node-operator")]) }
+                : definition;
+            await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
+                AuthorizationConfigurationWriteKind.InstallDefinition, old, null, 0, 0, at, null));
+        }
+        await grants.AppendAsync(tenant, admin);
+        var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
+        await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        var row = Assert.Single(await configuration.ListAsync(tenant), r => r.Definition.Operation.Value == "audit:read");
+        Assert.Equal(2, row.Definition.Revision);
+        Assert.Equal(RoleBindingSet.From([RoleReference.Administrator, new RoleReference("tax.roles", "node-operator")]), row.Definition.OfferedRoles);
+        await seed.InstallAsync(tenant, AdmittedInstant.FromRecordedAct(at.AddMinutes(1)), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+        Assert.Equal(2, (await configuration.ReadStateAsync(row.Definition.DefinitionId)).Definition!.Revision);
+    }
+
+    [Fact]
+    public async Task SeedReplacementGuard_RejectsForeignPrincipalTenantAndUncompiledDefinition()
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("seed-guard-tenant");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var founding = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
+        await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
+            AuthorizationConfigurationWriteKind.InstallDefinition, founding, null, 0, 0, at, null));
+        var next = founding with { Revision = 2 };
+        var seed = new AuthorizationWriteContext(AccessGrantAuthorizationSeed.AdditiveSeedPrincipal, tenant, AdmittedInstant.FromRecordedAct(at));
+        var foreign = new AuthorizationWriteContext(new ActorId("foreign"), tenant, AdmittedInstant.FromRecordedAct(at));
+        await Assert.ThrowsAsync<ArgumentException>(async () => await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(next), foreign));
+        await Assert.ThrowsAsync<ArgumentException>(async () => await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(next, tenant), seed));
+        await Assert.ThrowsAsync<ArgumentException>(async () => await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(next with { PublisherPackageId = "foreign" }), seed));
+        Assert.Equal(1, (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.Revision);
+    }
+
+    [Fact]
+    public async Task SeedReplacement_CannotAddRoleToStoredOffer()
+    {
+        var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var tenant = new TenantId("seed-widen-tenant");
+        var grants = TestInMemoryAuthorizationStores.GrantStore();
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        var founding = Assert.Single(AccessGrantAuthorizationSeed.FoundingDefinitions, d => d.Operation.Value == "audit:read");
+        var old = founding with { OfferedRoles = RoleBindingSet.Of(RoleReference.Administrator) };
+        await configuration.CommitAsync(new ValidatedAuthorizationConfigurationWrite(
+            AuthorizationConfigurationWriteKind.InstallDefinition, old, null, 0, 0, at, null));
+        var seed = new AuthorizationWriteContext(AccessGrantAuthorizationSeed.AdditiveSeedPrincipal, tenant, AdmittedInstant.FromRecordedAct(at));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await writer.WriteAdditiveSeedRevisionAsync(new ReplaceAuthorizationDefinition(founding with { Revision = 2 }), seed));
+        Assert.Equal("A publisher replacement cannot add an offered role.", error.Message);
+        Assert.Equal(1, (await configuration.ReadStateAsync(founding.DefinitionId)).Definition!.Revision);
+    }
+
+    [Fact]
     public async Task AuthorizationSeed_AdministratorInAnotherTenantSealsGlobalBootstrap()
     {
         var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);

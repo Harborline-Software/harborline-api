@@ -170,13 +170,19 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
     /// revision remains installable after Administrator history exists.
     /// </summary>
     internal async ValueTask<AuthorizationConfigurationWriteResult> WriteAdditiveSeedRevisionAsync(
-        InstallAuthorizationDefinition command,
+        AuthorizationConfigurationCommand command,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
     {
-        if (authority.Principal != AccessGrantAuthorizationSeed.AdditiveSeedPrincipal ||
-            command.DeclaringTenantId is not null ||
-            !AccessGrantAuthorizationSeed.IsAdditiveSystemDefinition(command.Definition))
+        var validInstall = command is InstallAuthorizationDefinition install
+            && install.DeclaringTenantId is null
+            && AccessGrantAuthorizationSeed.IsAdditiveSystemDefinition(install.Definition);
+        var replacement = command as ReplaceAuthorizationDefinition;
+        var current = replacement is null ? null : (await states.ReadStateAsync(replacement.Definition.DefinitionId, ct: ct).ConfigureAwait(false)).Definition;
+        var validReplacement = replacement is not null && replacement.DeclaringTenantId is null && current is not null
+            && AccessGrantAuthorizationSeed.FoundingDefinitions.Any(expected =>
+                replacement.Definition == expected with { Revision = current.Revision + 1 });
+        if (authority.Principal != AccessGrantAuthorizationSeed.AdditiveSeedPrincipal || !(validInstall || validReplacement))
         {
             throw new ArgumentException(
                 "Only the server-derived authorization seed may install a checked-in additive system definition.",
