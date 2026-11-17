@@ -92,6 +92,26 @@ test('executable inventory allowances do not admit neighboring TSV, Markdown or 
   }
 })
 
+test('only the events test mutation config requires the compiled OFF/ON selector', () => {
+  const file = 'packages/foundation-events/tests/stryker-config.json'
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.deepEqual(plan.changes, [{path: file, status: 'M', kind: 'build-artifact'}])
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  assert.equal(requireRunnableSelection(plan).project, 'apps/local-node-host/tests/tests.csproj')
+  for (const other of [
+    'packages/foundation-events/stryker-config.json',
+    'packages/other/tests/stryker-config.json',
+    'packages/foundation-events/tests/stryker-config.json.bak',
+  ]) {
+    const nearMiss = classifyFocusedModes([{status: 'M', path: other}])
+    assert.deepEqual(nearMiss.changes, [{path: other, status: 'M', kind: 'unknown'}])
+    assert.equal(nearMiss.selection, 'unsupported')
+    assert.deepEqual(nearMiss.requiredModes, ['coverage-off', 'coverage-on'])
+    assert.throws(() => requireRunnableSelection(nearMiss), /unsupported-selection/)
+  }
+})
+
 test('only pack recipe exports under _shared packs count as binary inputs', () => {
   for (const file of ['_shared/packs/platform/notes.json', '_shared/conformance/packs/x.export.json.bak', '_shared/other/x.export.json']) {
     const plan = classifyFocusedModes([{status: 'M', path: file}])
@@ -442,6 +462,31 @@ test('shared preflight cannot claim host-mode execution', () => {
 })
 test('a completion failure propagates through the existing preflight CLI wrapper', () => {
   assert.throws(() => runVerificationPreflight({prerequisites: () => ({lane: 'host'}), focusedModes: () => { throw new Error('mode failed') }}), /mode failed/)
+})
+
+for (const [file, kind] of [
+  ['apps/local-node-host/Data/ContentStore/README.md', 'documentation'],
+  ['apps/local-node-host/tests/ContentStore/epoch-rotation-evidence-2026-11-11.md', 'documentation'],
+  ['apps/local-node-host/tests/ContentStore/EpochCrashWorker.cs.txt', 'binary'],
+]) test(`the owned content-store input is classified by exact path: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, kind)
+  assert.equal(plan.selection, kind === 'documentation' ? 'not-required' : 'focused')
+  assert.deepEqual(plan.requiredModes, kind === 'documentation' ? [] : ['coverage-off', 'coverage-on'])
+  requireRunnableSelection(plan)
+})
+
+for (const file of [
+  'apps/local-node-host/Data/Other/README.md',
+  'apps/local-node-host/tests/Other/epoch-rotation-evidence-2026-11-11.md',
+  'apps/local-node-host/tests/Other/EpochCrashWorker.cs.txt',
+  'apps/local-node-host/tests/ContentStore/AnotherWorker.cs.txt',
+  'apps/local-node-host/tests/ContentStore/another-evidence.md',
+]) test(`unowned content-store near miss stays unsupported: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, 'unknown')
+  assert.equal(plan.selection, 'unsupported')
+  assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
 })
 
 test('the owned durable-write architecture inventory retains mandatory OFF and ON', () => {

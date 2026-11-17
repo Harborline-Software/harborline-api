@@ -71,8 +71,15 @@ internal static class ProducerTestHooks
         var item = await store.StorageItemAsync(tenant, id);
         var (contentIdKey, wrapKey) = DeriveSubkeys(Field<ITenantContentKeyProvider>(store, "_keys").GetKey(tenant), tenant);
         var associated = Encoding.ASCII.GetBytes(item.ContentId.Value);
+        // ADR 0116 decision 1: the data-key-wrap subkey opens only the item's epoch key, and the epoch key opens the data key.
+        // The AAD is DES-0054 eng-10's, as platform ContentStoreEnvelopeTests writes it independently of the store.
+        var epoch = (await Field<IContentEpochKeyStore>(store, "_epochs").GetAsync(tenant, item.EpochId))!;
+        var epochKey = new byte[32];
+        using (var subkey = new AesGcm(wrapKey, 16))
+            subkey.Decrypt(epoch.WrapNonce, epoch.WrappedKey, epoch.WrapTag, epochKey,
+                Encoding.UTF8.GetBytes("harborline-content-store:epoch-key:v1|" + epoch.EpochId.ToString("N") + "|" + tenant.Value));
         var dataKey = new byte[32];
-        using (var wrapper = new AesGcm(wrapKey, 16)) wrapper.Decrypt(item.WrapNonce, item.WrappedDataKey, item.WrapTag, dataKey, associated);
+        using (var wrapper = new AesGcm(epochKey, 16)) wrapper.Decrypt(item.WrapNonce, item.WrappedDataKey, item.WrapTag, dataKey, associated);
         var wrapped = new byte[32];
         var tag = new byte[16];
         using (var wrong = new AesGcm(contentIdKey, 16)) wrong.Encrypt(item.WrapNonce, dataKey, wrapped, tag, associated);

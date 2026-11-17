@@ -11,6 +11,7 @@ using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Calendar;
+using Harborline.Foundation.Scheduling.Models;
 
 using Xunit;
 

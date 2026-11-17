@@ -53,6 +53,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20261003000000_AddFormSubmitProjectionDefinition",
         "20261029000000_AddDefinitionArchiveMarks",
         "20261106000000_AddContentStoreBookkeeping",
+        "20261108000000_AddContentStoreEpochs",
     ];
 
     [Fact]
