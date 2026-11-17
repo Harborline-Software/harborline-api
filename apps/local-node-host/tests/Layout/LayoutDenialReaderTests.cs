@@ -90,6 +90,7 @@ public sealed class LayoutDenialReaderTests
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
                 .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            await Harborline.Api.LocalNodeHost.Tests.Authorization.AuditorSingleCapabilityTests.ProjectPlatformAuditAsync(provider, Tenant, At);
             var grants = provider.GetRequiredService<IGrantStore>();
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(Tenant, Grant(Both, RoleReference.Auditor, "/"));

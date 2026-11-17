@@ -16,6 +16,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.People;
 using Harborline.Api.LocalNodeHost.Data.Scheduling;
+using Harborline.Foundation.Scheduling.Models;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 

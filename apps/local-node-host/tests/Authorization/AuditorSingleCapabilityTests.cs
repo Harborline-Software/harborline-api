@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 using Microsoft.Extensions.DependencyInjection;
+using Harborline.Api.Foundation.Packs.Install;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -63,7 +64,8 @@ public sealed class AuditorSingleCapabilityTests
             .Where(row => row.EffectiveRoles.Roles.Contains(RoleReference.Auditor))
             .ToArray();
         var row = Assert.Single(auditorRows);
-        Assert.Equal(Permission.AuditRead, row.Definition.Operation.Value);
+        Assert.Equal("audit:read", row.Definition.Operation.Value);
+        Assert.Equal("harborline.platform", row.Definition.PublisherPackageId);
         // The whole catalogue is installed -- every platform operation plus the additive system-principal
         // definitions -- so "exactly one" is a statement about the platform's offer, not about a sparse store.
         Assert.All(
@@ -136,8 +138,26 @@ public sealed class AuditorSingleCapabilityTests
             PermissionAtom.Parse($"{Permission.AuditRead}@/"),
             RoleBindingSet.Of(RoleReference.Auditor));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var packError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             h.Writer.WriteAsync(new InstallAuthorizationDefinition(impostor)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", packError.Message);
+        var accessGrant = impostor with { PublisherPackageId = "harborline.access-grant" };
+        var seedError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Writer.WriteAsync(new InstallAuthorizationDefinition(accessGrant)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", seedError.Message);
+    }
+
+    [Fact]
+    public async Task Platform_publisher_cannot_offer_auditor_on_records_read()
+    {
+        await using var h = await Harness.CreateAsync();
+        var definition = new AuthorizationCapabilityDefinition(
+            new AuthorizationCapabilityDefinitionId(Guid.Parse("d1d1d1d1-0000-0000-0000-000000000003")),
+            "harborline.platform", 1, AuthorizationOperation.Parse("records:read"),
+            PermissionAtom.Parse("records:read@/"), RoleBindingSet.Of(RoleReference.Auditor));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Writer.WriteAsync(new InstallAuthorizationDefinition(definition)).AsTask());
+        Assert.Equal("The platform Auditor role is offered only by the platform 'audit:read' definition.", error.Message);
     }
 
     [Fact(DisplayName = "Widening: a tenant binding revision narrows the Auditor away and cannot add it back")]
@@ -147,7 +167,7 @@ public sealed class AuditorSingleCapabilityTests
         await h.GrantAuditorAsync();
         var rows = await h.Catalogue.ListAsync(Tenant);
         var auditRead = Assert.Single(
-            rows, row => row.Definition.Operation.Value == Permission.AuditRead);
+            rows, row => row.Definition.Operation.Value == "audit:read" && row.Definition.PublisherPackageId == "harborline.platform");
         var recordsRead = Assert.Single(
             rows, row => row.Definition.Operation.Value == TeamRolePermissions.RecordsRead);
 
@@ -167,6 +187,38 @@ public sealed class AuditorSingleCapabilityTests
 
         Assert.NotEqual(AuthorizationVerdict.Allowed, afterWidening.Verdict);
         Assert.NotEqual(AuthorizationVerdict.Allowed, afterNarrowing.Verdict);
+    }
+
+    [Fact]
+    public async Task Without_platform_seed_the_auditor_has_no_capability()
+    {
+        await using var h = await Harness.CreateAsync(false);
+        await h.GrantAuditorAsync();
+        var rows = await h.Catalogue.ListAsync(Tenant);
+        Assert.DoesNotContain(rows, row => row.EffectiveRoles.Roles.Contains(RoleReference.Auditor));
+        Assert.NotEqual(AuthorizationVerdict.Allowed, (await h.DecideInstallWideAsync("audit:read")).Verdict);
+    }
+
+    [Fact]
+    public async Task Founding_audit_read_keeps_operator_and_administrator_without_auditor()
+    {
+        await using var h = await Harness.CreateAsync(false);
+        var row = Assert.Single(await h.Catalogue.ListAsync(Tenant), row =>
+            row.Definition.PublisherPackageId == "harborline.access-grant" && row.Definition.Operation.Value == "audit:read");
+        Assert.Contains(RoleReference.Administrator, row.Definition.OfferedRoles.Roles);
+        Assert.Contains(new RoleReference("tax.roles", "node-operator"), row.Definition.OfferedRoles.Roles);
+        Assert.DoesNotContain(RoleReference.Auditor, row.Definition.OfferedRoles.Roles);
+    }
+
+    internal static async Task ProjectPlatformAuditAsync(IServiceProvider provider, TenantId tenant, DateTimeOffset at)
+    {
+        var decision = TestAuthorization.AllowedDecision(tenant, "harborline.platform", "pack", Permission.PackagesOperate, at: at);
+        var authority = new PackProjectionAuthority(decision, "harborline.platform", "2.0.0", tenant, new ActorId("test-operator"), at);
+        var operation = AuthorizationOperation.Parse("audit:read");
+        var definition = new AuthorizationCapabilityDefinition(
+            new AuthorizationCapabilityDefinitionId(Guid.Parse("d1d1d1d1-0000-0000-0000-000000000099")),
+            "harborline.platform", 1, operation, PermissionAtom.Parse("audit:read@/"), RoleBindingSet.Of(RoleReference.Auditor));
+        await provider.GetRequiredService<AuthorizationDefinitionWriter>().WritePackDefinitionAsync(definition, authority);
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -193,7 +245,7 @@ public sealed class AuditorSingleCapabilityTests
         public AuthorizationGate Gate { get; }
         public IGrantStore Grants { get; }
 
-        public static async Task<Harness> CreateAsync()
+        public static async Task<Harness> CreateAsync(bool platform = true)
         {
             var services = new ServiceCollection();
             services.AddSingleton(TestAuthorization.AllowGate());
@@ -202,6 +254,8 @@ public sealed class AuditorSingleCapabilityTests
             var harness = new Harness(provider);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
                 .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            if (platform)
+                await ProjectPlatformAuditAsync(provider, Tenant, At);
             return harness;
         }
 
