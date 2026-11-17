@@ -6,6 +6,9 @@ namespace Harborline.Api.Foundation.Recovery.TenantKey;
 /// <summary>Resolves key material for versioned ciphertext during key-hierarchy migration.</summary>
 public interface IVersionedTenantKeyProvider
 {
+    /// <summary>Resolve the current version-2 stored tenant key synchronously; other versions refuse.</summary>
+    ReadOnlyMemory<byte> ResolveKey(TenantId tenant, string purpose, int keyVersion, CancellationToken ct);
+
     /// <summary>Resolve a tenant key for the ciphertext key version.</summary>
     Task<ReadOnlyMemory<byte>> ResolveKeyAsync(
         TenantId tenant,

@@ -3,6 +3,12 @@ namespace Harborline.Api.Foundation.Recovery.TenantKey;
 /// <summary>Persists opaque, wrapped tenant-key hierarchy records.</summary>
 public interface IStoredTenantKeyStore
 {
+    /// <summary>Read a wrapped key record synchronously, or null when absent.</summary>
+    ReadOnlyMemory<byte>? Read(string slot, CancellationToken ct);
+
+    /// <summary>Create a durable wrapped key record synchronously only when its slot is absent.</summary>
+    bool TryCreate(string slot, ReadOnlyMemory<byte> wrappedKey, CancellationToken ct);
+
     /// <summary>Read a wrapped key record, or <c>null</c> when the slot is absent.</summary>
     Task<ReadOnlyMemory<byte>?> ReadAsync(string slot, CancellationToken ct);
 

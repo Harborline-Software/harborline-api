@@ -124,7 +124,6 @@
     <ProjectReference Include="../../../packages/foundation-schedule-definitions/Harborline.Foundation.ScheduleDefinitions.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj" />
     <ProjectReference Include="..\..\node-hosting\Harborline.Api.NodeHosting.csproj" />
-    <ProjectReference Include="..\..\..\packages\client-dotnet\Harborline.Client.csproj" />
     <ProjectReference Include="..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
     <ProjectReference Include="..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
     <ProjectReference Include="..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj" />

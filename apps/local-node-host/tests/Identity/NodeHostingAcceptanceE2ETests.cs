@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,7 +9,6 @@ using Microsoft.Extensions.Options;
 
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.NodeHosting;
-using Harborline.Api.Protocol.Client;
 using Harborline.Api.Foundation.PasswordHashing;
 using Harborline.Api.LocalNodeHost;
 using Harborline.Api.LocalNodeHost.Data;
@@ -23,7 +25,7 @@ public sealed class NodeHostingAcceptanceE2ETests : IAsyncLifetime
     private const string TestFounderUsername = "harborline-d5-founder";
 
     private HostUnderTest? _nodeHost;
-    private HarborlineClient? _client;
+    private HttpClient? _client;
     private string? _dataDirectory;
     private string? _previousRootSeedHex;
     private string? _previousWebClientEnabled;
@@ -53,8 +55,8 @@ public sealed class NodeHostingAcceptanceE2ETests : IAsyncLifetime
 
         _nodeHost = new HostUnderTest();
         var node = await _nodeHost.StartAsync(CancellationToken.None);
-        _client = new HarborlineClient();
-        await _client.BootstrapAsync(node.NodeAddress, node.SessionToken, CancellationToken.None);
+        _client = new HttpClient { BaseAddress = node.NodeAddress };
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", node.SessionToken);
     }
 
     public async Task DisposeAsync()
@@ -94,18 +96,23 @@ public sealed class NodeHostingAcceptanceE2ETests : IAsyncLifetime
                 .MaxAsync() ?? 0;
         }
 
-        var created = await _client!.CreateContactAsync("W2 acceptance contact");
-        var read = await _client.GetContactAsync(created.ContactId);
+        using var response = await _client!.PostAsJsonAsync("/api/local-node/contacts",
+            new { displayName = "W2 acceptance contact", kind = "person" });
+        response.EnsureSuccessStatusCode();
+        using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var contactId = created.RootElement.GetProperty("contactId").GetString()!;
+        using var read = await _client!.GetFromJsonAsync<JsonDocument>($"/api/local-node/contacts/{Uri.EscapeDataString(contactId)}");
 
-        Assert.Equal(created.ContactId, read.ContactId);
-        Assert.Equal("W2 acceptance contact", read.DisplayName);
+        Assert.NotNull(read);
+        Assert.Equal(contactId, read.RootElement.GetProperty("contactId").GetString());
+        Assert.Equal("W2 acceptance contact", read.RootElement.GetProperty("displayName").GetString());
 
         await using (var people = await peopleFactory.CreateDbContextAsync())
         {
             var row = await people.Set<Party>()
                 .IgnoreQueryFilters()
                 .AsNoTracking()
-                .SingleOrDefaultAsync(p => p.Id == new PartyId(created.ContactId));
+                .SingleOrDefaultAsync(p => p.Id == new PartyId(contactId));
             Assert.NotNull(row);
             Assert.Equal("W2 acceptance contact", row!.DisplayName);
         }
@@ -118,7 +125,7 @@ public sealed class NodeHostingAcceptanceE2ETests : IAsyncLifetime
             .OrderByDescending(envelope => envelope.Sequence)
             .FirstOrDefaultAsync();
         Assert.NotNull(audit);
-        Assert.Contains(created.ContactId, audit!.CorrelationId, StringComparison.Ordinal);
+        Assert.Contains(contactId, audit!.CorrelationId, StringComparison.Ordinal);
         Assert.False(string.IsNullOrWhiteSpace(audit.EnvelopeHash));
         Assert.False(string.IsNullOrWhiteSpace(audit.PayloadDigest));
     }

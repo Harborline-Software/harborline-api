@@ -19,9 +19,211 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// list, detail, tree, condition and submission reads. Symbol discovery inventories every store call;
 /// source inspection additionally requires an awaited records:read refusal for the addressed record and
 /// its early return before each read. An unrelated capability or record never satisfies that requirement.
+/// T-1080 A6 adds the projection fence: related records reach a response only through the record-grain guard.
 /// </summary>
 public sealed class AssetRegistryAuthorizedReadFenceTests
 {
+    [Fact]
+    public void Tree_and_detail_projections_require_record_decisions()
+    {
+        // T-1080 A6. A related record (child, ancestor, container) reaches a projection only through
+        // AssetRegistryRoutes.ReadableAsync, the fail-closed record-grain guard. The fence reads structure,
+        // not spelling: every relationship read is the direct argument of that guard, so an undecided
+        // related id never has a name, and a by-id handler reads an entity only for the addressed id or
+        // for an id the guard returned. The behavioural half, which proves the guard itself refuses, is
+        // AssetRegistryEntityReadAuthorizationTests.No_read_route_shows_a_related_record_the_caller_cannot_open.
+        var source = File.ReadAllText(AuditAppendSymbolInventory.ResolveSourcePath(
+            "apps/local-node-host/Health/AssetRegistryRoutes.cs"));
+        var (guarded, unguarded) = InspectRelatedReads(source);
+        Assert.True(unguarded.Length == 0,
+            "Related-record reads that do not go through ReadableAsync:"
+            + Environment.NewLine + string.Join(Environment.NewLine, unguarded));
+        // Literal oracle (T-1080 build item 5): the point read's container and breadcrumb, then the tree's
+        // contents and breadcrumb.
+        Assert.Equal(
+            new[]
+            {
+                "edges.GetContainerAsAtAsync", "edges.GetContainmentPathAsAtAsync",
+                "edges.GetContentsAsAtAsync", "edges.GetContainmentPathAsAtAsync",
+            }, guarded);
+        // The syntax walk knows the store by its parameter name. The IL count does not, so a read through
+        // an alias or from a helper outside the handlers breaks the equality.
+        var relationshipReads = RawMutationPortSymbolInventoryTests.DiscoverCalls(
+            [typeof(AssetRegistryRoutes).Assembly],
+            target => target.DeclaringType == typeof(ITypedRelationshipStore) && IsStoreRead(target),
+            type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
+        Assert.Equal(4, relationshipReads.Length);
+        var readableCalls = RawMutationPortSymbolInventoryTests.DiscoverCalls(
+            [typeof(AssetRegistryRoutes).Assembly],
+            target => target.DeclaringType == typeof(AssetRegistryRoutes) && target.Name == "ReadableAsync",
+            type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
+        var allowedCalls = RawMutationPortSymbolInventoryTests.DiscoverCalls(
+            [typeof(AssetRegistryRoutes).Assembly],
+            target => target.DeclaringType == typeof(RequestAuthorization) && target.Name == nameof(RequestAuthorization.AllowedAsync),
+            type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
+        Assert.Equal(4, readableCalls.Length);
+        Assert.Equal(2, allowedCalls.Length);
+    }
+
+    [Theory]
+    [InlineData("var raw = await edges.GetContentsAsAtAsync(tenant, self, at, ct).ConfigureAwait(false);")]
+    [InlineData("var kept = Keep(await edges.GetContainmentPathAsAtAsync(tenant, self, at, ct));")]
+    [InlineData("var location = await edges.GetLocationAsAtAsync(tenant, self, at, ct);")]
+    [InlineData("var pending = edges.GetContentsAsAtAsync(tenant, self, at, ct); var late = await ReadableAsync(http, actAuthority, decisions, await pending, ct);")]
+    [InlineData("var other = new RegistryEntityId(otherId); var row = await entities.GetByIdAsync(tenant, other, ct);")]
+    [InlineData("foreach (var c in undecided) rows.Add(await entities.GetByIdAsync(tenant, c, ct));")]
+    [InlineData("var all = await entities.ListByTenantAsync(tenant, false, ct);")]
+    [InlineData("var mine = new RegistryEntityId(id); mine = other; var row = await entities.GetByIdAsync(tenant, mine, ct);")]
+    [InlineData("var more = await ReadableAsync(http, actAuthority, decisions, none, ct); more = undecided; foreach (var extra in more) rows.Add(await entities.GetByIdAsync(tenant, extra, ct));")]
+    public void Unguarded_related_record_projection_controls_are_refused(string planted)
+    {
+        // Planted snippets: each is a way to project a related record without the guard's decision. The
+        // guarded form in the same handler stays clean, so the fence names only the planted read.
+        var (guarded, unguarded) = InspectRelatedReads(RelatedProbe(GuardedProjection + " " + planted));
+        Assert.Single(unguarded);
+        Assert.Equal(new[] { "edges.GetContentsAsAtAsync" }, guarded);
+    }
+
+    [Theory]
+    [InlineData("id = otherId; var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("Change(ref id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("Change(out id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    [InlineData("(id, otherId) = (otherId, id); var row = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);")]
+    public void Written_addressed_id_is_not_trusted(string planted)
+    {
+        var (_, unguarded) = InspectRelatedReads(RelatedProbe(planted));
+        Assert.NotEmpty(unguarded);
+    }
+
+    [Fact]
+    public void Guarded_related_record_projection_control_is_accepted()
+    {
+        var (guarded, unguarded) = InspectRelatedReads(RelatedProbe(GuardedProjection
+            + " var again = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct);"));
+        Assert.Empty(unguarded);
+        Assert.Equal(new[] { "edges.GetContentsAsAtAsync" }, guarded);
+        // Outside a handler nothing proves which record a read addresses.
+        const string helper = "class Probe { async Task Load() { var row = await entities.GetByIdAsync(tenant, key, ct); } }";
+        Assert.Single(InspectRelatedReads(helper).Unguarded);
+    }
+
+    private const string GuardedProjection =
+        "var me = await entities.GetByIdAsync(tenant, self, ct); "
+        + "var ids = await ReadableAsync(http, actAuthority, decisions, "
+        + "await edges.GetContentsAsAtAsync(tenant, self, at, ct).ConfigureAwait(false), ct).ConfigureAwait(false); "
+        + "foreach (var c in ids) { var row = await entities.GetByIdAsync(tenant, c, ct); }";
+
+    private static string RelatedProbe(string projection) => $$"""
+        class Probe
+        {
+            void Map()
+            {
+                app.MapGet("/probe/{id}", async (string id, HttpContext http, CancellationToken ct) =>
+                {
+                    var self = new RegistryEntityId(id);
+                    {{projection}}
+                });
+            }
+        }
+        """;
+
+    private static (string[] Guarded, string[] Unguarded) InspectRelatedReads(string source)
+    {
+        var guarded = new List<string>();
+        var unguarded = new List<string>();
+        foreach (var read in CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes()
+                     .OfType<InvocationExpressionSyntax>())
+        {
+            if (read.Expression is not MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax receiver } member)
+                continue;
+            var method = member.Name.Identifier.ValueText;
+            if (!method.StartsWith("Get", StringComparison.Ordinal) && !method.StartsWith("List", StringComparison.Ordinal))
+                continue;
+            var where = $"{read.Expression} at line {read.GetLocation().GetLineSpan().StartLinePosition.Line + 1}";
+            if (receiver.Identifier.ValueText == "edges")
+            {
+                if (Outermost(read).Parent is ArgumentSyntax { Parent.Parent: InvocationExpressionSyntax guard }
+                    && IsReadable(guard)) guarded.Add(read.Expression.ToString());
+                else unguarded.Add(where + ": a relationship read must be the direct argument of ReadableAsync.");
+            }
+            else if (receiver.Identifier.ValueText == "entities")
+            {
+                var handler = read.Ancestors().OfType<ParenthesizedLambdaExpressionSyntax>().FirstOrDefault();
+                // ADR 0060: the list act is decided at install grain, so only by-id handlers are held to this.
+                if (handler is not null
+                    && handler.ParameterList.Parameters.All(parameter => parameter.Identifier.ValueText != "id")) continue;
+                if (handler is null || method != "GetByIdAsync" || read.ArgumentList.Arguments.Count < 2
+                    || !IsAddressedOrReadable(handler, read, read.ArgumentList.Arguments[1].Expression))
+                    unguarded.Add(where + ": a by-id handler reads only the addressed record or one ReadableAsync returned.");
+            }
+        }
+        return (guarded.ToArray(), unguarded.ToArray());
+    }
+
+    private static bool IsAddressedOrReadable(
+        ParenthesizedLambdaExpressionSyntax handler, InvocationExpressionSyntax read, ExpressionSyntax target)
+    {
+        bool Writes(ExpressionSyntax target, string local) => target switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText == local,
+            TupleExpressionSyntax tuple => tuple.Arguments.Any(argument => Writes(argument.Expression, local)),
+            ParenthesizedExpressionSyntax parenthesized => Writes(parenthesized.Expression, local),
+            _ => false,
+        };
+        bool Fixed(string local) => !handler.Body.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Any(assignment => Writes(assignment.Left, local))
+            && !handler.Body.DescendantNodes().OfType<ArgumentSyntax>()
+                .Any(argument => (argument.RefKindKeyword.IsKind(SyntaxKind.RefKeyword)
+                    || argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))
+                    && Writes(argument.Expression, local));
+        if (Fixed("id") && IsAddressedId(target)) return true;
+        if (target is not IdentifierNameSyntax { Identifier.ValueText: var name }) return false;
+        var locals = handler.Body.DescendantNodes().OfType<VariableDeclaratorSyntax>().ToArray();
+        // A written parameter or local no longer holds what its declaration proves.
+        if (Fixed("id") && Fixed(name) && locals.Any(local => local.Identifier.ValueText == name
+                && local.Initializer is { } addressed && IsAddressedId(addressed.Value))) return true;
+        return read.Ancestors().OfType<ForEachStatementSyntax>().Any(loop => loop.Identifier.ValueText == name
+            && loop.Expression is IdentifierNameSyntax { Identifier.ValueText: var list } && Fixed(list)
+            && locals.Any(local => local.Identifier.ValueText == list && local.Initializer is { } decided
+                && Innermost(decided.Value) is InvocationExpressionSyntax guard && IsReadable(guard)));
+    }
+
+    private static bool IsReadable(InvocationExpressionSyntax call) =>
+        call.Expression is IdentifierNameSyntax { Identifier.ValueText: "ReadableAsync" };
+
+    private static bool IsAddressedId(ExpressionSyntax expression) =>
+        expression is ObjectCreationExpressionSyntax
+        {
+            Type: IdentifierNameSyntax { Identifier.ValueText: "RegistryEntityId" },
+            ArgumentList.Arguments: { Count: 1 } arguments,
+        } && arguments[0].Expression is IdentifierNameSyntax { Identifier.ValueText: "id" };
+
+    /// <summary>Climbs from a call through its own <c>.ConfigureAwait(…)</c>, <c>await</c> and parentheses.</summary>
+    private static SyntaxNode Outermost(SyntaxNode node)
+    {
+        while (true)
+        {
+            if (node.Parent is MemberAccessExpressionSyntax
+                { Name.Identifier.ValueText: "ConfigureAwait", Parent: InvocationExpressionSyntax configured } access
+                && access.Expression == node) node = configured;
+            else if (node.Parent is AwaitExpressionSyntax or ParenthesizedExpressionSyntax) node = node.Parent;
+            else return node;
+        }
+    }
+
+    private static ExpressionSyntax Innermost(ExpressionSyntax expression)
+    {
+        while (true)
+        {
+            if (expression is AwaitExpressionSyntax awaited) expression = awaited.Expression;
+            else if (expression is ParenthesizedExpressionSyntax parenthesized) expression = parenthesized.Expression;
+            else if (expression is InvocationExpressionSyntax
+                { Expression: MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ConfigureAwait" } configured })
+                expression = configured.Expression;
+            else return expression;
+        }
+    }
+
     [Fact]
     public void Entity_read_route_inventory_is_exact_and_every_read_reaches_the_gate_first()
     {

@@ -89,6 +89,25 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
     /// <summary>How long the post-commit checkpoint waits for a reader before it is left owed.</summary>
     internal const int CheckpointWaitMilliseconds = 1000;
 
+    internal async ValueTask RetireUnusedEpochAsync(TenantId tenant, Guid epochId, ContentStoreWrite write, CancellationToken cancellationToken)
+    {
+        var port = new RetirementPort(this);
+        await KernelTransactionBoundary.ExecutePreparedAsync(async token =>
+        {
+            if (!await port.Transaction!.RetireEpochIfUnnamedAsync(tenant, epochId, token).ConfigureAwait(false))
+                throw new ContentEpochInUseException(epochId);
+            return new KernelCommand<ContentStoreOperation>(write.Operation, ContentStoreOperation.EpochDestroy, write.Audit);
+        }, port, cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class RetirementPort(NodeContentBookkeeping bookkeeping) : IKernelPreparedTransactionPort<ContentStoreOperation, bool>
+    {
+        internal IContentBookkeepingTransaction? Transaction { get; private set; }
+
+        public async ValueTask<IKernelPreparedTransaction<ContentStoreOperation, bool>> BeginAsync(CancellationToken cancellationToken = default) =>
+            Transaction = await bookkeeping.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<ContentStoreItem>> StagedCreatedAtOrBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken = default)
     {
@@ -192,7 +211,7 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
 
     private static ContentStoreItem ToItem(ContentItemColumns row, IReadOnlyList<ContentOwner> owners) =>
         new(row.ItemKey, new(row.TenantId), new(row.ContentId), row.Length, row.MediaType, Instant(row.CreatedUtcTicks),
-            row.WrappedDataKey, row.WrapNonce, row.WrapTag, row.NoncePrefix, row.SegmentSize)
+            row.WrappedDataKey, row.WrapNonce, row.WrapTag, row.NoncePrefix, row.SegmentSize, row.EpochId)
         {
             Owners = owners,
             State = (ContentLifecycleState)row.State,
@@ -285,16 +304,79 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
             return ToItem(row, []);
         }
 
+        // The transaction already holds the node's write lock, so what this reads is what a promotion moves.
+        public ValueTask<ContentStoreItem?> FindStagedForUpdateAsync(Guid stageId, CancellationToken cancellationToken = default) =>
+            FindStagedAsync(stageId, cancellationToken);
+
         public ValueTask<ContentIntegrityEntry?> FindIntegrityAsync(TenantId tenant, Guid itemKey, CancellationToken cancellationToken = default) =>
             ReadIntegrityAsync(context, tenant, itemKey, cancellationToken);
+
+        // Staged entries first, then committed ones, the order a promotion locks in (the port's contract).
+        public async ValueTask<IReadOnlyList<ContentStoreItem>> ItemsUnderEpochAsync(TenantId tenant, Guid epochId, int limit, CancellationToken cancellationToken = default)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+            var staged = await context.Set<ContentStagedRow>().AsNoTracking()
+                .Where(row => row.TenantId == tenant.Value && row.EpochId == epochId).OrderBy(row => row.ItemKey).Take(limit)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            var items = new List<ContentStoreItem>(staged.Select(row => ToItem(row, [])));
+            if (items.Count < limit)
+            {
+                var committed = await context.Set<ContentItemRow>().AsNoTracking()
+                    .Where(row => row.TenantId == tenant.Value && row.EpochId == epochId).OrderBy(row => row.ItemKey).Take(limit - items.Count)
+                    .ToListAsync(cancellationToken).ConfigureAwait(false);
+                items.AddRange(committed.Select(row => ToItem(row, [])));
+            }
+
+            return items;
+        }
+
+        // A transaction this port opens holds the node's write lock, so no retirement can run until it ends: the pin is a read
+        // of the durable marker. ponytail: the node's one SQLite writer is the lock; a provider with row locks needs FOR SHARE here.
+        // A pin names the tenant whose chain the transaction's audit row joins, as a rewrap's does even when its batch is empty.
+        public async ValueTask<bool> PinEpochAsync(TenantId tenant, Guid epochId, CancellationToken cancellationToken = default)
+        {
+            _tenants.Add(tenant.Value);
+            return !await context.Set<ContentEpochRow>().AnyAsync(row => row.TenantId == tenant.Value && row.EpochId == epochId, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Under the same write lock no pin is open, so retiring is a check for naming rows and then the durable marker.
+        public async ValueTask<bool> RetireEpochIfUnnamedAsync(TenantId tenant, Guid epochId, CancellationToken cancellationToken = default)
+        {
+            _tenants.Add(tenant.Value);
+            if (await context.Set<ContentStagedRow>().AnyAsync(row => row.TenantId == tenant.Value && row.EpochId == epochId, cancellationToken).ConfigureAwait(false)
+                || await context.Set<ContentItemRow>().AnyAsync(row => row.TenantId == tenant.Value && row.EpochId == epochId, cancellationToken).ConfigureAwait(false))
+                return false;
+            await context.Database.ExecuteSqlAsync($"""
+                INSERT INTO content_store_epochs ("TenantId", "EpochId") VALUES ({tenant.Value}, {epochId})
+                ON CONFLICT ("TenantId", "EpochId") DO NOTHING
+                """, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        public async ValueTask<bool> ReplaceWrapAsync(ContentStoreItem item, Guid epochId, byte[] wrappedDataKey, byte[] wrapNonce, byte[] wrapTag, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            _tenants.Add(item.Tenant.Value);
+            var from = item.EpochId;
+            var changed = item.State == ContentLifecycleState.Staged
+                ? await context.Set<ContentStagedRow>().Where(row => row.ItemKey == item.StageId && row.TenantId == item.Tenant.Value && row.EpochId == from)
+                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.EpochId, epochId).SetProperty(row => row.WrappedDataKey, wrappedDataKey)
+                        .SetProperty(row => row.WrapNonce, wrapNonce).SetProperty(row => row.WrapTag, wrapTag), cancellationToken).ConfigureAwait(false)
+                : await context.Set<ContentItemRow>().Where(row => row.ItemKey == item.StageId && row.TenantId == item.Tenant.Value && row.EpochId == from)
+                    .ExecuteUpdateAsync(set => set.SetProperty(row => row.EpochId, epochId).SetProperty(row => row.WrappedDataKey, wrappedDataKey)
+                        .SetProperty(row => row.WrapNonce, wrapNonce).SetProperty(row => row.WrapTag, wrapTag), cancellationToken).ConfigureAwait(false);
+            // A rewrap overwrites a wrap in place; the old one may still be in the WAL until a TRUNCATE checkpoint (ADR 0116 decision 5).
+            if (changed > 0) Reclaimed = true;
+            return changed > 0;
+        }
 
         public async ValueTask AddStagedAsync(ContentStoreItem item, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(item);
             _tenants.Add(item.Tenant.Value);
             await context.Database.ExecuteSqlAsync($"""
-                INSERT INTO content_store_staged ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State")
-                VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State})
+                INSERT INTO content_store_staged ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State", "EpochId")
+                VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State}, {item.EpochId})
                 """, cancellationToken).ConfigureAwait(false);
         }
 
@@ -323,8 +405,8 @@ public sealed class NodeContentBookkeeping(IDbContextFactory<LocalNodeDbContext>
             ArgumentNullException.ThrowIfNull(item);
             _tenants.Add(item.Tenant.Value);
             var created = await context.Database.ExecuteSqlAsync($"""
-                INSERT INTO content_store_items ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State")
-                VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State})
+                INSERT INTO content_store_items ("ItemKey", "TenantId", "ContentId", "Length", "MediaType", "CreatedUtcTicks", "WrappedDataKey", "WrapNonce", "WrapTag", "NoncePrefix", "SegmentSize", "State", "EpochId")
+                VALUES ({item.StageId}, {item.Tenant.Value}, {item.ContentId.Value}, {item.Length}, {item.MediaType}, {item.CreatedUtc.UtcTicks}, {item.WrappedDataKey}, {item.WrapNonce}, {item.WrapTag}, {item.NoncePrefix}, {item.SegmentSize}, {(int)item.State}, {item.EpochId})
                 ON CONFLICT ("TenantId", "ContentId") DO NOTHING
                 """, cancellationToken).ConfigureAwait(false);
             if (created > 0)

@@ -35,3 +35,48 @@ __pycache__/
 .stryker-tmp/
 stryker-setup-*.js
 **/reports/mutation/
+
+# From GitHub's VisualStudio.gitignore (github/gitignore), the file `dotnet new gitignore` writes.
+# Only the rules this repository needs: the whole template also matches tracked sources here.
+
+# User-specific files
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+# Deliberately NOT ignored: *.user. MSBuild imports <Project>.csproj.user into the build, and
+# eng/verify-receipt.mjs refuses to record a pass while `git status` shows changes, so these must
+# stay visible there or a receipt could vouch for HEAD after a build that used local overrides.
+
+# Visual Studio cache and options
+.vs/
+
+# MSBuild binary logs
+*.binlog
+
+# Code coverage output
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.info
+
+# Publish output; publish profiles and certificates can carry credentials
+publish/
+*.pubxml
+*.publishsettings
+*.pfx
+
+# NuGet packages
+*.nupkg
+*.snupkg
+
+# From GitHub's Node.gitignore (github/gitignore)
+npm-debug.log*
+pnpm-debug.log*
+*.tsbuildinfo
+.eslintcache
+.env
+.env.*
+!.env.example

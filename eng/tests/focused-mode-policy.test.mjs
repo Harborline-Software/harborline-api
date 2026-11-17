@@ -44,6 +44,7 @@ for (const [file, kind] of [
   ['packages/contracts/package.json', 'toolchain'],
   ['packages/contracts/rust/Cargo.lock', 'toolchain'],
   ['packages/contracts/rust/Cargo.toml', 'toolchain'],
+  ['.gitignore', 'build-artifact'],
   ['eng/platform-pin.json', 'toolchain'], ['eng/coverage.runsettings', 'coverage'],
   ['apps/capability-host/src/index.ts', 'capability-typescript'],
   ['apps/capability-host/src/runtime/nested/host.test.ts', 'capability-typescript'],
@@ -256,6 +257,8 @@ for (const change of [
   {status: 'M', path: 'packages/contracts/Cargo.lock'},
   {status: 'M', path: 'packages/contracts/rust/nested/Cargo.lock'},
   {status: 'M', path: 'packages/contracts/rust/Cargo.lock.bak'},
+  {status: 'M', path: 'apps/local-node-host/.gitignore'},
+  {status: 'M', path: '.gitignore.bak'},
   {status: 'M', path: 'new-format.blob'}, {status: 'T', path: 'README.md'},
   {status: 'M', path: '../docs/guide.md'}, {status: 'M', path: '/docs/guide.md'},
   {status: 'M', path: 'C:\\docs\\guide.md'}, {status: 'R100', path: 'README.md'},
@@ -439,6 +442,31 @@ test('shared preflight cannot claim host-mode execution', () => {
 })
 test('a completion failure propagates through the existing preflight CLI wrapper', () => {
   assert.throws(() => runVerificationPreflight({prerequisites: () => ({lane: 'host'}), focusedModes: () => { throw new Error('mode failed') }}), /mode failed/)
+})
+
+for (const [file, kind] of [
+  ['apps/local-node-host/Data/ContentStore/README.md', 'documentation'],
+  ['apps/local-node-host/tests/ContentStore/epoch-rotation-evidence-2026-11-11.md', 'documentation'],
+  ['apps/local-node-host/tests/ContentStore/EpochCrashWorker.cs.txt', 'binary'],
+]) test(`the owned content-store input is classified by exact path: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, kind)
+  assert.equal(plan.selection, kind === 'documentation' ? 'not-required' : 'focused')
+  assert.deepEqual(plan.requiredModes, kind === 'documentation' ? [] : ['coverage-off', 'coverage-on'])
+  requireRunnableSelection(plan)
+})
+
+for (const file of [
+  'apps/local-node-host/Data/Other/README.md',
+  'apps/local-node-host/tests/Other/epoch-rotation-evidence-2026-11-11.md',
+  'apps/local-node-host/tests/Other/EpochCrashWorker.cs.txt',
+  'apps/local-node-host/tests/ContentStore/AnotherWorker.cs.txt',
+  'apps/local-node-host/tests/ContentStore/another-evidence.md',
+]) test(`unowned content-store near miss stays unsupported: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, 'unknown')
+  assert.equal(plan.selection, 'unsupported')
+  assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
 })
 
 test('the owned durable-write architecture inventory retains mandatory OFF and ON', () => {
