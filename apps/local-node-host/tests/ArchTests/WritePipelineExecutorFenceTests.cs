@@ -2290,6 +2290,77 @@ public sealed partial class WritePipelineExecutorFenceTests
         Assert.Contains("Stale (on the executor now; delete the row):\n" + merge, failure.Message, StringComparison.Ordinal);
     }
 
+    private static readonly (string Owner, string Method, string[] Callers)[] ReviewedWriteCallers =
+    [
+        ("Harborline.Api.LocalNodeHost.Data.Banking.NodeEfBankAccountRepository", "AddWithCreateKeyAsync", ["Harborline.Api.LocalNodeHost.Data.Financial.NodeBankAccountWriter+AccountCreate.CommitAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore", "CommitCoreAsync", ["Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.CommitAsync", "Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.CommitBootstrapAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore", "SetAsync", ["Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore.ArchiveAsync", "Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore.UnarchiveAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget", "Prepare", ["Harborline.Api.LocalNodeHost.Health.ConfigurationActivationRoutes+<>c__DisplayClass_0.<Map>b__2"]),
+        ("Harborline.Api.LocalNodeHost.Data.Authorization.RetiredDesktopActorRekey", "RunAsync", ["Harborline.Api.LocalNodeHost.Data.Authorization.AuthorizationSeedHostedService.StartAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "AcquireLeaseAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "RenewLeaseAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "StageLegacyBearerRevocationsAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "AdvanceAsync", []),
+    ];
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void ReviewedNonPortWriteCallersRemainExact()
+    {
+        var assemblies = ProductionAssemblies();
+        foreach (var (owner, method, expected) in ReviewedWriteCallers)
+            AssertWriteCallers(assemblies, owner, method, expected);
+        var activation = typeof(Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget);
+        var saveCallers = RawMutationPortSymbolInventoryTests.DiscoverCalls([activation.Assembly], IsEfSave, type => IsWithin(type, activation))
+            .Select(site => site.Symbol[..site.Symbol.IndexOf('(')]).Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(new[]
+        {
+            "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget+<>c__DisplayClass_0.<Prepare>b__0",
+            "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget+ConfigurationActivationWrite.CommitAsync",
+        }, saveCallers);
+    }
+
+    private static void AssertWriteCallers(Assembly[] assemblies, string owner, string method, string[] expected)
+    {
+        var ownerType = typeof(NodeEntityWriter).Assembly.GetType(owner);
+        Assert.NotNull(ownerType);
+        Assert.Single(ownerType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly), candidate => candidate.Name == method);
+        var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(assemblies,
+                target => target.DeclaringType?.FullName == owner && target.Name == method,
+                type => type.Assembly != typeof(PlantedNonPortCalls).Assembly || type == typeof(PlantedNonPortCalls))
+            .Select(site => site.Symbol[..site.Symbol.IndexOf('(')])
+            .Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(expected.Order(StringComparer.Ordinal), actual);
+    }
+
+    [Theory]
+    [InlineData("Keyed", "AddWithCreateKeyAsync")]
+    [InlineData("Acquire", "AcquireLeaseAsync")]
+    [InlineData("Renew", "RenewLeaseAsync")]
+    [InlineData("Stage", "StageLegacyBearerRevocationsAsync")]
+    [InlineData("Rekey", "RunAsync")]
+    [InlineData("Prepare", "Prepare")]
+    public void PlantedNonPortCallIsRejected(string caller, string method)
+    {
+        Assert.NotNull(typeof(PlantedNonPortCalls).GetMethod(caller));
+        var row = Assert.Single(ReviewedWriteCallers, row => row.Method == method);
+        var assemblies = ProductionAssemblies().Append(typeof(PlantedNonPortCalls).Assembly).ToArray();
+        Assert.Throws<Xunit.Sdk.EqualException>(() => AssertWriteCallers(assemblies, row.Owner, row.Method, row.Callers));
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([typeof(PlantedNonPortCalls).Assembly],
+            target => target.DeclaringType?.FullName == row.Owner && target.Name == row.Method,
+            type => type == typeof(PlantedNonPortCalls)), site => site.Symbol.Contains("." + caller + "(", StringComparison.Ordinal));
+    }
+
+    private static class PlantedNonPortCalls
+    {
+        public static Task Keyed(Harborline.Api.LocalNodeHost.Data.Banking.NodeEfBankAccountRepository store) => store.AddWithCreateKeyAsync(null!, null!);
+        public static Task Acquire(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.AcquireLeaseAsync("plant", TimeSpan.FromMinutes(1));
+        public static Task Renew(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.RenewLeaseAsync(null!, TimeSpan.FromMinutes(1));
+        public static Task Stage(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.StageLegacyBearerRevocationsAsync(null!, []);
+        public static Task Rekey() => Harborline.Api.LocalNodeHost.Data.Authorization.RetiredDesktopActorRekey.RunAsync(null!, null, default, default);
+        public static object Prepare(Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget target) => target.Prepare(default, "", [], null!, default);
+    }
+
     private static void AssertReviewedOffExecutor(string[] reviewed, string[] off) =>
         Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
             "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"

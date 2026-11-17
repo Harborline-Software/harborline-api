@@ -121,7 +121,7 @@ public sealed class DurableWriteClassificationArchTests
             "apps/local-node-host/Data/Calendar/NodeEfCalendarStore.cs|gap",
             "apps/local-node-host/Data/Calendar/NodeEfResourceAvailabilityStore.cs|gap",
             "apps/local-node-host/Data/Comms/CommsCrdtProjection.cs|gap",
-            "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|executor",
+            "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|mixed",
             "apps/local-node-host/Data/Configuration/ConfigurationProposalStore.cs|gap",
             "apps/local-node-host/Data/Configuration/ConfigurationRecoveryCommand.cs|gap",
             "apps/local-node-host/Data/ContentStore/NodeContentBookkeeping.cs|gap",
