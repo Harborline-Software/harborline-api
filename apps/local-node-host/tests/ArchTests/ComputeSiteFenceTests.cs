@@ -60,6 +60,7 @@ public sealed class ComputeSiteFenceTests
 
     [Theory]
     [InlineData("opening + lines.Sum(l => l.Amount)")]
+    [InlineData("rows?.Sum(r => r.Amount)")]
     [InlineData("rows.Where(r => r.Open).Average(r => r.Days)")]
     [InlineData("entries.Aggregate(0m, (sum, e) => sum + e.Amount)")]
     [InlineData("lines.Max(l => l.CreatedAtUtc)")]
@@ -103,9 +104,15 @@ public sealed class ComputeSiteFenceTests
 
     private static int FoldCount(string source) => CSharpSyntaxTree.ParseText(source).GetRoot()
         .DescendantNodes().OfType<InvocationExpressionSyntax>()
-        .Count(call => call.Expression is MemberAccessExpressionSyntax member
-            && member.Name.Identifier.ValueText is "Sum" or "Average" or "Aggregate" or "Min" or "Max" or "MinBy" or "MaxBy"
-            && !IsScalar(member.Expression));
+        .Count(call => call.Expression switch
+        {
+            MemberAccessExpressionSyntax member => IsFold(member.Name) && !IsScalar(member.Expression),
+            MemberBindingExpressionSyntax binding => IsFold(binding.Name),
+            _ => false,
+        });
+
+    private static bool IsFold(SimpleNameSyntax name) => name.Identifier.ValueText is
+        "Sum" or "Average" or "Aggregate" or "Min" or "Max" or "MinBy" or "MaxBy";
 
     private static bool IsScalar(ExpressionSyntax receiver) => receiver.ToString() is
         "Math" or "MathF" or "BigInteger" or "TimeSpan" or "decimal" or "DateTimeOffset" or "DateTime" or "Interlocked"
