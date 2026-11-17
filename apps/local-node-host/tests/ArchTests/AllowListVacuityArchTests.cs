@@ -34,6 +34,7 @@ public sealed class AllowListVacuityArchTests
     /// <summary>Every allow-list whose rows are checked against the owning fence's live discovery.</summary>
     private static readonly AllowList[] Registry =
     [
+        new("ComputeSiteFenceTests", "Allowed", () => ComputeSiteFenceTests.Allowed, ComputeSiteFenceTests.Discover),
         new("AuthorizationModelArchTests", "InlineRoleConstructionOwners",
             () => [.. AuthorizationModelArchTests.InlineRoleConstructionOwnerRows],
             AuthorizationModelArchTests.DiscoveredInlineRoleConstructionOwners),
