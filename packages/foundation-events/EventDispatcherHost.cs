@@ -49,7 +49,7 @@ public sealed class EventDispatcherHost : BackgroundService
             try
             {
                 await _reader.DrainOnceAsync(tenant, _batchSize, cancellationToken).ConfigureAwait(false);
-                if (_failing.Remove(tenant.Value, out var ended))
+                if (_failing.Remove(tenant.Value, out var ended) && _logger.IsEnabled(LogLevel.Information))
                     _logger.LogInformation("Domain event drain for tenant {TenantId} recovered after {FailedPolls} failed polls.", tenant.Value, ended.Polls);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -60,7 +60,8 @@ public sealed class EventDispatcherHost : BackgroundService
                 if (_failing.TryGetValue(tenant.Value, out var episode) && episode.Type == ex.GetType())
                 {
                     _failing[tenant.Value] = (episode.Type, episode.Polls + 1);
-                    _logger.LogDebug("Domain event drain for tenant {TenantId} still failing with {ExceptionType} ({FailedPolls} polls).", tenant.Value, episode.Type.Name, episode.Polls + 1);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("Domain event drain for tenant {TenantId} still failing with {ExceptionType} ({FailedPolls} polls).", tenant.Value, episode.Type.Name, episode.Polls + 1);
                 }
                 else
                 {
@@ -82,7 +83,8 @@ public sealed class EventDispatcherHost : BackgroundService
                 if (_scanFailure is { } ended)
                 {
                     _scanFailure = null;
-                    _logger.LogInformation("Domain event tenant scan recovered after {FailedPolls} failed polls.", ended.Polls);
+                    if (_logger.IsEnabled(LogLevel.Information))
+                        _logger.LogInformation("Domain event tenant scan recovered after {FailedPolls} failed polls.", ended.Polls);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -95,7 +97,8 @@ public sealed class EventDispatcherHost : BackgroundService
                 if (_scanFailure is { } episode && episode.Type == ex.GetType())
                 {
                     _scanFailure = (episode.Type, episode.Polls + 1);
-                    _logger.LogDebug("Domain event tenant scan still failing with {ExceptionType} ({FailedPolls} polls).", episode.Type.Name, episode.Polls + 1);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("Domain event tenant scan still failing with {ExceptionType} ({FailedPolls} polls).", episode.Type.Name, episode.Polls + 1);
                 }
                 else
                 {
