@@ -140,6 +140,59 @@ public sealed class TelemetrySentinelFenceTests
         }, host.Fence.Find(sentinel));
     }
 
+    [Fact]
+    public async Task Sentinel_fence_reports_a_sentinel_planted_only_in_an_exception()
+    {
+        await using var host = await Host.OpenAsync();
+        var sentinel = Sentinel("exception");
+        var position = host.Fence.Mark();
+        host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TelemetrySentinelFence.Exception")
+            .LogError(new InvalidOperationException("Outer failure", new Exception(sentinel)), "Exception probe");
+        await host.DrainAsync(position);
+
+        Assert.Equal(new TelemetrySentinelFence.Hit[]
+        {
+            new("log", "TelemetrySentinelFence.Exception", "Exception probe"),
+        }, host.Fence.Find(sentinel));
+    }
+
+    [Fact]
+    public async Task Sentinel_fence_reports_a_sentinel_planted_in_an_array_activity_tag()
+    {
+        await using var host = await Host.OpenAsync();
+        var sentinel = Sentinel("array");
+        var position = host.Fence.Mark();
+        using var source = new ActivitySource("TelemetrySentinelFence.Array");
+        using (var activity = source.StartActivity("array-probe"))
+        {
+            Assert.NotNull(activity);
+            activity.SetTag("sentinel.array", new[] { "safe", sentinel });
+        }
+        await host.DrainAsync(position);
+
+        Assert.Equal(new TelemetrySentinelFence.Hit[]
+        {
+            new("activity", "TelemetrySentinelFence.Array", "sentinel.array"),
+        }, host.Fence.Find(sentinel));
+    }
+
+    [Fact]
+    public async Task Sentinel_fence_reports_a_sentinel_planted_in_an_observable_measurement()
+    {
+        await using var host = await Host.OpenAsync();
+        var sentinel = Sentinel("observable");
+        var position = host.Fence.Mark();
+        using var meter = new Meter("TelemetrySentinelFence.Observable");
+        meter.CreateObservableGauge("observable_probe", () =>
+            new Measurement<int>(1, new KeyValuePair<string, object?>("sentinel.observable", sentinel)));
+        await host.DrainAsync(position);
+
+        Assert.Equal(new TelemetrySentinelFence.Hit[]
+        {
+            new("measurement", "TelemetrySentinelFence.Observable", "sentinel.observable"),
+        }, host.Fence.Find(sentinel));
+    }
+
     private static string Sentinel(string member) => "zq7sentinel" + member + Guid.NewGuid().ToString("N");
 
     private static async Task SaveAndSubmitAsync(Host host, string id, string answer, string? expressionSentinel = null)

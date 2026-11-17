@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -64,8 +65,18 @@ internal sealed class TelemetrySentinelFence : IDisposable
     // The fixture owns the listeners across the authorization-seeding host restart.
     private sealed class Provider(TelemetrySentinelFence owner) : ILoggerProvider
     {
-        public ILogger CreateLogger(string categoryName) => owner.CreateLogger(categoryName);
+        public ILogger CreateLogger(string categoryName) => new ExceptionSink(owner.CreateLogger(categoryName));
         public void Dispose() { }
+    }
+
+    private sealed class ExceptionSink(ILogger inner) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+        public bool IsEnabled(LogLevel logLevel) => inner.IsEnabled(logLevel);
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            inner.Log(logLevel, eventId, state, exception, (value, error) =>
+                error is null ? formatter(value, error) : formatter(value, error) + Environment.NewLine + error.ToString());
     }
 
     internal async Task ReceiveAsync(HttpContext context)
@@ -78,6 +89,7 @@ internal sealed class TelemetrySentinelFence : IDisposable
 
     internal Hit[] Find(params string[] sentinels)
     {
+        measurements.RecordObservableInstruments();
         bool Contains(string? text) => text is not null &&
             sentinels.Any(sentinel => text.Contains(sentinel, StringComparison.OrdinalIgnoreCase));
         string Redact(string text)
@@ -117,8 +129,17 @@ internal sealed class TelemetrySentinelFence : IDisposable
     private static bool IsApplication(string name) =>
         !name.StartsWith("Microsoft.", StringComparison.Ordinal) && !name.StartsWith("System.", StringComparison.Ordinal);
 
-    private void Capture(string signal, string source, string location, object? value) =>
-        values.Enqueue(new Value(new Hit(signal, source, location), value?.ToString()));
+    private void Capture(string signal, string source, string location, object? value)
+    {
+        if (value is IEnumerable items && value is not string)
+        {
+            foreach (var item in items) Capture(signal, source, location, item);
+        }
+        else
+        {
+            values.Enqueue(new Value(new Hit(signal, source, location), value?.ToString()));
+        }
+    }
 
     private void CaptureActivity(Activity activity)
     {
