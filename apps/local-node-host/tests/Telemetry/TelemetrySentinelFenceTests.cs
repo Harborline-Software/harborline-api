@@ -42,7 +42,7 @@ public sealed class TelemetrySentinelFenceTests
     {
         await using var host = await Host.OpenAsync();
         var sentinel = Sentinel("records");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         using var response = await host.Client.PostAsJsonAsync("/api/local-node/entities", new { legalName = sentinel });
         Assert.True(response.IsSuccessStatusCode, $"Records status: {response.StatusCode}");
         await host.AssertSilenceAsync("Records", position, sentinel);
@@ -53,7 +53,7 @@ public sealed class TelemetrySentinelFenceTests
     {
         await using var host = await Host.OpenAsync();
         var sentinel = Sentinel("forms");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         await SaveAndSubmitAsync(host, "sentinel-forms", sentinel);
         await host.AssertSilenceAsync("Forms", position, sentinel);
     }
@@ -63,7 +63,7 @@ public sealed class TelemetrySentinelFenceTests
     {
         await using var host = await Host.OpenAsync();
         var sentinel = Sentinel("views");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         using var response = await host.Client.GetAsync("/api/local-node/asset-registry/entities?type=" + sentinel);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         await host.AssertSilenceAsync("Views", position, sentinel);
@@ -75,7 +75,7 @@ public sealed class TelemetrySentinelFenceTests
         await using var host = await Host.OpenAsync();
         var expressionSentinel = Sentinel("rulesexpression");
         var operandSentinel = Sentinel("rulesoperand");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         await SaveAndSubmitAsync(host, "sentinel-rules", operandSentinel, expressionSentinel);
         await host.AssertSilenceAsync("Rules", position, expressionSentinel, operandSentinel);
     }
@@ -94,7 +94,7 @@ public sealed class TelemetrySentinelFenceTests
             CREATE TABLE `tabProperty` (`name` varchar(140) NOT NULL, PRIMARY KEY (`name`)) ENGINE=InnoDB;
             INSERT INTO `tabProperty` VALUES ('{{sentinels[3]}}'), ('{{sentinels[4]}}'), ('{{sentinels[5]}}');
             """);
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         using var response = await host.Client.PostAsJsonAsync("/api/local-node/import/erpnext/preview", new { dumpFilePath = path });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         await host.AssertSilenceAsync("Data exchange", position, sentinels);
@@ -105,7 +105,7 @@ public sealed class TelemetrySentinelFenceTests
     {
         await using var host = await Host.OpenAsync();
         var sentinel = Sentinel("search");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         using var response = await host.Client.GetAsync("/api/local-node/kg/search?q=" + sentinel);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         await host.AssertSilenceAsync("Search", position, sentinel);
@@ -116,7 +116,7 @@ public sealed class TelemetrySentinelFenceTests
     {
         await using var host = await Host.OpenAsync();
         var sentinel = Sentinel("planted");
-        var position = host.Fence.ExportPosition;
+        var position = host.Fence.Mark();
         host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TelemetrySentinelFence.Planted")
             .LogInformation("Fence probe {Sentinel}", sentinel.ToUpperInvariant());
         using var source = new ActivitySource(EngineRoomMetrics.ActivitySourceName);
@@ -249,19 +249,22 @@ public sealed class TelemetrySentinelFenceTests
             Client.DefaultRequestHeaders.Add("Authorization", "Bearer t502-route-token");
         }
 
-        internal Task DrainAsync(long position)
+        internal Task DrainAsync(TelemetrySentinelFence.Position position)
         {
+            Services.GetRequiredService<ILoggerFactory>().CreateLogger("TelemetrySentinelFence.Drain")
+                .LogInformation("Telemetry fence drain probe");
             Services.GetRequiredService<EngineRoomTelemetry>().RecordSubsystemStatus(
                 EngineRoomSubsystem.MainPropulsion, SubsystemStatus.Operational);
             Assert.True(Services.GetRequiredService<MeterProvider>().ForceFlush(30_000), "Metric exporter did not drain.");
             Assert.True(Services.GetRequiredService<TracerProvider>().ForceFlush(30_000), "Trace exporter did not drain.");
             Assert.True(Fence.HasPayloadAfter("/v1/metrics", position), "No metric payload after command start.");
             Assert.True(Fence.HasPayloadAfter("/v1/traces", position), "No trace payload after command start.");
-            Assert.True(Fence.HasLogs, "No log record from the composed host.");
+            Assert.True(Fence.HasLogAfter(position, "TelemetrySentinelFence.Drain", "Telemetry fence drain probe"),
+                "No drain probe log from the current host after command start.");
             return Task.CompletedTask;
         }
 
-        internal async Task AssertSilenceAsync(string member, long position, params string[] sentinels)
+        internal async Task AssertSilenceAsync(string member, TelemetrySentinelFence.Position position, params string[] sentinels)
         {
             await DrainAsync(position);
             var expected = KnownLeaks.Where(leak => leak.Member == member).Select(leak => leak.Hit)

@@ -13,6 +13,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Telemetry;
 internal sealed class TelemetrySentinelFence : IDisposable
 {
     internal sealed record Hit(string Signal, string Source, string Location);
+    internal sealed record Position(long Exports, IReadOnlyDictionary<string, int> Logs);
     private sealed record Value(Hit Location, string? Text);
     private sealed record Payload(long Arrival, string Path, byte[] Bytes);
 
@@ -47,10 +48,13 @@ internal sealed class TelemetrySentinelFence : IDisposable
         measurements.Start();
     }
 
-    internal long ExportPosition => Interlocked.Read(ref arrivals);
-    internal bool HasLogs => logs.Values.Any(capture => capture.Records.Count > 0);
-    internal bool HasPayloadAfter(string path, long position) =>
-        payloads.Any(payload => payload.Arrival > position && payload.Path == path && payload.Bytes.Length > 0);
+    internal Position Mark() => new(Interlocked.Read(ref arrivals),
+        logs.ToDictionary(pair => pair.Key, pair => pair.Value.Records.Count, StringComparer.Ordinal));
+    internal bool HasLogAfter(Position position, string category, string message) =>
+        logs.TryGetValue(category, out var capture) && capture.Records
+            .Skip(position.Logs.GetValueOrDefault(category)).Any(record => record.Message == message);
+    internal bool HasPayloadAfter(string path, Position position) =>
+        payloads.Any(payload => payload.Arrival > position.Exports && payload.Path == path && payload.Bytes.Length > 0);
 
     internal ILoggerProvider LogProvider => new Provider(this);
 
