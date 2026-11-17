@@ -120,7 +120,7 @@ public sealed class DurableWriteClassificationArchTests
             "apps/local-node-host/Data/Calendar/NodeEfCalendarEventStore.cs|gap",
             "apps/local-node-host/Data/Calendar/NodeEfCalendarStore.cs|gap",
             "apps/local-node-host/Data/Calendar/NodeEfResourceAvailabilityStore.cs|gap",
-            "apps/local-node-host/Data/Comms/CommsCrdtProjection.cs|mixed",
+            "apps/local-node-host/Data/Comms/CommsCrdtProjection.cs|gap",
             "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|executor",
             "apps/local-node-host/Data/Configuration/ConfigurationProposalStore.cs|gap",
             "apps/local-node-host/Data/Configuration/ConfigurationRecoveryCommand.cs|gap",
@@ -177,6 +177,8 @@ public sealed class DurableWriteClassificationArchTests
             .Where(columns => columns[0].StartsWith("`apps/local-node-host/", StringComparison.Ordinal))
             .Select(columns => $"{columns[0].Trim('`')}|{columns[2]}").Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(expected, actual);
+        foreach (var row in actual.Select(line => line.Split('|')).Where(row => row[1] is "executor" or "mixed"))
+            WritePipelineExecutorFenceTests.AssertDurableRowExecutorReachability(row[0]);
     }
 
     [Fact]

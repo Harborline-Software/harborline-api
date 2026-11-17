@@ -2101,6 +2101,154 @@ public sealed partial class WritePipelineExecutorFenceTests
             Assert.Contains(sites, site => site.Symbol.Contains($"NodeEntityWriter+{write}.CommitAsync(", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Data/Authorization/NodeEfAuthorizationConfigurationStore.cs")]
+    [InlineData("Data/Banking/NodeEfBankAccountRepository.cs")]
+    [InlineData("Data/Configuration/ConfigurationActivationTarget.cs")]
+    [InlineData("Data/Definitions/NodeDefinitionArchiveWriter.cs")]
+    [InlineData("Data/Entities/NodeEntityWriter.cs")]
+    [InlineData("Data/Packs/DurablePackInstallStore.cs")]
+    [InlineData("Data/Roster/RosterCrdtProjection.cs")]
+    [InlineData("Data/Search/Vector/NodeEfGrantStore.cs")]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void CoveredDurableRowReachesTheRealExecutor(string hostPath) =>
+        AssertDurableRowExecutorReachability("apps/local-node-host/" + hostPath);
+
+    internal static void AssertDurableRowExecutorReachability(string mappedPath)
+    {
+        // Oracle: DES-0029 ck-10 / ADR-0038 require the canonical executor; these are the literal reviewed S6 routes.
+        var (source, owner, stages) = mappedPath switch
+        {
+            "apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs" =>
+                ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs", "Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter", new[] { "ConfigurationWrite", "ConferralWrite" }),
+            "apps/local-node-host/Data/Banking/NodeEfBankAccountRepository.cs" =>
+                ("apps/local-node-host/Data/Financial/NodeBankAccountWriter.cs", "Harborline.Api.LocalNodeHost.Data.Financial.NodeBankAccountWriter", new[] { "AccountCreate", "AccountUpdate" }),
+            "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget", new[] { "ConfigurationActivationWrite" }),
+            "apps/local-node-host/Data/Definitions/NodeDefinitionArchiveWriter.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter", new[] { "ArchiveCommand" }),
+            "apps/local-node-host/Data/Entities/NodeEntityWriter.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter", new[] { "LegalEntityCreate" }),
+            "apps/local-node-host/Data/Packs/DurablePackInstallStore.cs" =>
+                ("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller", new[] { "Installation", "Activation", "Deactivation", "Narrowing", "Reconciliation", "Projection" }),
+            "apps/local-node-host/Data/Roster/RosterCrdtProjection.cs" =>
+                ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs", "Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter", new[] { "ConferralWrite" }),
+            "apps/local-node-host/Data/Search/Vector/NodeEfGrantStore.cs" =>
+                ("apps/local-node-host/Data/Identity/AuthorizedGrantRevocationWriter.cs", "Harborline.Api.LocalNodeHost.Data.Identity.AuthorizedGrantRevocationWriter", new[] { "GrantRevoke" }),
+            _ => throw new ArgumentException("No reviewed executor trace for " + mappedPath, nameof(mappedPath)),
+        };
+        var assemblies = ProductionAssemblies();
+        var writer = Assert.Single(assemblies.Select(assembly => assembly.GetType(owner)).OfType<Type>());
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(), source)));
+        var model = BoundaryModel(tree);
+        var calls = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+        var compiledRuns = RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly],
+            target => target.DeclaringType == typeof(WritePipeline) && target.Name == nameof(WritePipeline.RunAsync));
+        var commits = CommitStages([writer.Assembly]);
+        foreach (var name in stages)
+        {
+            var stage = writer.GetNestedType(name, BindingFlags.NonPublic)!;
+            Assert.NotNull(stage);
+            Assert.True(IsKernelWrite(stage), name);
+            // Follow the actual new-writer argument, including a local initializer, to the runner.
+            var entries = calls.Where(call =>
+                (WrittenArgument(call.ArgumentList.Arguments.FirstOrDefault()?.Expression, model) is { } creation
+                    ? model.GetTypeInfo(creation).Type?.ToDisplayString() : null)
+                    == stage.FullName!.Replace('+', '.') &&
+                (IsExecutorCall(call, model) || model.GetSymbolInfo(call).Symbol is IMethodSymbol
+                    { Name: "RunAsync" } runner && runner.ContainingType.ToDisplayString() == owner))
+                .ToArray();
+            Assert.NotEmpty(entries);
+            foreach (var entry in entries)
+            {
+                var run = IsExecutorCall(entry, model) ? entry
+                    : Assert.Single(((IMethodSymbol)model.GetSymbolInfo(entry).Symbol!).DeclaringSyntaxReferences
+                        .SelectMany(reference => reference.GetSyntax().DescendantNodes().OfType<InvocationExpressionSyntax>()),
+                        call => IsExecutorCall(call, model));
+                Assert.True(IsExecutorCall(run, model), source + ": genuine executor binding");
+                var method = run.Ancestors().OfType<MethodDeclarationSyntax>().First();
+                var runtime = RuntimeMethod(writer, method);
+                var creation = WrittenArgument(entry.ArgumentList.Arguments[0].Expression, model)!;
+                var entrySpan = ((SyntaxNode?)creation.Ancestors().OfType<StatementSyntax>().FirstOrDefault() ?? creation)
+                    .GetLocation().GetLineSpan();
+                Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly], target => target.IsConstructor && target.DeclaringType == stage),
+                    site => site.Path == source && site.Line >= entrySpan.StartLinePosition.Line + 1
+                        && site.Line <= entrySpan.EndLinePosition.Line + 1);
+                Assert.Contains(compiledRuns, site => site.Path == source && site.Symbol == MethodSignatureSymbol.Format(runtime));
+                AssertCompiledSourceMatches(runtime, source);
+                var statement = run.Ancestors().OfType<StatementSyntax>().FirstOrDefault();
+                if (statement is not null)
+                    Assert.True(model.AnalyzeControlFlow(statement) is { Succeeded: true, StartPointIsReachable: true }, name + ": reachable executor call");
+            }
+            // The runner's virtual commit dispatch must still lead to this writer's real persistence seam.
+            var sinks = RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly],
+                target => IsCommitSink(target) || IsEfSave(target)
+                    || target.DeclaringType == typeof(Harborline.Blocks.BuilderDefinitions.IDefinitionLifecycleStore)
+                        && target.Name is "ArchiveAsync" or "UnarchiveAsync",
+                type => IsWithin(type, stage));
+            Assert.Contains(sinks, site => commits.Contains(site.Symbol));
+        }
+        var mappedType = typeof(NodeEntityWriter).Assembly.GetTypes().Single(type => type.Name == Path.GetFileNameWithoutExtension(mappedPath));
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([mappedType.Assembly], IsEfSave, type => IsWithin(type, mappedType)),
+            site => site.Path == mappedPath);
+        if (mappedPath == "apps/local-node-host/Data/Roster/RosterCrdtProjection.cs")
+        {
+            // Mixed means only pairing's joined conferral is on the executor, not every roster write.
+            AssertProductionCall("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs", "ConferCoreAsync", "ConferAdmissionAsync", typeof(AuthorizationDefinitionWriter));
+            AssertProductionCall("apps/local-node-host/Data/Identity/WebAdmittedMemberAtlasBridge.cs", "ConferAdmissionGrantAsync", "ConferAdmissionGrantWithinAsync", typeof(Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore));
+            AssertProductionCall("apps/local-node-host/Enrollment/PairingTokenGatedAdmitter.cs", "AdmitAsync", "ConferGrantAsync", typeof(Harborline.Api.LocalNodeHost.Data.Identity.WebAdmittedMemberAtlasBridge.AtlasAdmissionOutcome));
+            AssertProductionCall(mappedPath, "PublishLocalAsync", "Invoke", null);
+        }
+    }
+
+    private static MethodInfo RuntimeMethod(Type owner, MethodDeclarationSyntax method) =>
+        Assert.Single(owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly),
+            candidate => (candidate.Name == method.Identifier.ValueText || candidate.Name.EndsWith("." + method.Identifier.ValueText, StringComparison.Ordinal))
+                && candidate.GetParameters().Length == method.ParameterList.Parameters.Count);
+
+    private static ObjectCreationExpressionSyntax? WrittenArgument(ExpressionSyntax? expression, SemanticModel model)
+    {
+        if (expression is IdentifierNameSyntax identifier && model.GetSymbolInfo(identifier).Symbol is ILocalSymbol local)
+            expression = local.DeclaringSyntaxReferences.Single().GetSyntax() is VariableDeclaratorSyntax variable ? variable.Initializer?.Value : null;
+        return expression as ObjectCreationExpressionSyntax;
+    }
+
+    private static bool IsWithin(Type type, Type owner)
+    {
+        for (var current = type; current is not null; current = current.DeclaringType)
+            if (current == owner) return true;
+        return false;
+    }
+
+    private static bool IsEfSave(MethodBase target) => target.Name.StartsWith("SaveChanges", StringComparison.Ordinal)
+        && typeof(Microsoft.EntityFrameworkCore.DbContext).IsAssignableFrom(target.DeclaringType);
+
+    private static void AssertCompiledSourceMatches(MethodInfo method, string source)
+    {
+        var body = method.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType
+            .GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance) ?? method;
+        using var stream = File.OpenRead(Path.ChangeExtension(method.Module.Assembly.Location, ".pdb"));
+        using var symbols = MetadataReaderProvider.FromPortablePdbStream(stream);
+        Assert.True(HasMatchingSourceDocument(symbols.GetMetadataReader(), (MethodDefinitionHandle)MetadataTokens.Handle(body.MetadataToken), source), source + ": compiled source hash");
+        if (File.Exists(Path.ChangeExtension(method.Module.Assembly.Location, ".compile-inputs.txt")))
+            Assert.True(HasBoundCompiledSource(body, source), source + ": compiler input binding");
+    }
+
+    private static void AssertProductionCall(string source, string caller, string target, Type? targetOwner)
+    {
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(), source)));
+        var owner = typeof(NodeEntityWriter).Assembly.GetTypes().Single(type => type.Name == Path.GetFileNameWithoutExtension(source));
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .First(method => method.Identifier.ValueText == caller);
+        AssertCompiledSourceMatches(RuntimeMethod(owner, declaration), source);
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([owner.Assembly],
+            method => method.Name == target && (targetOwner is null
+                ? method.DeclaringType?.BaseType == typeof(MulticastDelegate)
+                : method.DeclaringType == targetOwner), type => IsWithin(type, owner)),
+            site => site.Path == source && (site.Symbol.Contains("." + caller + "(", StringComparison.Ordinal)
+                || site.Symbol.Contains("<" + caller + ">", StringComparison.Ordinal)));
+    }
+
     [Fact(DisplayName = "ck-10 fence: a planted bypass outside the writer is caught by every check")]
     public void PlantedBypassIsCaught()
     {
