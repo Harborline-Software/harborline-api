@@ -11,6 +11,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Blocks.Banking.Models;
+using Harborline.Api.Blocks.Banking.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Hierarchy;
@@ -86,10 +88,7 @@ public sealed partial class WritePipelineExecutorFenceTests
         var exempt = ExemptFromTheExecutor.Select(row => row.Key).ToArray();
         Assert.Empty(exempt.Intersect(NotYetOnTheExecutor.Select(row => row.Key), StringComparer.Ordinal));
         var reviewed = NotYetOnTheExecutor.Select(row => row.Key).Concat(exempt).Order(StringComparer.Ordinal).ToArray();
-        Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
-            "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"
-            + string.Join("\n", off.Except(reviewed))
-            + "\nStale (on the executor now; delete the row):\n" + string.Join("\n", reviewed.Except(off)));
+        AssertReviewedOffExecutor(reviewed, off);
         Assert.All(NotYetOnTheExecutor, row => Assert.StartsWith("S", row.Slice, StringComparison.Ordinal));
         Assert.All(ExemptFromTheExecutor, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
 
@@ -2126,6 +2125,21 @@ public sealed partial class WritePipelineExecutorFenceTests
         Assert.Contains(off, key => key.Contains("<WritesInsideAScopeOutsideCommit>", StringComparison.Ordinal));
     }
 
+    [Fact(DisplayName = "ck-10 S6: a bank write bypass outside the authorization writer fails the admitted sink fence")]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void PlantedBankWriteOutsideAuthorizationWriterIsRejected()
+    {
+        var (_, off) = Classify([typeof(PlantedBypass).Assembly], type => type == typeof(PlantedBypass));
+        var bank = Assert.Single(off, key => key.EndsWith(".WritesABankAccountAroundThePipeline", StringComparison.Ordinal));
+        Assert.ThrowsAny<Exception>(() => AssertReviewedOffExecutor([], [bank]));
+    }
+
+    private static void AssertReviewedOffExecutor(string[] reviewed, string[] off) =>
+        Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
+            "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"
+            + string.Join("\n", off.Except(reviewed))
+            + "\nStale (on the executor now; delete the row):\n" + string.Join("\n", reviewed.Except(off)));
+
     private static (string[] OnExecutor, string[] Off) Classify(Assembly[] assemblies, Func<Type, bool>? typeFilter = null)
     {
         var commitStages = CommitStages(assemblies);
@@ -2187,15 +2201,18 @@ public sealed partial class WritePipelineExecutorFenceTests
 
     /// <summary>
     /// Test-only planted bypass: a loop of its own over the stage order, a KernelWrite that calls its own commit
-    /// stage, and two commits around the pipeline. The StagedWrite is the positive control. It is never executed.
+    /// stage, and admitted commits around the pipeline. The StagedWrite is the positive control. It is never executed.
     /// </summary>
-    private sealed class PlantedBypass(IAuthorizationConfigurationStore store, IEntityMutationStore entities)
+    private sealed class PlantedBypass(
+        IAuthorizationConfigurationStore store, IEntityMutationStore entities, IBankAccountMutationRepository accounts)
     {
         public int RunsItsOwnLoop() => WritePipeline.Order.Count;
 
         public ValueTask CommitsAroundThePipeline(ValidatedAuthorizationConfigurationWrite write) => store.CommitAsync(write);
 
         public Task WritesARecordAroundThePipeline(ValidatedRecordBody body) => entities.CreateAsync(body, null!);
+
+        public Task WritesABankAccountAroundThePipeline(BankAccount account) => accounts.AddAsync(account);
 
         public sealed class StagedWrite(IAuthorizationConfigurationStore store)
             : KernelWrite<string, string, ValidatedAuthorizationConfigurationWrite, string>

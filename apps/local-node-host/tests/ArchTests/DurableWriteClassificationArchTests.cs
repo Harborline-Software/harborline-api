@@ -38,6 +38,27 @@ public sealed class DurableWriteClassificationArchTests
                 .Concat(expected.Except(actual).Select(row => "- " + row))));
     }
 
+    [Fact(DisplayName = "ck-10 S6: every non-n/a durable inventory row has an executor coverage disposition")]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void EveryNonNaDurableInventoryRowHasAnExecutorCoverageDisposition()
+    {
+        var root = RepositoryRoot();
+        var expected = ReadClassification(root).Where(row => row.Value.Class != "n/a")
+            .Select(row => $"{row.Key}\t{row.Value.Count}").Order(StringComparer.Ordinal).ToArray();
+        var mapped = File.ReadLines(Path.Combine(root, "docs", "evidence", "T-519-durable-write-map.md"))
+            .Where(line => line.StartsWith("| `apps/local-node-host/", StringComparison.Ordinal))
+            .Select(line => line.Split('|').Skip(1).SkipLast(1).Select(column => column.Trim()).ToArray())
+            .ToArray();
+        Assert.All(mapped, columns =>
+        {
+            Assert.Equal(8, columns.Length);
+            Assert.Contains(columns[2], new[] { "executor", "mixed", "gap", "not-admitted" });
+            Assert.All(columns, column => Assert.False(string.IsNullOrWhiteSpace(column)));
+        });
+        Assert.Equal(expected, mapped.Select(columns => $"{columns[0].Trim('`')}\t{columns[1]}")
+            .Order(StringComparer.Ordinal).ToArray());
+    }
+
     [Fact]
     public void ScanReportsAPlantedUnclassifiedWrite()
     {
