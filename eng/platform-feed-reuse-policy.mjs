@@ -16,7 +16,7 @@ export function inputProblems(input) {
     || input?.packageGraph?.packedVersion !== input?.platform?.version
     || !input?.platform?.producers || !Object.keys(input.platform.producers).length) problems.push('platform identity incomplete')
   if (typeof input?.toolchain?.image !== 'string' || !/^mcr\.microsoft\.com\/dotnet\/sdk@sha256:[0-9a-f]{64}$/.test(input.toolchain.image)
-    || input?.toolchain?.sdk !== '11.0.100-rc.1.26425.128'
+    || input?.toolchain?.sdk !== '11.0.100'
     || input?.toolchain?.architecture !== 'x64' || !sha(input?.toolchain?.node)
     || typeof input?.toolchain?.kernel !== 'string' || !input.toolchain.kernel
     || input?.toolchain?.containerRuntime?.Os !== 'linux' || input?.toolchain?.containerRuntime?.Arch !== 'amd64'
