@@ -58,6 +58,7 @@
     <Project Path="packages/foundation-documents/Harborline.Foundation.Documents.csproj" />
     <Project Path="packages/foundation-engine-room/Harborline.Foundation.EngineRoom.csproj" />
     <Project Path="packages/foundation-events/Harborline.Foundation.Events.csproj" />
+    <Project Path="packages/foundation-events/tests/Harborline.Foundation.Events.Tests.csproj" />
     <Project Path="packages/foundation-featuremanagement/Harborline.Foundation.FeatureManagement.csproj" />
     <Project Path="packages/foundation-forms-engine/Harborline.Foundation.Forms.Engine.csproj" />
     <Project Path="packages/foundation-forms/Harborline.Foundation.Forms.csproj" />
