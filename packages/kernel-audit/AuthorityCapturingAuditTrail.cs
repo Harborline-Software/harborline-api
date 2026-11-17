@@ -81,22 +81,40 @@ internal static class AuthorizedAuditRecord
         ArgumentNullException.ThrowIfNull(decision);
 
         if (refused == (decision.Verdict is AuthorizationVerdict.Allowed))
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.DecisionDenied);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.DecisionDenied);
+        }
         if (record.TenantId != decision.Request.Tenant)
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.TenantMismatch);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.TenantMismatch);
+        }
         if (!string.Equals(
                 record.Actor?.Value ?? record.Payload.IssuerId.ToBase64Url(),
                 decision.Request.Principal.Value,
                 StringComparison.Ordinal))
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.PrincipalMismatch);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.PrincipalMismatch);
+        }
         if (record.OccurredAt != decision.Request.At || record.OccurredAt != decision.DecidedAt)
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.InstantMismatch);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.InstantMismatch);
+        }
         if (record.Target is not { } target
             || !string.Equals(target.RecordKind, decision.Request.Target.RecordKind, StringComparison.Ordinal)
             || !string.Equals(target.RecordId, decision.Request.Target.RecordId, StringComparison.Ordinal))
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.TargetMismatch);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.TargetMismatch);
+        }
         if (record.Act is not { } act || act != decision.Request.Act)
+        {
+            TraceEnforcementDisagreement.Record(AuthorizedAuditRefusalCodes.ActMismatch);
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.ActMismatch);
+        }
 
         var grants = decision.Derivations
             .Select(item => new AuthorityGrantSnapshot(item.GrantId, item.GrantOwnerVersion))

@@ -32,6 +32,7 @@ using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Audit;
 
+[Collection("Trace enforcement disagreement")]
 public sealed class AuthoritySnapshotTests
 {
     private static readonly TenantId Tenant = new("tenant-199-audit");
