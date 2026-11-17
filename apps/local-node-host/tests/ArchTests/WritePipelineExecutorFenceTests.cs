@@ -2131,7 +2131,15 @@ public sealed partial class WritePipelineExecutorFenceTests
     {
         var (_, off) = Classify([typeof(PlantedBypass).Assembly], type => type == typeof(PlantedBypass));
         var bank = Assert.Single(off, key => key.EndsWith(".WritesABankAccountAroundThePipeline", StringComparison.Ordinal));
-        Assert.ThrowsAny<Exception>(() => AssertReviewedOffExecutor([], [bank]));
+        const string merge = "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync";
+        const string planted = "apps/local-node-host/tests/ArchTests/WritePipelineExecutorFenceTests.cs|Harborline.Api.LocalNodeHost.Tests.ArchTests.WritePipelineExecutorFenceTests+PlantedBypass.WritesABankAccountAroundThePipeline";
+        var reviewed = NotYetOnTheExecutorRows().Concat(ExemptFromTheExecutorRows()).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal([merge], reviewed);
+        Assert.Equal(planted, bank);
+        // A same-size substitution must fail: comparing only counts would hide this bypass.
+        var failure = Assert.Throws<Xunit.Sdk.TrueException>(() => AssertReviewedOffExecutor(reviewed, [bank]));
+        Assert.Contains("Unreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n" + planted, failure.Message, StringComparison.Ordinal);
+        Assert.Contains("Stale (on the executor now; delete the row):\n" + merge, failure.Message, StringComparison.Ordinal);
     }
 
     private static void AssertReviewedOffExecutor(string[] reviewed, string[] off) =>
