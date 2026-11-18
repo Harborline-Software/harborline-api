@@ -855,6 +855,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(2, _audit.Query(Tenant).Count(item => item.Action == PackInstallAuditAction.Activated));
     }
 
+    // The name predates seed 2.0.0; T-909 Q3, L963 and S-10 require an orphan.
     [Fact]
     public async Task Platform_preload_reattaches_legacy_compiled_key_override_without_orphaning_it()
     {
@@ -881,31 +882,9 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("FormDefinition", before.ContentKey);
         Assert.Equal("""{"provenance":{"kind":null}}""", before.OverlayPatch.ToJsonString());
 
-        PackContentRename[] expectedRenames =
-        [
-            new("harborline.platform.FormDefinition", "FormDefinition"),
-            new("harborline.platform.WorkflowDefinition", "WorkflowDefinition"),
-            new("harborline.platform.StandardsCatalog", "StandardsCatalog"),
-            new("harborline.platform.NavWorkspaceConfig", "NavWorkspaceConfig"),
-            new("harborline.platform.CascadeDefaults", "CascadeDefaults"),
-            new("harborline.platform.AssetTypeDefinition", "AssetTypeDefinition"),
-            new("harborline.platform.TerminologyOverride", "TerminologyOverride"),
-            new("harborline.platform.TemplateDefinition", "TemplateDefinition"),
-            new("harborline.platform.TaxonomyDefinition", "TaxonomyDefinition"),
-            new("harborline.platform.ReportDefinition", "ReportDefinition"),
-            new("harborline.platform.ViewDefinition", "ViewDefinition"),
-            new("harborline.platform.ScheduleDefinition", "ScheduleDefinition"),
-            new("harborline.platform.DataExchangeDefinition", "DataExchangeDefinition"),
-            new("harborline.platform.StandingRuleDefinition", "StandingRuleDefinition"),
-            new("harborline.platform.RoleDefinition", "RoleDefinition"),
-            new("harborline.platform.AuthorizationCapabilityBinding", "AuthorizationCapabilityBinding"),
-            new("harborline.platform.Layout", "Layout"),
-            new("harborline.platform.Resource", "Resource"),
-            new("harborline.platform.Bookable", "Bookable"),
-        ];
         var request = PlatformSeedTestBundle.Request(_signer.Signer.IssuerId.ToBase64Url());
         Assert.Equal("2.0.0", request.Version);
-        Assert.Equal(expectedRenames, request.RenamedFrom);
+        Assert.Null(request.RenamedFrom);
         var observed = new ObservedOverrideUpgradeInstaller(_installer);
         var preload = new PlatformPackPreloadHostedService(
             new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
@@ -921,20 +900,18 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 
         var installation = Assert.Single(observed.Installations);
         Assert.True(installation.Outcome.Installed, JsonSerializer.Serialize(installation.Outcome));
-        Assert.Empty(installation.Outcome.Preview.Conflicts);
-        Assert.DoesNotContain(installation.Outcome.Preview.Conflicts,
-            conflict => conflict.Kind.ToString() == "OrphanedByRemoval");
-        var file = new PackFileCodec().TryDecode(installation.Bytes);
-        Assert.NotNull(file);
-        Assert.Equal(expectedRenames, file!.Envelope!.Payload.Manifest.RenamedFrom);
+        var conflict = Assert.Single(installation.Outcome.Preview.Conflicts);
+        Assert.Equal("OrphanedByRemoval", conflict.Kind.ToString());
+        Assert.Equal("FormDefinition", conflict.ContentKey);
+        Assert.Equal(PackContentKind.RecordType, conflict.ContentKind);
+        Assert.Equal("", conflict.Path);
+        Assert.Null(conflict.SeedValueJson);
+        Assert.Equal("""{"provenance":{"kind":null}}""", conflict.OverlayValueJson);
         var active = Assert.IsType<InstalledPack>(_store.GetActive(Tenant, "harborline.platform"));
         Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
-        var retained = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
-        Assert.Equal("harborline.platform.FormDefinition", retained.ContentKey);
-        Assert.Equal("""{"provenance":{"kind":null}}""", retained.OverlayPatch.ToJsonString());
-        Assert.DoesNotContain(_store.GetOverrides(Tenant, "harborline.platform"),
-            item => item.ContentKey == "FormDefinition");
+        Assert.Empty(_store.GetOverrides(Tenant, "harborline.platform"));
+        Assert.DoesNotContain(active.SeedItems, item => item.Kind == PackContentKind.RecordType);
         Assert.Empty(_store.GetOverrides(new("aaaaaaaa-0000-0000-0000-000000001015"), "harborline.platform"));
 
         var preserved = Assert.IsType<InstalledPack>(_store.GetVersion(Tenant, "harborline.platform", "1.6.0"));
@@ -949,9 +926,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await preload.PreloadAsync(Tenant, CancellationToken.None);
 
         Assert.Single(observed.Installations);
-        var repeated = Assert.Single(_store.GetOverrides(Tenant, "harborline.platform"));
-        Assert.Equal("harborline.platform.FormDefinition", repeated.ContentKey);
-        Assert.Equal("""{"provenance":{"kind":null}}""", repeated.OverlayPatch.ToJsonString());
+        Assert.Empty(_store.GetOverrides(Tenant, "harborline.platform"));
         Assert.Equal(new[] { "1.6.0", "2.0.0" }, _store.ListInstalled(Tenant)
             .Where(item => item.PackKey == "harborline.platform").Select(item => item.Version).Order(StringComparer.Ordinal));
     }
