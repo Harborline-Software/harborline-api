@@ -136,7 +136,7 @@ internal static class PlatformSeedIntake
 
     /// <summary>
     /// A view carries its own version in its body (DES-0017 views-ck-2 and views-ck-7); the seed revision is the
-    /// package's. The body is that statement's one carrier (ADR-0102 decision 5), so the item takes its value.
+    /// package's. The body is the one place that states it (ADR-0102 decision 5), so the item takes its value.
     /// </summary>
     private static string BodyVersion(string key, JsonNode body) =>
         body["version"] is JsonValue value && value.TryGetValue<string>(out var version) && !string.IsNullOrWhiteSpace(version)
