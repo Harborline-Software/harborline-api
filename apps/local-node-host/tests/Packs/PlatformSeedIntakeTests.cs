@@ -30,7 +30,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 internal static class PlatformSeedTestBundle
 {
     // The platform commit the pin names (eng/platform-pin.json); the receipt is test-only.
-    internal const string Commit = "8149a57920a94eb478642115ded4f357b2dc1107";
+    internal const string Commit = "c9787df2b2b1daf38d7971c85b9b073962919293";
 
     internal static byte[] Export() => PlatformPackageSeed.LoadCheckedInExport();
 

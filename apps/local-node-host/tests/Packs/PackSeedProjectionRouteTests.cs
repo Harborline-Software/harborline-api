@@ -361,7 +361,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         {
             var form = await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formKey));
             Assert.NotNull(form);
-            Assert.Equal("1.0.1", form!.Version.ToString());
+            Assert.Equal("2.0.0", form!.Version.ToString());
             Assert.Equal(FormDefinitionStatus.Published, form.Status);
             Assert.Equal("harborline.platform", form.PackSource?.PackId);
             Assert.Equal("2.0.0", form.PackSource?.PackVersion);

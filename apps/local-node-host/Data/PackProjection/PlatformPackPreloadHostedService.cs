@@ -30,7 +30,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "2.0.0";
+    public static string PackVersion => Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.Manifest.Revision;
 
     private readonly IPackExporter exporter;
     private readonly NodePrincipalSigner signer;

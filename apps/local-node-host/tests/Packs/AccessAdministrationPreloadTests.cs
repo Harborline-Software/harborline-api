@@ -276,7 +276,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("2.0.0",
             listedBinding.GetProperty("provenance").GetProperty("packVersion").GetString());
         var listedSourceBinding = JsonSerializer.Deserialize<CatalogueFieldSourceBinding>(listedBinding)!;
-        var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
+        var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "2.0.0"));
         Assert.NotNull(definition);
         Assert.Equal("forms.catalogue-field-source", definition.CatalogueFieldSource!.CapabilityId);
         Assert.Equal(1, definition.CatalogueFieldSource.CoordinateSchemaVersion);
@@ -285,8 +285,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(CatalogueFieldSourceContract.Fields, definition.CatalogueFieldSource!.Fields);
         Assert.Equal(new[] { "formId", "title", "version", "cascadeLayer" },
             definition.CatalogueFieldSource.Fields.Select(field => field.FieldId));
-        var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", "platform.pack.author", "1.0.1", "formId");
-        var authored = await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
+        var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", "platform.pack.author", "2.0.0", "formId");
+        var authored = await _forms.GetAsync(new(Tenant, "platform.pack.author", "2.0.0"));
         Assert.Equal("en", authored.Overlay.Title?.DefaultLocale);
         Assert.Equal(releasedTitle, authored.Overlay.Title?.Values["en"]);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans,
@@ -301,7 +301,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var request = JsonSerializer.SerializeToElement(CatalogueFieldSourceContract.Fields.Select(field =>
             new CatalogueFieldReadRequest(coordinate with { Field = field.FieldId }, listedSourceBinding)));
         using var detailResponse = await _client.PostAsJsonAsync(
-            "/api/local-node/catalogue/details/platform.detail.form/1.0.1", request);
+            "/api/local-node/catalogue/details/platform.detail.form/2.0.0", request);
         detailResponse.EnsureSuccessStatusCode();
         var detailBody = await detailResponse.Content.ReadFromJsonAsync<JsonElement>();
         _output.WriteLine("M6_PLATFORM_DETAIL_POST=" + detailBody.GetRawText());
@@ -310,22 +310,22 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             .GetProperty("values").GetProperty("en").GetString());
         Assert.Empty(detailBody.GetProperty("refusals").EnumerateArray());
         var runtime = new CatalogueDetailRuntime(_authorizedForms.CatalogueSources, _details, TestAuthorization.AllowGate());
-        var projection = await runtime.ProjectAsync("platform.detail.form", "1.0.1", request, TestAuthorization.Write(Tenant));
+        var projection = await runtime.ProjectAsync("platform.detail.form", "2.0.0", request, TestAuthorization.Write(Tenant));
         Assert.Equal(new[] { "formId", "title", "version", "cascadeLayer" }, projection.Values.Keys);
         Assert.Equal("platform.pack.author", projection.Values["formId"].GetString());
         Assert.Equal(releasedTitle,
             projection.Values["title"].GetProperty("values").GetProperty("en").GetString());
-        Assert.Equal("1.0.1", projection.Values["version"].GetString());
+        Assert.Equal("2.0.0", projection.Values["version"].GetString());
         Assert.True(projection.ReadOnly);
         Assert.Equal("2.0.0", projection.DetailBinding.Provenance.PackVersion);
-        Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "1.0.1")!.DefinitionHash,
+        Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "2.0.0")!.DefinitionHash,
             projection.DetailBinding.DefinitionHash);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         Assert.Equal(JsonSerializer.Serialize(definition),
-            JsonSerializer.Serialize(await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"))));
+            JsonSerializer.Serialize(await _forms.GetAsync(new(Tenant, "platform.detail.form", "2.0.0"))));
         var denied = new CatalogueDetailRuntime(_authorizedForms.CatalogueSources, _details,
             TestAuthorization.Gate(decision => !decision.Target.Scope.Value.EndsWith("/title", StringComparison.Ordinal)));
-        var partial = await denied.ProjectAsync("platform.detail.form", "1.0.1", request, TestAuthorization.Write(Tenant));
+        var partial = await denied.ProjectAsync("platform.detail.form", "2.0.0", request, TestAuthorization.Write(Tenant));
         Assert.DoesNotContain("title", partial.Values.Keys);
         Assert.DoesNotContain("title", partial.FieldsMeta.Keys);
         Assert.False(partial.Overlay.GetProperty("fields").TryGetProperty("title", out _));
@@ -449,7 +449,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 6),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 67),
+                    PackLifecycleState.Active, 48),
             },
             firstBoot);
         Assert.Equal(
@@ -465,7 +465,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(auditor);
         var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.RoleDefinition));
-        Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
+        Assert.Equal(3, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
         Assert.Equal(39, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(40, projectedViews.Count);
@@ -707,8 +707,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(FormDefinitionStatus.Withdrawn, preservedAuthor.Status);
         Assert.Equal(oldDetailSemantics, ImmutableFormSemantics(preservedDetail));
         Assert.Equal(oldAuthorSemantics, ImmutableFormSemantics(preservedAuthor));
-        var newDetail = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
-        var newAuthor = await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
+        var newDetail = await _forms.GetAsync(new(Tenant, "platform.detail.form", "2.0.0"));
+        var newAuthor = await _forms.GetAsync(new(Tenant, "platform.pack.author", "2.0.0"));
         Assert.Equal(FormDefinitionStatus.Published, newDetail.Status);
         Assert.Equal(FormDefinitionStatus.Published, newAuthor.Status);
         Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
@@ -824,9 +824,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("2.0.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         Assert.DoesNotContain(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
-        var currentFormType = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
-        Assert.Equal(oldItems["FormDefinition"].ContentAddress, currentFormType.ContentAddress);
-        Assert.Equal(oldItems["FormDefinition"].CanonicalJson, currentFormType.CanonicalJson);
+        Assert.DoesNotContain(active.SeedItems, item => item.Kind == PackContentKind.RecordType);
         var preserved = Assert.IsType<InstalledPack>(_store.GetVersion(Tenant, "harborline.platform", "1.6.0"));
         Assert.Equal(PackLifecycleState.Superseded, preserved.Lifecycle);
         Assert.Equal(oldItems.Count, preserved.SeedItems.Count);
@@ -846,7 +844,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             "Layout", "Resource", "Bookable",
         }, types.Select(item => item.Name));
         Assert.All(types, item => Assert.Equal(
-            new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
+            new CatalogueProvenance(null, null, "compiled"), item.Provenance));
         var activeBefore = JsonSerializer.Serialize(active);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         Assert.Equal(activeBefore, JsonSerializer.Serialize(_store.GetActive(Tenant, "harborline.platform")));
@@ -952,29 +950,18 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             .ToArray();
         var compiledByName = SystemRecordType.All.ToDictionary(type => type.Name, StringComparer.Ordinal);
 
-        Assert.Equal(SystemRecordType.All.Count, carried.Length);
-        Assert.Equal(SystemRecordType.All.Count, compiledByName.Count);
-        foreach (var item in carried)
-        {
-            Assert.True(PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor),
-                $"Carried RecordType key '{item.Key}' does not resolve to a compiled catalogue descriptor.");
-            Assert.Same(compiledByName[descriptor!.Name], descriptor);
-            Assert.True(descriptor!.Sealed);
-            Assert.Equal("platform", descriptor.Provenance.Kind);
-        }
-
+        Assert.Empty(carried);
+        Assert.Equal(19, compiledByName.Count);
         Assert.Equal(new[]
         {
-            "harborline.platform.FormDefinition", "harborline.platform.WorkflowDefinition",
-            "harborline.platform.StandardsCatalog", "harborline.platform.NavWorkspaceConfig",
-            "harborline.platform.CascadeDefaults", "harborline.platform.AssetTypeDefinition",
-            "harborline.platform.TerminologyOverride", "harborline.platform.TemplateDefinition",
-            "harborline.platform.TaxonomyDefinition", "harborline.platform.ReportDefinition",
-            "harborline.platform.ViewDefinition", "harborline.platform.ScheduleDefinition",
-            "harborline.platform.DataExchangeDefinition", "harborline.platform.StandingRuleDefinition",
-            "harborline.platform.RoleDefinition", "harborline.platform.AuthorizationCapabilityBinding",
-            "harborline.platform.Layout", "harborline.platform.Resource", "harborline.platform.Bookable",
-        }, carried.Select(item => item.Key));
+            "FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition",
+            "DataExchangeDefinition", "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "Layout", "Resource", "Bookable",
+        }, SystemRecordType.FromActivePlatformPack(platform).Select(item => item.Name));
+        Assert.All(SystemRecordType.FromActivePlatformPack(platform), item =>
+            Assert.Equal(new CatalogueProvenance(null, null, "compiled"), item.Provenance));
     }
 
     [Fact]
