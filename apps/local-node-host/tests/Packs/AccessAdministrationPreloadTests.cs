@@ -961,7 +961,10 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             "Layout", "Resource", "Bookable",
         }, SystemRecordType.FromActivePlatformPack(platform).Select(item => item.Name));
         Assert.All(SystemRecordType.FromActivePlatformPack(platform), item =>
-            Assert.Equal(new CatalogueProvenance(null, null, "compiled"), item.Provenance));
+        {
+            Assert.True(item.Sealed);
+            Assert.Equal(new CatalogueProvenance(null, null, "compiled"), item.Provenance);
+        });
     }
 
     [Fact]
