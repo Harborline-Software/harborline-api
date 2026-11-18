@@ -1,6 +1,7 @@
 {
   "note": "Owner ruling 2026-09-26 (T-236 row 5): each project's Stryker break starts at the floor of its lowest observed score and only rises, as test-improvement tickets land. The 2026-09-26 scores are whole-project runs (no since filter) of dotnet-stryker 5.0.0 on winbox, SDK 11.0.100-rc.1, at origin/main 940344df. Newer entries record their own commit. eng/mutation-report.mjs refuses a break below floor(score). Host slices: \"pending\" until a nightly report measures them; a follow-up PR then replaces {\"status\": \"pending\"} with {\"score\": <the run's score>, \"break\": <floor of it>, \"measured\": <date>, \"run\": <Actions run id>} (the score is in the run's step summary and in the stryker-full artifact). The checker refuses an entry that keeps \"status\" once it has a score.",
   "projects": {
+    "packages/foundation-events/tests/Harborline.Foundation.Events.Tests.csproj": {"score": 46.35, "tested": 333, "killed": 197, "timeout": 0, "survived": 136, "noCoverage": 92, "compileError": 9, "measured": "2026-11-16", "commit": "a8be15cdb70fdf753ceee176bff2db191f3dc363", "tool": "dotnet-stryker 5.0.0"},
     "apps/local-node-host/tests/tests.csproj": {
       "score": null,
       "fullRun": "sliced (Q44): one slice of eng/baselines/mutation-slices.json a night; baselines under slices"

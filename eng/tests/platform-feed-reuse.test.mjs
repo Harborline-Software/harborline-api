@@ -25,7 +25,7 @@ const definitions = ['.github/workflows/platform-feed-producer.yml', '.github/wo
 const tree = () => ({truncated: false, tree: definitions.map(name => ({path: name, sha: 'b'.repeat(40), mode: '100644', type: 'blob'}))})
 const identity = () => ({schemaVersion: 1, profile: 'linux-x64-container-feed',
   platform: {...pin, tree: 'b'.repeat(40), history: 'c'.repeat(64), version}, packageGraph: {packedVersion: version},
-  toolchain: {image: 'mcr.microsoft.com/dotnet/sdk@sha256:' + 'd'.repeat(64), sdk: '11.0.100-rc.1.26425.128',
+  toolchain: {image: 'mcr.microsoft.com/dotnet/sdk@sha256:' + 'd'.repeat(64), sdk: '11.0.100',
     architecture: 'x64', node: 'e'.repeat(64), kernel: '6.8.0-fixture', containerRuntime: {Os: 'linux', Arch: 'amd64', Version: '29.0.0-fixture'}},
   producer: definitions.map(name => ({name, sha256: 'f'.repeat(64)})),
   restore: [{name: 'platform/A/obj/project.assets.json', sha256: '1'.repeat(64)}, {name: 'packages/provider/1.0/provider.dll', sha256: '2'.repeat(64)}],
@@ -340,7 +340,7 @@ test('real container planner isolates mounts, independently restores every proje
   git('add', '.'); git('commit', '-qm', 'literal fixture')
   mkdirSync(path.join(platform, 'bin')); writeFileSync(path.join(platform, 'bin/old.dll'), 'ambient old build')
   const selectedPin = {...pin, commit: git('rev-parse', 'HEAD')}
-  const profile = {profile: 'linux-x64-container-feed', architecture: 'x64', image: identity().toolchain.image, sdk: '11.0.100-rc.1.26425.128'}
+  const profile = {profile: 'linux-x64-container-feed', architecture: 'x64', image: identity().toolchain.image, sdk: '11.0.100'}
   writeFileSync(path.join(source.directory, 'eng/platform-feed-profile.json'), JSON.stringify(profile))
   const calls = []; let changeDuringPack = false
   const mockDocker = (executable, args) => {

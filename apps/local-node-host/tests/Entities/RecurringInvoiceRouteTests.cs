@@ -215,6 +215,7 @@ public sealed class RecurringInvoiceRouteTests : IAsyncLifetime
     [InlineData("FREQ=MONTHLY;BYMONTHDAY=29", "RecurrenceRule has an invalid BYMONTHDAY value.")]
     [InlineData("FREQ=YEARLY;BYMONTH=13", "RecurrenceRule has an invalid BYMONTH value.")]
     [InlineData("COUNT=2", "RecurrenceRule is missing its FREQ part.")]
+    [InlineData("letters", "RecurrenceRule contains an unsupported component.")]
     [InlineData("FREQ=HOURLY", "RecurrenceRule has an unsupported FREQ value.")]
     [InlineData("FREQ=WEEKLY;BYMONTHDAY=1", "RecurrenceRule BYMONTHDAY is not supported with WEEKLY.")]
     [InlineData("FREQ=DAILY;COUNT=INTERVAL", "RecurrenceRule has an invalid COUNT value.")]
@@ -261,10 +262,9 @@ public sealed class RecurringInvoiceRouteTests : IAsyncLifetime
         Assert.Null(stored.LastGeneratedAtUtc);
     }
 
-    // A run of letters with no '=' leaves FREQ unset, so the pinned producer throws a plain FormatException
-    // "RRULE missing FREQ= component: '<rule>'." (32 + rule length + 2 characters). The value has no quote or
-    // control character, so it matches the missing-FREQ template, and only the 512-character message bound decides:
-    // 478 letters is a 512-character message (mapped), 479 is 513 and 600 is 634 (both fixed generic text).
+    // T-1175 refuses an unknown token before checking for missing FREQ. An admitted BYMONTH list
+    // reaches the missing-FREQ template: 478 characters makes a 512-character message, while
+    // 479 and 600 exceed the bound and retain the fixed generic detail.
     [Theory]
     [InlineData(478, "RecurrenceRule is missing its FREQ part.")]
     [InlineData(479, "RecurrenceRule contains a malformed value.")]
@@ -272,7 +272,9 @@ public sealed class RecurringInvoiceRouteTests : IAsyncLifetime
     public async Task An_oversized_producer_message_matching_a_template_returns_the_fixed_generic_detail(
         int ruleLength, string expectedDetail)
     {
-        var rule = new string('x', ruleLength);
+        var prefix = ruleLength % 2 == 0 ? "BYMONTH=10" : "BYMONTH=1";
+        var rule = prefix + string.Concat(Enumerable.Repeat(",1", (ruleLength - prefix.Length) / 2));
+        Assert.Equal(ruleLength, rule.Length);
         var body = ScheduleBody();
         body["recurrenceRule"] = rule;
         body["startsOn"] = "2026-01-01";

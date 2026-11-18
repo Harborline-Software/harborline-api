@@ -32,6 +32,10 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// </summary>
 public sealed class DesktopActorRekeyTests
 {
+    // coverlet.collector 10.1.0+ injects a tracker into each instrumented assembly, copying
+    // const string ModuleTrackerRegistryKey without its constant value, so reading it throws.
+    // This coverage-tool type is not production code (T-1226).
+    private const string CoverletTrackerNamespace = "Coverlet.Core.Instrumentation.Tracker";
     private const string Retired = "local";
     private const string NodeOperatorSource = "authorization-seed:node-operator";
     private static readonly TeamId Team = new(new Guid("7e57dddd-0000-0000-0000-000000000294"));
@@ -222,6 +226,7 @@ public sealed class DesktopActorRekeyTests
         };
         var offenders = new[] { typeof(ActiveTeamAuthorizationContext).Assembly, typeof(AccessGrantAuthorizationSeed).Assembly }
             .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => type.Namespace != CoverletTrackerNamespace)
             .SelectMany(type => type.GetFields(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .Where(field => field.IsLiteral && field.FieldType == typeof(string)

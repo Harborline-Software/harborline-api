@@ -9,6 +9,7 @@ using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Calendar;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Foundation.Scheduling.Models;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
