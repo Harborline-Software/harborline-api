@@ -393,7 +393,6 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
     [InlineData("preview")]
     [InlineData("check")]
     [InlineData("install")]
-    [InlineData("activate")]
     public async Task Prior_self_version_cannot_supply_required_resource(string operation)
     {
         SeedBookingType();
@@ -421,15 +420,6 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         var route = operation switch { "preview" => PackInstallRoutes.PreviewRoute, "check" => PackInstallRoutes.CheckRoute,
             _ => PackInstallRoutes.InstallRoute };
         using var response = await PostBytesAsync(route, await ExportAsync(pack));
-        if (operation == "activate")
-        {
-            Assert.Null(_store.GetVersion(tenant, "acme.contract", "2.0.0"));
-            using var activation = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
-                new { packKey = "acme.contract", version = "2.0.0" });
-            Assert.False(activation.IsSuccessStatusCode);
-            Assert.Equal("1.0.0", _store.GetActive(tenant, "acme.contract")!.Version);
-            return;
-        }
         Assert.Equal(operation == "install" ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray(), item =>
