@@ -11,6 +11,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Blocks.Banking.Models;
+using Harborline.Api.Blocks.Banking.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Hierarchy;
@@ -86,10 +88,7 @@ public sealed partial class WritePipelineExecutorFenceTests
         var exempt = ExemptFromTheExecutor.Select(row => row.Key).ToArray();
         Assert.Empty(exempt.Intersect(NotYetOnTheExecutor.Select(row => row.Key), StringComparer.Ordinal));
         var reviewed = NotYetOnTheExecutor.Select(row => row.Key).Concat(exempt).Order(StringComparer.Ordinal).ToArray();
-        Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
-            "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"
-            + string.Join("\n", off.Except(reviewed))
-            + "\nStale (on the executor now; delete the row):\n" + string.Join("\n", reviewed.Except(off)));
+        AssertReviewedOffExecutor(reviewed, off);
         Assert.All(NotYetOnTheExecutor, row => Assert.StartsWith("S", row.Slice, StringComparison.Ordinal));
         Assert.All(ExemptFromTheExecutor, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
 
@@ -2102,6 +2101,170 @@ public sealed partial class WritePipelineExecutorFenceTests
             Assert.Contains(sites, site => site.Symbol.Contains($"NodeEntityWriter+{write}.CommitAsync(", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("Data/Authorization/NodeEfAuthorizationConfigurationStore.cs")]
+    [InlineData("Data/Banking/NodeEfBankAccountRepository.cs")]
+    [InlineData("Data/Configuration/ConfigurationActivationTarget.cs")]
+    [InlineData("Data/Definitions/NodeDefinitionArchiveWriter.cs")]
+    [InlineData("Data/Entities/NodeEntityWriter.cs")]
+    [InlineData("Data/Packs/DurablePackInstallStore.cs")]
+    [InlineData("Data/Roster/RosterCrdtProjection.cs")]
+    [InlineData("Data/Search/Vector/NodeEfGrantStore.cs")]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void CoveredDurableRowReachesTheRealExecutor(string hostPath) =>
+        AssertDurableRowExecutorReachability("apps/local-node-host/" + hostPath);
+
+    internal static void AssertDurableRowExecutorReachability(string mappedPath)
+    {
+        // Oracle: DES-0029 ck-10 / ADR-0038 require the canonical executor; these are the literal reviewed S6 routes.
+        var (source, owner, stages) = mappedPath switch
+        {
+            "apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs" =>
+                ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs", "Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter", new[] { "ConfigurationWrite", "ConferralWrite" }),
+            "apps/local-node-host/Data/Banking/NodeEfBankAccountRepository.cs" =>
+                ("apps/local-node-host/Data/Financial/NodeBankAccountWriter.cs", "Harborline.Api.LocalNodeHost.Data.Financial.NodeBankAccountWriter", new[] { "AccountCreate", "AccountUpdate" }),
+            "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget", new[] { "ConfigurationActivationWrite" }),
+            "apps/local-node-host/Data/Definitions/NodeDefinitionArchiveWriter.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter", new[] { "ArchiveCommand" }),
+            "apps/local-node-host/Data/Entities/NodeEntityWriter.cs" =>
+                (mappedPath, "Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter", new[] { "LegalEntityCreate" }),
+            "apps/local-node-host/Data/Packs/DurablePackInstallStore.cs" =>
+                ("packages/foundation-packs/Install/PackInstaller.cs", "Harborline.Api.Foundation.Packs.Install.PackInstaller", new[] { "Installation", "Activation", "Deactivation", "Narrowing", "Reconciliation", "Projection" }),
+            "apps/local-node-host/Data/Roster/RosterCrdtProjection.cs" =>
+                ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs", "Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter", new[] { "ConferralWrite" }),
+            "apps/local-node-host/Data/Search/Vector/NodeEfGrantStore.cs" =>
+                ("apps/local-node-host/Data/Identity/AuthorizedGrantRevocationWriter.cs", "Harborline.Api.LocalNodeHost.Data.Identity.AuthorizedGrantRevocationWriter", new[] { "GrantRevoke" }),
+            _ => throw new ArgumentException("No reviewed executor trace for " + mappedPath, nameof(mappedPath)),
+        };
+        var assemblies = ProductionAssemblies();
+        var writer = Assert.Single(assemblies.Select(assembly => assembly.GetType(owner)).OfType<Type>());
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(), source)));
+        var model = BoundaryModel(tree);
+        var calls = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+        var compiledRuns = RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly],
+            target => target.DeclaringType == typeof(WritePipeline) && target.Name == nameof(WritePipeline.RunAsync));
+        var commits = CommitStages([writer.Assembly]);
+        foreach (var name in stages)
+        {
+            var stage = writer.GetNestedType(name, BindingFlags.NonPublic)!;
+            Assert.NotNull(stage);
+            Assert.True(IsKernelWrite(stage), name);
+            // Follow the actual new-writer argument, including a local initializer, to the runner.
+            var entries = calls.Where(call =>
+                (WrittenArgument(call.ArgumentList.Arguments.FirstOrDefault()?.Expression, model) is { } creation
+                    ? model.GetTypeInfo(creation).Type?.ToDisplayString() : null)
+                    == stage.FullName!.Replace('+', '.') &&
+                (IsExecutorCall(call, model) || model.GetSymbolInfo(call).Symbol is IMethodSymbol
+                    { Name: "RunAsync" } runner && runner.ContainingType.ToDisplayString() == owner))
+                .ToArray();
+            Assert.NotEmpty(entries);
+            foreach (var entry in entries)
+            {
+                var run = IsExecutorCall(entry, model) ? entry
+                    : Assert.Single(((IMethodSymbol)model.GetSymbolInfo(entry).Symbol!).DeclaringSyntaxReferences
+                        .SelectMany(reference => reference.GetSyntax().DescendantNodes().OfType<InvocationExpressionSyntax>()),
+                        call => IsExecutorCall(call, model));
+                Assert.True(IsExecutorCall(run, model), source + ": genuine executor binding");
+                var method = run.Ancestors().OfType<MethodDeclarationSyntax>().First();
+                var runtime = RuntimeMethod(writer, method);
+                var creation = WrittenArgument(entry.ArgumentList.Arguments[0].Expression, model)!;
+                var entrySpan = ((SyntaxNode?)creation.Ancestors().OfType<StatementSyntax>().FirstOrDefault() ?? creation)
+                    .GetLocation().GetLineSpan();
+                Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly], target => target.IsConstructor && target.DeclaringType == stage),
+                    site => site.Path == source && site.Line >= entrySpan.StartLinePosition.Line + 1
+                        && site.Line <= entrySpan.EndLinePosition.Line + 1);
+                Assert.Contains(compiledRuns, site => site.Path == source && site.Symbol == MethodSignatureSymbol.Format(runtime));
+                AssertCompiledSourceMatches(runtime, source);
+                var statement = run.Ancestors().OfType<StatementSyntax>().FirstOrDefault();
+                if (statement is not null)
+                    Assert.True(model.AnalyzeControlFlow(statement) is { Succeeded: true, StartPointIsReachable: true }, name + ": reachable executor call");
+            }
+            // The runner's virtual commit dispatch must still lead to this writer's real persistence seam.
+            var sinks = RawMutationPortSymbolInventoryTests.DiscoverCalls([writer.Assembly],
+                target => IsCommitSink(target) || IsEfSave(target)
+                    || target.DeclaringType == typeof(Harborline.Blocks.BuilderDefinitions.IDefinitionLifecycleStore)
+                        && target.Name is "ArchiveAsync" or "UnarchiveAsync",
+                type => IsWithin(type, stage));
+            Assert.Contains(sinks, site => commits.Contains(site.Symbol));
+        }
+        var mappedType = typeof(NodeEntityWriter).Assembly.GetTypes().Single(type => type.Name == Path.GetFileNameWithoutExtension(mappedPath));
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([mappedType.Assembly], IsEfSave, type => IsWithin(type, mappedType)),
+            site => site.Path == mappedPath);
+        if (mappedPath == "apps/local-node-host/Data/Roster/RosterCrdtProjection.cs")
+        {
+            // Mixed means only pairing's joined conferral is on the executor, not every roster write.
+            AssertProductionCall("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs", "ConferCoreAsync", "ConferAdmissionAsync", typeof(AuthorizationDefinitionWriter));
+            AssertProductionCall("apps/local-node-host/Data/Identity/WebAdmittedMemberAtlasBridge.cs", "ConferAdmissionGrantAsync", "ConferAdmissionGrantWithinAsync", typeof(Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore));
+            AssertProductionCall("apps/local-node-host/Enrollment/PairingTokenGatedAdmitter.cs", "AdmitAsync", "ConferGrantAsync", typeof(Harborline.Api.LocalNodeHost.Data.Identity.WebAdmittedMemberAtlasBridge.AtlasAdmissionOutcome));
+            AssertProductionCall(mappedPath, "PublishLocalAsync", "Invoke", null);
+        }
+    }
+
+    private static MethodInfo RuntimeMethod(Type owner, MethodDeclarationSyntax method) =>
+        Assert.Single(owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly),
+            candidate => (candidate.Name == method.Identifier.ValueText || candidate.Name.EndsWith("." + method.Identifier.ValueText, StringComparison.Ordinal))
+                && candidate.GetParameters().Length == method.ParameterList.Parameters.Count);
+
+    private static ObjectCreationExpressionSyntax? WrittenArgument(ExpressionSyntax? expression, SemanticModel model)
+    {
+        if (expression is IdentifierNameSyntax identifier && model.GetSymbolInfo(identifier).Symbol is ILocalSymbol local)
+            expression = local.DeclaringSyntaxReferences.Single().GetSyntax() is VariableDeclaratorSyntax variable ? variable.Initializer?.Value : null;
+        return expression as ObjectCreationExpressionSyntax;
+    }
+
+    private static bool IsWithin(Type type, Type owner)
+    {
+        for (var current = type; current is not null; current = current.DeclaringType)
+            if (current == owner) return true;
+        return false;
+    }
+
+    private static bool IsEfSave(MethodBase target) => target.Name.StartsWith("SaveChanges", StringComparison.Ordinal)
+        && typeof(Microsoft.EntityFrameworkCore.DbContext).IsAssignableFrom(target.DeclaringType);
+
+    private static void AssertCompiledSourceMatches(MethodInfo method, string source)
+    {
+        var body = method.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType
+            .GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance) ?? method;
+        using var stream = File.OpenRead(Path.ChangeExtension(method.Module.Assembly.Location, ".pdb"));
+        using var symbols = MetadataReaderProvider.FromPortablePdbStream(stream);
+        Assert.True(HasMatchingSourceDocument(symbols.GetMetadataReader(), (MethodDefinitionHandle)MetadataTokens.Handle(body.MetadataToken), source), source + ": compiled source hash");
+        var image = Path.ChangeExtension(method.Module.Assembly.Location, ".compile-image");
+        if (File.Exists(Path.ChangeExtension(image, ".compile-inputs.txt")))
+        {
+            Assert.True(HasMatchingCompilerImage(method.Module.Assembly, image), source + ": compiler image binding");
+            var context = new AssemblyLoadContext("durable-row-compiler-proof", isCollectible: true);
+            try
+            {
+                using var imageStream = File.OpenRead(image);
+                var compiled = context.LoadFromStream(imageStream);
+                var owner = compiled.GetType(method.DeclaringType!.FullName!, throwOnError: true)!;
+                var original = Assert.Single(owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly),
+                    candidate => HasSameMethodIdentity(candidate, method));
+                var originalBody = original.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType
+                    .GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance) ?? original;
+                Assert.True(HasBoundCompiledSource(originalBody, source, image), source + ": compiler input binding");
+            }
+            finally { context.Unload(); }
+        }
+    }
+
+    private static void AssertProductionCall(string source, string caller, string target, Type? targetOwner)
+    {
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(), source)));
+        var owner = typeof(NodeEntityWriter).Assembly.GetTypes().Single(type => type.Name == Path.GetFileNameWithoutExtension(source));
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .First(method => method.Identifier.ValueText == caller);
+        AssertCompiledSourceMatches(RuntimeMethod(owner, declaration), source);
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([owner.Assembly],
+            method => method.Name == target && (targetOwner is null
+                ? method.DeclaringType?.BaseType == typeof(MulticastDelegate)
+                : method.DeclaringType == targetOwner), type => IsWithin(type, owner)),
+            site => site.Path == source && (site.Symbol.Contains("." + caller + "(", StringComparison.Ordinal)
+                || site.Symbol.Contains("<" + caller + ">", StringComparison.Ordinal)));
+    }
+
     [Fact(DisplayName = "ck-10 fence: a planted bypass outside the writer is caught by every check")]
     public void PlantedBypassIsCaught()
     {
@@ -2125,6 +2288,100 @@ public sealed partial class WritePipelineExecutorFenceTests
         // A closure lifted from a KernelWrite method other than CommitAsync is not a commit stage.
         Assert.Contains(off, key => key.Contains("<WritesInsideAScopeOutsideCommit>", StringComparison.Ordinal));
     }
+
+    [Fact(DisplayName = "ck-10 S6: a bank write bypass outside the authorization writer fails the admitted sink fence")]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void PlantedBankWriteOutsideAuthorizationWriterIsRejected()
+    {
+        var (_, off) = Classify([typeof(PlantedBypass).Assembly], type => type == typeof(PlantedBypass));
+        var bank = Assert.Single(off, key => key.EndsWith(".WritesABankAccountAroundThePipeline", StringComparison.Ordinal));
+        const string merge = "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync";
+        const string planted = "apps/local-node-host/tests/ArchTests/WritePipelineExecutorFenceTests.cs|Harborline.Api.LocalNodeHost.Tests.ArchTests.WritePipelineExecutorFenceTests+PlantedBypass.WritesABankAccountAroundThePipeline";
+        var reviewed = NotYetOnTheExecutorRows().Concat(ExemptFromTheExecutorRows()).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal([merge], reviewed);
+        Assert.Equal(planted, bank);
+        // A same-size substitution must fail: comparing only counts would hide this bypass.
+        var failure = Assert.Throws<Xunit.Sdk.TrueException>(() => AssertReviewedOffExecutor(reviewed, [bank]));
+        Assert.Contains("Unreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n" + planted, failure.Message, StringComparison.Ordinal);
+        Assert.Contains("Stale (on the executor now; delete the row):\n" + merge, failure.Message, StringComparison.Ordinal);
+    }
+
+    private static readonly (string Owner, string Method, string[] Callers)[] ReviewedWriteCallers =
+    [
+        ("Harborline.Api.LocalNodeHost.Data.Banking.NodeEfBankAccountRepository", "AddWithCreateKeyAsync", ["Harborline.Api.LocalNodeHost.Data.Financial.NodeBankAccountWriter+AccountCreate.CommitAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore", "CommitCoreAsync", ["Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.CommitAsync", "Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.CommitBootstrapAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore", "SetAsync", ["Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore.ArchiveAsync", "Harborline.Api.LocalNodeHost.Data.Definitions.NodeDefinitionArchiveWriter+ArchiveStore.UnarchiveAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget", "Prepare", ["Harborline.Api.LocalNodeHost.Health.ConfigurationActivationRoutes+<>c__DisplayClass_0.<Map>b__2"]),
+        ("Harborline.Api.LocalNodeHost.Data.Authorization.RetiredDesktopActorRekey", "RunAsync", ["Harborline.Api.LocalNodeHost.Data.Authorization.AuthorizationSeedHostedService.StartAsync"]),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "AcquireLeaseAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "RenewLeaseAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "StageLegacyBearerRevocationsAsync", []),
+        ("Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator", "AdvanceAsync", []),
+    ];
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-10")]
+    public void ReviewedNonPortWriteCallersRemainExact()
+    {
+        var assemblies = ProductionAssemblies();
+        foreach (var (owner, method, expected) in ReviewedWriteCallers)
+            AssertWriteCallers(assemblies, owner, method, expected);
+        var activation = typeof(Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget);
+        var saveCallers = RawMutationPortSymbolInventoryTests.DiscoverCalls([activation.Assembly], IsEfSave, type => IsWithin(type, activation))
+            .Select(site => site.Symbol[..site.Symbol.IndexOf('(')]).Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(new[]
+        {
+            "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget+<>c__DisplayClass_0.<Prepare>b__0",
+            "Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget+ConfigurationActivationWrite.CommitAsync",
+        }, saveCallers);
+    }
+
+    private static void AssertWriteCallers(Assembly[] assemblies, string owner, string method, string[] expected)
+    {
+        var ownerType = typeof(NodeEntityWriter).Assembly.GetType(owner);
+        Assert.NotNull(ownerType);
+        Assert.Single(ownerType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly), candidate => candidate.Name == method);
+        var actual = RawMutationPortSymbolInventoryTests.DiscoverCalls(assemblies,
+                target => target.DeclaringType?.FullName == owner && target.Name == method,
+                type => type.Assembly != typeof(PlantedNonPortCalls).Assembly || type == typeof(PlantedNonPortCalls))
+            .Select(site => site.Symbol[..site.Symbol.IndexOf('(')])
+            .Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(expected.Order(StringComparer.Ordinal), actual);
+    }
+
+    [Theory]
+    [InlineData("Keyed", "AddWithCreateKeyAsync")]
+    [InlineData("Acquire", "AcquireLeaseAsync")]
+    [InlineData("Renew", "RenewLeaseAsync")]
+    [InlineData("Stage", "StageLegacyBearerRevocationsAsync")]
+    [InlineData("Rekey", "RunAsync")]
+    [InlineData("Prepare", "Prepare")]
+    public void PlantedNonPortCallIsRejected(string caller, string method)
+    {
+        Assert.NotNull(typeof(PlantedNonPortCalls).GetMethod(caller));
+        var row = Assert.Single(ReviewedWriteCallers, row => row.Method == method);
+        var assemblies = ProductionAssemblies().Append(typeof(PlantedNonPortCalls).Assembly).ToArray();
+        Assert.Throws<Xunit.Sdk.EqualException>(() => AssertWriteCallers(assemblies, row.Owner, row.Method, row.Callers));
+        Assert.Contains(RawMutationPortSymbolInventoryTests.DiscoverCalls([typeof(PlantedNonPortCalls).Assembly],
+            target => target.DeclaringType?.FullName == row.Owner && target.Name == row.Method,
+            type => type == typeof(PlantedNonPortCalls)), site => site.Symbol.Contains("." + caller + "(", StringComparison.Ordinal));
+    }
+
+    private static class PlantedNonPortCalls
+    {
+        public static Task Keyed(Harborline.Api.LocalNodeHost.Data.Banking.NodeEfBankAccountRepository store) => store.AddWithCreateKeyAsync(null!, null!);
+        public static Task Acquire(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.AcquireLeaseAsync("plant", TimeSpan.FromMinutes(1));
+        public static Task Renew(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.RenewLeaseAsync(null!, TimeSpan.FromMinutes(1));
+        public static Task Stage(Harborline.Api.LocalNodeHost.Data.Identity.InstallationIdentityCutoverOrchestrator store) => store.StageLegacyBearerRevocationsAsync(null!, []);
+        public static Task Rekey() => Harborline.Api.LocalNodeHost.Data.Authorization.RetiredDesktopActorRekey.RunAsync(null!, null, default, default);
+        public static object Prepare(Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget target) => target.Prepare(default, "", [], null!, default);
+    }
+
+    private static void AssertReviewedOffExecutor(string[] reviewed, string[] off) =>
+        Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
+            "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"
+            + string.Join("\n", off.Except(reviewed))
+            + "\nStale (on the executor now; delete the row):\n" + string.Join("\n", reviewed.Except(off)));
 
     private static (string[] OnExecutor, string[] Off) Classify(Assembly[] assemblies, Func<Type, bool>? typeFilter = null)
     {
@@ -2187,15 +2444,18 @@ public sealed partial class WritePipelineExecutorFenceTests
 
     /// <summary>
     /// Test-only planted bypass: a loop of its own over the stage order, a KernelWrite that calls its own commit
-    /// stage, and two commits around the pipeline. The StagedWrite is the positive control. It is never executed.
+    /// stage, and admitted commits around the pipeline. The StagedWrite is the positive control. It is never executed.
     /// </summary>
-    private sealed class PlantedBypass(IAuthorizationConfigurationStore store, IEntityMutationStore entities)
+    private sealed class PlantedBypass(
+        IAuthorizationConfigurationStore store, IEntityMutationStore entities, IBankAccountMutationRepository accounts)
     {
         public int RunsItsOwnLoop() => WritePipeline.Order.Count;
 
         public ValueTask CommitsAroundThePipeline(ValidatedAuthorizationConfigurationWrite write) => store.CommitAsync(write);
 
         public Task WritesARecordAroundThePipeline(ValidatedRecordBody body) => entities.CreateAsync(body, null!);
+
+        public Task WritesABankAccountAroundThePipeline(BankAccount account) => accounts.AddAsync(account);
 
         public sealed class StagedWrite(IAuthorizationConfigurationStore store)
             : KernelWrite<string, string, ValidatedAuthorizationConfigurationWrite, string>
