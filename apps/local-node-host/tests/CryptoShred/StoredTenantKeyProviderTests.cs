@@ -9,6 +9,8 @@ using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost;
 
 using Microsoft.Extensions.DependencyInjection;
+using System.Security.Cryptography;
+using System.Text;
 
 using Xunit;
 
@@ -265,6 +267,59 @@ public sealed class StoredTenantKeyProviderTests
                 Directory.Delete(directory, recursive: true);
             }
         }
+    }
+
+    // Oracle: independently AES-GCM-wrapped literal keys in the documented nonce/ciphertext/tag record format.
+    [Fact]
+    public async Task Synchronous_resolve_reads_the_fixture_and_does_not_cache_a_destroyed_key()
+    {
+        const string slot = "tenant:76F6B86CB121C0DDC590808D9DFD7B5AB2EB26300B88B81832F03473B29F2BDA:FAB3D5FF081672DCC5141732B19D6893C48014E254C1747EB916ABACAA2B4C7A:v2";
+        var store = new InMemoryTenantKeyStore();
+        var root = new byte[32];
+        var tenant = new TenantId("tenant-sync");
+        var provider = new StoredTenantKeyProvider(store, root);
+        Assert.True(await store.TryCreateAsync(slot, FixtureRecord(0x42), default));
+        Assert.False(await store.TryCreateAsync(slot, FixtureRecord(0x43), default));
+        Assert.Equal(Enumerable.Repeat((byte)0x42, 32), (await Task.Run(() => provider.ResolveKey(tenant, "content-store", 2, default))).ToArray());
+        Assert.Equal(Enumerable.Repeat((byte)0x42, 32), (await provider.ResolveKeyAsync(tenant, "content-store", 2, default)).ToArray());
+        await provider.DestroyTenantKeysAsync(tenant, default);
+        Assert.Null(await store.ReadAsync(slot, default));
+        Assert.True(await store.TryCreateAsync(slot, FixtureRecord(0x43), default));
+        Assert.Equal(Enumerable.Repeat((byte)0x43, 32), (await Task.Run(() => provider.ResolveKey(tenant, "content-store", 2, default))).ToArray());
+
+        byte[] FixtureRecord(byte value)
+        {
+            var nonce = new byte[12];
+            var ciphertext = new byte[32];
+            var tag = new byte[16];
+            using var aes = new AesGcm(root, 16);
+            aes.Encrypt(nonce, Enumerable.Repeat(value, 32).ToArray(), ciphertext, tag, Encoding.UTF8.GetBytes(slot));
+            return [.. nonce, .. ciphertext, .. tag];
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Synchronous_resolve_refuses_versions_other_than_two_without_importing(int version)
+    {
+        var legacy = new SyncLegacyProbe();
+        var provider = new StoredTenantKeyProvider(new InMemoryTenantKeyStore(), new byte[32], legacy);
+        Assert.Throws<CryptographicException>(() => provider.ResolveKey(new("tenant-sync"), "content-store", version, default));
+        Assert.Equal(0, legacy.Calls);
+    }
+
+    private sealed class SyncLegacyProbe : ITenantKeyProvider
+    {
+        public int Calls { get; private set; }
+        public Task<ReadOnlyMemory<byte>> DeriveKeyAsync(TenantId tenant, string purpose, CancellationToken ct)
+        {
+            Calls++;
+            return Task.FromResult<ReadOnlyMemory<byte>>(new byte[32]);
+        }
+        public Task<ReadOnlyMemory<byte>> DeriveSubjectKeyAsync(TenantId tenant, SubjectId subject, string purpose,
+            ISubjectErasureRegistry erasure, CancellationToken ct) => throw new InvalidOperationException("unexpected subject import");
     }
 
     private sealed class FixedClock(DateTimeOffset instant) : IRecoveryClock

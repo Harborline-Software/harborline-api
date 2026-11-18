@@ -969,6 +969,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
                 .InstallAsync(tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            await Harborline.Api.LocalNodeHost.Tests.Authorization.AuditorSingleCapabilityTests.ProjectPlatformAuditAsync(provider, tenant, At);
             var grants = provider.GetRequiredService<IGrantStore>();
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(tenant, Grant(tenant, Viewer, member, $"/records/{Root}"));

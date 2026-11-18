@@ -272,6 +272,7 @@ public sealed class AuthorizationTraceReadTests
             var harness = new Harness(provider, keys, new Ed25519Signer(keys), subject);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
                 .InstallAsync(Tenant, AdmittedInstant.FromRecordedAct(At), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
+            await Harborline.Api.LocalNodeHost.Tests.Authorization.AuditorSingleCapabilityTests.ProjectPlatformAuditAsync(provider, Tenant, At);
             var grants = provider.GetRequiredService<IGrantStore>();
             // The subject and the stranger are ordinary members; the auditor is the sealed platform role.
             await grants.AppendAsync(Tenant, Grant(harness.Subject, AccessGrantAuthorizationSeed.MemberRole));

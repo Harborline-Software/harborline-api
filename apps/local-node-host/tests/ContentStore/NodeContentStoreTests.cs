@@ -622,7 +622,7 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         var contexts = new Factory(options, modules);
         await using (var context = contexts.CreateDbContext()) await context.Database.MigrateAsync();
 
-        var store = Store(storage: new NodeContentStoreStorage(contexts, directory));
+        var store = Store(storage: new NodeContentStoreStorage(contexts, directory, Path.Combine(directory, "tenant-keys")));
         var reference = await Commit(store, await Put(store));
         var item = await new NodeContentBookkeeping(contexts).FindItemAsync(new(Tenant, reference.ContentId));
 
@@ -649,7 +649,7 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         IHarborlineEntityModule[] modules = [new ContentStoreEntityModule(), new AuditEventEntityModule()];
         var contexts = new Factory(options, modules);
         await using (var context = contexts.CreateDbContext()) await context.Database.MigrateAsync();
-        var storage = new NodeContentStoreStorage(contexts, directory);
+        var storage = new NodeContentStoreStorage(contexts, directory, Path.Combine(directory, "tenant-keys"));
         var bookkeeping = (NodeContentBookkeeping)storage.Bookkeeping;
         var store = Store(storage: storage);
         var reference = await Commit(store, await Put(store));
@@ -802,7 +802,7 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
         await File.WriteAllBytesAsync(leftover, [1, 2, 3]);
         var services = new ServiceCollection();
         services.AddSingleton(_node.Contexts);
-        services.AddNodeContentStore(_node.DataDirectory);
+        services.AddNodeContentStore(_node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         await using var provider = services.BuildServiceProvider();
         var storage = provider.GetRequiredService<IContentStoreStorage>();
         Assert.Equal(1, storage.Bookkeeping.CommittedCount);
@@ -814,7 +814,7 @@ public sealed partial class NodeContentStoreTests(ITestOutputHelper output) : ID
     {
         var services = new ServiceCollection();
         services.AddSingleton(_node.Contexts);
-        services.AddNodeContentStore(_node.DataDirectory);
+        services.AddNodeContentStore(_node.DataDirectory, Path.Combine(_node.DataDirectory, "tenant-keys"));
         await using var provider = services.BuildServiceProvider();
         var storage = provider.GetRequiredService<NodeContentStoreStorage>();
         Assert.Same(storage, provider.GetRequiredService<IContentStoreStorage>());
