@@ -2230,8 +2230,24 @@ public sealed partial class WritePipelineExecutorFenceTests
         using var stream = File.OpenRead(Path.ChangeExtension(method.Module.Assembly.Location, ".pdb"));
         using var symbols = MetadataReaderProvider.FromPortablePdbStream(stream);
         Assert.True(HasMatchingSourceDocument(symbols.GetMetadataReader(), (MethodDefinitionHandle)MetadataTokens.Handle(body.MetadataToken), source), source + ": compiled source hash");
-        if (File.Exists(Path.ChangeExtension(method.Module.Assembly.Location, ".compile-inputs.txt")))
-            Assert.True(HasBoundCompiledSource(body, source), source + ": compiler input binding");
+        var image = Path.ChangeExtension(method.Module.Assembly.Location, ".compile-image");
+        if (File.Exists(Path.ChangeExtension(image, ".compile-inputs.txt")))
+        {
+            Assert.True(HasMatchingCompilerImage(method.Module.Assembly, image), source + ": compiler image binding");
+            var context = new AssemblyLoadContext("durable-row-compiler-proof", isCollectible: true);
+            try
+            {
+                using var imageStream = File.OpenRead(image);
+                var compiled = context.LoadFromStream(imageStream);
+                var owner = compiled.GetType(method.DeclaringType!.FullName!, throwOnError: true)!;
+                var original = Assert.Single(owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly),
+                    candidate => HasSameMethodIdentity(candidate, method));
+                var originalBody = original.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType
+                    .GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance) ?? original;
+                Assert.True(HasBoundCompiledSource(originalBody, source, image), source + ": compiler input binding");
+            }
+            finally { context.Unload(); }
+        }
     }
 
     private static void AssertProductionCall(string source, string caller, string target, Type? targetOwner)
