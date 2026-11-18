@@ -22,8 +22,7 @@ public interface IEventReader
     /// <summary>
     /// Read events of <paramref name="eventType"/> that are newer
     /// than the supplied <paramref name="afterEventId"/>, up to
-    /// <paramref name="maxBatchSize"/>. Ordered by EventId ascending
-    /// (ULIDs sort by mint-time).
+    /// <paramref name="maxBatchSize"/>. Ordered by store-assigned position.
     /// </summary>
     Task<IReadOnlyList<RawDomainEvent>> ReadAsync(
         TenantId tenantId,

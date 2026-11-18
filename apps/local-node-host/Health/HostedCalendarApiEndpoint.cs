@@ -1,3 +1,4 @@
+using Harborline.Foundation.Scheduling.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
