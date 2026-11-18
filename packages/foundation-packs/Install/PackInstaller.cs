@@ -1995,11 +1995,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
         var context = new BookingAdmissionContext(id => traits.GetValueOrDefault(id), resources.Contains);
         foreach (var refusal in BookingDefinitionPackage.Admit(entries, context))
         {
-            var tail = refusal.Pointer["/entries/".Length..];
-            var slash = tail.IndexOf('/', StringComparison.Ordinal);
-            var index = int.Parse(slash < 0 ? tail : tail[..slash], System.Globalization.CultureInfo.InvariantCulture);
-            var item = items[index];
-            refusals.Add(new PackInstallRefusal(refusal.Code, slash < 0 ? "" : tail[slash..], $"{item.Key}@{item.Version}"));
+            // A refusal under /entries/<n> names that definition by key and version. Any other
+            // pointer is about the pack as a whole: it keeps the platform's own pointer and target,
+            // as Layout's do (T-1034 follow-up to api #502).
+            var (pointer, target) = BookingRefusalPlace(refusal, items);
+            refusals.Add(new PackInstallRefusal(refusal.Code, pointer, target));
         }
         return refusals;
     }
@@ -2428,6 +2428,20 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler, I
             declarations.Add(parsed.Declaration!);
         }
         return PackNavigationDeclarationParser.FindCompositionRefusal(declarations);
+    }
+
+    internal static (string Pointer, string? Target) BookingRefusalPlace(DefinitionRefusal refusal, IReadOnlyList<PackContentItem> items)
+    {
+        const string entries = "/entries/";
+        if (refusal.Pointer.StartsWith(entries, StringComparison.Ordinal))
+        {
+            var tail = refusal.Pointer[entries.Length..];
+            var slash = tail.IndexOf('/', StringComparison.Ordinal);
+            if (int.TryParse(slash < 0 ? tail : tail[..slash], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var index) && index < items.Count)
+                return (slash < 0 ? "" : tail[slash..], $"{items[index].Key}@{items[index].Version}");
+        }
+        return (refusal.Pointer, refusal.Target);
     }
 
     private static IReadOnlyList<PackComposedItem> BuildComposed(

@@ -64,8 +64,11 @@ are unordered. The decoder's metadata-ordering option remains unchanged.
 Preview, Check and Install run the platform's Booking admission for Resource and
 Bookable definitions. Record Types come from the pack and signed exposures of its
 declared dependencies; required Resources resolve within the pack or its declared
-installed dependencies. Refusals retain the platform code and definition pointer,
-and identify the definition by key and version. Install refuses the whole pack
+installed dependencies. No installed version of the pack's own key supplies Record
+Types or required Resources, so a dependency on an earlier version of the pack does
+not count. Refusals retain the platform code and definition pointer, and identify
+the definition by key and version; a refusal outside a definition keeps the
+platform's own pointer and target. Install refuses the whole pack
 before changing installed versions, overrides, watermarks or active pointers.
 
 ## Pairing GA gates
