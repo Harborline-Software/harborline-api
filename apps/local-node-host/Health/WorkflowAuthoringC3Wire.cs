@@ -63,11 +63,17 @@ internal static class WorkflowAuthoringC3Wire
             _ => "",
         };
         var member = rule == RoleGateAdmissionRules.StandingPlatformOnly ? "requiredStandings" : "requiredRoles";
+        // An id more than one element carries names no single element, so it points at the whole document.
+        var found = "";
+        var matches = 0;
         foreach (var (item, pointer) in Elements(body, collection))
             if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
-                && id.GetString() == gate[(separator + 1)..] && item.TryGetProperty(member, out _))
-                return $"{pointer}/{member}";
-        return "";
+                && id.GetString() == gate[(separator + 1)..])
+            {
+                matches++;
+                if (item.TryGetProperty(member, out _)) found = $"{pointer}/{member}";
+            }
+        return matches == 1 ? found : "";
     }
 
     private static string FindLane(JsonElement body, string field, Func<JsonElement, bool> refused)

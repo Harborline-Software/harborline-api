@@ -75,7 +75,7 @@ public sealed class RemainingDefinitionEnvelopeTests
 
         IWorkflowDefinitionStore store = new EntityStoreWorkflowDefinitionStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System),
-            Substitute.For<IWorkflowAdmissionValidator>(),
+            AdmittingValidator(),
             TimeProvider.System);
         await store.RegisterAsync(model, authored);
         var stored = await store.GetAsync(new DefinitionCoordinates(
@@ -208,5 +208,13 @@ public sealed class RemainingDefinitionEnvelopeTests
         Assert.Equal("rule.legacy-positive-total", rule.Id);
         Assert.Equal("0.0.0", rule.Envelope.Version);
         Assert.Equal(TenantId.System, rule.Envelope.Tenant);
+    }
+
+    // The register path reads the admission result directly; an unconfigured double would answer null.
+    private static IWorkflowAdmissionValidator AdmittingValidator()
+    {
+        var admission = Substitute.For<IWorkflowAdmissionValidator>();
+        admission.Validate(default!).ReturnsForAnyArgs(WorkflowAdmissionResult.Valid);
+        return admission;
     }
 }
