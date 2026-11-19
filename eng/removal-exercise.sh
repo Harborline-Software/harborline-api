@@ -26,11 +26,9 @@ root_seed_hex=5858585858585858585858585858585858585858585858585858585858585858
 session_token=removal-exercise-token
 founder_password=removal-exercise-password
 pack_key=harborline.platform
-# The version PlatformPackPreloadHostedService installs. Read from source rather than repeated, so
-# a version bump does not quietly turn the deactivate below into a no-op that still prints "gone".
-pack_version=$(grep -oE 'PackVersion = "[0-9.]+"' \
-  "$repo_root/apps/local-node-host/Data/PackProjection/PlatformPackPreloadHostedService.cs" |
-  head -1 | sed 's/.*"\(.*\)"/\1/')
+# The preload uses PlatformPackageSeed.Manifest.Revision from the pinned feed (T-670).
+# Query that manifest rather than parsing the former C# literal or restating its value.
+pack_version=$(node "$repo_root/eng/platform-seed-version.mjs") || exit 1
 
 # The definition kinds the package contributes. A compiled inspector for a retired pillar would
 # serve its own surface whether or not a pack declared it, so all five are probed after removal.

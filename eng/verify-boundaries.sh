@@ -70,6 +70,7 @@ node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
 # knownTests roster (eng/known-tests-drift.mjs) never writes anything itself.
 node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/platform-seed-version.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/same-job-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed-benchmark.test.mjs" || exit 1

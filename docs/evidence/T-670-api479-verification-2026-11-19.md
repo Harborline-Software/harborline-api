@@ -11,3 +11,12 @@ Focused host tests passed 274/274, zero failed or skipped: PlatformSeedIntakeTes
 Focused-mode classification against origin/main selected coverage-off and coverage-on; all changed paths have categories. The required quality checkout and bin directory setup check passed. Full-gate results and any receipt are recorded in the PR verification notes after the committed candidate is run.
 
 The latest hosted verify failure at the original PR head is the draft guard: draft PR cannot satisfy required verification. Draft status is retained.
+
+
+## Manifest version lookup follow-up
+
+The removal exercise no longer parses a literal in the preload's C# source. Its lookup calls a small .NET reader over the pinned .feed packages and reads PlatformPackageSeed.Manifest.Revision, the same manifest property the preload uses. No caller still uses the old literal lookup, so it is removed. ADR-0097 decision 6 assigns the manifest to the platform; ADR-0102 decision 5 requires one carrier, and T-670/api-seed-intake consumes seed revision 2.0.0. None of those records forbids this lookup.
+
+Nine tooling tests passed, including an actual read from the pinned feed with literal expected version 2.0.0 (T-670 intake acceptance), missing/empty/invalid/ambiguous output, an unsuccessful reader, an empty feed and a corrupt archive. Refusal oracles use the literal existing diagnostic, could not read the platform pack version from the preload service. The tooling suite runs in verify-boundaries.sh. The reader enables reflection serialization because the packaged manifest builds its payload with System.Text.Json; its initial integration test caught the file-app default disabling that behavior. No package dependency or shared build configuration changed.
+
+The host-focused selection passed again: 274 passed, zero failed or skipped. TRX: /private/tmp/api479-focused-manifest-23245469/api479-focused.trx; log: /private/tmp/api479-focused-manifest-23245469.log. Shell syntax and git diff whitespace checks passed. The required quality checkout and bin directory setup check returned ok. The full gate runs against the subsequent clean commit; its result and any receipt are reported on PR #479.
