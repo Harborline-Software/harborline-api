@@ -52,6 +52,8 @@ function category(file) {
   if (/\.cs$/.test(file) && /reflection|construction|ArchTests/i.test(file)) return 'reflection'
   if (/\.(cs|dll|exe|pdb|nupkg|so|dylib|bin)$/.test(file)) return 'binary'
   if (file === 'apps/local-node-host/tests/ContentStore/EpochCrashWorker.cs.txt') return 'binary'
+  // Copied beside the built host, so it changes the published output.
+  if (file === 'apps/local-node-host/appsettings.json') return 'binary'
   // Pack recipes are embedded into or copied beside the built assemblies, so they change binaries.
   if (/^_shared\/(conformance\/)?packs\/.+\.export\.json$/.test(file)) return 'binary'
   // Capability-host TypeScript sources/tests only; still the full OFF/ON proof.
