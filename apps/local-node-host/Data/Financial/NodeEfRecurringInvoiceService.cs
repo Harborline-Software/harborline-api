@@ -226,8 +226,7 @@ public sealed class NodeEfRecurringInvoiceService : IRecurringInvoiceService
         else
         {
             if (MatchesRecurrenceMessage(message, "RRULE FREQ '",
-                    "' is not supported. Supported: DAILY / WEEKLY / MONTHLY / YEARLY.")
-                || MatchesRecurrenceMessage(message, "RRULE FREQ '", "' is not supported."))
+                    "' is not supported by the bounded subset (DAILY, WEEKLY, MONTHLY or YEARLY)."))
                 return "RecurrenceRule has an unsupported FREQ value.";
             if (string.Equals(message, "RRULE component 'BYMONTHDAY' is not applicable with FREQ=WEEKLY.",
                     StringComparison.Ordinal))

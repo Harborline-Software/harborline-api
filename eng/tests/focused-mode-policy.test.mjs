@@ -28,6 +28,25 @@ const evidence = plan => ['coverage-off', 'coverage-on'].map(mode => ({schemaVer
   coverageDigest: mode === 'coverage-on' ? `sha256:${'d'.repeat(64)}` : null,
   coverage: mode === 'coverage-on' ? {validLines: 1, coveredLines: 0, paths: ['source.cs']} : null}))
 
+test('host appsettings is a binary input by exact path', () => {
+  const plan = classifyFocusedModes([{status: 'M', path: 'apps/local-node-host/appsettings.json'}])
+  assert.equal(plan.changes[0].kind, 'binary')
+  assert.equal(plan.selection, 'focused')
+  assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+  requireRunnableSelection(plan)
+})
+
+for (const file of [
+  'apps/local-node-host/appsettings.Development.json',
+  'apps/other-host/appsettings.json',
+  'appsettings.json',
+]) test(`unowned appsettings near miss stays unsupported: ${file}`, () => {
+  const plan = classifyFocusedModes([{status: 'M', path: file}])
+  assert.equal(plan.changes[0].kind, 'unknown')
+  assert.equal(plan.selection, 'unsupported')
+  assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
+})
+
 for (const [file, kind] of [
   ['apps/local-node-host/Validation/Check.cs', 'validation'],
   ['packages/foundation/Reflection/Inspector.cs', 'reflection'],

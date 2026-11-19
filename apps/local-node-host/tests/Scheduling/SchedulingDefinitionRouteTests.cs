@@ -29,6 +29,7 @@ using Harborline.Api.LocalNodeHost.Data.People;
 using Harborline.Api.LocalNodeHost.Data.Scheduling;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.TestDoubles;
+using Harborline.Foundation.Scheduling.Models;
 
 using Xunit;
 

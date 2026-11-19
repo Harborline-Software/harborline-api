@@ -17,14 +17,15 @@ public sealed class PlatformViewsPackageConsumptionTests
         var kinds = new Kinds();
         var records = new RecordTypes();
         var measures = new Measures();
-        var store = new InMemoryViewDefinitionStore();
+        var store = ViewStores.Catalogue("team-a");
         var authoring = new ViewDefinitionAuthoring(
             new ViewDefinitionAdmission(
                 kinds,
                 records,
                 measures,
                 new ViewExpressionFunctionRegistry(),
-                new Interactions()),
+                new Interactions(),
+                ViewsExpressionEnvironment.Admitted),
             store);
         var binding = new ViewBinding(
             "layout.table",
@@ -62,7 +63,7 @@ public sealed class PlatformViewsPackageConsumptionTests
             new AccessFilter(),
             rows,
             measures,
-            TimeProvider.System);
+            TimeProvider.System, environment: ViewsExpressionEnvironment.Admitted.For(Harborline.Foundation.RuleEngine.Environments.EvaluationPhase.Run));
         var result = await runtime.ExecuteAsync(new ViewQueryRequest(
             "team-a",
             "work.queue",

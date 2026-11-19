@@ -34,6 +34,7 @@ public sealed class AllowListVacuityArchTests
     /// <summary>Every allow-list whose rows are checked against the owning fence's live discovery.</summary>
     private static readonly AllowList[] Registry =
     [
+        new("ComputeSiteFenceTests", "Allowed", () => ComputeSiteFenceTests.Allowed, ComputeSiteFenceTests.Discover),
         new("AuthorizationModelArchTests", "InlineRoleConstructionOwners",
             () => [.. AuthorizationModelArchTests.InlineRoleConstructionOwnerRows],
             AuthorizationModelArchTests.DiscoveredInlineRoleConstructionOwners),
@@ -199,6 +200,9 @@ public sealed class AllowListVacuityArchTests
         ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
             "an exact inventory compared with SequenceEqual against the discovered callers, both "
             + "directions, so a row that excused nothing would be red as a stale expectation",
+        ["WritePipelineExecutorFenceTests.ReviewedWriteCallers"] =
+            "an exact inventory of callers for each resolved target method, compared in both directions "
+            + "against discovered calls by ReviewedNonPortWriteCallersRemainExact",
         ["WritePipelineExecutorFenceTests.StageNames"] =
             "the six KernelWrite stage method names the ck-10 fence scans FOR, not an exception list; the "
             + "planted bypass proves a stage call outside the executor is seen",
