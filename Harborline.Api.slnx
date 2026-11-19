@@ -102,6 +102,7 @@
     <Project Path="packages/ui-core/Harborline.UICore.csproj" />
   </Folder>
   <Folder Name="/tooling/">
+    <Project Path="tooling/pack-enum-codegen/Harborline.Tooling.PackEnumCodegen.csproj" />
     <Project Path="tooling/Harborline.Tooling.LocalizationXliff/Harborline.Tooling.LocalizationXliff.csproj" />
   </Folder>
 </Solution>

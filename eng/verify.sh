@@ -118,7 +118,7 @@ step dependency-ledger       node eng/dependency-ledger.mjs
 step identity-r3             bash eng/identity-r3-scan.sh
 
 # protocol-lane-conformance (the contracts-* steps are package lanes; see LANES above)
-step codegen-check           node tooling/harborline-contract-codegen/generate.mjs --check
+step codegen-check           bash -c 'node tooling/harborline-contract-codegen/generate.mjs --check && dotnet run --project tooling/pack-enum-codegen -- --check'
 step codegen-guard-suite     node tooling/harborline-contract-codegen/run-tests.mjs
 step contracts-typescript    bash -c 'cd packages/contracts && pnpm install --frozen-lockfile && pnpm test'
 step contracts-csharp        dotnet test packages/contracts/tests/Harborline.Contracts.Tests.csproj -c Release
