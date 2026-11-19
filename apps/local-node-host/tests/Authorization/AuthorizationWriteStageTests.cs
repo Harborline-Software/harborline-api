@@ -870,7 +870,7 @@ public sealed class AuthorizationWriteStageTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, AdmittingValidator(), TimeProvider.System);
         var lifecycle = TestAuthorization.WorkflowLifecycle(store, TestAuthorization.Gate(false), TestAuthorization.RoleGate());
         var authority = Authority("workflow-definition", "workflow", "/definitions/workflows/workflow");
         var coordinates = new DefinitionCoordinates(authority.Tenant, "workflow", "1.0.0");
@@ -1282,7 +1282,7 @@ public sealed class AuthorizationWriteStageTests
 
         var entityStore = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var workflowStore = new EntityStoreWorkflowDefinitionStore(
-            entityStore, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entityStore, AdmittingValidator(), TimeProvider.System);
         var workflows = TestAuthorization.WorkflowLifecycle(workflowStore, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
         using var authored = WorkflowAuthored("first-publish-workflow", "1.0.0", tenant.Value);
         var publishedWorkflow = await workflows.RegisterAndPublishAsync(
@@ -1358,7 +1358,7 @@ public sealed class AuthorizationWriteStageTests
             : new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
             entities,
-            Substitute.For<IWorkflowAdmissionValidator>(),
+            AdmittingValidator(),
             new FixedTimeProvider(publishAt.AddDays(1)));
         var lifecycle = TestAuthorization.WorkflowLifecycle(store, TestAuthorization.AllowGate(), TestAuthorization.RoleGate());
         using var authored = WorkflowAuthored("pack-instant-workflow", "1.0.0", tenant.Value);
@@ -2781,5 +2781,13 @@ public sealed class AuthorizationWriteStageTests
             Captured.Add(authority);
             return null;
         }
+    }
+
+    // The register path reads the admission result directly; an unconfigured double would answer null.
+    private static IWorkflowAdmissionValidator AdmittingValidator()
+    {
+        var admission = Substitute.For<IWorkflowAdmissionValidator>();
+        admission.Validate(default!).ReturnsForAnyArgs(WorkflowAdmissionResult.Valid);
+        return admission;
     }
 }

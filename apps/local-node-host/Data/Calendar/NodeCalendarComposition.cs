@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+using Harborline.Blocks.Calendar.Booking;
 using Harborline.Blocks.Calendar.DependencyInjection;
 using Harborline.Blocks.Calendar.Services;
 
@@ -45,6 +46,8 @@ public static class NodeCalendarComposition
 
         // Register the block (in-memory stores via TryAdd + the query / free-busy / booking services).
         services.AddBlocksCalendar();
+        // ADR-0110 / R-0181 holds the whole host; no definition store is composed until the hold lifts.
+        services.RemoveAll<IBookingInterpreter>();
 
         // Override the two stores with the durable NodeEf implementations over the recoverable
         // SQLCipher local-node.db. A plain AddSingleton AFTER AddBlocksCalendar is the last

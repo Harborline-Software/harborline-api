@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "2d820840b2f49815db65270e6bdb1ffbae7c3be7",
-  "recordedAt": "2026-11-09 (M11: exact platform PR 431 merge commit 2d820840, which T-521 content-store-epoch-key-store stage 2 needs: a rotation transaction pins its new epoch, naming its tenant, and refuses an epoch already retired. It also includes platform PRs 422, 424, 411, 429, 435, 432, 438, 436, 433 and 437.)",
+  "commit": "c9787df2b2b1daf38d7971c85b9b073962919293",
+  "recordedAt": "2026-11-16 (platform main c9787df2, on the .NET 11 GA SDK.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
@@ -15,7 +15,8 @@
     "Consume platform PR 421 (T-521/content-store-host-transaction), so the node backs the producer's bookkeeping and byte ports.",
     "Consume platform PR 399 (T-564), so rule contracts resolve through Harborline.Contracts.Rules instead of Forms, and pin platform PR 409 merge commit 5b4fdf09 as the base T-521 content-store-durable-host builds on. The namespace change is mechanical, with no host behavior change.",
     "Consume platform PR 423 (T-521/content-store-epoch-wrap-key), so the node backs the content store's epoch key port and rotates epoch keys.",
-    "Consume platform PR 431 (T-521/content-store-epoch-wrap-key fix), so the node's rotation run pins each new epoch to its tenant and a retired epoch is never made current."
+    "Consume platform PR 431 (T-521/content-store-epoch-wrap-key fix), so the node's rotation run pins each new epoch to its tenant and a retired epoch is never made current.",
+    "Consume platform on the .NET 11 GA SDK so API no longer needs the RC SDK bridge from API 488."
   ],
   "producers": {
     "Harborline.Blocks.ActivityTimeline": "Harborline.Blocks.ActivityTimeline.dll",
@@ -26,7 +27,6 @@
     "Harborline.Blocks.InspectionReview": "Harborline.Blocks.InspectionReview.dll",
     "Harborline.Blocks.LayoutRuntime": "Harborline.Blocks.LayoutRuntime.dll",
     "Harborline.Blocks.MeasureCatalogue": "Harborline.Blocks.MeasureCatalogue.dll",
-    "Harborline.Blocks.RelativeChains": "Harborline.Blocks.RelativeChains.dll",
     "Harborline.Blocks.Reports": "Harborline.Blocks.Reports.dll",
     "Harborline.Blocks.Scheduling": "Harborline.Blocks.Scheduling.dll",
     "Harborline.Blocks.Workflow": "Harborline.Blocks.Workflow.dll",
