@@ -13,6 +13,8 @@ public sealed class TraceEnforcementDisagreementCollection;
 [Collection("Trace enforcement disagreement")]
 public sealed class TraceEnforcementDisagreementTests
 {
+    public TraceEnforcementDisagreementTests() => TraceEnforcementDisagreement.Initialize();
+
     private static readonly TenantId Tenant = new("t575-tenant");
     private static readonly DateTimeOffset At = new(2026, 9, 2, 14, 0, 0, TimeSpan.Zero);
 

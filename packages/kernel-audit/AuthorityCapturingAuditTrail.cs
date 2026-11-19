@@ -12,6 +12,8 @@ public sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail, IRefus
 {
     private readonly IAuditTrail _inner;
 
+    static AuthorityCapturingAuditTrail() => TraceEnforcementDisagreement.Initialize();
+
     /// <summary>Decorates <paramref name="inner"/>, the store that persists each record exactly as given.</summary>
     public AuthorityCapturingAuditTrail(IAuditTrail inner)
     {

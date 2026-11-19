@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Runtime.CompilerServices;
 
 namespace Harborline.Api.Kernel.Audit;
 
@@ -14,11 +13,8 @@ internal sealed class TraceEnforcementDisagreement : IDisposable
     internal TraceEnforcementDisagreement() => _meter.CreateObservableCounter(
         "authorization.trace.disagreements", () => Interlocked.Read(ref _total));
 
-    // Publish the zero measurement as soon as the audit assembly loads.
-#pragma warning disable CA2255
-    [ModuleInitializer]
+    // Register the observable zero before the audit trail accepts any append.
     internal static void Initialize() => _ = Instance;
-#pragma warning restore CA2255
 
     internal static void Record(string code)
     {
