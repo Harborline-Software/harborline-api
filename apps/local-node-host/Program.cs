@@ -1267,6 +1267,7 @@ if (localNodeOptions.Diagnostics.OtlpEndpoint is { } otlpEndpoint)
     builder.Services.AddOpenTelemetry()
         .WithMetrics(metrics => metrics
             .AddMeter(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.MeterName)
+            .AddMeter("Harborline.Kernel.Audit")
             .AddOtlpExporter((options, readerOptions) =>
             {
                 options.Endpoint = new Uri(otlpEndpoint, "v1/metrics");
@@ -1276,6 +1277,7 @@ if (localNodeOptions.Diagnostics.OtlpEndpoint is { } otlpEndpoint)
             }))
         .WithTracing(tracing => tracing
             .AddSource(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.ActivitySourceName)
+            .AddSource("Harborline.Kernel.Audit")
             .AddOtlpExporter(options =>
             {
                 options.Endpoint = new Uri(otlpEndpoint, "v1/traces");
