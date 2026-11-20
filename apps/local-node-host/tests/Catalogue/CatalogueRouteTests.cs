@@ -125,7 +125,9 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             PackRevocationList.Empty,
             _activeTeam,
             TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity(),
+            Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.Published,
+            Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.PublishedReferent);
 
         var definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
         _app.Use(async (http, next) =>
@@ -231,7 +233,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Platform_preload_cannot_replace_a_compiled_shape()
     {
         var principal = _signer.Signer.IssuerId.ToBase64Url();
-        var platform = PlatformPackPreloadHostedService.ReadExportRequest(principal);
+        var platform = Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.Request(principal);
         var claiming = platform with
         {
             Contents = [.. platform.Contents, new PackContentSource("record-type", PackContentKind.RecordType, "1.0.0",
@@ -278,9 +280,9 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         {
             Assert.True(entry.GetProperty("sealed").GetBoolean());
             var provenance = entry.GetProperty("provenance");
-            Assert.Equal("harborline.platform", provenance.GetProperty("packKey").GetString());
-            Assert.Equal("1.6.1", provenance.GetProperty("packVersion").GetString());
-            Assert.Equal("platform", provenance.GetProperty("kind").GetString());
+            Assert.False(provenance.TryGetProperty("packKey", out _));
+            Assert.False(provenance.TryGetProperty("packVersion", out _));
+            Assert.Equal("compiled", provenance.GetProperty("kind").GetString());
         });
     }
 
@@ -303,13 +305,13 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Missing_platform_declarations_keep_compiled_provenance()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform")));
         var form = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
         var partial = active with { SeedItems = [form] };
 
         var types = SystemRecordType.FromActivePlatformPack(partial);
         Assert.Equal(19, types.Count);
-        Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), types.Single(x => x.Name == "FormDefinition").Provenance);
+        Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), types.Single(x => x.Name == "FormDefinition").Provenance);
         Assert.All(types.Where(x => x.Name != "FormDefinition"), x => Assert.Equal(new CatalogueProvenance(null, null, "compiled"), x.Provenance));
         var empty = SystemRecordType.FromActivePlatformPack(active with { SeedItems = [] });
         Assert.Equal(19, empty.Count);
@@ -335,8 +337,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Duplicate_Active_Platform_Seed_Descriptors_Keep_Compiled_Provenance()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(
-            _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(
+            _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey)));
         var descriptor = Assert.Single(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "harborline.platform.FormDefinition");
         var duplicate = active with { SeedItems = [.. active.SeedItems, descriptor] };
 
@@ -345,7 +347,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal(19, types.Count);
         Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
         Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
-            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
     }
 
     [Theory]
@@ -354,7 +356,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Canonical_old_and_new_catalogue_keys_keep_the_public_compiled_name(string key)
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform")));
         var variant = active with
         {
             SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
@@ -364,7 +366,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal(19, types.Count);
         var form = Assert.Single(types, item => item.Kind == PackContentKind.FormDefinition);
         Assert.Equal("FormDefinition", form.Name);
-        Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), form.Provenance);
+        Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), form.Provenance);
     }
 
     [Theory]
@@ -379,7 +381,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Noncanonical_or_unknown_catalogue_keys_keep_compiled_catalogue(string key)
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform")));
         var variant = active with
         {
             SeedItems = active.SeedItems.Select(item => item.Key == "harborline.platform.FormDefinition"
@@ -389,21 +391,21 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal(19, types.Count);
         Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
         Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
-            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
     }
 
     [Fact(DisplayName = "Mixed aliases leave that descriptor compiled")]
     public async Task Mixed_legacy_and_qualified_aliases_keep_compiled_provenance()
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform")));
         var descriptor = Assert.Single(active.SeedItems, item => item.Key == "harborline.platform.FormDefinition");
         var mixed = active with { SeedItems = [.. active.SeedItems, descriptor with { Key = "FormDefinition" }] };
         var types = SystemRecordType.FromActivePlatformPack(mixed);
         Assert.Equal(19, types.Count);
         Assert.Equal(new CatalogueProvenance(null, null, "compiled"), Assert.Single(types, item => item.Name == "FormDefinition").Provenance);
         Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
-            Assert.Equal(new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+            Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
     }
 
     [Theory]
@@ -414,7 +416,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task Missing_wrong_or_invalid_descriptors_and_other_owners_keep_the_catalogue(string defect)
     {
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
-        var active = Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform"));
+        var active = WithLegacyDescriptors(Assert.IsType<InstalledPack>(_packStore.GetActive(_tenantA, "harborline.platform")));
         var variant = defect switch
         {
             "missing" => active with
@@ -440,7 +442,18 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.All(types.Where(item => item.Name != "FormDefinition"), item =>
             Assert.Equal(defect == "other-owner"
                 ? new CatalogueProvenance(null, null, "compiled")
-                : new CatalogueProvenance("harborline.platform", "1.6.1", "platform"), item.Provenance));
+                : new CatalogueProvenance("harborline.platform", "2.0.0", "platform"), item.Provenance));
+    }
+
+    private static InstalledPack WithLegacyDescriptors(InstalledPack active)
+    {
+        string[] names = ["FormDefinition", "WorkflowDefinition", "StandardsCatalog", "NavWorkspaceConfig",
+            "CascadeDefaults", "AssetTypeDefinition", "TerminologyOverride", "TemplateDefinition",
+            "TaxonomyDefinition", "ReportDefinition", "ViewDefinition", "ScheduleDefinition", "DataExchangeDefinition",
+            "StandingRuleDefinition", "RoleDefinition", "AuthorizationCapabilityBinding", "Layout", "Resource", "Bookable"];
+        const string body = """{"sealed":true,"provenance":{"kind":"platform"}}""";
+        return active with { SeedItems = [.. active.SeedItems, .. names.Select(name => new PackSeedItem(
+            "harborline.platform." + name, PackContentKind.RecordType, "1.0.0", body, Harborline.Api.Foundation.Blobs.Cid.FromBytes([])))] };
     }
 
     public async Task DisposeAsync()

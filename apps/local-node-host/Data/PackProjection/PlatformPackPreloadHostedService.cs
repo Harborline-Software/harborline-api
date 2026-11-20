@@ -16,16 +16,21 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
-/// <summary>Installs the released platform catalogue seed through the ordinary pack path before Access.</summary>
+/// <summary>
+/// Installs the platform's released seed bundle before Access: the bundle is verified before any item is
+/// read, converted mechanically, signed locally over a recorded published referent, installed and activated
+/// (T-670/api-seed-intake; ADR-0097 decision 6; ADR-0102 decisions 2 and 4). With no referent recorded,
+/// which is every production node until the platform release is published, the node installs no seed.
+/// </summary>
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "1.6.1";
-    private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
+    public static string PackVersion => Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.Manifest.Revision;
 
     private readonly IPackExporter exporter;
     private readonly NodePrincipalSigner signer;
@@ -37,11 +42,14 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     private readonly TimeProvider time;
     private readonly ILogger<PlatformPackPreloadHostedService> logger;
     private readonly NodeOperatorIdentity? nodeOperator;
+    private readonly PlatformSeedBundle bundle;
+    private readonly PlatformSeedReferent? referent;
 
     public PlatformPackPreloadHostedService(IPackExporter exporter, NodePrincipalSigner signer,
         IPackInstaller installer, IPackInstallStore store, IPackTrustStore trustStore,
         IPackRevocationList revocation, IActiveTeamAccessor activeTeam, TimeProvider timeProvider,
-        ILogger<PlatformPackPreloadHostedService> logger, NodeOperatorIdentity? nodeOperator = null)
+        ILogger<PlatformPackPreloadHostedService> logger, NodeOperatorIdentity? nodeOperator = null,
+        PlatformSeedBundle? bundle = null, PlatformSeedReferent? referent = null)
     {
         this.nodeOperator = nodeOperator;
         this.exporter = exporter;
@@ -53,6 +61,8 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
         this.activeTeam = activeTeam;
         time = timeProvider;
         this.logger = logger;
+        this.bundle = bundle ?? new PlatformSeedBundle(null, null, null);
+        this.referent = referent;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -66,69 +76,59 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    internal async Task PreloadAsync(TenantId tenant, CancellationToken cancellationToken)
+    /// <summary>Returns what the node recorded for the install, or null when the seed was already active
+    /// or a step after verification was refused. A refused bundle throws <see cref="PlatformSeedRefusedException"/>.</summary>
+    internal async Task<PlatformSeedInstallRecord?> PreloadAsync(TenantId tenant, CancellationToken cancellationToken)
     {
         var active = store.GetActive(tenant, PackKey);
-        if (active is not null && active.Version == PackVersion) return;
+        if (active is not null && active.Version == PackVersion) return null;
 
+        var seed = PlatformSeedIntake.Verify(bundle, referent);
+        var localSigner = signer.Signer.IssuerId.ToBase64Url();
         var context = new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time),
             PackInstallRoutes.RevocationMaxAge, Principal: nodeOperator?.Principal?.Value);
-        if (store.GetVersion(tenant, PackKey, PackVersion) is null)
+        if (store.GetVersion(tenant, PackKey, seed.Revision) is null)
         {
-            var exported = await exporter.ExportAsync(ReadExportRequest(signer.Signer.IssuerId.ToBase64Url()),
+            var exported = await exporter.ExportAsync(ReadExportRequest(seed.Export, localSigner),
                 signer.Signer, cancellationToken).ConfigureAwait(false);
             if (!exported.Succeeded || exported.FileBytes is null)
             {
                 logger.LogError("Platform pack export was refused: {Codes}.", string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
-                return;
+                return null;
             }
             var installed = await installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
             if (!installed.Installed)
             {
                 logger.LogError("Platform pack install was refused: {Codes}.", string.Join(",", installed.RefusalCodes));
-                return;
+                return null;
             }
         }
-        var activated = await installer.ActivateAsync(context, PackKey, PackVersion, cancellationToken).ConfigureAwait(false);
+        var activated = await installer.ActivateAsync(context, PackKey, seed.Revision, cancellationToken).ConfigureAwait(false);
         if (!activated.Activated)
+        {
             logger.LogError("Platform pack activation was refused: {Reason}.", activated.Error);
-        else if (activated.Detail is not null)
+            return null;
+        }
+        if (activated.Detail is not null)
             logger.LogWarning("Platform pack activation committed with post-commit diagnostics: {Detail}", activated.Detail);
+        var record = new PlatformSeedInstallRecord(seed.Revision, seed.ExportSha256, seed.Sha256SumsLine, seed.ReleaseReceipt, localSigner);
+        logger.LogInformation("Platform seed installed: {Record}.", record);
+        return record;
     }
 
-    // CA1869: one cached instance, as CompromisedDeviceResponseService and the audit reader already do.
-    private static readonly JsonSerializerOptions ExportJsonOptions = new(JsonSerializerDefaults.Web);
-
-    internal static PackExportRequest ReadExportRequest(string authoringPrincipal)
+    /// <summary>
+    /// Converts the platform export mechanically (T-667's <see cref="ReleasedPackConversion"/>) and checks the
+    /// released form text of every form it carries, after the intake maps the package-level capability requirements
+    /// and resolves the navigation pointers (PlatformSeedIntake.ResolveForInstall). Callers pass only a verified export.
+    /// </summary>
+    internal static PackExportRequest ReadExportRequest(ReadOnlySpan<byte> export, string authoringPrincipal)
     {
-        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException($"Missing platform export document '{ResourceName}'.");
-        return ReadExportRequest(stream, authoringPrincipal);
-    }
-
-    internal static PackExportRequest ReadExportRequest(Stream stream, string authoringPrincipal)
-    {
-        using var recipe = JsonDocument.Parse(stream);
-        var document = recipe.RootElement.Deserialize<ExportPackRequestDto>(ExportJsonOptions)
-            ?? throw new InvalidOperationException("The platform export document is not a JSON object.");
-        return new PackExportRequest(Key: document.Key, Version: document.Version, Name: document.Name ?? document.Key,
-            Description: document.Description ?? string.Empty, ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, true),
-            Contents: (document.Contents ?? []).Select(ToContentSource).ToArray(),
-            Dependencies: (document.Dependencies ?? []).Select(dependency => new PackDependencyRef(
-                dependency.Key, dependency.Version, dependency.DeclaredDependencyKeys ?? [])).ToArray(),
-            CapabilityRequirements: document.CapabilityRequirements ?? [], Epoch: PackComposerRoutes.OwnRosterEpoch,
-            RenamedFrom: recipe.RootElement.TryGetProperty("renamedFrom", out var renamedFrom)
-                ? renamedFrom.Deserialize<PackContentRename[]>(ExportJsonOptions)
-                : null,
-            Dcp: DomainComplianceProfile.General(authoringPrincipal));
-    }
-
-    private static PackContentSource ToContentSource(ExportContentDto item)
-    {
-        var kind = Enum.Parse<PackContentKind>(item.Kind, true);
-        var content = JsonNode.Parse(item.Content!.Value.GetRawText())!;
-        if (kind == PackContentKind.FormDefinition) ValidateReleasedFormText(content);
-        return new PackContentSource(item.Key, kind, item.Version, content);
+        var converted = ReleasedPackConversion.Convert(export, authoringPrincipal).Request
+            ?? throw new InvalidDataException("The platform export carries no platform definitions.");
+        var request = PlatformSeedIntake.ResolveForInstall(converted, export);
+        foreach (var item in request.Contents.Where(item => item.Kind == PackContentKind.FormDefinition))
+            ValidateReleasedFormText(item.Content);
+        return request;
     }
 
     /// <summary>

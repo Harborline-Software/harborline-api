@@ -43,6 +43,7 @@ using Harborline.Api.LocalNodeHost.Tests.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Governance;
@@ -54,9 +55,9 @@ public sealed class CascadeDefaultsTests
     [InlineData("platform.binding.records-read", "bafkreib6tp3widcpawwq43y3kvzqk2hqgxgtabsqxnskemfstgkjlww3xy")]
     public void Released_platform_binding_uses_canonical_sealed_role_and_pinned_content(string key, string expectedCid)
     {
-        var request = PlatformPackPreloadHostedService.ReadExportRequest("fixture-author");
+        var request = PlatformSeedTestBundle.Request("fixture-author");
         var source = Assert.Single(request.Contents, item => item.Key == key);
-        Assert.Equal("1.1.0", source.Version);
+        Assert.Equal("2.0.0", source.Version);
         Assert.Equal(RoleReference.Administrator.ToString(), source.Content["offeredRoles"]![0]!.GetValue<string>());
         var canonical = new PackContentCanonicalizer().Canonicalize(source);
         Assert.Equal(expectedCid, canonical.ContentAddress.ToString());
@@ -67,12 +68,12 @@ public sealed class CascadeDefaultsTests
     {
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
-        var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.6.1", request.Version);
-        Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
+        var request = PlatformSeedTestBundle.Request(keys.PrincipalId.ToBase64Url());
+        Assert.Equal("2.0.0", request.Version);
+        Assert.Equal("2.0.0", request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
-        Assert.Equal("1.0.0", source.Version);
+        Assert.Equal("2.0.0", source.Version);
         var canonical = new PackContentCanonicalizer().Canonicalize(source);
         Assert.Equal("bafkreiczgrb2t4g3jtgc5cdxtjn4247wyqlw5h7r47bsggwp5bkpbgqjia", canonical.ContentAddress.ToString());
         Assert.True(PackCascadeDefaultsContent.TryParse(Encoding.UTF8.GetString(canonical.CanonicalBytes.Span), out var parsed, out _, out _));
@@ -82,7 +83,7 @@ public sealed class CascadeDefaultsTests
         Assert.True(declaration.Values.TrackChanges);
         Assert.Equal(39, request.Contents.Count(item => item.Kind == PackContentKind.ViewDefinition));
         Assert.Equal(
-            new[] { "platform.configuration", "platform.workshop" },
+            new[] { "platform.workshop" },
             request.Contents.Where(item => item.Kind == PackContentKind.NavWorkspaceConfig)
                 .Select(item => item.Key).Order(StringComparer.Ordinal).ToArray());
 
@@ -135,21 +136,21 @@ public sealed class CascadeDefaultsTests
         Assert.True(summary.Refusals.Count == 0, string.Join(";", logger.Errors));
         var bindings = await configuration.ListAsync(Tenant);
         var platformBindings = bindings.Where(binding => binding.Definition.PublisherPackageId == request.Key).ToArray();
-        Assert.Equal(2, platformBindings.Length);
-        Assert.All(platformBindings, binding => Assert.Equal(RoleBindingSet.Of(RoleReference.Administrator), binding.EffectiveRoles));
-        Assert.DoesNotContain(bindings, binding => binding.EffectiveRoles.Roles.Contains(RoleReference.Auditor));
+        Assert.Equal(3, platformBindings.Length);
+        Assert.Equal(2, platformBindings.Count(binding => binding.EffectiveRoles.Roles.Select(role => role.ToString()).SequenceEqual(["sys.platform-roles/administrator"])));
+        Assert.Single(platformBindings, binding => binding.EffectiveRoles.Roles.Any(role => role.ToString() == "sys.platform-roles/auditor"));
         var catalogue = new CatalogueRegistries(store, defaults: defaults);
         Assert.True(catalogue.IsAvailable(PackContentKind.CascadeDefaults));
         var entry = Assert.Single(await catalogue.ReadAsync(Tenant, PackContentKind.CascadeDefaults));
-        Assert.Equal(source.Key, entry.Id);
-        Assert.Equal(source.Version, entry.Version);
-        Assert.Equal(new CatalogueProvenance(request.Key, request.Version, "pack"), entry.Provenance);
+        Assert.Equal("platform.defaults.pack-author", entry.Id);
+        Assert.Equal("2.0.0", entry.Version);
+        Assert.Equal(new CatalogueProvenance("harborline.platform", "2.0.0", "pack"), entry.Provenance);
         var resolved = defaults.Resolve(Tenant, request.Key, "platform.pack.author", "packJson");
         Assert.True(resolved.Values.TrackChanges);
         Assert.Equal(source.Key, Assert.Single(resolved.Sources).Value.ContentKey);
         Assert.Null(defaults.Resolve(Tenant, request.Key, "unrelated", "packJson").Values.TrackChanges);
         Assert.Empty(await catalogue.ReadAsync(new("another-tenant"), PackContentKind.CascadeDefaults));
-        var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
+        var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "2.0.0"));
         var policy = provider.GetRequiredService<IAspectResolver>().ResolvePolicy(form, "packJson");
         Assert.NotNull(policy.Effect(EffectKind.Audit, Trigger.Store));
         var stored = await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("{}"),
