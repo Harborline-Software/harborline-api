@@ -129,6 +129,7 @@ public sealed class DurableWriteClassificationArchTests
             "apps/local-node-host/Data/Docs/NodeEfAttachmentRepository.cs|gap",
             "apps/local-node-host/Data/Docs/NodeEfDocumentRefRepository.cs|gap",
             "apps/local-node-host/Data/Entities/NodeEntityWriter.cs|executor",
+            "apps/local-node-host/Data/ExecutionRuntime/NodeExecutionReceiptStore.cs|not-admitted",
             "apps/local-node-host/Data/Financial/NodeAccountingPeriodService.cs|gap",
             "apps/local-node-host/Data/Financial/NodeEfBillRepository.cs|gap",
             "apps/local-node-host/Data/Financial/NodeEfInvoiceRepository.cs|gap",

@@ -55,6 +55,7 @@ public sealed class BothProviderModelDriftTests
         new PeopleEntityModule(),
         new DocsEntityModule(),
         new Harborline.Api.LocalNodeHost.Data.ContentStore.ContentStoreEntityModule(),
+        new Harborline.Api.LocalNodeHost.Data.ExecutionRuntime.ExecutionReceiptEntityModule(),
     ];
 
     // ── Model builders ─────────────────────────────────────────────────────

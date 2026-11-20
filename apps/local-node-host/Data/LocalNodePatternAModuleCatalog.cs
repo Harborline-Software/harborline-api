@@ -144,6 +144,7 @@ internal static class LocalNodePatternAModuleCatalog
             Describe<AuditOutboxEntityModule>(),
             Describe<DefinitionArchiveEntityModule>(),
             Describe<ContentStore.ContentStoreEntityModule>(),
+            Describe<ExecutionRuntime.ExecutionReceiptEntityModule>(),
             Describe<FormSubmitOutboxEntityModule>(),
             Describe<LayoutDenialOutboxEntityModule>(),
             Describe<HomeEpochEntityModule>(),
