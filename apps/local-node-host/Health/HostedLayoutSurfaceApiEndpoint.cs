@@ -18,6 +18,7 @@ public sealed class HostedLayoutSurfaceApiEndpoint(
     SharedHostedWebApp sharedApp,
     LayoutSurfaceHost host,
     IPackInstallStore packs,
+    LayoutPublishRegisters registers,
     IRegistryEntityRepository entities,
     PackBoundRegistryRecordWriter records,
     TimeProvider time,
@@ -29,7 +30,7 @@ public sealed class HostedLayoutSurfaceApiEndpoint(
     {
         sharedApp.MapApiRoutes(app => LayoutSurfaceRoutes.Map(
             app.MapSelectedSessionProductGroup(), host, packs,
-            new RegistryLayoutRootRecordSource(entities, records), AbsentLayoutRelatedRecordSource.Instance, time, audit));
+            new RegistryLayoutRootRecordSource(entities, records), AbsentLayoutRelatedRecordSource.Instance, time, audit, registers, logger));
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation("Layout surface API registered at GET {Route}.", LayoutSurfaceRoutes.RouteTemplate);

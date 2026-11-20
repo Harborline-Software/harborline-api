@@ -20,6 +20,7 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -54,6 +55,64 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 [Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
 {
+    // Oracle: T-733 production-register-wiring acceptance 3; 409 and the opaque code are literals.
+    [Theory]
+    [InlineData("control", "layout-bound-3")]
+    [InlineData("page", "layout-bound-7")]
+    [InlineData("rule", "layout-bound-8")]
+    public async Task Invalid_persisted_body_refuses_before_resolution(string register, string item)
+    {
+        Assert.StartsWith("layout-bound-", item, StringComparison.Ordinal);
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        StoreRegisterSurface(h, register);
+        using var response = await h.GetAsync(Member, "invoice-register", Root);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("layout.persisted_body_invalid", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(["code", "status", "title"], body.RootElement.EnumerateObject().Select(p => p.Name).Order().ToArray());
+        Assert.Equal(0, h.Roots.Lookups);
+        Assert.Equal(0, h.Related.Lookups);
+        Assert.DoesNotContain(await RowsAsync(h.Pipeline.Trail, h.Tenant), r => r.EventType.Value == "LayoutRelatedDenied");
+    }
+
+    [Fact(DisplayName = "layout-bound-3: layout:open refusal precedes invalid persisted body admission")]
+    public async Task Invalid_body_does_not_disclose_to_a_caller_without_layout_open()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero);
+        using var before = await h.GetAsync(ReaderOnly, "invoice-register", Root);
+        StoreRegisterSurface(h, "control");
+        using var after = await h.GetAsync(ReaderOnly, "invoice-register", Root);
+        Assert.Equal(HttpStatusCode.Forbidden, after.StatusCode);
+        Assert.Equal(before.StatusCode, after.StatusCode);
+        // The literal forbidden status and unchanged stable refusal code pin the authorization boundary.
+        Assert.Equal("authorization.permission_required", await CodeAsync(after));
+        Assert.Equal(0, h.Roots.Lookups);
+    }
+
+    [Fact(DisplayName = "layout-bound-8 ruling 36 publish scope: an omitted rule register permits runtime admission")]
+    public async Task Ruling_36_is_scoped_to_publication_at_the_route()
+    {
+        await using var h = await Host.CreateAsync(TimeSpan.Zero, supplyValidationRules: false);
+        StoreRegisterSurface(h, "rule");
+        using var response = await h.GetAsync(Member, "invoice-register", Root);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("invoice-register", body.RootElement.GetProperty("surface").GetString());
+        Assert.Equal(["supplier=\"Fabrikam\""], Blocks(body.RootElement));
+    }
+
+    private static void StoreRegisterSurface(Host h, string register)
+    {
+        // Persist directly: install has deliberately not admitted this body.
+        var json = System.Text.Encoding.UTF8.GetString(Harborline.Blocks.BuilderDefinitions.LayoutDefinitionJson.SerializeCanonical(RegisterSurface(register)));
+        var template = h.Packs.ListInstalled(h.Tenant).First(p => p.PackKey == SurfacePack.PackKey);
+        var pack = template with { PackKey = "acme.register-fixture", ArtifactIdentity = null,
+            SeedItems = [new("acme.register-surface", Harborline.Api.Foundation.Packs.Model.PackContentKind.Layout,
+                "1.0.0", json, Cid.FromBytes(System.Text.Encoding.UTF8.GetBytes(json)))] };
+        h.Packs.Commit(new(h.Tenant, pack, new(pack.PackKey, "1.0.0", new Dictionary<string, int>()), []));
+    }
+
     private const string Root = "invoice-7";
     private const string UnknownRoot = "invoice-404";
     private const string MistypedRoot = "invoice-8";
@@ -874,7 +933,7 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
         public FixtureRelatedRecords Related { get; }
 
         public static async Task<Host> CreateAsync(TimeSpan floor, ILayoutRelatedRecordSource? relatedSource = null,
-            ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true)
+            ILayoutRootRecordSource? rootSource = null, bool exposeRecordTypes = true, bool supplyValidationRules = true)
         {
             var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
             var authorization = await SeededAuthorizationAsync(tenant);
@@ -934,7 +993,8 @@ public sealed class LayoutSurfaceRouteTests(ITestOutputHelper output)
                 await next(http);
             });
             LayoutSurfaceRoutes.Map(app.MapSelectedSessionProductGroup(), surfaces, packs, rootSource ?? roots, relatedSource ?? related,
-                time, app.Services.GetRequiredService<AuthorizedActAudit>());
+                time, app.Services.GetRequiredService<AuthorizedActAudit>(),
+                new LayoutPublishRegisters(new(), new(SupplyValidationRules: supplyValidationRules)), NullLogger.Instance);
             LayoutDenialRoutes.Map(app.MapDeviceReachableProductDataGroup(),
                 new LayoutDenialReader(pipeline.Trail, gate), NodeTestActiveTeam.Accessor, time);
             await app.StartAsync();

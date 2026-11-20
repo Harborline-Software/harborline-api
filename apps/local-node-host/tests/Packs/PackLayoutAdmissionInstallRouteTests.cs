@@ -33,6 +33,7 @@ using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Foundation.Definitions;
@@ -81,8 +82,7 @@ public sealed class PackLayoutAdmissionInstallRouteTests : IAsyncLifetime
             new InMemoryPackInstallAudit(), TestAuthorization.AllowGate(),
             layoutCapabilities: capabilityVersion is null ? null
                 : new Dictionary<string, string> { ["platform.layout"] = capabilityVersion },
-            layoutRegisters: new LayoutHostRegisters(LayoutBlockKindRegistry.Platform,
-                FieldControls: LayoutFieldControlRegistry.Released, ValidationRules: LayoutValidationRuleRegistry.Released));
+            layoutRegisters: new LayoutPublishRegisters(new()).Build());
         var registryServices = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var projector = PackProjectionTestFixture.Create(_store, registryServices.GetRequiredService<IEntityTypeRegistry>());
         var authz = TestPackGate.AllowAll();

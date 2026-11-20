@@ -65,6 +65,19 @@ internal static class LayoutDenialTestKit
         ],
         [], [], [], null, []);
 
+    /// <summary>T-733 literal fixture: one captured field, or one unknown pack page citation.</summary>
+    internal static LayoutDefinition RegisterSurface(string register) => new(
+        new("invoice-register", "1.0.0", Tenant.Value, LayoutCascadeLayer.TenantConfiguration,
+            JsonSerializer.SerializeToElement(new { source = "t-733" }), "standard", false,
+            [new LayoutDefinitionRequirement("platform.layout", "1.0.0")], new DefinitionContractVersion(1, 0)),
+        1, register == "page" ? LayoutMedium.Page : LayoutMedium.Screen,
+        register == "page" ? LayoutIntent.Observe : LayoutIntent.Capture,
+        [new LayoutBlock("supplier", "layout.field", new LayoutRecordFieldBinding("supplier"), [],
+            Capture: register == "page" ? null : new LayoutCaptureProperties(false,
+                register == "rule" ? ["acme.unknown-rule"] : [],
+                Control: register == "rule" ? null : new LayoutFieldControl(register == "text" ? "text" : "acme.unknown-control")))],
+        [], [], register == "page" ? [new LayoutPageRun("run", "acme.unknown-page", "acme.unknown-master", ["supplier"])] : [], null, []);
+
     internal static Task<List<AuditRecord>> RowsAsync(IAuditTrail trail) => RowsAsync(trail, Tenant);
 
     internal static async Task<List<AuditRecord>> RowsAsync(IAuditTrail trail, TenantId tenant)

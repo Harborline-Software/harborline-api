@@ -26,7 +26,7 @@ public sealed record LayoutPublishRegisterOptions(
 /// T-733 Layout host seam. It binds the node's released controls and validation rules, plus
 /// pack-declared pages and record fields, before platform admission runs at publish and before the
 /// platform resolver derives a plan at render, so both stages judge a surface against one set of
-/// registers. T-735 will compose this seam into the HTTP/DI routes; it is deliberately usable in-process now.
+/// registers. The local node composes this seam into its installer and HTTP surface route.
 /// </summary>
 public sealed class LayoutPublishRegisters(
     LayoutPublishState state,
