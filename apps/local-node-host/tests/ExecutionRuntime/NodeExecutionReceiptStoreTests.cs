@@ -284,6 +284,11 @@ internal sealed class ReceiptDatabase : IDisposable
         return services.BuildServiceProvider();
     }
 
-    // Keep the temporary database for inspection, per the MacBook writer brief.
-    public void Dispose() { }
+    public void Dispose()
+    {
+        // Best-effort temp cleanup when the database file is still locked.
+        try { if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 }
