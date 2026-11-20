@@ -21,7 +21,7 @@ const commands = slice('const run =', '\nlet report')
 const binding = slice('  const cloneStep =', '  // Resolve once before restore/build.')
 const assembly = slice('  const passed = steps.every', '\n// Record the report whatever its status.')
 
-function fixture(t) {
+function fixture(t, hostContents = '{"permittedFailures":[{"test":"only-A-host"}]}\n') {
   const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-head-pin-'))
   t.after(() => rmSync(root, {recursive: true, force: true}))
   const apiRoot = path.join(root, 'source')
@@ -34,7 +34,7 @@ function fixture(t) {
   const hostPath = baselineArgument([])
   const capabilityPath = capabilityBaselineFor()
   mkdirSync(path.join(apiRoot, 'eng', 'baselines'), {recursive: true})
-  writeFileSync(path.join(apiRoot, hostPath), '{"permittedFailures":[{"test":"only-A-host"}]}\n')
+  writeFileSync(path.join(apiRoot, hostPath), hostContents)
   writeFileSync(path.join(apiRoot, capabilityPath), '{"permittedFailures":[{"test":"only-A-capability"}]}\n')
   git('add', '.')
   const commit = message => git('-c', 'user.name=Head Pin Fixture', '-c', 'user.email=head-pin@example.invalid',
@@ -68,7 +68,7 @@ function runGate(f, refusal) {
       ? {...result, stderr: (result.stderr ?? '') + 'fixture git trace\n'} : result
   }
   const policy = new Function('execFileSync', 'apiRoot', 'head', 'baselineArgument', 'capabilityBaselineFor', 'readFileSync', 'path',
-    baselines + '\nreturn {BASELINES, baselineProvenance, hostBaseline, capabilityBaseline}')(
+    baselines + '\nreturn {BASELINES, baselineProvenance, baselineInputs, hostBaseline, capabilityBaseline}')(
     execFileSync, f.apiRoot, f.head, baselineArgument, capabilityBaselineFor, readFileSync, path)
   const result = new Function('apiRoot', 'clone', 'scratch', 'head', 'steps', 'resolveCommand',
     'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence', 'persistStepEvidence', 'rmSync',
@@ -87,6 +87,16 @@ function runGate(f, refusal) {
   assert.equal(existsSync(scratch), false, 'production finally removes scratch after evidence persistence')
   return {...result, sentinel, policy}
 }
+
+test('the production loader reads a committed baseline larger than 1 MiB in full', t => {
+  const f = fixture(t, JSON.stringify({padding: 'x'.repeat(1048586)}))
+
+  const result = runGate(f)
+
+  // Independent fixture: 1,048,586 ASCII payload bytes plus 14 JSON framing bytes.
+  assert.equal(Buffer.byteLength(result.policy.baselineInputs.host, 'utf8'), 1048600)
+  assert.equal(result.persisted.status, 'PASS')
+})
 
 test('a source HEAD move still runs the lane at captured A when A remains available', t => {
   const f = fixture(t)

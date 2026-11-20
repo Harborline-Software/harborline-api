@@ -69,6 +69,8 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 //
 // Baseline policy and its provenance belong to the captured commit, even if the source moves.
 // The initial clean-tree check still refuses uncommitted changes at capture time.
+// Committed baselines and whole-file inputs can exceed Node's default 1 MiB output buffer.
+const committedFileMaxBuffer = 64 * 1024 * 1024
 const BASELINES = {
   host: baselineArgument(process.argv.slice(2)),
   capability: capabilityBaselineFor(),
@@ -77,7 +79,7 @@ const baselineProvenance = {}
 const baselineInputs = {}
 for (const [name, relative] of Object.entries(BASELINES)) {
   const committedBlob = execFileSync('git', ['-C', apiRoot, 'rev-parse', `${head}:${relative}`], {encoding: 'utf8'}).trim()
-  baselineInputs[name] = execFileSync('git', ['-C', apiRoot, 'show', `${head}:${relative}`], {encoding: 'utf8'})
+  baselineInputs[name] = execFileSync('git', ['-C', apiRoot, 'show', `${head}:${relative}`], {encoding: 'utf8', maxBuffer: committedFileMaxBuffer})
   // Retain the receipt field name; it hashes the loaded bytes, now read from the pinned object.
   const workingBlob = execFileSync('git', ['-C', apiRoot, 'hash-object', '--stdin'], {encoding: 'utf8', input: baselineInputs[name]}).trim()
   baselineProvenance[name] = {path: relative, committedBlob, workingBlob, matchesCommitted: committedBlob === workingBlob}
@@ -629,7 +631,7 @@ let reviewedDebtLedger
 try {
   // Scratch has been removed; read the immutable commit that this gate tested.
   reviewedDebtLedger = execFileSync('git', ['-C', apiRoot, 'show', `${head}:apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv`],
-    {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']})
+    {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: committedFileMaxBuffer})
 } catch { /* Unavailable reporting must not change the existing gate's result or exit. */ }
 persisted.baselineHeadroom = {
   reviewedDebtBudget: reviewedDebtBudgetHeadroom(reviewedDebtLedger),
