@@ -64,6 +64,7 @@ for (const [file, kind] of [
   ['packages/contracts/rust/Cargo.lock', 'toolchain'],
   ['packages/contracts/rust/Cargo.toml', 'toolchain'],
   ['.gitignore', 'build-artifact'],
+  ['tooling/pack-enum-codegen/documentation.json', 'build-artifact'],
   ['eng/platform-pin.json', 'toolchain'], ['eng/coverage.runsettings', 'coverage'],
   ['apps/capability-host/src/index.ts', 'capability-typescript'],
   ['apps/capability-host/src/runtime/nested/host.test.ts', 'capability-typescript'],
@@ -485,6 +486,8 @@ test('a completion failure propagates through the existing preflight CLI wrapper
 
 for (const [file, kind] of [
   ['apps/local-node-host/Data/ContentStore/README.md', 'documentation'],
+  ['tooling/pack-enum-codegen/README.md', 'documentation'],
+  ['tooling/pack-enum-codegen/EVIDENCE.md', 'documentation'],
   ['apps/local-node-host/tests/ContentStore/epoch-rotation-evidence-2026-11-11.md', 'documentation'],
   ['apps/local-node-host/tests/ContentStore/EpochCrashWorker.cs.txt', 'binary'],
 ]) test(`the owned content-store input is classified by exact path: ${file}`, () => {
@@ -497,6 +500,11 @@ for (const [file, kind] of [
 
 for (const file of [
   'apps/local-node-host/Data/Other/README.md',
+  'tooling/other/README.md',
+  'tooling/pack-enum-codegen/other.json',
+  'tooling/pack-enum-codegen/documentation.json.bak',
+  'tooling/pack-enum-codegen/README.md.bak',
+  'tooling/pack-enum-codegen/EVIDENCE.md.bak',
   'apps/local-node-host/tests/Other/epoch-rotation-evidence-2026-11-11.md',
   'apps/local-node-host/tests/Other/EpochCrashWorker.cs.txt',
   'apps/local-node-host/tests/ContentStore/AnotherWorker.cs.txt',
