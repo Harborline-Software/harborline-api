@@ -358,7 +358,8 @@ public sealed partial class ComposedHostBootSmokeTests
             .OrderBy(row => row.CandidateDigest).ToListAsync(deadline);
         var admissions = await db.ProjectionAdmissions.AsNoTracking().Where(row => row.Tenant == tenant)
             .OrderBy(row => row.AdmissionId).ToListAsync(deadline);
-        Assert.Contains(versions, row => row.PackKey == "harborline.platform" && row.Version == "1.6.1"
+        // Oracle: T-670/api-seed-intake installs the platform's released seed revision 2.0.0.
+        Assert.Contains(versions, row => row.PackKey == "harborline.platform" && row.Version == "2.0.0"
             && row.Lifecycle == 1);
         Assert.Contains(versions, row => row.PackKey == "layout-admission.navigation" && row.Version == "1.0.0"
             && row.Lifecycle == 1);

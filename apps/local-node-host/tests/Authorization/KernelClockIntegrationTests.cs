@@ -517,7 +517,12 @@ public sealed class KernelClockIntegrationTests
                     "ticket-216-kernel-clock",
                     directory,
                     CancellationToken.None,
-                    clock, SqliteStartupLifecycleProbe.Combine(finalServiceRegistration));
+                    clock, SqliteStartupLifecycleProbe.Combine(services =>
+                    {
+                        // ADR-0144: provide the verified test bundle only to this test container.
+                        Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.Register(services);
+                        finalServiceRegistration?.Invoke(services);
+                    }));
                 var provider = LocalNodeHostRuntime.CurrentServices
                     ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
                 Assert.Same(clock, provider.GetRequiredService<TimeProvider>());

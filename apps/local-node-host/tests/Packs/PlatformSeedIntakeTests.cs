@@ -1,4 +1,9 @@
 using System.Reflection;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.DependencyInjection;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
@@ -33,6 +39,65 @@ internal static class PlatformSeedTestBundle
     internal const string Commit = "c9787df2b2b1daf38d7971c85b9b073962919293";
 
     internal static byte[] Export() => PlatformPackageSeed.LoadCheckedInExport();
+
+    /// <summary>Only test containers receive the fixture bundle and its recorded referent.</summary>
+    internal static void Register(IServiceCollection services)
+    {
+        services.AddSingleton(Published);
+        services.AddSingleton(PublishedReferent);
+    }
+
+    internal static Task<PlatformSeedInstallRecord?> PreloadAsync(IServiceProvider services, TenantId tenant) =>
+        ActivatorUtilities.CreateInstance<PlatformPackPreloadHostedService>(services, Published, PublishedReferent)
+            .PreloadAsync(tenant, CancellationToken.None);
+
+    /// <summary>
+    /// Provision a shipping-host fixture through its ordinary installer. Verification and local
+    /// signing happen in the parent test process; the child receives signed packs, never this
+    /// test referent. A restarted child reuses its durable installation without reactivation.
+    /// </summary>
+    internal static async Task PublishAsync(HttpClient client, string rootSeedHex, CancellationToken ct)
+    {
+        var verified = PlatformSeedIntake.Verify(Published, PublishedReferent);
+        using var signer = new NodePrincipalSigner(Convert.FromHexString(rootSeedHex));
+        using var services = new ServiceCollection().AddLogging().AddSingleton(TimeProvider.System)
+            .AddPackComposerExportVerify().BuildServiceProvider();
+        var exporter = services.GetRequiredService<IPackExporter>();
+        var author = signer.Signer.IssuerId.ToBase64Url();
+        PackExportRequest[] requests =
+        [
+            PlatformPackPreloadHostedService.ReadExportRequest(verified.Export, author),
+            AccessAdministrationPreloadHostedService.ReadExportRequest(author),
+        ];
+        foreach (var request in requests)
+        {
+            using var installed = await client.GetAsync(PackInstallRoutes.ListInstalledRoute, ct);
+            // The clean-node installer fence exposes only install until a pack is installed.
+            Assert.True(installed.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound);
+            if (installed.StatusCode == HttpStatusCode.OK)
+            {
+                using var list = JsonDocument.Parse(await installed.Content.ReadAsStringAsync(ct));
+                if (list.RootElement.EnumerateArray().Any(pack =>
+                    pack.GetProperty("packKey").GetString() == request.Key
+                    && pack.GetProperty("version").GetString() == request.Version
+                    && pack.GetProperty("lifecycle").GetString() == "Active")) continue;
+            }
+            var exported = await exporter.ExportAsync(request, signer.Signer, ct);
+            Assert.True(exported.Succeeded, JsonSerializer.Serialize(exported.Validation));
+            using var content = new ByteArrayContent(exported.FileBytes!);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            using var install = await client.PostAsync(PackInstallRoutes.InstallRoute, content, ct);
+            Assert.True(install.StatusCode == HttpStatusCode.OK, await install.Content.ReadAsStringAsync(ct));
+            using var activate = await client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+                new { packKey = request.Key, version = request.Version }, ct);
+            Assert.True(activate.StatusCode == HttpStatusCode.OK, await activate.Content.ReadAsStringAsync(ct));
+            using var result = JsonDocument.Parse(await activate.Content.ReadAsStringAsync(ct));
+            Assert.True(result.RootElement.GetProperty("activated").GetBoolean());
+            Assert.Empty(result.RootElement.GetProperty("projectionRefusals").EnumerateArray());
+            Assert.Empty(result.RootElement.GetProperty("platformRefusals").EnumerateArray());
+        }
+    }
+
 
     /// <summary>The bundle and referent a test host records as published, for tests that need a seeded node.</summary>
     internal static PlatformSeedBundle Published { get; } = Build();
