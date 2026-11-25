@@ -112,7 +112,8 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
         if (activated.Detail is not null)
             logger.LogWarning("Platform pack activation committed with post-commit diagnostics: {Detail}", activated.Detail);
         var record = new PlatformSeedInstallRecord(seed.Revision, seed.ExportSha256, seed.Sha256SumsLine, seed.ReleaseReceipt, localSigner);
-        logger.LogInformation("Platform seed installed: {Record}.", record);
+        if (logger.IsEnabled(LogLevel.Information))
+            logger.LogInformation("Platform seed installed: {Record}.", record);
         return record;
     }
 
