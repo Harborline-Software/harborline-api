@@ -173,11 +173,19 @@ internal sealed class VerificationCandidateWorld
             // actor that holds nothing, which is a declared input rather than an oversight.
             var actor = new ActorId(fixture.Actor);
             foreach (var grant in fixture.Grants)
+            {
+                var validFrom = grant.EffectiveFrom ?? issued;
+                // Skip before construction: an end before the default start is out of force,
+                // not an invalid GrantValidity that should abort the rest of the case.
+                if (validFrom > fixture.Instant
+                    || (grant.EffectiveTo is not null && grant.EffectiveTo.Value <= fixture.Instant)) continue;
                 await grants.AppendAsync(_tenant,
-                    Grant(actor, Role(grant.RoleKey), ScopeExpression.Parse(Scope(grant.Scope)), issued),
+                    Grant(actor, Role(grant.RoleKey), ScopeExpression.Parse(Scope(grant.Scope)), issued,
+                        new GrantValidity(validFrom, grant.EffectiveTo)),
                     // One source reference per declared grant: the store treats a repeated reference as
                     // an attempt to replace immutable evidence, and a fixture may declare two roles.
                     $"{fixture.FixtureId}:{grant.RoleKey}@{grant.Scope}", cancellationToken).ConfigureAwait(false);
+            }
 
             // The REAL gate the module composed over its own readers, resolved rather than built.
             return new VerificationAuthorityWorld(
@@ -308,11 +316,11 @@ internal sealed class VerificationCandidateWorld
             entry.Key.EndsWith('/' + recordType, StringComparison.Ordinal)).Value;
     }
 
-    // One declared holding, as the released grant shape: a manual grant by a named granter, valid
-    // from just before the fixture's instant so it is in force for the act and not a moment earlier.
+    // One declared holding, as the released grant shape: a manual grant by a named granter.
+    // Without a declared window it stays valid from just before the fixture's instant.
     private AccessGrant Grant(ActorId holder, RoleReference role, ScopeExpression scope,
-        DateTimeOffset issued) => new(GrantId.New(), _tenant, holder, role, scope, GrantResidency.Cache,
-        new GrantValidity(issued), GranterKind.Person, new ActorId("verification:fixture"), issued,
+        DateTimeOffset issued, GrantValidity? validity = null) => new(GrantId.New(), _tenant, holder, role, scope, GrantResidency.Cache,
+        validity ?? new GrantValidity(issued), GranterKind.Person, new ActorId("verification:fixture"), issued,
         new GrantProvenance(GrantSourceKind.Manual, new GrantReason(GrantReasonCodes.Manual),
             new ActorId("verification:fixture")), issued);
 

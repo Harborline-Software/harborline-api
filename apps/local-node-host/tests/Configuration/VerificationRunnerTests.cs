@@ -1,4 +1,8 @@
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Search;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
@@ -12,6 +16,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Blobs;
@@ -422,6 +427,119 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
             ],
             suite.Cases.Single(item => item.CaseId == "approval-authority").Assertions
                 .Select(assertion => $"{assertion.Key}={assertion.ExpectedJson}").Order(StringComparer.Ordinal));
+    }
+
+    public static TheoryData<DateTimeOffset, AuthorizationVerdict> RehearsalServerClocks => new()
+    {
+        { new DateTimeOffset(2026, 9, 20, 8, 30, 0, TimeSpan.Zero), AuthorizationVerdict.Allowed },
+        { new DateTimeOffset(2026, 9, 20, 10, 30, 0, TimeSpan.Zero), AuthorizationVerdict.Denied },
+        { new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero), AuthorizationVerdict.Denied },
+    };
+
+    [Theory]
+    [MemberData(nameof(RehearsalServerClocks))]
+    [Trait("Holds", "governance-ck-4")]
+    public async Task Rehearsal_decides_at_fixture_time_and_leaves_the_production_gate_unchanged(
+        DateTimeOffset serverInstant, AuthorizationVerdict productionVerdict)
+    {
+        // T-1056/rehearsal-determinism and DES-0032: these literal windows and decisions are
+        // the oracle. They are independent of both the runner's output and its server clock.
+        var examples = new[]
+        {
+            (Id: "earlier", At: "2026-09-20T09:00:00Z", From: (string?)"2026-09-20T08:00:00Z", To: "2026-09-20T10:00:00Z", Decision: "allowed", Accepted: "true"),
+            (Id: "later", At: "2026-09-20T11:00:00Z", From: (string?)"2026-09-20T08:00:00Z", To: "2026-09-20T10:00:00Z", Decision: "refused", Accepted: "false"),
+            (Id: "ended-before-issued", At: "2026-09-20T09:00:00Z", From: (string?)null, To: "2026-09-20T08:00:00Z", Decision: "refused", Accepted: "false"),
+            (Id: "not-yet-in-force", At: "2026-09-20T09:00:00Z", From: (string?)"2026-09-20T10:00:00Z", To: "2026-09-20T12:00:00Z", Decision: "refused", Accepted: "false"),
+        };
+        var document = JsonNode.Parse(Corpus().GetProperty("suite").GetRawText())!.AsObject();
+        var prototype = document["fixtures"]!.AsArray()[0]!.DeepClone();
+        var fixtures = new JsonArray();
+        var cases = new JsonArray();
+        foreach (var example in examples)
+        {
+            var fixture = prototype.DeepClone();
+            fixture["fixtureId"] = example.Id;
+            fixture["instant"] = example.At;
+            fixture["actor"] = "rehearsal-probe";
+            var grant = new JsonObject { ["roleKey"] = Approver, ["scope"] = "/", ["effectiveTo"] = example.To };
+            if (example.From is not null) grant["effectiveFrom"] = example.From;
+            fixture["grants"] = new JsonArray(grant);
+            fixtures.Add(fixture);
+            cases.Add(new JsonObject
+            {
+                ["caseId"] = example.Id, ["title"] = example.Id, ["fixtureId"] = example.Id,
+                ["actionId"] = "records.create",
+                ["inputs"] = new JsonObject
+                {
+                    ["recordType"] = "\"invoice\"",
+                    ["values"] = """{"supplier":"contoso","quantity":2,"unitPrice":100,"status":"approved"}""",
+                },
+                ["assertions"] = new JsonArray(
+                    new JsonObject { ["predicateId"] = "authorization.decision", ["expected"] = JsonSerializer.Serialize(example.Decision) },
+                    new JsonObject { ["predicateId"] = "outcome.accepted", ["expected"] = example.Accepted }),
+                ["rows"] = new JsonArray(),
+            });
+        }
+        document["fixtures"] = fixtures;
+        document["cases"] = cases;
+        var suite = VerificationSuite.Parse(document.ToJsonString(), out var admission);
+        Assert.Empty(admission);
+        Assert.NotNull(suite);
+
+        // Use the host's durable authorization composition, separate from the synthetic world.
+        // A literal 08:00..10:00 grant makes this probe sensitive to an escaped rehearsal clock.
+        await using var hostStore = await SearchTestStore.CreateAsync();
+        await using (var search = hostStore.CreateContext())
+        {
+            await search.Database.OpenConnectionAsync();
+            var options = new DbContextOptionsBuilder<NodeLocalInstallationIdentityDbContext>()
+                .UseSqlite(search.Database.GetDbConnection(), sqlite => sqlite.MigrationsHistoryTable(
+                    NodeLocalInstallationIdentityDbContext.MigrationsHistoryTableName)).Options;
+            await using var identity = new NodeLocalInstallationIdentityDbContext(options);
+            await identity.Database.MigrateAsync();
+        }
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddTestKernelClock();
+        services.AddSingleton(hostStore.Factory);
+        AuthorizationAdminRouteTests.RegisterGate(services);
+        await using var host = services.BuildServiceProvider();
+        var start = new DateTimeOffset(2026, 9, 20, 8, 0, 0, TimeSpan.Zero);
+        await host.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(
+            _tenant, AdmittedInstant.FromRecordedAct(start), AuthorizationSeedProfile.Production);
+        var actor = new ActorId("rehearsal-probe");
+        await host.GetRequiredService<IGrantStore>().AppendAsync(_tenant,
+            new AccessGrant(GrantId.New(), _tenant, actor, AccessGrantAuthorizationSeed.NodeOperatorRole,
+                ScopeExpression.Parse("/"), GrantResidency.Cache,
+                new GrantValidity(start, new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero)),
+                GranterKind.Person, actor, start,
+                new GrantProvenance(GrantSourceKind.Manual, new GrantReason(GrantReasonCodes.Manual), actor), start),
+            "rehearsal-production-probe");
+        var clock = new FrozenClock(serverInstant);
+        var gate = host.GetRequiredService<AuthorizationGate>();
+        var operation = AuthorizationOperation.Parse("records:write");
+        var before = await gate.DecideAsync(new AuthorizationWriteContext(actor, _tenant,
+            AdmittedInstant.Read(clock)).Request(operation, AuthorizationGate.RecordKindFor(operation), "production-probe"));
+        Assert.Equal(productionVerdict, before.Verdict);
+        Assert.Equal(serverInstant, before.DecidedAt);
+
+        var runner = new VerificationRunner(_target, _store, clock, static instant => new DeclaredFixtureClock(instant));
+        var baseline = _target.ReadEffective(_tenant).Digest;
+        var run = await runner.RunAsync(_tenant, "receipt-rehearsal-clock", Candidate("finance.clean", baseline), baseline, suite!);
+        var after = await gate.DecideAsync(new AuthorizationWriteContext(actor, _tenant,
+            AdmittedInstant.Read(clock)).Request(operation, AuthorizationGate.RecordKindFor(operation), "production-probe"));
+        Assert.Equal(productionVerdict, after.Verdict);
+        Assert.Equal(serverInstant, after.DecidedAt);
+        Assert.Empty(run.Refusals);
+        Assert.NotNull(run.Receipt);
+        foreach (var example in examples)
+        {
+            var outcome = Outcome(run.Receipt!, example.Id);
+            Assert.Equal(JsonSerializer.Serialize(example.Decision), Actual(outcome, "authorization.decision"));
+            Assert.Equal(example.Accepted, Actual(outcome, "outcome.accepted"));
+            Assert.Equal(VerificationStatus.Passed, outcome.Status);
+        }
+        Assert.Equal(VerificationStatus.Passed, run.Receipt!.Status);
     }
 
     private static readonly (string RowId, int Total)[] Rows =
