@@ -62,7 +62,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// <see cref="PackInstallRoutes.Map"/> + <see cref="AssetRegistryRoutes.Map"/>) and the SAME
 /// <see cref="PackSeedProjector"/> the host wires — no test/prod drift.
 /// </summary>
-public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
+public sealed class PackSeedProjectionRouteTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-00000000127a"));
 
@@ -201,9 +201,16 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Fresh_platform_preload_projects_every_current_view_and_form_without_diagnostics()
+    public Task Fresh_platform_preload_projects_every_current_view_and_form_without_diagnostics() =>
+        ExercisePlatformPreloadAsync(removal: false);
+
+    [Fact]
+    public Task Platform_bundle_RemovalExercise_leaves_installer_and_no_reachable_platform_definition() =>
+        ExercisePlatformPreloadAsync(removal: true);
+
+    private async Task ExercisePlatformPreloadAsync(bool removal)
     {
-        var tenant = new TenantId("aaaaaaaa-0000-0000-0000-000000001014");
+        var tenant = NodeTenant.Resolve(_activeTeam);
         var store = new InMemoryPackInstallStore();
         Assert.Empty(store.ListInstalled(tenant));
         var roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
@@ -366,6 +373,93 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             Assert.Equal("harborline.platform", form.PackSource?.PackId);
             Assert.Equal("2.0.0", form.PackSource?.PackVersion);
         }
+
+        if (!removal) return;
+
+        // Oracle: T-670/api-seed-intake removal acceptance and T-585: every addressed
+        // definition is present before removal, absent afterwards; installer remains available.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        TestDesktopOperator.AddTestDesktopOperator(builder.Services);
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        builder.Services.AddTestAuthorizationGate();
+        builder.Services.AddSingleton(TestRouteGate.AllowAll());
+        await using var host = builder.Build();
+        host.Use(async (http, next) =>
+        {
+            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            await next(http);
+        });
+        CatalogueRoutes.Map(host.MapSelectedSessionProductGroup(), catalogue, store,
+            new ActiveTeamTenantContext(_activeTeam));
+        PackInstallRoutes.Map(host, installer, store, trust, PackRevocationList.Empty, _activeTeam,
+            TestPackGate.AllowAll(), TimeProvider.System, NullLogger.Instance,
+            signer.Signer.IssuerId.ToBase64Url(), projector);
+        PackNavigationRoutes.Map(host.MapDeviceReachableProductDataGroup(), store, _activeTeam,
+            TestPackGate.AllowAll(), TimeProvider.System, NullLogger.Instance);
+        await host.StartAsync();
+        var addresses = host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
+        using var client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.Single()) };
+        var version = Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.Manifest.Revision;
+        output.WriteLine($"removal-exercise: test-only bundle, manifest revision {version}; referent recorded only in test host");
+        // Literal addressed set comes from the platform 2.0.0 seed and T-585's probes.
+        string[] paths =
+        [
+            "/api/local-node/catalogue/definitions/ViewDefinition/platform.list.forms",
+            "/api/local-node/catalogue/definitions/ViewDefinition/platform.health.forms",
+            "/api/local-node/catalogue/definitions/ViewDefinition/platform.browse.forms",
+            "/api/local-node/catalogue/definitions/ViewDefinition/platform.list.views",
+            "/api/local-node/catalogue/definitions/ViewDefinition/platform.list.data-exchanges",
+            "/api/local-node/catalogue/definitions/FormDefinition/platform.detail.form",
+            "/api/local-node/catalogue/definitions/FormDefinition/platform.pack.author",
+        ];
+        async Task Probe(string phase, string path, HttpStatusCode expected)
+        {
+            using var response = await client.GetAsync(path);
+            output.WriteLine($"{phase}: {(int)response.StatusCode} GET {path}");
+            Assert.Equal(expected, response.StatusCode);
+        }
+        foreach (var path in paths) await Probe("BEFORE", path, HttpStatusCode.OK);
+        await Probe("BEFORE installer", "/api/local-node/packs/installed", HttpStatusCode.OK);
+        using (var navigation = await client.GetFromJsonAsync<JsonDocument>("/api/local-node/navigation/workspaces"))
+        {
+            Assert.Contains(navigation!.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray(),
+                workspace => workspace.GetProperty("id").GetString() == "workshop");
+            output.WriteLine("BEFORE: workshop workspace present");
+        }
+        var before = await catalogue.ListAsync(tenant, null);
+        Assert.Contains(before.Entries, entry => entry.Provenance?.PackKey == "harborline.platform");
+        await Probe("BEFORE catalogue", "/api/local-node/catalogue/definitions", HttpStatusCode.OK);
+        using var removed = await client.PostAsJsonAsync("/api/local-node/packs/deactivate",
+            new { packKey = "harborline.platform", version });
+        output.WriteLine($"REMOVING: {(int)removed.StatusCode} POST /api/local-node/packs/deactivate harborline.platform {version}");
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        foreach (var path in paths) await Probe("AFTER", path, HttpStatusCode.NotFound);
+        // Check all catalogue kinds, including any the export acquires later. A withdrawn row
+        // is retained evidence, but it must not be reachable at its versioned address either.
+        await Probe("AFTER catalogue", "/api/local-node/catalogue/definitions", HttpStatusCode.OK);
+        using (var listed = await client.GetFromJsonAsync<JsonDocument>("/api/local-node/catalogue/definitions"))
+        {
+            Assert.DoesNotContain(listed!.RootElement.GetProperty("entries").EnumerateArray(), entry =>
+                entry.GetProperty("provenance").TryGetProperty("packKey", out var key)
+                && key.GetString() == "harborline.platform" && entry.GetProperty("status").GetString() != "Withdrawn");
+        }
+        var after = await catalogue.ListAsync(tenant, null);
+        Assert.DoesNotContain(after.Entries, entry => entry.Provenance?.PackKey == "harborline.platform"
+            && entry.Status != "Withdrawn");
+        foreach (var entry in before.Entries.Where(entry => entry.Provenance?.PackKey == "harborline.platform"))
+            await Probe("AFTER definition", $"/api/local-node/catalogue/definitions/{entry.Kind}/{entry.Id}?version={entry.Version}",
+                HttpStatusCode.NotFound);
+        using (var navigation = await client.GetFromJsonAsync<JsonDocument>("/api/local-node/navigation/workspaces"))
+        {
+            var pack = navigation!.RootElement.GetProperty("pack");
+            Assert.True(pack.ValueKind == JsonValueKind.Null || !pack.GetProperty("seedWorkspaces").EnumerateArray()
+                .Any(workspace => workspace.GetProperty("id").GetString() == "workshop"));
+            output.WriteLine("AFTER: workshop workspace absent; no platform definition reachable");
+        }
+        await Probe("AFTER installer", "/api/local-node/packs/installed", HttpStatusCode.OK);
+        output.WriteLine("removal-exercise: pass");
+        await host.StopAsync();
     }
 
     [Fact(DisplayName = "install → activate a General asset-type pack → GET /types returns the 6 (dead-end closed)")]
