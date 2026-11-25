@@ -7,4 +7,5 @@ pack_version=$(node "$repo_root/eng/platform-seed-version.mjs")
 echo "removal-exercise: seed manifest revision $pack_version"
 dotnet test "$repo_root/apps/local-node-host/tests/tests.csproj" -c Release --no-restore \
   --filter 'FullyQualifiedName~Platform_bundle_RemovalExercise' \
-  --logger 'console;verbosity=detailed'
+  --logger 'console;verbosity=detailed' \
+  -- RunConfiguration.TreatNoTestsAsError=true

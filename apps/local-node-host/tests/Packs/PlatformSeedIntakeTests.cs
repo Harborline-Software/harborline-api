@@ -148,7 +148,9 @@ internal static class PlatformSeedTestBundle
             },
             ["transcript"] = new JsonObject
             {
-                ["baseHead"] = Commit, ["testedTree"] = new string('0', 40), ["mode"] = "test-only",
+                ["baseHead"] = Commit,
+                ["testedTree"] = new string('0', 40),
+                ["mode"] = "test-only",
             },
         };
         var unsigned = body.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
@@ -198,6 +200,8 @@ public sealed class PlatformSeedIntakeTests
         { "sums-missing", "platform-seed-sums-missing" },
         { "receipt-missing", "platform-seed-receipt-missing" },
         { "export-differs-from-sums", "platform-seed-export-sums-mismatch" },
+        { "receipt-differs-from-sums", "platform-seed-receipt-sums-mismatch" },
+        { "duplicate-sums-entry", "platform-seed-sums-malformed" },
         { "declared-digest-differs", "platform-seed-digest-mismatch" },
     };
 
@@ -395,6 +399,18 @@ public sealed class PlatformSeedIntakeTests
             "receipt-missing" => (good with { ReleaseReceipt = null }, referent),
             // One item's kind is changed, so conversion would refuse it with its own code if it ran first.
             "export-differs-from-sums" => (good with { Export = CorruptItem(good.Export!) }, referent),
+            // The receipt itself and the referent stay valid; only its listed checksum disagrees.
+            "receipt-differs-from-sums" => (good with
+            {
+                Sha256Sums = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(good.Sha256Sums!)
+                    .Replace(PlatformSeedTestBundle.Sha256(good.ReleaseReceipt!), new string('0', 64), StringComparison.Ordinal)),
+            }, referent),
+            // Both valid lines remain. Removing the duplicate-entry refusal would accept this bundle.
+            "duplicate-sums-entry" => (good with
+            {
+                Sha256Sums = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(good.Sha256Sums!)
+                    + $"{PlatformSeedTestBundle.Sha256(good.Export!)}  platform-pack.export.json\n"),
+            }, referent),
             "declared-digest-differs" => SumsRecomputed(CorruptItem(good.Export!), good.ReleaseReceipt!, referent),
             _ => throw new ArgumentOutOfRangeException(nameof(corruption)),
         };
