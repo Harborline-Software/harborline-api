@@ -27,6 +27,8 @@ function category(file) {
     || file === 'apps/local-node-host/Data/ContentStore/README.md'
     || file === 'apps/local-node-host/tests/ContentStore/epoch-rotation-evidence-2026-11-11.md'
     || file === 'packages/kernel-crdt/README.md'
+    || file === 'tooling/pack-enum-codegen/README.md'
+    || file === 'tooling/pack-enum-codegen/EVIDENCE.md'
     || /^(docs|adrs|designs)\/.*\.md$/.test(file)) return 'documentation'
   if (/coverage|\.runsettings$/i.test(file)) return 'coverage'
   if (/(^|\/)(global\.json|NuGet\.config|packages\.lock\.json)$/.test(file)
@@ -43,6 +45,8 @@ function category(file) {
     || file === 'apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv'
     || file === 'apps/local-node-host/tests/Identity/Mtw00AInventory/mtw-00a-identity-inventory.generated.md'
     || file === 'packages/contracts/protocol/boundary-inventory.json'
+    // The generator's input, checked by eng/verify.sh.
+    || file === 'tooling/pack-enum-codegen/documentation.json'
     // Only eng/mutation-report.mjs reads this config.
     || file === 'packages/foundation-events/tests/stryker-config.json'
     // The root ignore file, exact path only: it controls which untracked files git ignores; no build,

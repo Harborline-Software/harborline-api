@@ -99,6 +99,7 @@
          plus the kernel packages whose DI extensions the composition root calls.
          Tests compose an in-memory event log / in-memory-only host so the full
          host project doesn't have to be executed. -->
+    <ProjectReference Include="../../../tooling/pack-enum-codegen/Harborline.Tooling.PackEnumCodegen.csproj" />
     <ProjectReference Include="..\Harborline.LocalNodeHost.csproj" />
     <!-- Ticket 316: dotnet test builds test-project reference closures, not every
          solution member. The assembly inventory fence also scans these artifacts;

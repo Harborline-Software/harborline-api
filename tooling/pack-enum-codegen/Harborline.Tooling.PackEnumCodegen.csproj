@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Harborline.Api.Tooling.PackEnumCodegen</AssemblyName>
+    <RootNamespace>Harborline.Api.Tooling.PackEnumCodegen</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Harborline.Foundation.Definitions" />
+  </ItemGroup>
+</Project>
