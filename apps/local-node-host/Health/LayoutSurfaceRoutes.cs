@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
+using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.Definitions;
 
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -73,7 +76,9 @@ public static class LayoutSurfaceRoutes
         ILayoutRootRecordSource roots,
         ILayoutRelatedRecordSource related,
         TimeProvider time,
-        AuthorizedActAudit audit)
+        AuthorizedActAudit audit,
+        LayoutPublishRegisters registers,
+        ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(host);
@@ -82,6 +87,8 @@ public static class LayoutSurfaceRoutes
         ArgumentNullException.ThrowIfNull(related);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(audit);
+        ArgumentNullException.ThrowIfNull(registers);
+        ArgumentNullException.ThrowIfNull(logger);
 
         app.MapGet(RouteTemplate, async (string surfaceId, string recordId, HttpContext http, CancellationToken ct) =>
         {
@@ -118,6 +125,19 @@ public static class LayoutSurfaceRoutes
             if (surface is null)
                 return Problem(StatusCodes.Status404NotFound, LayoutSurfaceCodes.SurfaceUnknown,
                     "No installed pack carries this Layout surface.");
+
+            try
+            {
+                LayoutPersistedValueAdmission.ValidateForRuntime(surface.Definition, registers.Build());
+            }
+            catch (DefinitionRefusalException refused)
+            {
+                if (logger.IsEnabled(LogLevel.Warning))
+                    logger.LogWarning(refused, "Layout persisted body failed admission: {Refusals}",
+                        JsonSerializer.Serialize(refused.Refusals));
+                return Problem(StatusCodes.Status409Conflict, LayoutSurfaceCodes.PersistedBodyInvalid,
+                    "The installed Layout surface is invalid.");
+            }
 
             var root = await roots.FindAsync(tenant, recordId, ct).ConfigureAwait(false);
             if (root is null)

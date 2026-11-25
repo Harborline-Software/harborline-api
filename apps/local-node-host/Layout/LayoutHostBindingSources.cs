@@ -20,6 +20,9 @@ namespace Harborline.Api.LocalNodeHost.Layout;
 /// <summary>The stable codes the Layout surface route refuses with (T-735).</summary>
 public static class LayoutSurfaceCodes
 {
+    /// <summary>The installed body fails platform runtime admission against the host registers.</summary>
+    public const string PersistedBodyInvalid = "layout.persisted_body_invalid";
+
     /// <summary>No Active installed pack carries a Layout surface with this identity.</summary>
     public const string SurfaceUnknown = "layout.surface.unknown";
 

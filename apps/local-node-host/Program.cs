@@ -1293,6 +1293,9 @@ else
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 builder.Services.AddSingleton<ExposedViewAuthorizationReachabilityReports>();
+// T-733: the installer and surface route share the platform registers built at this host seam.
+// T-734 will populate page declarations; until then the supplied page register is empty.
+builder.Services.AddSingleton(new Harborline.Api.LocalNodeHost.Layout.LayoutPublishRegisters(new()));
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutSurfaceOptions>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.NodeEfLayoutDenialOutbox>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutDenialAlarms>();
@@ -1546,7 +1549,8 @@ builder.Services.AddSingleton<IPackInstaller>(sp => new PackInstaller(
     sp.GetRequiredService<IPackInstallAudit>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.PackProjection.IPackSeedProjector>(),
-    sp.GetRequiredService<IPackPlatformCompatibility>()));
+    sp.GetRequiredService<IPackPlatformCompatibility>(),
+    layoutRegisters: sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.LayoutPublishRegisters>().Build()));
 // T-644: the api half of atomic activation shares the durable pack store's SQLite unit, so ownership
 // selections, the effective pointer, the Access decision reference and the evidence intent commit together.
 // DES-0029 ck-6: the evidence each activation commits is delivered to the kernel audit trail by a drain right after
