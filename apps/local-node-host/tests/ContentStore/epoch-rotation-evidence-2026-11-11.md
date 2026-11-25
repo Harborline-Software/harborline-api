@@ -322,3 +322,45 @@ identity-R3 scans 5,776 tracked files with zero unexempted hits; contract genera
 **Windows could not be run here.** This is a portable reproduction and macOS validation, not a passing
 Windows verification claim. The new head needs fresh CI/Windows evidence and Chris's fresh queue approval;
 the approval for 09aab3a7 is not reused. Readiness remains unchanged.
+
+
+## 2026-11-19 — T-521/epoch-crash-windows failure recovery
+
+Slice: `T-521/epoch-crash-windows`, API draft PR #523. Starting claim head:
+`71ec8bcf18b8846253c09ce512824039293e384c`, which already contains API #472 (`84f36082`).
+
+Downloaded the expiring run 43356356389 artifact into
+`/private/tmp/api523-run-43356356389`. Contrary to the slice's uncertainty, the artifact contains
+both `host-tests.trx` and the raw `exact-clone-09aab3a7679305e7583810706d07c9fd6fcfb2d9-host-baseline-match.log`.
+The latter has SHA-256 `b3442dc955c47d5c3a620888f9f9918e7d093fe416f4058b8b356a43484508c4`.
+All 13 crash cases fail at the compiler-exit assertion in `BuildCrashWorkerAsync` (old line 110),
+called by the crash test (old line 53). The compiler emits CS0009, "PE image doesn't contain
+managed metadata", for native Windows DLLs including `coreclr.dll`, `hostpolicy.dll`,
+`aspnetcorev2_inprocess.dll` and the test output's `vec0.dll`. The crash worker never starts.
+
+The cause and fix are already in the merged API #472: filter reference candidates with
+`PEReader.HasMetadata` before filename deduplication. Its two portable regressions exercise a native
+PE DLL beside managed assemblies and a native candidate sharing a managed candidate's basename.
+This slice changes no test or product code and claims no new mutation run. The pre-existing repair
+and its test-first evidence are described above. The thirteen exit-code, reached-step, restart,
+committed-content and staged-wrap assertions remain unchanged (ADR 0116 decision 5).
+
+Setup preflight: .NET SDK 11.0.100; required tools and local browser binaries present;
+`/private/tmp/api513-bin` and `/private/tmp/harborline-api513-quality` present. Copied the existing
+`/private/tmp/api479-main-81bceb75/.feed` only after verifying platform pin
+`c9787df2b2b1daf38d7971c85b9b073962919293`, all 35 producer package identities, and the
+content-derived version `0.0.0-alpha.0.h728d44b892e1` against that commit's package inputs.
+No feed, configuration, baseline or lockfile is committed. The focused-mode policy classifies
+this evidence file as documentation; no policy edit is needed.
+
+The named crash, epoch-directory and key-rotation test files all declare partial
+`NodeContentStoreTests`. The focused run therefore selects the complete `NodeContentStoreTests`
+class together with `FileSystemTenantKeyStoreTests`, rather than filters matching nonexistent classes.
+Final host-run results are recorded in PR #523 so they can identify this evidence commit's exact head.
+
+Focused macOS validation at the claim head passed **112/112, zero skipped**, including **13/13**
+real-key-store crash cases and both compiler regressions. Command: `dotnet test
+apps/local-node-host/tests/tests.csproj -c Release --disable-build-servers -m:1 --filter
+'FullyQualifiedName~ContentStore.NodeContentStoreTests|FullyQualifiedName~FileSystemTenantKeyStoreTests'
+--logger 'trx;LogFileName=api523-focused.trx'`, through host-lane session `macbook-api523-focused`.
+Log: `/private/tmp/api523-focused.log`; TRX: `apps/local-node-host/tests/TestResults/api523-focused.trx`.
