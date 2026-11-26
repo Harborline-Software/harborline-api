@@ -92,35 +92,59 @@ internal static class LegacyPackFixtureSigner
 
     internal static async Task<byte[]> SignPlatformCompiledShapeProbeAsync(PackExportRequest request, IOperationSigner signer)
     {
-        // T-670: the probe extends the platform export as the node converts it, not an api-maintained document.
-        var expected = PlatformSeedTestBundle.Request(signer.IssuerId.ToBase64Url());
+        // T-724 ruling 121: transport header literals pin the released 2.0.0 corpus; the
+        // independent producer document below is never passed through the api converter for expectations.
         Assert.Equal("harborline.platform", request.Key);
         Assert.Equal("2.0.0", request.Version);
-        Assert.Equal(expected.Name, request.Name);
-        Assert.Equal(expected.Description, request.Description);
-        Assert.Equal(expected.ScopeTier, request.ScopeTier);
-        Assert.Equal(expected.Epoch, request.Epoch);
-        Assert.Equal(expected.RenamedFrom, request.RenamedFrom);
-        Assert.Equal(expected.DisplayName, request.DisplayName);
-        Assert.Equal(expected.Tagline, request.Tagline);
-        Assert.Equal(expected.Category, request.Category);
-        Assert.Equal(expected.IconRef, request.IconRef);
-        Assert.Equal(expected.ExposedDefinitions, request.ExposedDefinitions);
-        Assert.Equal(expected.Dependencies, request.Dependencies);
-        Assert.Equal(expected.CapabilityRequirements, request.CapabilityRequirements);
-        Assert.Equal(expected.ProviderSlot, request.ProviderSlot);
-        Assert.Equal(expected.Exposes, request.Exposes);
-        Assert.Equal(expected.InterfaceVersion, request.InterfaceVersion);
-        Assert.Equal(expected.Contents.Count + 1, request.Contents.Count);
-        for (var index = 0; index < expected.Contents.Count; index++)
+        Assert.Equal("harborline.platform", request.Name);
+        Assert.Equal("Released configuration pack 19054f26beca1b9e3a9cbc7d395c9301d2b91781d8461c216529b4fc21d616e1.", request.Description);
+        Assert.Equal(PackScopeTier.Vertical, request.ScopeTier);
+        Assert.Equal(1L, request.Epoch);
+        Assert.Null(request.RenamedFrom);
+        Assert.Null(request.DisplayName);
+        Assert.Null(request.Tagline);
+        Assert.Null(request.Category);
+        Assert.Null(request.IconRef);
+        Assert.Null(request.ExposedDefinitions);
+        Assert.Empty(request.Dependencies);
+        Assert.Equal(["forms.catalogue-field-source"], request.CapabilityRequirements);
+        Assert.Null(request.ProviderSlot);
+        Assert.Null(request.Exposes);
+        Assert.Null(request.InterfaceVersion);
+        Assert.Equal(49, request.Contents.Count);
+
+        using var document = JsonDocument.Parse(PlatformSeedTestBundle.Export());
+        var declarations = document.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("content").GetProperty("payload"))
+            .Where(payload => payload.TryGetProperty("definitionKey", out _)).ToArray();
+        Assert.Equal(48, declarations.Length);
+        for (var index = 0; index < declarations.Length; index++)
         {
-            var original = expected.Contents[index];
+            var declaration = declarations[index];
             var actual = request.Contents[index];
-            Assert.Equal((original.Key, original.Kind, original.Version), (actual.Key, actual.Kind, actual.Version));
-            Assert.True(JsonNode.DeepEquals(original.Content, actual.Content));
+            Assert.Equal(declaration.GetProperty("definitionKey").GetString(), actual.Key);
+            Assert.Equal(declaration.GetProperty("contentKind").GetString(), actual.Kind.ToString());
+            Assert.Equal(declaration.GetProperty("contentKind").GetString() == "ViewDefinition" ? "1.0.0" : "2.0.0", actual.Version);
+            var expectedBody = declaration.GetProperty("definitionKey").GetString() == "platform.workshop"
+                ? ExpectedWorkshop() : JsonNode.Parse(declaration.GetProperty("body").GetRawText());
+            Assert.True(JsonNode.DeepEquals(expectedBody, actual.Content), actual.Key);
         }
         AssertCompiledShapeItem(request.Contents[^1], "record-type");
         return await SignAsync(request, signer, 1);
+    }
+
+    private static JsonNode? ExpectedWorkshop()
+    {
+        // T-584/seed-released-navigation:58-59: package capability and the resolved workshop shape.
+        string[] pillars = ["asset-types", "forms", "workflows", "standards", "defaults", "terminology", "documents",
+            "taxonomies", "reports", "data-exchanges", "standing-rules", "schedules", "views"];
+        return JsonNode.Parse($$"""
+            {"seedWorkspaces":[{"id":"workshop","labelKey":"workshop.workspace","groups":[{"id":"definitions",
+            "labelKey":"workshop.definitions","itemIds":{{JsonSerializer.Serialize(pillars)}},
+            "items":{{JsonSerializer.Serialize(pillars.Select(id => new { id, labelKey = $"workshop.{id}" }))}}}]}],
+            "panelSet":[{"id":"inspector","binding":"panels.inspector.toggle","shortcut":"mod+shift+i",
+            "defaultWidth":360,"minimumHeight":180,"defaultOpen":false}]}
+            """);
     }
 
     private static void AssertCompiledShapeItem(PackContentSource item, string key)

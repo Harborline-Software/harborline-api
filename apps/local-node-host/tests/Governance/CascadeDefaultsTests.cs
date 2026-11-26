@@ -70,7 +70,6 @@ public sealed class CascadeDefaultsTests
         var codec = new PackFileCodec();
         var request = PlatformSeedTestBundle.Request(keys.PrincipalId.ToBase64Url());
         Assert.Equal("2.0.0", request.Version);
-        Assert.Equal("2.0.0", request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
         Assert.Equal("2.0.0", source.Version);
