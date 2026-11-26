@@ -259,10 +259,15 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         AssertCompiledSealedTypes(types);
     }
 
-    [Fact(DisplayName = "M4: activating the platform seed exposes its sealed catalogue types with the active version")]
-    public async Task Active_Platform_Seed_Exposes_Its_Sealed_Catalogue_Types_With_The_Active_Version()
+    [Fact(DisplayName = "An activated released platform seed keeps sealed catalogue types compiled")]
+    public async Task Activated_released_platform_seed_keeps_sealed_catalogue_types_compiled()
     {
-        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var installed = await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        Assert.NotNull(installed);
+        Assert.Equal("2.0.0", installed.Revision);
+        var active = _packStore.GetActive(_tenantA, "harborline.platform");
+        Assert.NotNull(active);
+        Assert.Equal("2.0.0", active.Version);
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
         Assert.Equal(3, CompiledEntries(types).Length);

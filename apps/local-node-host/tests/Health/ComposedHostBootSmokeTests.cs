@@ -528,6 +528,7 @@ public sealed partial class ComposedHostBootSmokeTests
 
         public CancellationToken Deadline => _deadline.Token;
         public string DataDirectory => _dataDirectory;
+        public string Output => Snapshot(_standardOutput, _outputGate) + Snapshot(_standardError, _outputGate);
 
         public static ComposedHost Start(
             string profile,
@@ -610,10 +611,11 @@ public sealed partial class ComposedHostBootSmokeTests
 
         /// <summary>
         /// Waits for the post-bind readiness line, or fails naming the profile and dumping both
-        /// streams. When the container refused to build the graph, that verdict is stated first —
+        /// streams. Fixture publication can be disabled to inspect the untouched shipping boot.
+        /// When the container refused to build the graph, that verdict is stated first —
         /// the descriptor error is otherwise buried in a long provider stack trace.
         /// </summary>
-        public async Task<Uri> AwaitReadinessAsync()
+        public async Task<Uri> AwaitReadinessAsync(bool publishSeed = true)
         {
             var exited = _process.WaitForExitAsync();
             var timeout = Task.Delay(Timeout.InfiniteTimeSpan, _deadline.Token);
@@ -621,8 +623,11 @@ public sealed partial class ComposedHostBootSmokeTests
             if (completed == _readiness.Task)
             {
                 var address = await _readiness.Task;
-                _publishSeed ??= PublishSeedAsync(address);
-                await _publishSeed;
+                if (publishSeed)
+                {
+                    _publishSeed ??= PublishSeedAsync(address);
+                    await _publishSeed;
+                }
                 return address;
             }
 

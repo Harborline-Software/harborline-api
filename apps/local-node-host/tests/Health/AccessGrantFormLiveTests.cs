@@ -11,9 +11,17 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 public sealed partial class ComposedHostBootSmokeTests
 {
     [Fact]
-    public async Task Access_form_is_published_and_listed_after_boot()
+    public async Task Clean_shipping_boot_refuses_missing_platform_export_then_explicit_seed_serves_access_after_restart()
     {
         await using var first = StartAccessHost();
+        using (var unseeded = new HttpClient { BaseAddress = await first.AwaitReadinessAsync(publishSeed: false) })
+        {
+            unseeded.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "composed-host-smoke-token");
+            using var absent = await unseeded.GetAsync("/api/local-node/forms/access.grant-a-role");
+            Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
+            // platform-seed-export-missing (R-0250): the shipping log emits the exception message, not Code.
+            Assert.Contains("PlatformSeedRefusedException: The bundle carries no platform-pack.export.json.", first.Output);
+        }
         using (var firstClient = await AccessClientAsync(first))
             Assert.Equal(HttpStatusCode.OK, (await firstClient.GetAsync("/api/local-node/forms/access.grant-a-role")).StatusCode);
         await first.StopAsync();
