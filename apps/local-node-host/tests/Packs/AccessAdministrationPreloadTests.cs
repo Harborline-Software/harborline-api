@@ -566,8 +566,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             Convert.ToHexString(SHA256.HashData(bytes)));
         if (previousVersion == "1.1.1")
             bytes = await ExportAsync(ReadExactLegacyPlatformRequest(bytes, _signer.Signer.IssuerId.ToBase64Url())
-                with
-            { Exposes = ["access.holders"], InterfaceVersion = 1 });
+                with { Exposes = ["access.holders"], InterfaceVersion = 1 });
         var released = new PackFileCodec().TryDecode(bytes)!;
         var trust = new InMemoryPackTrustStore([
             new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
@@ -1239,8 +1238,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             "Conformance", "Packs", "access-replacement", "access-administration-pack-1.1.3.export.json"));
         Assert.Equal("B6F84FEF3FFB4323167D5C9D1831098784A88B59BFD903198743AB9ADD4BB486", Convert.ToHexString(SHA256.HashData(source)));
         var bytes = await ExportAsync(ReadExactLegacyPlatformRequest(source, _signer.Signer.IssuerId.ToBase64Url())
-            with
-        { Exposes = ["access.holders"], InterfaceVersion = 1 });
+            with { Exposes = ["access.holders"], InterfaceVersion = 1 });
         var context = new PackInstallContext(selectedTenant, new InMemoryPackTrustStore([
                 new PackTrustRoot(TrustScope.OwnRoster, new PackFileCodec().TryDecode(bytes)!.Envelope!.IssuerId, 1, TrustRootStatus.Current),
             ]), PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), PackInstallRoutes.RevocationMaxAge,

@@ -22,7 +22,10 @@ public sealed partial class ComposedHostBootSmokeTests
             // platform-seed-export-missing (R-0250): the shipping log emits the exception message, not Code.
             while (!first.Output.Contains("PlatformSeedRefusedException: The bundle carries no platform-pack.export.json.", StringComparison.Ordinal)
                 && !first.Deadline.IsCancellationRequested)
-                await Task.Yield();
+            {
+                try { await Task.Delay(25, first.Deadline); }
+                catch (OperationCanceledException) when (first.Deadline.IsCancellationRequested) { break; }
+            }
             Assert.Contains("PlatformSeedRefusedException: The bundle carries no platform-pack.export.json.", first.Output);
         }
         using (var firstClient = await AccessClientAsync(first))
