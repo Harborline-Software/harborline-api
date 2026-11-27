@@ -186,8 +186,8 @@ public sealed partial class AccessAdministrationPreloadTests
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         var prior = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value));
-        var source = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var canonicalSource = WithVersionAndCurrentViewKinds(source, "1.6.2-atomicity-probe.0");
+        var source = PlatformSeedTestBundle.Request(_signer.Signer.IssuerId.ToBase64Url());
+        var canonicalSource = WithVersionAndCurrentViewKinds(source, "2.0.1-atomicity-probe.0");
         var replacement = canonicalSource with
         {
             Contents = canonicalSource.Contents.Append(new PackContentSource(
@@ -200,7 +200,8 @@ public sealed partial class AccessAdministrationPreloadTests
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             AdmittedInstant.FromRecordedAct(DateTimeOffset.UtcNow), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
-        Assert.True((await _installer.InstallAsync(await ExportAsync(replacement), context)).Installed);
+        var outcome = await _installer.InstallAsync(await ExportAsync(replacement), context);
+        Assert.True(outcome.Installed, JsonSerializer.Serialize(outcome));
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
         Assert.Equal(PackSeedProjector.AccessProjectionRefusedCode, activation.Refusal!.Code);

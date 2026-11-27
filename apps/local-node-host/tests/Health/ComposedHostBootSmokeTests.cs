@@ -216,27 +216,18 @@ public sealed partial class ComposedHostBootSmokeTests
         var pack = document.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
         var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
-        // T-657, extended by T-668: the shipping host serves the configuration workspace to THIS caller,
-        // whose ordinary seeded holding is what admitted the install and activation above. The node
-        // operator is offered `packages:author` and `packages:operate` on the same row
-        // (AccessGrantAuthorizationSeed), so both entries reach it. That is the entries' audience end to
-        // end; PackNavigationRouteTests proves the refusing cases, including the author who cannot operate.
-        Assert.Equal(new[] { "access", "configuration", "workshop", "ticket-229-workspace" },
+        // Oracle: T-670/api-seed-intake withdraws platform.configuration until T-470.
+        // The 2.0.0 seed keeps Workshop; the installed Access pack and test pack contribute their own workspaces.
+        Assert.Equal(new[] { "access", "workshop", "ticket-229-workspace" },
             workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
-        var configuration = workspaces[1];
-        Assert.Equal("configuration.workspace", configuration.GetProperty("labelKey").GetString());
-        Assert.Equal(
-            new[] { "configuration.proposal", "configuration.activation" },
-            configuration.GetProperty("groups").EnumerateArray()
-                .SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
-                .Select(item => item.GetString()));
+        Assert.DoesNotContain(workspaces, workspace => workspace.GetProperty("id").GetString() == "configuration");
         var access = workspaces[0];
         Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
         var group = Assert.Single(access.GetProperty("groups").EnumerateArray());
         Assert.Equal("access-inspection", group.GetProperty("id").GetString());
         Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
         Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
-        var workshop = workspaces[2];
+        var workshop = workspaces[1];
         Assert.Equal("workshop.workspace", workshop.GetProperty("labelKey").GetString());
         var workshopGroup = Assert.Single(workshop.GetProperty("groups").EnumerateArray());
         Assert.Equal("definitions", workshopGroup.GetProperty("id").GetString());
@@ -513,6 +504,8 @@ public sealed partial class ComposedHostBootSmokeTests
     private sealed class ComposedHost : IAsyncDisposable
     {
         private readonly Process _process;
+        private readonly string _rootSeedHex;
+        private Task? _publishSeed;
         private readonly StringBuilder _standardOutput = new();
         private readonly StringBuilder _standardError = new();
         private readonly object _outputGate = new();
@@ -524,9 +517,10 @@ public sealed partial class ComposedHostBootSmokeTests
         private readonly string _profile;
         private readonly string _environment;
 
-        private ComposedHost(Process process, string dataDirectory, string profile, string environment)
+        private ComposedHost(Process process, string dataDirectory, string profile, string environment, string rootSeedHex)
         {
             _process = process;
+            _rootSeedHex = rootSeedHex;
             _dataDirectory = dataDirectory;
             _profile = profile;
             _environment = environment;
@@ -534,6 +528,7 @@ public sealed partial class ComposedHostBootSmokeTests
 
         public CancellationToken Deadline => _deadline.Token;
         public string DataDirectory => _dataDirectory;
+        public string Output => Snapshot(_standardOutput, _outputGate) + Snapshot(_standardError, _outputGate);
 
         public static ComposedHost Start(
             string profile,
@@ -563,7 +558,7 @@ public sealed partial class ComposedHostBootSmokeTests
                 rootSeedHex,
                 out var readinessMarker, healthPort);
 
-            var host = new ComposedHost(process, dataDirectory, profile, environment);
+            var host = new ComposedHost(process, dataDirectory, profile, environment, rootSeedHex ?? new string('1', 64));
             host.Attach(readinessMarker);
             return host;
         }
@@ -616,17 +611,24 @@ public sealed partial class ComposedHostBootSmokeTests
 
         /// <summary>
         /// Waits for the post-bind readiness line, or fails naming the profile and dumping both
-        /// streams. When the container refused to build the graph, that verdict is stated first —
+        /// streams. Fixture publication can be disabled to inspect the untouched shipping boot.
+        /// When the container refused to build the graph, that verdict is stated first —
         /// the descriptor error is otherwise buried in a long provider stack trace.
         /// </summary>
-        public async Task<Uri> AwaitReadinessAsync()
+        public async Task<Uri> AwaitReadinessAsync(bool publishSeed = true)
         {
             var exited = _process.WaitForExitAsync();
             var timeout = Task.Delay(Timeout.InfiniteTimeSpan, _deadline.Token);
             var completed = await Task.WhenAny(_readiness.Task, exited, timeout);
             if (completed == _readiness.Task)
             {
-                return await _readiness.Task;
+                var address = await _readiness.Task;
+                if (publishSeed)
+                {
+                    _publishSeed ??= PublishSeedAsync(address);
+                    await _publishSeed;
+                }
+                return address;
             }
 
             if (!_process.HasExited)
@@ -657,6 +659,15 @@ public sealed partial class ComposedHostBootSmokeTests
 
             Assert.Fail($"{verdict}\nstdout:\n{stdout}\nstderr:\n{stderr}");
             throw new InvalidOperationException("unreachable");
+        }
+
+        private async Task PublishSeedAsync(Uri address)
+        {
+            using var client = new HttpClient { BaseAddress = address };
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", "composed-host-smoke-token");
+            await Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.PublishAsync(
+                client, _rootSeedHex, _deadline.Token);
         }
 
         public async Task<ProcessExit> AwaitExitAsync()

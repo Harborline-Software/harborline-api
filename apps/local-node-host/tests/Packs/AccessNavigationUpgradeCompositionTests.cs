@@ -49,10 +49,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
                 await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(
                     Tenant, AdmittedInstant.FromRecordedAct(services.GetRequiredService<TimeProvider>().GetUtcNow()), AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
                 // D5: the platform pack roots every closure, so it is Active before the previous Access version.
-                await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
-                    .OfType<PlatformPackPreloadHostedService>()
-                    .Single()
-                    .PreloadAsync(Tenant, CancellationToken.None);
+                await PlatformSeedTestBundle.PreloadAsync(services, Tenant);
                 await InstallPreviousVersionAsync(services);
                 // The previous Access version declares no navigation: only the platform workshop is served.
                 using (var before = await NavigationAsync(services)) AssertWorkshopServed(before);

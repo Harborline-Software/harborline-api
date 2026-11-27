@@ -2545,8 +2545,9 @@ builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.PackProjecti
 builder.Services.AddHostedService<
     Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformPackPreloadHostedService>();
 
-// Ticket 208 slice 1 (L673, L685) — Access administration ships as ORDINARY content with every
-// installation. On first run this exports, installs and activates the committed
+// Ticket 208 slice 1 (L673, L685) — Access administration preloads only after the platform pack is active.
+// Production installs no platform seed until a published referent exists (ADR-0144, fail-closed).
+// Once that prerequisite is met, this exports, installs and activates the committed
 // `harborline.access-administration` export document through the same IPackExporter/IPackInstaller path
 // any third-party package takes (no bypass), so the grant form, holdings view, privileged-review workflow
 // and access-by-person report are catalogue definitions a later package may replace. It carries

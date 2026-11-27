@@ -4,6 +4,7 @@
   "commit": "c9787df2b2b1daf38d7971c85b9b073962919293",
   "recordedAt": "2026-11-16 (platform main c9787df2, on the .NET 11 GA SDK.)",
   "why": [
+    "Consume the platform seed 2.0.0 export (T-670/api-seed-intake) so tests build the release bundle from the platform's own export bytes in Harborline.Blocks.BuilderDefinitions (ADR-0144).",
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change.",
     "Consume landed Records definition documents/codecs/catalogue identities and canonical owned-definition exposure before interface-version aggregation through the existing36-package inventory.",

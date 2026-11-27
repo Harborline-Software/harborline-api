@@ -70,6 +70,53 @@ public sealed class KernelClockIntegrationTests
     private static readonly TenantId Tenant = new("ticket-216");
     private static readonly ActorId Principal = new("operator");
 
+    [Fact]
+    public async Task First_boot_with_recorded_test_bundle_activates_seed_and_records_release_identity()
+    {
+        var capture = new SeedInstallLogger();
+        await using var host = await ProductionFixture.CreateAsync(TimeProvider.System,
+            services => services.AddSingleton<Microsoft.Extensions.Logging.ILogger<
+                Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformPackPreloadHostedService>>(capture));
+        var tenant = NodeTenant.Resolve(host.Services.GetRequiredService<IActiveTeamAccessor>());
+        var store = host.Services.GetRequiredService<Harborline.Api.Foundation.Packs.Install.IPackInstallStore>();
+        var active = store.GetActive(tenant, "harborline.platform");
+        Assert.NotNull(active);
+        Assert.Equal("2.0.0", active.Version);
+        var record = Assert.Single(capture.Records);
+        Assert.Equal("2.0.0", record.Revision);
+        // ADR-0144 fixture bytes are hashed independently of intake/conversion and preload output.
+        var bundle = Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.Published;
+        var exportHash = Convert.ToHexStringLower(SHA256.HashData(bundle.Export!));
+        var receiptHash = Convert.ToHexStringLower(SHA256.HashData(bundle.ReleaseReceipt!));
+        Assert.Equal(exportHash, record.ExportSha256);
+        Assert.Equal(exportHash + "  platform-pack.export.json", record.Sha256SumsLine);
+        Assert.Equal("harborline-platform@c9787df2b2b1daf38d7971c85b9b073962919293 release-receipt.json sha256:" + receiptHash,
+            record.ReleaseReceipt);
+        // OpenSSL Ed25519 public key from the fixed ProductionFixture root seed, base64url encoded.
+        Assert.Equal("m_JBgY10j1tvIg6gBosTuSQyqMQ4tSCUlzBBRT0_ak4", record.LocalSigner);
+    }
+
+    private sealed class SeedInstallLogger : Microsoft.Extensions.Logging.ILogger<
+        Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformPackPreloadHostedService>
+    {
+        internal System.Collections.Concurrent.ConcurrentQueue<
+            Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformSeedInstallRecord> Records
+        { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (state is IEnumerable<KeyValuePair<string, object?>> fields)
+                foreach (var field in fields)
+                    if (field.Key == "Record" && field.Value is
+                        Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformSeedInstallRecord record)
+                        Records.Enqueue(record);
+        }
+    }
+
     [Theory]
     [InlineData("journal-post")]
     [InlineData("workflow-advance")]
@@ -517,7 +564,12 @@ public sealed class KernelClockIntegrationTests
                     "ticket-216-kernel-clock",
                     directory,
                     CancellationToken.None,
-                    clock, SqliteStartupLifecycleProbe.Combine(finalServiceRegistration));
+                    clock, SqliteStartupLifecycleProbe.Combine(services =>
+                    {
+                        // ADR-0144: provide the verified test bundle only to this test container.
+                        Harborline.Api.LocalNodeHost.Tests.Packs.PlatformSeedTestBundle.Register(services);
+                        finalServiceRegistration?.Invoke(services);
+                    }));
                 var provider = LocalNodeHostRuntime.CurrentServices
                     ?? throw new InvalidOperationException("The composed host did not expose its service provider.");
                 Assert.Same(clock, provider.GetRequiredService<TimeProvider>());
@@ -587,26 +639,26 @@ public sealed class KernelClockIntegrationTests
                     await SchedulingDraftSaveAsync();
                     break;
                 case "workflow-advance":
-                {
+                    {
                         await SeedOperatorGrantAsync();
                         var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
-                    var proposal = new KgGenerationProposal(
-                        "Draft the admitted-instant proof JE.",
-                        "qwen2.5-7b-instruct",
-                        "1.0",
-                        ["journal-216"],
-                        KgProposalTaint.UntrustedDerived,
-                        new KgProposedAction(KgProposedAction.DraftJournalEntry, "Draft proof JE", "{}"));
-                    var parked = await Services.GetRequiredService<NodeKgActionApprovalCutover>()
-                        .ParkForApprovalAsync(
-                                tenant,
-                            "kernel-clock-kg",
-                            proposal,
-                            new KgActionExecutionInput("1000", "2000", 10m, "clock proof", false));
-                    Assert.Equal(WorkflowDispatchResult.Parked, parked.DecideResult);
-                    _kgInstanceId = parked.InstanceId;
-                    break;
-                }
+                        var proposal = new KgGenerationProposal(
+                            "Draft the admitted-instant proof JE.",
+                            "qwen2.5-7b-instruct",
+                            "1.0",
+                            ["journal-216"],
+                            KgProposalTaint.UntrustedDerived,
+                            new KgProposedAction(KgProposedAction.DraftJournalEntry, "Draft proof JE", "{}"));
+                        var parked = await Services.GetRequiredService<NodeKgActionApprovalCutover>()
+                            .ParkForApprovalAsync(
+                                    tenant,
+                                "kernel-clock-kg",
+                                proposal,
+                                new KgActionExecutionInput("1000", "2000", 10m, "clock proof", false));
+                        Assert.Equal(WorkflowDispatchResult.Parked, parked.DecideResult);
+                        _kgInstanceId = parked.InstanceId;
+                        break;
+                    }
                 case "identity-administration":
                     await PrepareIdentityAdministrationAsync();
                     break;
