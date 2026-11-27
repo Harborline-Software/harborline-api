@@ -893,7 +893,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 
     // The name predates seed 2.0.0; T-909 Q3, L963 and S-10 require an orphan.
     [Fact]
-    public async Task Platform_preload_reattaches_legacy_compiled_key_override_without_orphaning_it()
+    public async Task Platform_preload_reports_legacy_compiled_key_override_as_orphaned_by_removal()
     {
         var recipe = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
             "Conformance", "Packs", "platform", "platform-pack-1.6.0.export.json"));
