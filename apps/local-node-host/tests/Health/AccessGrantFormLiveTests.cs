@@ -20,6 +20,9 @@ public sealed partial class ComposedHostBootSmokeTests
             using var absent = await unseeded.GetAsync("/api/local-node/forms/access.grant-a-role");
             Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
             // platform-seed-export-missing (R-0250): the shipping log emits the exception message, not Code.
+            while (!first.Output.Contains("PlatformSeedRefusedException: The bundle carries no platform-pack.export.json.", StringComparison.Ordinal)
+                && !first.Deadline.IsCancellationRequested)
+                await Task.Yield();
             Assert.Contains("PlatformSeedRefusedException: The bundle carries no platform-pack.export.json.", first.Output);
         }
         using (var firstClient = await AccessClientAsync(first))

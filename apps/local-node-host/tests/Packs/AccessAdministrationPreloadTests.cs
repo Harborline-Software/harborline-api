@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -434,6 +435,43 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Platform_bundle_revision_different_from_manifest_is_idempotent_on_second_boot()
+    {
+        // T-670 acceptance 1: installed identity follows the bundle revision, not the library manifest.
+        var export = JsonNode.Parse(PlatformSeedTestBundle.Export())!.AsObject();
+        export["revision"] = "2.0.1";
+        export.Remove("digest");
+        var unsigned = export.ToJsonString() + "\n";
+        export["digest"] = new JsonObject
+        {
+            ["algorithm"] = "sha256",
+            ["value"] = PlatformSeedTestBundle.Sha256(Encoding.UTF8.GetBytes(unsigned)),
+        };
+        var bundle = PlatformSeedTestBundle.Build(Encoding.UTF8.GetBytes(export.ToJsonString() + "\n"));
+        var referent = PlatformSeedTestBundle.ReferentFor(bundle) with { Revision = "2.0.1" };
+        var preload = new PlatformPackPreloadHostedService(
+            new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+                new PackValidator(new PackContentPiiScanner()),
+                new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), new PackFileCodec(),
+                timeProvider: TimeProvider.System),
+            _signer, _installer, _store, TrustingTheNodeKey(), PackRevocationList.Empty,
+            new NoActiveTeam(), TimeProvider.System, NullLogger<PlatformPackPreloadHostedService>.Instance,
+            TestDesktopOperator.Identity(), bundle, referent);
+
+        Assert.Equal("2.0.0", Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.Manifest.Revision);
+        var first = await preload.PreloadAsync(Tenant, CancellationToken.None);
+        Assert.NotNull(first);
+        Assert.Equal("2.0.1", first.Revision);
+        var second = await preload.PreloadAsync(Tenant, CancellationToken.None);
+
+        Assert.Null(second);
+        Assert.Equal("2.0.1", _store.GetActive(Tenant, "harborline.platform")!.Version);
+        Assert.Single(_store.ListInstalled(Tenant));
+        Assert.Single(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Activated);
+        Assert.Single(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Installed);
+    }
+
+    [Fact]
     public async Task First_boot_activates_platform_then_access_and_a_second_boot_is_idempotent()
     {
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
@@ -528,7 +566,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             Convert.ToHexString(SHA256.HashData(bytes)));
         if (previousVersion == "1.1.1")
             bytes = await ExportAsync(ReadExactLegacyPlatformRequest(bytes, _signer.Signer.IssuerId.ToBase64Url())
-                with { Exposes = ["access.holders"], InterfaceVersion = 1 });
+                with
+            { Exposes = ["access.holders"], InterfaceVersion = 1 });
         var released = new PackFileCodec().TryDecode(bytes)!;
         var trust = new InMemoryPackTrustStore([
             new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
@@ -1200,7 +1239,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             "Conformance", "Packs", "access-replacement", "access-administration-pack-1.1.3.export.json"));
         Assert.Equal("B6F84FEF3FFB4323167D5C9D1831098784A88B59BFD903198743AB9ADD4BB486", Convert.ToHexString(SHA256.HashData(source)));
         var bytes = await ExportAsync(ReadExactLegacyPlatformRequest(source, _signer.Signer.IssuerId.ToBase64Url())
-            with { Exposes = ["access.holders"], InterfaceVersion = 1 });
+            with
+        { Exposes = ["access.holders"], InterfaceVersion = 1 });
         var context = new PackInstallContext(selectedTenant, new InMemoryPackTrustStore([
                 new PackTrustRoot(TrustScope.OwnRoster, new PackFileCodec().TryDecode(bytes)!.Envelope!.IssuerId, 1, TrustRootStatus.Current),
             ]), PackRevocationList.Empty, AdmittedInstant.FromRecordedAct(TimeProvider.System.GetUtcNow()), PackInstallRoutes.RevocationMaxAge,

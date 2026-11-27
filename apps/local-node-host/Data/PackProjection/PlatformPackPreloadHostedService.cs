@@ -80,10 +80,10 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     /// or a step after verification was refused. A refused bundle throws <see cref="PlatformSeedRefusedException"/>.</summary>
     internal async Task<PlatformSeedInstallRecord?> PreloadAsync(TenantId tenant, CancellationToken cancellationToken)
     {
-        var active = store.GetActive(tenant, PackKey);
-        if (active is not null && active.Version == PackVersion) return null;
-
         var seed = PlatformSeedIntake.Verify(bundle, referent);
+        var active = store.GetActive(tenant, PackKey);
+        if (active is not null && active.Version == seed.Revision) return null;
+
         var localSigner = signer.Signer.IssuerId.ToBase64Url();
         var context = new PackInstallContext(tenant, trustStore, revocation, AdmittedInstant.Read(time),
             PackInstallRoutes.RevocationMaxAge, Principal: nodeOperator?.Principal?.Value);
